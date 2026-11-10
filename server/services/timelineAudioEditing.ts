@@ -126,12 +126,14 @@ function guardSession(input: {
  * keys this command is allowed to write (visual slices are always carried
  * through by the U1 codec).
  */
-async function runMediaCommand(
+export async function runMediaCommand(
   input: {
     storyId: number;
     userId: number;
     operation: VisualEditOperationRef;
     commandPayload: unknown;
+    mediaVersionIntent?: string;
+  mediaVersionSelection?: import("../../shared/videoMediaVersions").VideoMediaSelection;
     initializeMissingTimeline?: boolean;
     /**
      * A provider job that was accepted while the epoch was active may finish
@@ -289,6 +291,8 @@ async function runMediaCommand(
           }
         );
         const saved = await saveStoryTimelineExtensionCas({
+          mediaVersionSelection: input.mediaVersionSelection,
+          mediaVersionIntent: input.mediaVersionIntent,
           storyId: input.storyId,
           userId: input.userId,
           expectedVersion: envelope.version,

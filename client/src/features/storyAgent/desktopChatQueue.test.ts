@@ -249,3 +249,33 @@ it("freezes a line snapshot per send while the editor moves to another chapter",
   expect(restored.snapshot().paused).toBe(true);
   expect(restored.snapshot().items[0].writingContext?.module?.line?.position).toMatchObject({ chapterId: "chapter-a", text: "乙" });
 });
+
+
+describe("queued workspace context", () => {
+  it("keeps the submitted shot after selecting a different shot and reloading", () => {
+    const saved = storage(); const queue = new DesktopChatQueue("shots", saved);
+    const selection = { sourceType: "shot" as const, sourceId: "a", selectedText: "a", fullText: "a", storyId: 1, stableShotId: "a", shotNo: 1 };
+    queue.enqueue("generate video", undefined, "video", undefined, undefined, selection);
+    selection.stableShotId = "b"; selection.shotNo = 2;
+    queue.enqueue("generate image", undefined, "video", undefined, undefined, selection);
+    queue.enqueue("general discussion", undefined, "video");
+    const items = new DesktopChatQueue("shots", saved).snapshot().items;
+    expect(items.map(i => i.productionSelection?.stableShotId ?? null)).toEqual(["a", "b", null]);
+  });
+  it("freezes the video target when the user switches to the book before sending", async () => {
+    const queue = new DesktopChatQueue("scope-test", null);
+    queue.enqueue("音乐小一点", undefined, "video");
+    const sent: string[] = [];
+    await queue.drain(async item => { sent.push(item.workspaceContext!); return true; }, () => true);
+    expect(sent).toEqual(["video"]);
+  });
+});
+
+it("retains the exact selected image and provider while another task is thinking", () => {
+  const saved = storage(); const queue = new DesktopChatQueue("revision", saved);
+  const selection = { sourceType: "storyboard-image" as const, sourceId: "20", storyId: 1, stableShotId: "s1", shotNo: 1, imageId: 20, selectedText: "图", fullText: "图" };
+  queue.enqueue("修改这张图片", undefined, "video", selection, "gpt-image"); selection.imageId = 99;
+  const restored = new DesktopChatQueue("revision", saved).snapshot();
+  expect(restored.items[0]).toMatchObject({ selection: { imageId: 20, stableShotId: "s1" }, imageProvider: "gpt-image" });
+  expect(restored.paused).toBe(true);
+});

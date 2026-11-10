@@ -21,11 +21,13 @@ import {
 } from "@shared/timelineSubtitleModel";
 import { storyboardEditPlayheadPx } from "../storyboardEditRow";
 import { cancelTimelinePointerDrag } from "./timelinePointerDrag";
+import { VideoMediaVersionSelect, type VideoMediaVersionBinding } from "./VideoMediaVersionSelect";
 
 /** 起拖阈值：低于它算点击，避免选中时轻微抖动就发出一条移动命令。 */
 const DRAG_THRESHOLD_PX = 4;
 
 export type SubtitleTrackBinding = {
+  versions?: VideoMediaVersionBinding;
   cues: readonly SubtitleCue[];
   selectedCueId: string | null;
   onSelectCue: (cueId: string | null) => void;
@@ -90,7 +92,7 @@ export function subtitleSaveStatus(saved: boolean | void): string {
   return saved === false ? "字幕保存失败，请按提示重试" : "字幕已保存";
 }
 
-export function SubtitleRowHeader({ actions }: { actions?: React.ReactNode }) {
+export function SubtitleRowHeader({ actions, versions }: { actions?: React.ReactNode; versions?: VideoMediaVersionBinding }) {
   const _ui = useDesktopUiText();
   return (
     <div
@@ -103,9 +105,10 @@ export function SubtitleRowHeader({ actions }: { actions?: React.ReactNode }) {
       data-testid="storyboard-subtitle-row-header"
     >
       <div className="flex items-center justify-between gap-1">
-        <span>{_ui("字幕")}</span>
+        <span className="shrink-0 whitespace-nowrap">{_ui("字幕")}</span>
         {actions}
       </div>
+      <VideoMediaVersionSelect kind="subtitles" binding={versions} />
       <span className="mt-0.5 text-[7px] font-normal text-muted-foreground/70">
         {_ui("点块改字")}</span>
     </div>

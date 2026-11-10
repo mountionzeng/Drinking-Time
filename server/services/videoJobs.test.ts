@@ -969,3 +969,21 @@ Negative: no floating objects, characters obey physics.
     ).toEqual(["V1", "V2", "V3", "V4"]);
   });
 });
+
+it("sends confirmed art motion to the provider and retains the art version on the take", async () => {
+  const artDirection = { recipe: { version: 7, updatedAt: 100,
+    system: { name: "Ink world", confirmedAt: 100, englishPrompt: "Fine ink on paper", motionRules: ["slow flowing ink"], continuityRules: ["preserve grain"] } } };
+  const story = await createStory({ userId: 1, title: "Art video", body: { artDirection,
+    shots: [{ shotNo: 1, stableShotId: "art-shot", subject: "teapot", action: "ink rises from spout" }] } });
+  const image = await createGeneratedImage({ userId: 1, storyId: story.id, shotNo: "SH01", shotIdentity: "art-shot",
+    imageUrl: "data:image/png;base64,QQ==", prompt: "teapot", isCurrent: true });
+  await createImageSignal({ userId: 1, storyId: story.id, imageId: image.id, action: "swipe_right", metadata: null });
+  const fetch = vi.fn(async () => ({ ok: true, json: async () => ({ taskId: "art-video-task" }) })); vi.stubGlobal("fetch", fetch);
+  const input = { storyId: story.id, shotNo: 1, stableShotId: "art-shot", imageId: image.id, prompt: "Ink rises from spout", directorPromptApproved: true };
+  const result = await startShotVideoJob(input, 1);
+  expect(result.status, JSON.stringify(result)).toBe("ok"); expect(fetch).toHaveBeenCalledTimes(1);
+  const sent = JSON.parse(String((fetch.mock.calls[0] as unknown as [string, RequestInit])[1].body));
+  expect(sent.prompt).toContain("Ink rises from spout"); expect(sent.prompt).toContain("slow flowing ink");
+  if (result.status === "ok") expect(result.take.parameterSnapshot).toMatchObject({ artSystem: { version: 7, name: "Ink world" } });
+  await startShotVideoJob(input, 1); expect(fetch).toHaveBeenCalledTimes(1);
+});

@@ -2,6 +2,7 @@ import { beforeEach, expect, it, vi } from 'vitest';
 import type { BookModuleImageTask } from '../../shared/bookModuleImageTask';
 const fixture = vi.hoisted(()=>({ tasks:[] as BookModuleImageTask[], images:[] as any[], owner:true, body:'![图片](/api/images/a.png)\n原图风格', tail:Promise.resolve() as Promise<unknown>, edit:vi.fn(), generate:vi.fn(), resume:vi.fn(), reserve:vi.fn(), settle:vi.fn() }));
 vi.mock('../repositories/stories',()=>({getStoryById:async()=>fixture.owner?{body:{bookModuleImageTasks:structuredClone(fixture.tasks)}}:null}));
+vi.mock('../repositories/images',()=>({getStoryGeneratedImages:async()=>fixture.images}));
 vi.mock('../repositories/chapters',()=>({getChapter:async()=>({storyId:1,blocks:{body:fixture.body,writingStyle:[{id:'i'},{id:'t'}]}})}));
 vi.mock('../repositories/bookModuleImageTasks',()=>({
   moduleImageTasks:(body:any)=>structuredClone(body.bookModuleImageTasks),

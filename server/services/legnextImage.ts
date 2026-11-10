@@ -25,18 +25,25 @@ export async function resumeLegnextImage(id: string): Promise<ImageGenResult> {
     if (task.status !== "completed") return pending(id); // retry is a provider-owned, nonterminal state.
     const urls: unknown = task.output?.image_urls;
     if (!Array.isArray(urls) || urls.length !== 4) return pending(id);
-    const candidates = [];
-    for (const [index, value] of urls.entries()) {
+    // Validate the entire batch before downloading. Four independent candidates
+    // can arrive together; waiting for each CDN transfer added four latencies.
+    const imageUrls = urls.map(value => {
       const url = new URL(String(value));
-      if (url.protocol !== "https:" || url.hostname !== "images.sexapi.ai" || url.port || url.username || url.password) return pending(id);
+      if (url.protocol !== "https:" || url.hostname !== "images.sexapi.ai" || url.port || url.username || url.password) throw new Error("Unexpected image host");
+      return url;
+    });
+    const key = createHash("sha256").update(job).digest("hex");
+    const outputs = await Promise.allSettled(imageUrls.map(async (url, index) => {
       const bytes = await downloadLegnextImage(url);
-      if (bytes.length > 25 * 1024 * 1024 || bytes[0] !== 137 || bytes[1] !== 80 || bytes[2] !== 78 || bytes[3] !== 71) return pending(id);
-      const key = createHash("sha256").update(job).digest("hex");
+      if (bytes.length > 25 * 1024 * 1024 || bytes[0] !== 137 || bytes[1] !== 80 || bytes[2] !== 78 || bytes[3] !== 71) throw new Error("Invalid image");
       const saved = await storeImageBytes(bytes, "image/png", { storageKey: `generated/legnext-${key}-${index}.png` });
-      if (!saved.imageUrl) return pending(id);
-      candidates.push({ imageUrl: saved.imageUrl, imageKey: saved.imageKey });
-    }
-    return { status: "ok", ...candidates[0], candidates };
+      if (!saved.imageUrl) throw new Error("Image not saved");
+      return { imageUrl: saved.imageUrl, imageKey: saved.imageKey };
+    }));
+    // Drain every transfer before releasing the task lease, including failures.
+    if (outputs.some(output => output.status === "rejected")) return pending(id);
+    const candidates = outputs.flatMap(output => output.status === "fulfilled" ? [output.value] : []);
+    return { status: "ok", ...candidates[0], candidates, providerTaskId: id };
   } catch { return pending(id); } // No raw errors containing capability URLs or credentials.
 }
 
@@ -47,15 +54,18 @@ export async function generateLegnextImage(text: string, onAccepted: (id: string
   if (!key) return { status: "error", message: "MJ 新供应商尚未配置，请联系管理员。" };
   let prompt = legnextPrompt(text, options.aspectRatio === "16:9" ? "16:9" : "3:4");
   try {
-    const publicReference = async (source: string) => {
+    const refs = [options.referenceImageUrl, ...(options.referenceContextImageUrls ?? [])].filter((v): v is string => Boolean(v));
+    const sources = [...new Set([...refs, options.characterRef, options.styleRef].filter((v): v is string => Boolean(v)))];
+    // One image commonly supplies both composition and style. Upload it once,
+    // and prepare distinct references concurrently before the single paid POST.
+    const uploaded = new Map(await Promise.all(sources.map(async source => {
       const url = await toPublicImageUrl(source);
       if (!url || !/^https:\/\//i.test(url)) throw new Error("参考图上传未返回可读取的 HTTPS 地址");
-      return url;
-    };
-    const refs = [options.referenceImageUrl, ...(options.referenceContextImageUrls ?? [])].filter((v): v is string => Boolean(v));
-    if (refs.length) prompt = (await Promise.all([...new Set(refs)].map(publicReference))).join(" ") + " " + prompt + ` --iw ${options.imageWeight ?? 0.5}`;
-    if (options.characterRef) prompt += ` --oref ${await publicReference(options.characterRef)} --ow ${options.characterWeight ?? 100}`;
-    if (options.styleRef) prompt += ` --sref ${await publicReference(options.styleRef)}`;
+      return [source, url] as const;
+    })));
+    if (refs.length) prompt = [...new Set(refs)].map(source => uploaded.get(source)!).join(" ") + " " + prompt + ` --iw ${options.imageWeight ?? 0.5}`;
+    if (options.characterRef) prompt += ` --oref ${uploaded.get(options.characterRef)} --ow ${options.characterWeight ?? 100}`;
+    if (options.styleRef) prompt += ` --sref ${uploaded.get(options.styleRef)}`;
   } catch {
     return { status: "error", message: "参考图暂时无法上传到模型可读取的位置，请稍后重试。本次没有提交图片任务。" };
   }

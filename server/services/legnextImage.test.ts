@@ -79,3 +79,45 @@ it("inlinePoll:false returns pending right after the durable receipt, without an
   expect(await generateLegnextImage("boat", accepted, { inlinePoll: false })).toMatchObject({ status: "error", providerTaskId: receipt });
   expect(accepted).toHaveBeenCalledWith(receipt); expect(fetcher).toHaveBeenCalledTimes(1);
 });
+
+it("uploads a shared composition/style/identity reference only once", async () => {
+  vi.stubEnv("LEGNEXT_API_KEY", "test");
+  m.publicUrl.mockResolvedValue("https://files.example.com/reference.png");
+  const fetcher = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ job_id: id }) });
+  vi.stubGlobal("fetch", fetcher);
+  await generateLegnextImage("teapot", vi.fn(), { inlinePoll: false, referenceImageUrl: "/ref.png", styleRef: "/ref.png", characterRef: "/ref.png", imageWeight: 2 });
+  expect(m.publicUrl).toHaveBeenCalledTimes(1);
+  const prompt = JSON.parse(fetcher.mock.calls[0][1].body).text;
+  expect(prompt).toContain("--iw 2");
+  expect(prompt).toContain("--sref https://files.example.com/reference.png");
+  expect(prompt).toContain("--oref https://files.example.com/reference.png");
+  expect(fetcher).toHaveBeenCalledTimes(1);
+});
+
+it("downloads all four candidates concurrently, retaining provider order despite completion order", async () => {
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ status: "completed", output: { image_urls: [0,1,2,3].map(n => `https://images.sexapi.ai/${n}.png`) } }) }));
+  const release: (() => void)[] = [];
+  m.download.mockImplementation(() => new Promise(resolve => release.push(() => resolve(Uint8Array.from([137,80,78,71])))));
+  m.save.mockImplementation(async (_bytes, _mime, options) => ({ imageUrl: options.storageKey, imageKey: options.storageKey }));
+  const resultPromise = resumeLegnextImage(receipt);
+  await vi.waitFor(() => expect(release).toHaveLength(4));
+  for (const done of release.reverse()) done();
+  const result = await resultPromise;
+  expect(result.status).toBe("ok");
+  expect(result.candidates?.map(candidate => candidate.imageKey?.slice(-5))).toEqual(["0.png", "1.png", "2.png", "3.png"]);
+});
+
+it("waits for other transfers after one fails and never reports partial success", async () => {
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ status: "completed", output: { image_urls: [0,1,2,3].map(n => `https://images.sexapi.ai/${n}.png`) } }) }));
+  let release!: () => void;
+  m.download.mockRejectedValueOnce(new Error("CDN timeout"))
+    .mockImplementation(() => new Promise(resolve => { release = () => resolve(Uint8Array.from([137,80,78,71])); }))
+    .mockResolvedValueOnce(Uint8Array.from([137,80,78,71]))
+    .mockResolvedValueOnce(Uint8Array.from([137,80,78,71]));
+  m.save.mockResolvedValue({ imageUrl: "/saved.png", imageKey: "saved.png" });
+  let settled = false;
+  const result = resumeLegnextImage(receipt).then(value => { settled = true; return value; });
+  await vi.waitFor(() => expect(m.download).toHaveBeenCalledTimes(4));
+  expect(settled).toBe(false); release();
+  expect(await result).toMatchObject({ status: "error", errorCode: "timeout_pending", providerTaskId: receipt });
+});

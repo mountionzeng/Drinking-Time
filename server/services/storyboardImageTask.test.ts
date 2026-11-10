@@ -95,3 +95,35 @@ it("detaching preserves the warehouse image and rejects another owner", async ()
   expect(await getGeneratedImageById(image.id)).toMatchObject({ imageUrl: "/keep.png", imageKey: "keep.png", shotNo: null, shotIdentity: null, isCurrent: false });
   expect(await getStoryGeneratedImages(scope.storyId, scope.userId)).toHaveLength(1);
 });
+it("keeps recovered preview candidates unassigned and separate from the formal shot task", async () => {
+  const previewScope = { ...scope, shotIdentity: `preview:batch:${scope.shotIdentity}` };
+  await runStoryboardImageTask(previewScope, async render => {
+    await render(async accepted => { await accepted("legnext:preview"); return { status: "error", providerTaskId: "legnext:preview" }; }, { ...meta, detached: true });
+    return { status: "error", error: "pending", providerTaskId: "legnext:preview" };
+  });
+  m.resume.mockResolvedValue({ status: "ok", candidates: [1,2,3,4].map(n => ({ imageUrl: `/preview-${n}.png`, imageKey: `preview-${n}` })) });
+  const execute = vi.fn();
+  await runStoryboardImageTask(previewScope, execute);
+  expect(execute).not.toHaveBeenCalled();
+  const images = await getStoryGeneratedImages(scope.storyId, scope.userId);
+  expect(images).toHaveLength(4); expect(images.every(i => i.shotNo === null && i.shotIdentity === null && !i.isCurrent)).toBe(true);
+  const formal = vi.fn(async () => ({ status: "error" as const, error: "no purchase" }));
+  await runStoryboardImageTask({ ...scope, requestId: randomUUID() }, formal);
+  expect(formal).toHaveBeenCalledTimes(1);
+});
+it("records a provider-confirmed failure so reopening the gallery stops polling it", async () => {
+  await submitPending();
+  m.resume.mockResolvedValue({ status: "error", providerTaskId: "legnext:existing", message: "provider failed" });
+  expect(await runStoryboardImageTask(scope, vi.fn())).toMatchObject({ status: "error", recoveryPending: false });
+  await runStoryboardImageTask(scope, vi.fn());
+  expect(m.resume).toHaveBeenCalledTimes(1);
+  expect((await getStoryById(scope.storyId, scope.userId))?.body).toMatchObject({ storyboardImageTasks: [expect.objectContaining({ status: "failed" })] });
+});
+
+it("does not present an older pending job as acceptance of a new chat instruction", async () => {
+  await submitPending();
+  const execute = vi.fn();
+  const result = await runStoryboardImageTask({ ...scope, requestId: randomUUID(), requireNewIntent: true }, execute);
+  expect(result).toMatchObject({ status: "error", error: expect.stringContaining("新要求尚未提交") });
+  expect(result).not.toHaveProperty("providerTaskId"); expect(execute).not.toHaveBeenCalled(); expect(m.resume).not.toHaveBeenCalled();
+});

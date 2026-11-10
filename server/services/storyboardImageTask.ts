@@ -3,12 +3,12 @@ import { randomUUID } from "node:crypto";
 import { getStoryById, updateStoryBodyIfRevision } from "../repositories/stories";
 import { jsonRecord, persistedStoryBodyRevision } from "../repositories/storyValues";
 import { resumeLegnextImage } from "./legnextImage";
-import type { ImageGenResult } from "./imageGen";
+import { resume302GptImageTask, type ImageGenResult } from "./imageGen";
 const KEY = "storyboardImageTasks";
 type Result = { status: "ok"; imageId: number; imageUrl: string; candidates: { imageId: number; imageUrl: string }[]; providerTaskId?: string; submissionUncertain?: boolean } | { status: "error"; error: string; providerTaskId?: string; submissionUncertain?: boolean; recoveryPending?: boolean };
-type Meta = { prompt: string; shotNo: string; promptCompilationId?: number | null; generationType: "initial" | "inpaint" };
-type Task = { leaseOwner?: string; leaseUntil?: number; meta?: Meta; id: string; requestId: string; shotIdentity: string; status: "preparing" | "unknown" | "accepted" | "failed" | "succeeded"; providerTaskId?: string; result?: Result };
-type Scope = { storyId: number; userId: number; shotIdentity: string; requestId: string };
+type Meta = { provider?: "gpt-image"; parentImageId?: number; conversationRevision?: boolean; instruction?: string; prompt: string; shotNo: string; promptCompilationId?: number | null; generationType: "initial" | "inpaint"; detached?: boolean };
+export type Task = { createdAt?: number; decision?: { kind: "kept" | "replaced"; imageId?: number; at: number; userId: number }; leaseOwner?: string; leaseUntil?: number; meta?: Meta; id: string; requestId: string; shotIdentity: string; status: "preparing" | "unknown" | "accepted" | "failed" | "succeeded"; providerTaskId?: string; result?: Result };
+type Scope = { requireNewIntent?: boolean; storyId: number; userId: number; shotIdentity: string; requestId: string };
 async function change<T>(scope: Scope, mutate: (tasks: Task[]) => T): Promise<T> {
   for (let n = 0; n < 12; n++) {
     const story = await getStoryById(scope.storyId, scope.userId);
@@ -32,9 +32,11 @@ export async function runStoryboardImageTask(scope: Scope, execute: (render: Sto
     if (replay) return replay;
     const pending = tasks.find(t => t.shotIdentity === scope.shotIdentity && !["failed", "succeeded"].includes(t.status));
     if (pending) return pending;
-    const next: Task = { id, requestId: scope.requestId, shotIdentity: scope.shotIdentity, status: "preparing", leaseOwner: id, leaseUntil: Date.now() + 300_000 };
+    const next: Task = { id, createdAt: Date.now(), requestId: scope.requestId, shotIdentity: scope.shotIdentity, status: "preparing", leaseOwner: id, leaseUntil: Date.now() + 300_000 };
     tasks.push(next); return next;
   });
+  if (scope.requireNewIntent && task.requestId !== scope.requestId)
+    return { status: "error", error: "这个镜头已有任务正在生成。新要求尚未提交，请等原图出现后继续修改；没有重复购买。" };
   if (task.status === "succeeded" || task.status === "failed") return task.result!;
   if (task.id !== id && !task.providerTaskId) return { status: "error", submissionUncertain: true, error: "这个镜头已有未确认的图片任务，请勿重复生成；请联系支持核对。" };
   const update = (mutate: (task: Task) => void) => change(scope, tasks => {
@@ -54,16 +56,26 @@ export async function runStoryboardImageTask(scope: Scope, execute: (render: Sto
     if (claim.kind === "busy") return { status: "error", recoveryPending: true, providerTaskId: task.providerTaskId, error: "同一图片任务正在取回，请稍后查看，不会重新购买。" };
     try {
     // Resume without running the prompt director/compiler again (those calls can charge money).
-    const recovered = await resumeLegnextImage(task.providerTaskId);
-    if (recovered.status !== "ok") return { status: "error", recoveryPending: recovered.errorCode === "timeout_pending", providerTaskId: task.providerTaskId, error: recovered.message ?? "图片尚未就绪，请稍后恢复" };
+    const recovered = task.meta?.provider === "gpt-image"
+      ? await resume302GptImageTask(task.providerTaskId, { gptImageModel: "gpt-image-2", gptTimeoutMs: 8000, gptPollIntervalMs: 1000 })
+      : await resumeLegnextImage(task.providerTaskId);
+    if (recovered.status !== "ok") {
+      const result = { status: "error" as const, recoveryPending: recovered.errorCode === "timeout_pending", providerTaskId: task.providerTaskId, error: recovered.message ?? "图片尚未就绪，请稍后恢复" };
+      // Legnext marks uncertain reads as timeout_pending; a terminal provider
+      // failure must stop gallery recovery rather than spin forever.
+      if (task.meta?.provider === "gpt-image" ? recovered.providerConfirmedFailure : !recovered.errorCode && recovered.providerTaskId) await update(t => { t.status = "failed"; t.result = result; });
+      return result;
+    }
     const story = await getStoryById(scope.storyId, scope.userId);
     if (!story || !task.meta) return { status: "error", providerTaskId: task.providerTaskId, error: "任务已完成，恢复元数据缺失，请联系支持；不要重新购买。" };
     const existing = await getStoryGeneratedImages(scope.storyId, scope.userId);
     const candidates = [];
-    for (const candidate of recovered.candidates ?? []) {
-      const image = existing.find(image => image.imageKey === candidate.imageKey && image.shotIdentity === scope.shotIdentity) ?? await createGeneratedImage({
-        ...task.meta, projectId: story.projectId, storyId: scope.storyId, userId: scope.userId,
-        shotIdentity: scope.shotIdentity, imageUrl: candidate.imageUrl, imageKey: candidate.imageKey, isCurrent: false,
+    const { detached, provider, conversationRevision, instruction, ...imageMeta } = task.meta;
+    for (const candidate of recovered.candidates?.length ? recovered.candidates : recovered.imageUrl ? [{ imageUrl: recovered.imageUrl, imageKey: recovered.imageKey }] : []) {
+      const image = existing.find(image => Boolean(candidate.imageKey) && image.imageKey === candidate.imageKey && image.parentImageId === (imageMeta.parentImageId ?? null) && image.shotIdentity === (detached ? null : scope.shotIdentity)) ?? await createGeneratedImage({
+        ...imageMeta, projectId: story.projectId, storyId: scope.storyId, userId: scope.userId,
+        shotNo: detached ? null : imageMeta.shotNo,
+        shotIdentity: detached ? null : scope.shotIdentity, imageUrl: candidate.imageUrl, imageKey: candidate.imageKey, isCurrent: false,
       });
       candidates.push({ imageId: image.id, imageUrl: image.imageUrl });
     }

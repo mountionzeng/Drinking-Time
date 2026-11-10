@@ -1,11 +1,16 @@
+import { prepareVideoFrame } from "./prepareVideoFrame";
+import { estimateStoryboardMaskedEditCost } from "@shared/imageRenderCost";
 import { StoryboardPreflightTimeout, withStoryboardPreflightTimeout } from "./storyboardPreflightTimeout";
 import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { shotVideoPriceProfile, storyboardVideoRenderMode, type ShotVideoRenderMode } from "@shared/shotDirector";
 import { formatComputeQuote } from "@shared/computeMoney";
 import { useStoryboardImageRerenderRunner } from "./useStoryboardImageRerenderRunner";
+import { useVisualProductionWorkflow } from "./useVisualProductionWorkflow";
+import { askMediaChatConfirmation } from "../mediaChatSession";
+import { completeChatVideo } from "./chatVideoCompletion";
 import { useShotImageRender } from "./useShotImageRender";
-import { ShotImageRenderControl, loadShotRenderSettings } from "./ShotImageRenderControl";
-import { type ShotImageRenderSettings, type ShotRenderReferences } from "@shared/shotImageRender";
+import { ShotImageRenderControl, loadShotRenderSettings, shotRenderReferenceOptions } from "./ShotImageRenderControl";
+import { quoteShotImages, type ShotImageRenderSettings, type ShotRenderReferences } from "@shared/shotImageRender";
 import type { StoryMaterialState } from "@shared/storyMaterial";
 /**
  * Full storyboard review and directed media workflow.
@@ -194,7 +199,6 @@ import {
   autoScrollElementHorizontallyAtPoint,
   hasStoryboardScrollableDragPayload,
   latestStoryboardFrames,
-  planStoryboardOneClickVideo,
   quickShotVideoRenderPlan,
   scrollElementHorizontallyIntoView,
   shortText,
@@ -209,12 +213,12 @@ import {
   storyboardFrameOrderGenerationParams,
   storyboardFrameOrdersAfterMove,
   storyboardFrameParamsAfterDelete,
+  shouldDetachStoryboardImage,
   storyboardFrameRoleForImage,
   storyboardFrameRoleGenerationParams,
   storyboardInheritedStartEndGenerationParams,
   storyboardImageGenerationReferences,
   storyboardRenderIntentSummary,
-  storyboardShotCostEstimate,
   storyboardDraftCostEstimate,
   storyboardVideoStartEndConfig,
   storyboardRenderShotWithDraft,
@@ -231,6 +235,8 @@ import {
   type StoryboardStartEndAmplitude,
   storyboardVideoIntentPatch,
   storyboardVideoRenderBlockReason,
+  storyboardAutomaticVideoShot,
+  storyboardVideoPreparationBlockReason,
   storyboardVideoSourceFrame,
   shouldAnnounceVideoGenerationCancellation,
   shouldUseSingleImageFallback,
@@ -306,6 +312,7 @@ export function StoryboardReviewBoard({
   onGenerateStartEndShotVideo,
   onRefreshShotVideoStatus,
   onMoveStoryImage,
+  onPromoteStoryImage,
   onDeleteStoryImage,
   onMoveVideoTake,
   onAdoptVideoTake,
@@ -468,6 +475,7 @@ export function StoryboardReviewBoard({
     imageId: number;
     targetStableShotId: string;
   }) => Promise<void>;
+  onPromoteStoryImage?: (imageId: number) => Promise<void>;
   onDeleteStoryImage?: (imageId: number) => Promise<void>;
   onMoveVideoTake?: (input: {
     takeId: number;
@@ -627,10 +635,6 @@ export function StoryboardReviewBoard({
     useState<Record<string, boolean>>({});
   const [removingVideoKey, setRemovingVideoKey] = useState<string | null>(null);
   const [rerenderingShotNos, setRerenderingShotNos] = useState<number[]>([]);
-  const [oneClickVideoProgress, setOneClickVideoProgress] = useState<{
-    completed: number;
-    total: number;
-  } | null>(null);
   const [continuityCheckingByShot, setContinuityCheckingByShot] = useState<
     Record<number, "image" | "video">
   >({});
@@ -1046,6 +1050,12 @@ export function StoryboardReviewBoard({
 
   useEffect(() => stopStoryboardDragScroll, [stopStoryboardDragScroll]);
 
+  const preparingVideo = useRef(new Set<string>());
+  const [preparingVideoShots, setPreparingVideoShots] = useState<number[]>([]);
+  const videoScope = useRef(0);
+  const videoScopeKey = `${storyId}:${creationShots.map(shot => shot.stableShotId ?? shot.shotNo).join(",")}`;
+  useEffect(() => { setPreparingVideoShots([]); return () => { videoScope.current += 1; preparingVideo.current.clear(); }; }, [videoScopeKey]);
+
   if (!shouldShow) return null;
 
   const labelForShotNo = (shotNo: number) =>
@@ -1163,6 +1173,9 @@ export function StoryboardReviewBoard({
       }
       const mismatches = characterContinuityMismatches(finding);
       if (mismatches.length === 0) return anchorOption;
+      const conversation = storyId ? askMediaChatConfirmation({ storyId, kind: "continuity",
+        text: `${displayShotCode(input.shot)} 的人物外观与已选基准有差异。继续沿用「${anchorOption.label}」生成吗？回复“确认”继续，或回复“取消”后描述你想更换的基准。` }) : null;
+      if (conversation) return await conversation ? anchorOption : null;
       return requestContinuityChoice({
         shotLabel: displayShotCode(input.shot),
         renderKind: input.renderKind,
@@ -1469,7 +1482,10 @@ export function StoryboardReviewBoard({
         input.creationShot.durationMs
       );
       await onUpdateShotFields(input.stableShotId, { generationParams });
-      await onDeleteStoryImage(input.imageId);
+      const image = input.creationShot.imageVersions?.find(item => item.id === input.imageId);
+      if (shouldDetachStoryboardImage(image, input.stableShotId)) {
+        await onDeleteStoryImage(input.imageId);
+      }
       setSelectedStoryboardMedia(current => {
         if (!current || current.shotIdentity !== input.stableShotId) {
           return current;
@@ -2070,14 +2086,16 @@ export function StoryboardReviewBoard({
   const currentCreationShots = useRef(creationShots);
   currentCreationShots.current = creationShots;
   const renderConfiguredShotImages = async (
-    shot: StoryShot, creationShot: CreationEditorShot | undefined, index: number, settings: ShotImageRenderSettings, request?: NonNullable<ChatMessage["imageRerenderAction"]>, skipCostConfirmation?: boolean
+    shot: StoryShot, creationShot: CreationEditorShot | undefined, index: number, settings: ShotImageRenderSettings, request?: NonNullable<ChatMessage["imageRerenderAction"]>, skipCostConfirmation?: boolean, automaticVideoFrame = false
   ): Promise<StoryboardImageRerenderResult> => {
     if (!creationShot || !onGenerateShotImages || !canStartImageRenderRef.current(shot.shotNo)) return { status: "cancelled", message: "镜头正在渲染或尚未加载" };
     if (request?.imageId && !storyboardShotFrameImages(creationShot).some(frame => frame.id === request.imageId))
       return { status: "error", message: "所选图片已不属于这个镜头，请重新选择" };
     const pending = matrixDraftsRef.current.get(storyShotInsertIdentity(shot, index) ?? "");
     const effective = storyboardRenderShotWithDraft(creationShot, shot, pending);
+    if (automaticVideoFrame && !effective.promptDraft?.trim()) effective.promptDraft = storyboardAutomaticVideoShot(effective).videoPrompt;
     return renderImageBatch({ label: displayShotCode(shot), settings, shot: effective, material: materialState, revisionInstruction: request?.instruction ?? undefined, revisionProvider: request?.imageProvider, skipCostConfirmation,
+      generationProvider: automaticVideoFrame && shouldUseSingleImageFallback(imageProviderStatus) ? "gpt-image" : undefined,
       previousShots: creationShots.slice(0, Math.max(0, creationShots.indexOf(creationShot))),
       canStart: () => canStartImageRenderRef.current(shot.shotNo) && (!request?.imageId || currentCreationShots.current.some(current =>
         (current.stableShotId ?? current.shotIdentity) === (creationShot.stableShotId ?? creationShot.shotIdentity) &&
@@ -2667,13 +2685,59 @@ export function StoryboardReviewBoard({
     );
   };
 
+  const videoPreparationBlockReason = (shot: CreationEditorShot, provider: { ready: boolean; reason?: string | null }) =>
+    storyboardVideoPreparationBlockReason(shot, provider, Boolean(imageProviderStatus?.ready && onGenerateShotImages));
+  const automaticVideoCost = (shot: StoryShot, creationShot?: CreationEditorShot) => {
+    const index = shots.indexOf(shot);
+    const effective = creationShot && storyboardAutomaticVideoShot(storyboardRenderShotWithDraft(creationShot, shot,
+      matrixDraftsRef.current.get(storyShotInsertIdentity(shot, index) ?? "")));
+    return matrixCostEstimate(shot).videoCny + (effective && !storyboardVideoSourceFrame(effective)
+      ? shouldUseSingleImageFallback(imageProviderStatus) ? estimateStoryboardMaskedEditCost().estimatedCny : quoteShotImages(4).estimatedCny : 0);
+  };
   const rerenderShotVideo = async (
+    shot: StoryShot, creationShot: CreationEditorShot | undefined,
+    options: { skipCostConfirmation?: boolean; approvedVideoCny?: number; approvedImageCny?: number; sourceImage?: { imageId: number; imageUrl: string }; onSubmitted?: (takeId: number) => void } = {}
+  ) => {
+    if (!creationShot) return false;
+    const scope = videoScope.current;
+    const key = `${scope}:${creationShot.stableShotId ?? creationShot.shotNo}`;
+    if (preparingVideo.current.has(key)) return false;
+    preparingVideo.current.add(key);
+    setPreparingVideoShots(current => [...current, shot.shotNo]);
+    try {
+      const index = shots.findIndex((item, i) => item === shot || storyShotInsertIdentity(item, i) === (creationShot.stableShotId ?? creationShot.shotIdentity));
+      const effective = storyboardAutomaticVideoShot(storyboardRenderShotWithDraft(creationShot, shot,
+        matrixDraftsRef.current.get(storyShotInsertIdentity(shot, index) ?? "")));
+      if (!options.sourceImage && !storyboardVideoSourceFrame(effective)) {
+        const reason = videoPreparationBlockReason(effective, { ready: singleVideoReady(effective), reason: shotVideoProviderStatus?.missing.join("、") });
+        if (reason) { toast.error(reason); return false; }
+        const imageCny = shouldUseSingleImageFallback(imageProviderStatus) ? estimateStoryboardMaskedEditCost().estimatedCny : quoteShotImages(4).estimatedCny;
+        const videoCny = matrixCostEstimate(shot).videoCny;
+        return await prepareVideoFrame({
+          current: () => videoScope.current === scope,
+          confirm: () => options.skipCostConfirmation && imageCny <= (options.approvedImageCny ?? -1) + 0.001 ? Promise.resolve(true) : confirmImageCost(`${displayShotCode(shot)} · ${_ui("自动准备画面并生成视频")}\n${_ui("这一镜还没有画面，将按现有描述补图，自动采用一张，再继续生成视频。旧版本保留。")}\n${_ui("图片与视频合计约 {0}", [formatComputeQuote(Math.round((imageCny + videoCny) * 100) / 100)])}`),
+          generate: () => renderConfiguredShotImages(shot,
+            { ...effective, promptDraft: effective.promptDraft?.trim() || effective.videoPrompt }, index,
+            loadShotRenderSettings(storyId ?? 0, effective.stableShotId ?? effective.shotIdentity ?? String(effective.shotNo), materialState), undefined, true, true),
+          submit: sourceImage => submitPreparedShotVideo(shot, effective, { sourceImage, skipCostConfirmation: true,
+            approvedVideoCny: options.approvedVideoCny ?? videoCny, isCurrent: () => videoScope.current === scope, onSubmitted: options.onSubmitted }),
+        });
+      }
+      return await submitPreparedShotVideo(shot, effective, { ...options, isCurrent: () => videoScope.current === scope });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : _ui("视频准备失败"));
+      return false;
+    } finally { preparingVideo.current.delete(key); if (videoScope.current === scope) setPreparingVideoShots(current => current.filter(no => no !== shot.shotNo)); }
+  };
+  const submitPreparedShotVideo = async (
     shot: StoryShot,
     creationShot: CreationEditorShot | undefined,
     options: {
+      isCurrent?: () => boolean;
       skipCostConfirmation?: boolean;
       approvedVideoCny?: number;
       sourceImage?: { imageId: number; imageUrl: string };
+      onSubmitted?: (takeId: number) => void;
     } = {}
   ) => {
     const label = displayShotCode(shot);
@@ -2697,11 +2761,11 @@ export function StoryboardReviewBoard({
     const draftKey =
       (shotIndex >= 0 ? storyShotInsertIdentity(shot, shotIndex) : null) ??
       stableShotId;
-    let effectiveShot = storyboardRenderShotWithDraft(
+    let effectiveShot = storyboardAutomaticVideoShot(storyboardRenderShotWithDraft(
       creationShot,
       shot,
       draftKey ? matrixDraftsRef.current.get(draftKey) : undefined
-    );
+    ));
     if (stableShotId && startEndTuningOverridesRef.current[stableShotId]) {
       effectiveShot = { ...effectiveShot, generationParams: storyboardStartEndTuningGenerationParams(
         effectiveShot.generationParams, startEndTuningOverridesRef.current[stableShotId]
@@ -2750,7 +2814,7 @@ export function StoryboardReviewBoard({
       } finally {
         finishContinuityCheck(shot.shotNo);
       }
-      if (continuityChoice === STORYBOARD_CONTINUITY_REQUEST_INTERRUPTED) {
+      if (options.isCurrent?.() === false || continuityChoice === STORYBOARD_CONTINUITY_REQUEST_INTERRUPTED) {
         return false;
       }
       if (shouldAnnounceVideoGenerationCancellation(continuityChoice)) {
@@ -2826,6 +2890,7 @@ export function StoryboardReviewBoard({
           )
         );
       }
+      if (options.isCurrent?.() === false) return false;
       const effectiveGenerationParams =
         derivedGenerationParams ?? effectiveShot.generationParams;
       const startEndConfig = parseStartEndVideoConfig(
@@ -2841,7 +2906,7 @@ export function StoryboardReviewBoard({
           throw new Error("这个首尾帧镜头暂时无法提交视频生成");
         }
         const estimate = await onEstimateStartEndShotVideo(stableShotId);
-        if (options.skipCostConfirmation && Math.abs((options.approvedVideoCny ?? -1) - estimate.estimatedCny) > 0.001) throw new Error("本镜费用已变化，请单独确认后生成");
+        if (options.skipCostConfirmation && estimate.estimatedCny > (options.approvedVideoCny ?? -1) + 0.001) throw new Error("本镜费用已变化，请单独确认后生成");
         const usesLocalTransform =
           estimate.renderStrategy === "local-transform";
         const frameConstraintNotice = estimate.frameConstraintWarning
@@ -2849,12 +2914,13 @@ export function StoryboardReviewBoard({
           : "";
         const confirmed =
           options.skipCostConfirmation ||
-          window.confirm(
+          await confirmImageCost(
             usesLocalTransform
               ? `${label} 已判断为简单缩放、平移或定格：${estimate.renderReason} 将在本机免费生成，0.00 算力，不会请求 302；会创建新 Take 并保留旧版本。确认生成？`
-              : `${label} 已先保存本镜文字，视频模型会收到：\n${intentSummary || "当前镜头表格中的动作与运镜"}\n\n人物版本：${continuityChoice?.label ?? "当前镜头"}。并使用首帧 ${estimate.firstFrame.label}（图 #${estimate.firstFrame.imageId}）和末帧 ${estimate.lastFrame.label}（图 #${estimate.lastFrame.imageId}）重新渲染。${frameConstraintNotice}\n\n判断：${estimate.renderReason} 预计${formatComputeQuote(estimate.estimatedCny).replace(/算力$/, _ui("算力"))}，时长 ${estimate.durationSec} 秒、${estimate.resolution}、1:1；会创建新 Take 并保留旧版本。确认提交？`
+              : `${label} 已先保存本镜文字，视频模型会收到：\n${intentSummary || "当前镜头表格中的动作与运镜"}\n\n人物版本：${continuityChoice?.label ?? "当前镜头"}。并使用首帧 ${estimate.firstFrame.label}（图 #${estimate.firstFrame.imageId}）和末帧 ${estimate.lastFrame.label}（图 #${estimate.lastFrame.imageId}）重新渲染。${frameConstraintNotice}\n\n判断：${estimate.renderReason} 预计${formatComputeQuote(estimate.estimatedCny).replace(/算力$/, _ui("算力"))}，时长 ${estimate.durationSec} 秒、${estimate.resolution}、1:1；会创建新 Take 并保留旧版本。确认提交？`,
+            `第 ${label} 镜将按最新要求生成 1 条 ${estimate.durationSec} 秒视频，预计 ${formatComputeQuote(estimate.estimatedCny)}。使用本镜图片 #${estimate.firstFrame.imageId} 和 #${estimate.lastFrame.imageId} 作为首尾参考。${frameConstraintNotice}\n生成后在这里预览，再决定是否放入镜头。`
           );
-        if (!confirmed) {
+        if (!confirmed || options.isCurrent?.() === false) {
           toast.info(`${label} 已取消视频生成，未产生费用`);
           return false;
         }
@@ -2867,6 +2933,7 @@ export function StoryboardReviewBoard({
             estimatedCny: estimate.estimatedCny,
           },
         })) as { takeId?: number } | undefined;
+        if (result?.takeId) options.onSubmitted?.(result.takeId);
         toast.success(
           result?.takeId
             ? usesLocalTransform
@@ -2910,15 +2977,16 @@ export function StoryboardReviewBoard({
           missing ? `视频模型未就绪：${missing}` : "视频模型状态尚未就绪"
         );
       }
-      if (options.skipCostConfirmation && Math.abs((options.approvedVideoCny ?? -1) - plan.estimatedCny) > 0.001) throw new Error("本镜费用已变化，请单独确认后生成");
+      if (options.skipCostConfirmation && plan.estimatedCny > (options.approvedVideoCny ?? -1) + 0.001) throw new Error("本镜费用已变化，请单独确认后生成");
       const confirmed =
         options.skipCostConfirmation ||
-        window.confirm(
+        await confirmImageCost(
           plan.renderDecision.strategy === "local-transform"
             ? `${label} 已判断为简单缩放、平移或定格：${plan.renderDecision.reason} 将在本机免费生成，0.00 算力，不会请求 302；会创建新 Take 并保留旧版本。确认生成？`
-            : `${label} 已先保存本镜文字，视频模型会收到：\n${intentSummary || "当前镜头表格中的动作与运镜"}\n\n${videoMode(effectiveShot) === "economy" ? "Vidu Q2 Pro Fast · 720p · 生成1条视频" : videoPriceProfile(effectiveShot) === "mj-turbo" ? "MJ · 一次生成4条候选，每条5秒" : "当前配置的视频模型"}。总计约${formatComputeQuote(plan.estimatedCny).replace(/算力$/, _ui("算力"))}，${plan.durationSec}秒。人物版本：${continuityChoice?.label ?? "当前镜头"}。会保留旧版本，生成后由你选择采用。确认提交？`
+            : `${label} 已先保存本镜文字，视频模型会收到：\n${intentSummary || "当前镜头表格中的动作与运镜"}\n\n${videoMode(effectiveShot) === "economy" ? "Vidu Q2 Pro Fast · 720p · 生成1条视频" : videoPriceProfile(effectiveShot) === "mj-turbo" ? "MJ · 一次生成4条候选，每条5秒" : "当前配置的视频模型"}。总计约${formatComputeQuote(plan.estimatedCny).replace(/算力$/, _ui("算力"))}，${plan.durationSec}秒。人物版本：${continuityChoice?.label ?? "当前镜头"}。会保留旧版本，生成后由你选择采用。确认提交？`,
+          `第 ${label} 镜将按最新要求生成${videoPriceProfile(effectiveShot) === "mj-turbo" ? " 4 条候选" : " 1 条视频"}，每条 ${plan.durationSec} 秒，预计 ${formatComputeQuote(plan.estimatedCny)}。\n生成后在这里预览，再决定是否放入镜头，旧版本保留。`
         );
-      if (!confirmed) {
+      if (!confirmed || options.isCurrent?.() === false) {
         toast.info(`${label} 已取消视频生成，未产生费用`);
         return false;
       }
@@ -2940,6 +3008,7 @@ export function StoryboardReviewBoard({
           estimatedCny: plan.estimatedCny,
         },
       })) as { takeId?: number } | undefined;
+      if (result?.takeId) options.onSubmitted?.(result.takeId);
       toast.success(
         result?.takeId
           ? plan.renderDecision.strategy === "local-transform"
@@ -2960,143 +3029,79 @@ export function StoryboardReviewBoard({
     }
   };
 
-  const generateThirtySecondVideo = async () => {
-    if (oneClickVideoProgress) return;
-    const singleImageFallback =
-      shouldUseSingleImageFallback(imageProviderStatus);
-    if (!singleImageFallback && !onPromoteFrameCrop) {
-      toast.error("一键生成缺少候选图采用链路，本次不会提交付费任务");
-      return;
-    }
-    const providerStatus = {
-      ready: Boolean(shotVideoProviderStatus?.ready),
-      reason:
-        shotVideoProviderStatus?.missing.filter(Boolean).join("、") ||
-        "视频模型状态尚未就绪",
-    };
-    const imageEstimate = storyboardShotCostEstimate(undefined, {
-      singleImageFallback,
-    }).imageCny;
-    const plan = planStoryboardOneClickVideo(
-      creationShots,
-      providerStatus,
-      30,
-      {
-        imageProviderReady: Boolean(imageProviderStatus?.ready),
-        hasInheritedCover: Boolean(inheritedPublishingCover?.imageUrl),
-        estimatedImageCny: imageEstimate,
-      }
-    );
-    if (plan.shots.length === 0) {
-      toast.error(
-        "还没有可一键生成的镜头，请确认正式封面、图片要求、视频要求和模型状态"
-      );
-      return;
-    }
-    const skippedNotice = plan.skippedCount
-      ? `\n另有 ${plan.skippedCount} 镜因缺少主图、视频要求或模型未就绪而跳过。`
-      : "";
-    const coverNotice = inheritedPublishingCover
-      ? "\n美术方向将继承当前文字稿封面。"
-      : "";
-    const imageStageNotice = plan.imageGenerationCount
-      ? singleImageFallback
-        ? `\n其中 ${plan.imageGenerationCount} 镜缺少主图，将先根据封面和图片要求生成单张主图，再生成视频。`
-        : `\n其中 ${plan.imageGenerationCount} 镜缺少主图，将先根据封面和图片要求生成四图候选，并按固定规则采用左上候选作为当前主图，再生成视频。`
-      : "";
-    const approvedVideoCosts = new Map(plan.shots.map(planned => {
-      const shot = shots.find(item => item.shotNo === planned.shotNo);
-      return [planned.shotNo, shot ? matrixCostEstimate(shot).videoCny : 0] as const;
-    }));
-    const totalQuote = [...approvedVideoCosts.values()].reduce((sum, cost) => sum + cost, plan.imageGenerationCount * imageEstimate);
-    const confirmed = window.confirm(
-      `将读取整个故事版，根据各镜选择的模型生成 ${plan.shots.length} 镜、约 ${plan.durationSec} 秒的视频。${coverNotice}${imageStageNotice}${skippedNotice}\n\n图片与视频预计费用合计 ${formatComputeQuote(totalQuote).replace(/算力$/, _ui("算力"))}；费用变化时停止该镜提交，新资产会保留旧版本。确认一键生成？`
-    );
-    if (!confirmed) {
-      toast.info("已取消一键生成，未产生费用");
-      return;
-    }
-
-    setOneClickVideoProgress({ completed: 0, total: plan.shots.length });
-    let completed = 0;
-    let processed = 0;
-    try {
-      for (const plannedShot of plan.shots) {
-        try {
-          const shot = shots.find(item => item.shotNo === plannedShot.shotNo);
-          const creationShot = creationShots.find(
-            item => item.shotNo === plannedShot.shotNo
-          );
-          if (!shot || !creationShot) continue;
-          let sourceImage: { imageId: number; imageUrl: string } | undefined;
-          if (plannedShot.needsImage) {
-            const shotIndex = shots.findIndex(item => item === shot);
-            const generated = await renderShotImageCandidates(
-              shot,
-              creationShot,
-              shotIndex,
-              undefined,
-              { skipCostConfirmation: true }
-            );
-            if (
-              generated.status !== "success" ||
-              generated.imageId == null ||
-              !generated.imageUrl
-            ) {
-              continue;
-            }
-            if (singleImageFallback) {
-              sourceImage = {
-                imageId: generated.imageId,
-                imageUrl: generated.imageUrl,
-              };
-            } else if (onPromoteFrameCrop) {
-              const cropped = await cropFrameQuadrant(
-                generated.imageUrl,
-                "top-left"
-              );
-              const promoted = await onPromoteFrameCrop({
-                shotNo: creationShot.shotNo,
-                imageBase64: cropped.imageBase64,
-                mimeType: cropped.mimeType,
-                parentImageId: generated.imageId,
-                quadrant: "top-left",
-              });
-              sourceImage = {
-                imageId: promoted.imageId,
-                imageUrl: promoted.imageUrl,
-              };
-            }
-          }
-          const submitted = await rerenderShotVideo(shot, creationShot, {
-            skipCostConfirmation: true,
-            approvedVideoCny: approvedVideoCosts.get(plannedShot.shotNo),
-            sourceImage,
-          });
-          if (submitted) completed += 1;
-        } catch (error) {
-          toast.error(
-            error instanceof Error
-              ? `${plannedShot.shotNo} 镜一键生成失败：${error.message}`
-              : `${plannedShot.shotNo} 镜一键生成失败`
-          );
-        } finally {
-          processed += 1;
-          setOneClickVideoProgress({
-            completed: processed,
-            total: plan.shots.length,
-          });
+  useVisualProductionWorkflow({
+    storyId, selectedShotNo,
+    referenceImageIds: materialState ? shotRenderReferenceOptions(materialState).flatMap(ref => ref.imageId ? [ref.imageId] : []) : [],
+    shots: shots.flatMap((shot, index) => {
+      const stableShotId = storyShotInsertIdentity(shot, index);
+      const source = creationShots.find(s => (s.stableShotId ?? s.shotIdentity) === stableShotId);
+      return stableShotId && source ? [{ stableShotId, shotNo: shot.shotNo, cueCode: shot.cueCode,
+        promptDraft: shot.promptDraft, videoPrompt: shot.videoPrompt,
+        imageIds: storyboardShotFrameImages(source).map(image => image.id),
+        takeIds: (source.videoTakes ?? []).map(take => take.id) }] : [];
+    }),
+    save: async (shot, field, value) => {
+      if (!onUpdateShotFields) throw new Error("镜头尚不能保存，请稍后重试");
+      await onUpdateShotFields(shot.stableShotId, { [field]: value });
+    },
+    render: async (target, kind, _instruction, referenceImageIds) => {
+      const index = shots.findIndex((shot, i) => storyShotInsertIdentity(shot, i) === target.stableShotId);
+      const original = shots[index];
+      const source = creationShots.find(s => (s.stableShotId ?? s.shotIdentity) === target.stableShotId);
+      if (!original || !source) throw new Error("镜头已变化，请重新选择");
+      const effective = { ...original, promptDraft: target.promptDraft ?? undefined, videoPrompt: target.videoPrompt ?? undefined };
+      const effectiveSource = { ...source, promptDraft: effective.promptDraft, videoPrompt: effective.videoPrompt };
+      if (kind === "image") {
+        const settings = loadShotRenderSettings(storyId!, target.stableShotId, materialState);
+        if (referenceImageIds?.length) {
+          const available = materialState ? shotRenderReferenceOptions(materialState).map(ref => ref.imageId) : [];
+          if (referenceImageIds.length > 4 || referenceImageIds.some(id => !available.includes(id)))
+            throw new Error("请在当前故事选取 1–4 张可用参考图；本次未提交生成");
+          if (JSON.stringify(settings.references.imageIds) !== JSON.stringify(referenceImageIds))
+            settings.references = { imageIds: referenceImageIds, assets: {} };
         }
+        const result = await renderConfiguredShotImages(effective, effectiveSource, index,
+          settings);
+        return result.message;
       }
-    } finally {
-      setOneClickVideoProgress(null);
-    }
-    if (completed > 0) {
-      toast.success(
-        `${completed} 镜已进入生成队列${completed === plan.shots.length ? `，成片时长约 ${plan.durationSec} 秒` : `；${plan.shots.length - completed} 镜未提交`}`
-      );
-    }
-  };
+      const scope = videoScope.current;
+      let takeId: number | undefined;
+      const accepted = await rerenderShotVideo(effective, effectiveSource, { onSubmitted: id => { takeId = id; } });
+      if (!accepted) return "视频尚未提交。要求已保存，可调整后继续；没有自动重试。";
+      if (!takeId) return "视频任务已提交，正在核对结果编号，尚未放入镜头。";
+      const label = displayShotCode(original);
+      return completeChatVideo({ takeId, label,
+        current: () => videoScope.current === scope,
+        read: () => currentCreationShots.current.find(s => (s.stableShotId ?? s.shotIdentity) === target.stableShotId)?.videoTakes?.find(t => t.id === takeId),
+        confirm: take => askMediaChatConfirmation({ storyId: storyId!, kind: "placement", videoUrl: take.videoUrl ?? undefined,
+          text: `视频 Take ${take.id} 已生成并保存在仓库。是否放入第 ${label} 镜？` }) ?? Promise.resolve(false),
+        adopt: async take => {
+          if (!onAdoptVideoTake) throw new Error("视频已保存在仓库，剪辑线暂未载入，尚未放入镜头");
+          await onAdoptVideoTake({ stableShotId: target.stableShotId, takeId: take.id,
+            plannedDurationSec: Math.max(0.1, take.durationSec ?? (source.durationMs ?? 5000) / 1000) });
+        },
+      });
+    },
+    adopt: async (target, asset) => {
+      const scope = videoScope.current;
+      if (asset.imageId) {
+        if (!onPromoteStoryImage) throw new Error("图片采用入口尚未加载");
+        await onPromoteStoryImage(asset.imageId);
+        if (asset.timeline) {
+          if (videoScope.current !== scope) throw new Error("图片已在原故事采用；工作区已切换，未继续加入剪辑线");
+          if (!onAddShotToTimeline) throw new Error("图片已采用，但剪辑线尚未载入");
+          await onAddShotToTimeline(target.shotNo, target.stableShotId);
+        }
+      } else if (asset.takeId) {
+        if (!onAdoptVideoTake) throw new Error("视频采用入口尚未加载");
+        const source = creationShots.find(s => (s.stableShotId ?? s.shotIdentity) === target.stableShotId);
+        const take = source?.videoTakes?.find(t => t.id === asset.takeId);
+        if (!take || take.status !== "available" || !take.videoUrl) throw new Error("这条视频还未生成完成，暂未放入剪辑线");
+        await onAdoptVideoTake({ stableShotId: target.stableShotId, takeId: asset.takeId,
+          plannedDurationSec: Math.max(0.1, take.durationSec ?? (source?.durationMs ?? 5000) / 1000) });
+      }
+    },
+  });
 
   const dropMatrixCell = (
     targetIndex: number,
@@ -3177,30 +3182,6 @@ export function StoryboardReviewBoard({
                 className="h-4 w-4 rounded-[2px] object-cover"
               />
               {_ui("继承文字稿封面")}</span>
-          ) : null}
-          {shots.length > 0 && onGenerateShotVideo ? (
-            <button
-              type="button"
-              onClick={() => void generateThirtySecondVideo()}
-              disabled={
-                Boolean(oneClickVideoProgress) ||
-                (!shouldUseSingleImageFallback(imageProviderStatus) &&
-                  !onPromoteFrameCrop)
-              }
-              className="inline-flex h-7 items-center gap-1.5 rounded-sm bg-[var(--nayin-accent)] px-2.5 text-[10px] font-semibold text-white transition hover:brightness-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:cursor-wait disabled:opacity-60"
-              aria-label={_ui("根据现有图案和文字一键生成约30秒视频")}
-              data-testid="storyboard-one-click-video"
-              title={_ui("读取完整故事版；缺图时先继承正式封面生成主图，再生成约 30 秒视频")}
-            >
-              {oneClickVideoProgress ? (
-                <Loader2 className="h-3 w-3 animate-spin" />
-              ) : (
-                <Sparkles className="h-3 w-3" />
-              )}
-              {oneClickVideoProgress
-                ? `${oneClickVideoProgress.completed}/${oneClickVideoProgress.total}`
-                : _ui("一键生成 · 约30秒")}
-            </button>
           ) : null}
           {!headerAction ? (
             <span className="creation-board-panel-status">
@@ -3442,7 +3423,7 @@ export function StoryboardReviewBoard({
                   );
                   const isOnTimeline = timelineShotIdSet.has(shotTimelineId);
                   const headerVideoBlockReason = creationShot
-                    ? storyboardVideoRenderBlockReason(creationShot, {
+                    ? videoPreparationBlockReason(creationShot, {
                         ready: Boolean(shotVideoProviderStatus?.ready),
                         reason:
                           shotVideoProviderStatus?.missing
@@ -3756,8 +3737,8 @@ export function StoryboardReviewBoard({
                       onClickCapture={() => {
                         if (compactShots) {
                           setCompactExpandedShotNo(shot.shotNo);
-                          onSelectShot?.(shot.shotNo);
                         }
+                        onSelectShot?.(shot.shotNo);
                       }}
                       className={`relative min-w-0 border-b border-r p-2 transition-[height] duration-200 ${
                         mediaExpanded ? "h-[164px]" : "h-[75px]"
@@ -5041,7 +5022,7 @@ export function StoryboardReviewBoard({
                         );
                         const usesStartEndVideo = creationShot ? Boolean(storyboardVideoStartEndConfig(creationShot, creationShots)) : false;
                         const matrixVideoBlockReason = creationShot
-                          ? storyboardVideoRenderBlockReason(
+                          ? videoPreparationBlockReason(
                               storyboardRenderShotWithDraft(
                                 creationShot,
                                 shot,
@@ -5309,7 +5290,7 @@ export function StoryboardReviewBoard({
                                   <button
                                     type="button"
                                     disabled={
-                                      Boolean(matrixVideoBlockReason) ||
+                                      Boolean(matrixVideoBlockReason) || preparingVideoShots.includes(shot.shotNo) ||
                                       !canStartRenderForShot(shot.shotNo)
                                     }
                                     onPointerDown={event =>
@@ -5331,12 +5312,13 @@ export function StoryboardReviewBoard({
                                   >
                                     <StoryboardVideoButtonContent
                                       checking={continuityCheckingByShot[shot.shotNo] === "video"}
-                                      busy={rerenderingShotNos.includes(shot.shotNo) || generatingVideoShotNos.includes(shot.shotNo)}
-                                      estimatedCny={matrixCostEstimate(shot).videoCny}
+                                      busy={preparingVideoShots.includes(shot.shotNo) || rerenderingShotNos.includes(shot.shotNo) || generatingVideoShotNos.includes(shot.shotNo)}
+                                      estimatedCny={automaticVideoCost(shot, creationShot)}
                                       candidateCount={!usesStartEndVideo && videoPriceProfile(creationShot) === "mj-turbo" ? 4 : 1}
                                     />
                                   </button>
                                   <StoryboardVideoBlockHint reason={matrixVideoBlockReason} />
+                                  {!matrixVideoBlockReason && creationShot && !storyboardVideoSourceFrame(storyboardAutomaticVideoShot(creationShot)) && <span className="text-[9px] text-muted-foreground">{_ui("含自动补图，随后生成视频")}</span>}
                                 </div>
                               ) : null
                             }

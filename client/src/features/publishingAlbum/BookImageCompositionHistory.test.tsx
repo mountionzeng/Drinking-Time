@@ -32,3 +32,16 @@ it('does not continue using another story editor or changed original materials',
  draw().find(n=>n.type===BookImageCompositionCard).props.onContinue();await settle();
  expect(draw().some(n=>n.props?.role==='status'&&n.props.children==='原素材已变化')).toBe(true);expect(focus).not.toHaveBeenCalled();
 });
+it('passes the linked shot numbers to each history card and shows them in the detail heading',()=>{
+ h.records[0].shotNumbers=[1];h.records[1].shotNumbers=[1];
+ const cards=draw().filter(n=>n.type===BookImageCompositionCard);
+ expect(cards.map(n=>n.props.shotNumbers)).toEqual([[1],[1]]);
+ const card=BookImageCompositionCard(cards[1].props);
+ expect(card.props['aria-label']).toBe('第 01 镜 · 图像 V2 · 已生成');
+ cards[1].props.onOpen();
+ expect(draw().some(n=>Array.isArray(n.props?.children)&&n.props.children[0]==='第 01 镜')).toBe(true);
+});
+it('marks unlinked book image history explicitly instead of guessing a shot',()=>{
+ const card=BookImageCompositionCard(draw().find(n=>n.type===BookImageCompositionCard).props);
+ expect(card.props['aria-label']).toContain('书稿图像 · 未关联镜头');
+});

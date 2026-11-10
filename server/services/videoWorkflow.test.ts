@@ -102,6 +102,13 @@ it("freezes the exact timeline, subtitles, audio and shot prose; repeated save i
       .items[0].plannedDurationMs
   ).toBe(5000);
 });
+it("freezes selected media version references without recursively copying their history", async () => {
+  const input = await fixture();
+  material.timeline.extensions!.videoMediaVersions = { schemaVersion: 1, entries: [], current: { music: "media-version-2", subtitles: "media-version-1" } };
+  const version = await service.saveVideoWorkVersion(input);
+  expect(version.material.timeline.extensions?.videoMediaVersions).toBeUndefined();
+  expect(version.material.timeline.extensions?.videoMediaVersionRefs).toEqual({ music: "media-version-2", subtitles: "media-version-1" });
+});
 it("exports from the chosen immutable version and records result without changing current editing", async () => {
   const input = await fixture(),
     version = await service.saveVideoWorkVersion(input);

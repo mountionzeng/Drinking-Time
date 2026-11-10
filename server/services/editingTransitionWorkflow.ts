@@ -705,9 +705,14 @@ export async function prepareStoryImagePairForVidu(input: {
   userId: number;
   firstImageId: number;
   lastImageId: number;
+  stableShotId?: string;
   size: 540 | 720 | 1080;
 }) {
   const assets = await getStoryImageAssets(input.storyId, input.userId);
+  const shot = input.stableShotId
+    ? (await getStoryMaterialState(input.storyId, input.userId))?.shots.find(item => item.stableShotId === input.stableShotId)
+    : undefined;
+  const referencedIds = new Set([...(shot?.imageVersions ?? []), ...(shot?.relatedImages ?? [])].map(asset => asset.id));
   const temporaryDir = await fs.promises.mkdtemp(
     path.join(os.tmpdir(), "xiaozhuo-shot-start-end-")
   );
@@ -716,8 +721,8 @@ export async function prepareStoryImagePairForVidu(input: {
       const asset = assets.find(item => item.id === imageId);
       if (
         !asset ||
-        asset.assignment !== "shot" ||
-        asset.availability === "missing"
+        (asset.assignment !== "shot" && !referencedIds.has(asset.id)) ||
+        asset.availability === "missing" || asset.status === "rejected"
       ) {
         throw new Error("锁定的首帧或尾帧文件已经不存在");
       }

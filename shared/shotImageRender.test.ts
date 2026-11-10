@@ -6,7 +6,18 @@ import {
   shotImageRenderSettingsSchema,
 } from "./shotImageRender";
 describe("unified shot image rendering", () => {
-  it.each(["我希望和参考图一模一样", "保留茶壶形状和位置不变", "严格保留原图", "keep the reference exactly the same"])("recognizes an explicit preservation instruction: %s", text => {
+  it("requires exactly one image for inherited visual continuity", () => {
+    const parse = (imageIds: number[], assets = {}) => shotImageRenderSettingsSchema.safeParse({
+      count: 4, references: { imageIds, assets, imagePurpose: "scene-style" },
+    }).success;
+    expect(parse([19])).toBe(true);
+    expect(parse([])).toBe(false);
+    expect(parse([19, 20])).toBe(false);
+    expect(parse([19], { pet: { assetId: "a", versionId: "v1" } })).toBe(false);
+  });
+  it.each(["我希望和参考图一模一样", "保留茶壶形状和位置不变", "严格保留原图", "keep the reference exactly the same",
+    "严格保留小茶壶、对话框、附件/麦克风/发送图标以及现有英文文字的形状、位置和内容。只替换背景",
+    "小茶壶、对话框、图标和英文文字保持原样，只改周围背景", "Keep the existing lettering unchanged; change the background"])("recognizes an explicit preservation instruction: %s", text => {
     expect(requestsStrictReferenceFidelity(text)).toBe(true);
   });
   it.each(["不要和原图一模一样，重新设计", "无需完全一致", "参考它画一只猫", "换一种风格"])("does not invent a strict lock: %s", text => {

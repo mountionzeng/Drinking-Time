@@ -189,6 +189,23 @@ function createAuthContext(userId = 42): TrpcContext {
 }
 
 describe("storyAgent tRPC router", () => {
+  it("records two-image conversation outputs by stable shot without adopting, and rejects stale targets before rendering", async () => {
+    const { createStory } = await import("./repositories/stories");
+    const userId = 6111;
+    const caller = appRouter.createCaller(createAuthContext(userId));
+    const story = await createStory({userId, title:"conversation images", body:{shots:[{shotNo:1,stableShotId:"chat-shot",subject:"cup"}]}});
+    const source = await createGeneratedImage({storyId:story.id,userId,shotNo:"SH01",shotIdentity:"chat-shot",imageUrl:"https://storage.example/current.png",isCurrent:true});
+    const input = {storyId:story.id,conversationShotId:"chat-shot",prompt:"brighter cup",explicitInstruction:"brighter cup",imageProvider:"gpt-image" as const,remixEdit:true,referenceImageUrl:source.imageUrl,costConfirmation:{accepted:true as const,estimatedCny:estimateStoryboardMaskedEditCost().estimatedCny}};
+    const result = await caller.storyAgent.generateForMobile(input);
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") throw Error(result.error);
+    expect(await caller.storyAgent.chatImageRevisions({storyId:story.id})).toEqual(expect.arrayContaining([expect.objectContaining({stableShotId:"chat-shot",editorUserId:userId,candidates:expect.arrayContaining([expect.objectContaining({imageId:result.imageId})])})]));
+    expect(await getGeneratedImageById(result.imageId!)).toMatchObject({isCurrent:false,shotIdentity:null});
+    expect(await getGeneratedImageById(source.id)).toMatchObject({isCurrent:true});
+    imageGenMocks.editImage.mockClear();
+    expect(await caller.storyAgent.generateForMobile({...input,conversationShotId:"missing"})).toMatchObject({status:"error"});
+    expect(imageGenMocks.editImage).not.toHaveBeenCalled();
+  });
   it("persists module image results and replays through the recovery API without another generation", async () => {
     const { createStory } = await import("./repositories/stories");
     const { insertChapter } = await import("./repositories/chapters");
@@ -230,6 +247,39 @@ describe("storyAgent tRPC router", () => {
     expect(imageGenMocks.generateImage).not.toHaveBeenCalled();
     expect(imageGenMocks.editImage).not.toHaveBeenCalled();
   });
+  it("renders stored art preview briefs only, quotes before claiming, and keeps results unassigned", async () => {
+    const { createStory, getStoryById } = await import("./repositories/stories");
+    const { planArtPreviews } = await import("./services/artPreview");
+    const userId = 4975;
+    const caller = appRouter.createCaller(createAuthContext(userId));
+    const story = await createStory({ userId, title: "preview", body: { shots: [{ shotNo: 1, stableShotId: "preview-shot", subject: "obsolete room", action: "obsolete action", promptDraft: "obsolete watercolor", publishingVideo: { groupId: "group", draftShotId: "draft" } }] } });
+    const reference = await createGeneratedImage({ storyId: story.id, userId, imageUrl: "https://storage.example/baseline.png", prompt: "reference", isCurrent: false });
+    creationAgentMocks.runJsonAgent.mockResolvedValueOnce({ parsed: { shots: [{ stableShotId: "preview-shot", brief: "colorful precise particles spread from a teacup", adaptation: "沿用细腻色彩，以延伸呈现连接" }] } });
+    const batch = await planArtPreviews({ storyId: story.id, userId, editorName: "Author", instruction: "生成示意图", imageId: reference.id, operationToken: crypto.randomUUID() });
+    const serverBeforeSave = (await getStoryById(story.id, userId))!.body as Record<string, unknown>;
+    await caller.storyAgent.storyUpsert({ id: story.id, title: "preview", body: { shots: serverBeforeSave.shots, artPreviewBatches: [] }, baseRevision: serverBeforeSave._revision as number });
+    await caller.storyAgent.storyUpsert({ id: story.id, title: "preview renamed" });
+    expect((await getStoryById(story.id, userId))?.body).toMatchObject({ artPreviewBatches: [expect.objectContaining({ id: batch.id })] });
+    const input = { storyId: story.id, shotNo: 1, previewBatchId: batch.id, prompt: "forged room", imageProvider: "gpt-image" as const, autoSelect: true };
+    expect(await caller.storyAgent.generateForMobile(input)).toMatchObject({ status: "error" });
+    expect(legnextMocks.generateLegnextImage).not.toHaveBeenCalled();
+    expect((await getStoryById(story.id, userId))?.body).not.toHaveProperty("storyboardImageTasks");
+    legnextMocks.generateLegnextImage.mockImplementationOnce(async (_prompt: string, accepted: (id: string) => Promise<void>) => {
+      await accepted("legnext:preview-receipt");
+      return { status: "ok", imageUrl: "https://storage.example/preview.png", candidates: [{ imageUrl: "https://storage.example/preview.png", imageKey: "preview.png" }] };
+    });
+    const paidInput = { ...input, costConfirmation: { accepted: true, estimatedCny: 0.68 } };
+    expect(await caller.storyAgent.generateForMobile(paidInput)).toMatchObject({ status: "ok" });
+    expect(await caller.storyAgent.generateForMobile(paidInput)).toMatchObject({ status: "ok" });
+    expect(legnextMocks.generateLegnextImage).toHaveBeenCalledTimes(1);
+    const [prompt,,options] = legnextMocks.generateLegnextImage.mock.calls[0];
+    expect(prompt).toContain("colorful precise particles");
+    expect(prompt).not.toContain("obsolete"); expect(prompt).not.toContain("forged room");
+    expect(options.referenceImageUrl).toBe(reference.imageUrl); expect(options.styleRef).toBe(reference.imageUrl);
+    expect(imagePromptDirectorMocks.directImagePrompt).not.toHaveBeenCalled();
+    const images = await getStoryGeneratedImages(story.id, userId);
+    expect(images.find(i => i.imageKey === "preview.png")).toMatchObject({ shotIdentity: null, shotNo: null, isCurrent: false });
+  });
   it("keeps the user's faithful reference brief through the real gate and Legnext route", async () => {
     const {createStory}=await import("./repositories/stories");
     const userId=4972;
@@ -248,6 +298,80 @@ describe("storyAgent tRPC router", () => {
     expect(prompt).not.toContain("静态图片无字硬约束");
     expect(options.referenceImageUrl).toBe(reference.imageUrl);
     expect(imageGenMocks.editImage).not.toHaveBeenCalled();
+  });
+  it("renders a confirmed book shot from its current brief without inventing a cinematic scene", async () => {
+    const { createStory } = await import("./repositories/stories");
+    const userId = 4973;
+    const caller = appRouter.createCaller(createAuthContext(userId));
+    const story = await createStory({ userId, title: "产品发布片", body: {
+      shots: [
+        { shotNo: 1, stableShotId: "book-1", subject: "茶壶和对话框", action: "镜头拉远至完整界面" },
+        { shotNo: 2, stableShotId: "book-2", subject: "对话框", action: "一句话淡入", promptDraft: "保留网页手绘线条与暖白色背景", styleRef: "故事级封面风格参考（如有）",
+          publishingVideo: { groupId: "publishing-group-v1-preview-current", draftShotId: "draft-2" } },
+      ],
+      bookVideoRecords: [
+        { status: "adopted", versionId: "v1", preview: { previewId: "preview-current" }, brief: { purpose: "展示创作工具", tone: "温柔真挚" } },
+        { status: "proposed", versionId: "v1", preview: { previewId: "preview-future" }, brief: { tone: "霓虹科幻" } },
+      ],
+    } });
+    legnextMocks.generateLegnextImage.mockResolvedValueOnce({ status: "error", message: "test stops before submission" });
+    await caller.storyAgent.generateForMobile({ storyId: story.id, shotNo: 2, imageProvider: "midjourney",
+      prompt: "untrusted cached dark cinematic prompt", explicitInstruction: "图片要求：保留网页手绘线条与暖白色背景", shotImageRequestId: crypto.randomUUID(),
+      renderReferences: { imageIds: [], assets: {} }, costConfirmation: { accepted: true, estimatedCny: 0.68 } });
+    expect(legnextMocks.generateLegnextImage).toHaveBeenCalledTimes(1);
+    const [prompt] = legnextMocks.generateLegnextImage.mock.calls[0];
+    expect(prompt).toContain("展示创作工具");
+    expect(prompt).toContain("温柔真挚");
+    expect(prompt).toContain("茶壶和对话框");
+    expect(prompt).toContain("保留网页手绘线条与暖白色背景");
+    expect(prompt).not.toContain("cached dark");
+    expect(prompt).not.toContain("no UI");
+    expect(prompt).not.toContain("cinematic camera frame");
+    expect(prompt).toContain("Render the interface artwork itself");
+    expect(prompt).not.toContain("霓虹科幻");
+    expect(prompt).not.toContain("故事级封面风格参考（如有）");
+    expect(prompt).not.toContain("【艺术跃迁】");
+    expect(prompt).toContain("静态图片无字硬约束");
+    expect(imagePromptDirectorMocks.directImagePrompt).not.toHaveBeenCalled();
+  });
+  it("uses a confirmed conversation art system for an ordinary shot without a second art rewrite", async () => {
+    const { createStory } = await import("./repositories/stories");
+    const userId = 4975;
+    const caller = appRouter.createCaller(createAuthContext(userId));
+    const story = await createStory({ userId, title: "Any story", body: {
+      shots: [{ shotNo: 1, stableShotId: "art-system-shot", subject: "茶壶", promptDraft: "茶壶近景" }],
+      artDirection: { recipe: { version: 4, updatedAt: 100, style: ["ink wash"], system: { name: "Ink world", confirmedAt: 100,
+        englishPrompt: "Delicate ink wash on fibrous paper.", objectRules: ["retain teapot outline"], continuityRules: ["keep grain"] } } },
+    } });
+    legnextMocks.generateLegnextImage.mockResolvedValueOnce({ status: "error", message: "test stops before submission" });
+    await caller.storyAgent.generateForMobile({ storyId: story.id, shotNo: 1, imageProvider: "midjourney", prompt: "cached cinematic prompt",
+      explicitInstruction: "茶壶近景", shotImageRequestId: crypto.randomUUID(), renderReferences: { imageIds: [], assets: {} }, costConfirmation: { accepted: true, estimatedCny: 0.68 } });
+    const [prompt] = legnextMocks.generateLegnextImage.mock.calls[0];
+    expect(prompt).toContain("美术体系 V4"); expect(prompt).toContain("Delicate ink wash"); expect(prompt).toContain("茶壶近景");
+    expect(prompt).not.toContain("cached cinematic"); expect(imagePromptDirectorMocks.directImagePrompt).not.toHaveBeenCalled();
+  });
+  it("sends the established image as a continuity reference without locking another shot's composition", async () => {
+    const { createStory } = await import("./repositories/stories");
+    const userId = 4974;
+    const caller = appRouter.createCaller(createAuthContext(userId));
+    const story = await createStory({ userId, title: "手绘产品片", body: { shots: [
+      { shotNo: 2, stableShotId: "continuity-2", subject: "对话框", promptDraft: "沿用物体和色调，当前句子淡入",
+        publishingVideo: { groupId: "confirmed-group", draftShotId: "draft-2" } },
+    ] } });
+    const reference = await createGeneratedImage({ storyId: story.id, userId, shotNo: null, shotIdentity: null,
+      imageUrl: "https://storage.example/established.png", imageKey: "established.png", prompt: "已确定", generationType: "upload", isCurrent: false });
+    legnextMocks.generateLegnextImage.mockResolvedValueOnce({ status: "error", message: "test stops before submission" });
+    await caller.storyAgent.generateForMobile({ storyId: story.id, shotNo: 2, imageProvider: "midjourney", prompt: "old prompt",
+      explicitInstruction: "沿用物体和色调，当前句子淡入", shotImageRequestId: crypto.randomUUID(),
+      renderReferences: { imageIds: [reference.id], imagePurpose: "scene-style", assets: {} }, costConfirmation: { accepted: true, estimatedCny: 0.68 } });
+    const [prompt,, options] = legnextMocks.generateLegnextImage.mock.calls[0];
+    expect(options.referenceImageUrl).toBe(reference.imageUrl);
+    expect(options.imageWeight).toBe(2);
+    expect(options.styleRef).toBe(reference.imageUrl);
+    expect(prompt).toContain("已确定画面的连续性");
+    expect(prompt).toContain("本镜明确出现的同一物体");
+    expect(prompt).not.toContain("【修改边界】");
+    expect(imagePromptDirectorMocks.directImagePrompt).not.toHaveBeenCalled();
   });
   beforeEach(() => {
     vi.clearAllMocks();
@@ -1576,6 +1700,41 @@ describe("storyAgent tRPC router", () => {
         expect.objectContaining({ id: `image-revision-${result.imageId}`, imageId: result.imageId, visualLayer: 1 }),
       ]) }),
     ]));
+  });
+
+  it("chat revisions return preview candidates without automatically placing a timeline layer", async () => {
+    const caller = appRouter.createCaller(createAuthContext(6688));
+    const story = await caller.storyAgent.storyUpsert({ title: "对话先看后换", body: { cards: [], shots: [{ shotNo: 1, stableShotId: "chat-shot", subject: "猫" }] } });
+    const source = await caller.storyAgent.generateForMobile({ storyId: story!.id, shotNo: 1, prompt: "猫" });
+    if (source.status !== "ok") throw new Error("Missing source");
+    const before = await getStoryTimeline(story!.id, 6688);
+    const result = await caller.storyAgent.generateForMobile({ storyId: story!.id, shotNo: 1, shotImageRequestId: crypto.randomUUID(), conversationRevision: true,
+      explicitInstruction: "只把脸变亮", imageProvider: "gpt-image", referenceRevision: true, renderReferences: { imageIds: [source.imageId!], assets: {} },
+      costConfirmation: { accepted: true, estimatedCny: estimateStoryboardMaskedEditCost().estimatedCny } });
+    expect(result.status).toBe("ok");
+    expect(await getStoryTimeline(story!.id, 6688)).toEqual(before);
+    expect(await caller.storyAgent.chatImageRevisions({ storyId: story!.id })).toEqual(expect.arrayContaining([expect.objectContaining({ sourceImageId: source.imageId, status: "succeeded", candidates: expect.any(Array) })]));
+    expect(imageGenMocks.editImage).toHaveBeenLastCalledWith(source.imageUrl, expect.any(String), expect.objectContaining({ gptSubmitOnly: true, referenceRevision: true, onProviderTaskAccepted: expect.any(Function) }));
+  });
+
+  it("keeps named UI and lettering when chat changes only the background or expression", async () => {
+    const userId = 6598;
+    const caller = appRouter.createCaller(createAuthContext(userId));
+    const story = await caller.storyAgent.storyUpsert({ title: "改茶壶背景", body: { cards: [], shots: [{ shotNo: 1, stableShotId: "teapot-ui", subject: "小茶壶与界面" }] } });
+    const source = await createGeneratedImage({ storyId: story!.id, userId, shotNo: "SH01", shotIdentity: "teapot-ui", imageUrl: "https://storage.example/teapot.png", prompt: "原图", generationType: "upload", isCurrent: false });
+    const instruction = "严格保留小茶壶、对话框、图标以及现有英文文字的形状、位置和内容。只把黑灰背景改成细腻彩色微像素，小茶壶的脸明亮、有神。";
+    imageGenMocks.editImage.mockClear(); imagePromptDirectorMocks.directImagePrompt.mockClear();
+    const result = await caller.storyAgent.generateForMobile({ storyId: story!.id, shotNo: 1,
+      explicitInstruction: instruction, imageProvider: "gpt-image", referenceRevision: true,
+      renderReferences: { imageIds: [source.id], assets: {} },
+      costConfirmation: { accepted: true, estimatedCny: estimateStoryboardMaskedEditCost().estimatedCny } });
+    expect(result.status).toBe("ok");
+    const [image, prompt] = imageGenMocks.editImage.mock.calls[0];
+    expect(image).toBe(source.imageUrl);
+    expect(prompt).toContain(instruction);
+    expect(prompt).toContain("原图优先");
+    expect(prompt).not.toMatch(/无字硬约束|风格化硬约束|keep all of it/);
+    expect(imagePromptDirectorMocks.directImagePrompt).not.toHaveBeenCalled();
   });
 
   it("MJ reference revisions preserve their source, store all versions and verify the edit quote", async () => {

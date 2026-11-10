@@ -1,5 +1,5 @@
 import { useUiText } from "@/features/uiLanguage/UiLanguage";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import {
   Dialog,
@@ -19,6 +19,8 @@ import { formatComputeQuote } from "@shared/computeMoney";
 import { prepareMountedBook } from "@/features/bookVideo/bookPreparation";
 import { storySpineStore } from "@/features/storyAgent/spine/storySpine";
 import { awaitMediaTask } from "@/lib/mediaTaskPolling";
+
+export const BOOK_NARRATION_OPEN = "dt:book-narration-open";
 
 export function BookSoundMenu({
   storyId,
@@ -66,6 +68,13 @@ export function BookSoundMenu({
       setError(cause instanceof Error ? cause.message : _ui("书稿未保存"));
     }
   }
+  useEffect(() => {
+    const openNarration = (event: Event) => {
+      if ((event as CustomEvent).detail?.storyId === storyId && !disabled) void choose("narration");
+    };
+    window.addEventListener(BOOK_NARRATION_OPEN, openNarration);
+    return () => window.removeEventListener(BOOK_NARRATION_OPEN, openNarration);
+  }, [storyId, disabled]);
   return (
     // The book canvas extends upward for its block tools; keep this entry above that hit area.
     <div className="relative z-30 text-sm">

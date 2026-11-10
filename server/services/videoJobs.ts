@@ -17,6 +17,7 @@ import { settleOperation } from "./computeLedger";
 import { fromYuan } from "../../shared/computeMoney";
 import { estimateShotVideoCost } from "../../shared/shotDirector";
 import { createHash } from "node:crypto";
+import { activeArtSystemRecipe, artSystemVideoPrompt, withArtSystemVideoPrompt } from "../../shared/artSystem";
 import path from "node:path";
 import {
   clearVideoTimelineSelection,
@@ -388,6 +389,7 @@ function snapshot(input: {
   rerenderRequestId?: string;
   taskId?: string | null;
   promptDirector: VideoSubmissionPromptDirectorResult;
+  artSystem?: { version: number; name: string; confirmedImageId?: number; rules: string };
 }) {
   const providerStatus = getShotVideoProviderStatus(input.renderMode);
   const characterReferenceImageUrl =
@@ -417,6 +419,7 @@ function snapshot(input: {
     pollPath: providerStatus.pollPath || undefined,
     imageField: providerStatus.imageField,
     motion: input.motion,
+    ...(input.artSystem ? { artSystem: input.artSystem } : {}),
     rerenderRequestId: input.rerenderRequestId,
     promptDirector: {
       source: input.promptDirector.source,
@@ -550,6 +553,9 @@ export async function startShotVideoJob(
   const story = await getStoryById(input.storyId, userId);
   if (!story) return { status: "error", error: "故事不存在或无权操作" };
   const context = isOwnedBookImage ? {} : storyVideoContext(story.body, stableShotId, input.shotNo);
+  const artBody = story.body && typeof story.body === "object" && !Array.isArray(story.body) ? story.body as Record<string, unknown> : {};
+  const artRecipe = activeArtSystemRecipe(artBody);
+  const artBrief = artSystemVideoPrompt(artBody);
   const renderDecision = decideVideoRenderStrategy({
     ...context.currentShot,
     videoPrompt: context.currentShot?.videoPrompt || input.prompt,
@@ -636,6 +642,7 @@ export async function startShotVideoJob(
     stableShotId,
     input.imageId,
     preparedEngineering.fingerprint,
+    artBrief,
     VIDEO_PROMPT_ENGINEERING_VERSION,
     input.subtitle,
     durationSec,
@@ -715,7 +722,7 @@ export async function startShotVideoJob(
               storyStyleImageInput,
               fallbackPrompt: deterministicPrompt,
               shotNo: input.shotNo,
-              draftPrompt: input.prompt,
+              draftPrompt: [input.prompt, artBrief].filter(Boolean).join("\n"),
               subtitle: input.subtitle,
               storyTitle: story?.title,
               ...context,
@@ -729,12 +736,13 @@ export async function startShotVideoJob(
               engineering: preparedEngineering,
               fallbackReason: "当前视频供应商不是 MJ-Video",
             };
-    const videoPrompt =
+    const directedVideoPrompt =
       isMjVideo && !input.directorPromptApproved
         ? compileMjVideoProviderPrompt(promptDirector.engineering)
         : input.renderMode === "economy" && !input.directorPromptApproved
           ? compileViduSinglePrompt(promptDirector.engineering)
         : promptDirector.prompt;
+    const videoPrompt = withArtSystemVideoPrompt(directedVideoPrompt, artBody, isMjVideo ? 500 : input.renderMode === "economy" ? 2000 : 5000);
 
     const take = await createVideoTake({
       storyId: input.storyId,
@@ -762,6 +770,7 @@ export async function startShotVideoJob(
         motion,
         rerenderRequestId: input.rerenderRequestId,
         promptDirector,
+        ...(artRecipe?.system ? { artSystem: { version: artRecipe.version, name: artRecipe.system.name, confirmedImageId: artRecipe.system.confirmedImageId, rules: artBrief } } : {}),
       }),
       idempotencyKey,
       extractionCapability: "unavailable",
@@ -862,6 +871,7 @@ export async function startShotVideoJob(
         motion,
         taskId: submitted.taskId,
         promptDirector,
+        ...(artRecipe?.system ? { artSystem: { version: artRecipe.version, name: artRecipe.system.name, confirmedImageId: artRecipe.system.confirmedImageId, rules: artBrief } } : {}),
       }),
     });
 

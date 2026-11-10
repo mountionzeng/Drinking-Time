@@ -3,6 +3,7 @@ import { eq, and } from "drizzle-orm";
 import type { StoryTimelineOverlay } from "../../shared/storyMaterial";
 import { mergeStoredStoryTimelineExtensions } from "../persistence/storyTimelinePersistence";
 import { appendVideoEditRevision } from "../persistence/videoEditHistory";
+import { recordVideoMediaVersions, type VideoMediaSelection } from "../../shared/videoMediaVersions";
 import {
   stories,
   Story,
@@ -76,6 +77,8 @@ export async function getStoryTimeline(
 }
 
 export async function updateStoryTimeline(input: {
+  mediaVersionIntent?: string;
+  mediaVersionSelection?: VideoMediaSelection;
   /** Service-owned opt-in; never accepted from a client payload. */
   recordVideoRevision?: boolean;
   storyId: number;
@@ -97,6 +100,7 @@ export async function updateStoryTimeline(input: {
     extensions?: Record<string, unknown>;
   }
 > {
+  const recordsMedia = ["audioTracks", "subtitleTracks"].some(key => Object.prototype.hasOwnProperty.call(input.extensions ?? {}, key));
   const buildPayload = (
     existing: StoryTimeline | undefined,
     storyBody: unknown
@@ -111,6 +115,12 @@ export async function updateStoryTimeline(input: {
         input.extensions
       ),
     };
+    if (recordsMedia) {
+      next.extensions ??= {};
+      const mediaVersions = recordVideoMediaVersions({ previousBody: storyBody, nextBody: storyBody,
+      previousExtensions: current.extensions ?? {}, nextExtensions: next.extensions, userId: input.userId, savedAt: Date.now(), selection: input.mediaVersionSelection, intent: input.mediaVersionIntent });
+      if (mediaVersions.entries.length) next.extensions.videoMediaVersions = mediaVersions;
+    }
     return encodeStoryTimelinePayload(
       input.recordVideoRevision
         ? appendVideoEditRevision({
@@ -133,7 +143,7 @@ export async function updateStoryTimeline(input: {
           const story = memoryState.stories.find(
             row => row.id === input.storyId && row.userId === input.userId
           );
-          if (input.recordVideoRevision && !story)
+          if ((input.recordVideoRevision || recordsMedia) && !story)
             throw new Error("故事不存在或无权操作");
           const existing = memoryState.storyTimelines.find(
             timeline =>
@@ -208,7 +218,7 @@ export async function updateStoryTimeline(input: {
   }
 
   return db.transaction(async tx => {
-    const story = input.recordVideoRevision
+    const story = input.recordVideoRevision || recordsMedia
       ? (
           await tx
             .select()
@@ -223,7 +233,7 @@ export async function updateStoryTimeline(input: {
             .limit(1)
         )[0]
       : undefined;
-    if (input.recordVideoRevision && !story)
+    if ((input.recordVideoRevision || recordsMedia) && !story)
       throw new Error("故事不存在或无权操作");
     const [existing] = await tx
       .select()
@@ -332,6 +342,12 @@ export async function updateStoryAndTimelineAtomic(input: {
         input.nextTimeline.extensions
       ),
     };
+    if (["audioTracks", "subtitleTracks"].some(key => Object.prototype.hasOwnProperty.call(input.nextTimeline.extensions ?? {}, key))) {
+      next.extensions ??= {};
+      const mediaVersions = recordVideoMediaVersions({ previousBody: previousStoryBody, nextBody: input.nextStoryBody,
+        previousExtensions: decodeStoryTimelinePayload(currentValue).extensions ?? {}, nextExtensions: next.extensions, userId: input.userId, savedAt: Date.now() });
+      if (mediaVersions.entries.length) next.extensions.videoMediaVersions = mediaVersions;
+    }
     return encodeStoryTimelinePayload(
       input.recordVideoRevision
         ? appendVideoEditRevision({

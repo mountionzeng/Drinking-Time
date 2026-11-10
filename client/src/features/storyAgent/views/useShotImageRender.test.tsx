@@ -8,7 +8,7 @@ import type { StoryMaterialState } from "@shared/storyMaterial";
 const pendingTasks = vi.hoisted(() => ({ fetch: vi.fn(async () => [] as Array<{requestId: string; shotIdentity: string; recoverable: boolean}>) }));
 const recovery = vi.hoisted(() => ({ mutateAsync: vi.fn(), invalidate: vi.fn(async () => {}) }));
 vi.stubGlobal("React", React);
-vi.mock("@/lib/trpc", () => ({ trpc: { storyAgent: { recoverStoryboardImage: { useMutation: () => ({ mutateAsync: recovery.mutateAsync, isPending: false }) } }, useUtils: () => ({ storyAgent: { pendingStoryboardImages: { fetch: pendingTasks.fetch, invalidate: recovery.invalidate }, storyImages: { invalidate: recovery.invalidate }, storyMaterialState: { invalidate: recovery.invalidate }, storyGet: { invalidate: recovery.invalidate } } }) } }));
+vi.mock("@/lib/trpc", () => ({ trpc: { storyAgent: { recoverStoryboardImage: { useMutation: () => ({ mutateAsync: recovery.mutateAsync, isPending: false }) } }, useUtils: () => ({ storyAgent: { chatImageRevisions: { invalidate: recovery.invalidate }, pendingStoryboardImages: { fetch: pendingTasks.fetch, invalidate: recovery.invalidate }, storyImages: { invalidate: recovery.invalidate }, storyMaterialState: { invalidate: recovery.invalidate }, storyGet: { invalidate: recovery.invalidate } } }) } }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), loading: vi.fn(), dismiss: vi.fn(), warning: vi.fn() } }));
 afterEach(() => { vi.useRealTimers(); recovery.mutateAsync.mockReset(); recovery.invalidate.mockClear(); });
 function setup() {
@@ -63,6 +63,17 @@ function setup() {
   };
 }
 describe("MJ revision cost and submission", () => {
+  it("prepares one GPT frame without requiring a manually selected reference", async () => {
+    const { api, input } = setup();
+    input.generate.mockResolvedValue({ generatedCount: 1, imageId: 48, imageUrl: "/48.png" });
+    const result = await api.render({ ...input, revisionInstruction: undefined,
+      generationProvider: "gpt-image", skipCostConfirmation: true,
+      settings: { count: 4, references: { imageIds: [], assets: {} } } });
+    expect(result).toMatchObject({ status: "success", imageId: 48 });
+    expect(input.generate).toHaveBeenCalledTimes(1);
+    expect(input.generate.mock.calls[0][0]).toMatchObject({ imageProvider: "gpt-image", candidateCount: undefined });
+  });
+
   it("quotes GPT as one edit, never buys four tasks and preserves the chosen provider", async () => {
     const { api, input, act } = setup();
     input.generate.mockResolvedValue({ generatedCount: 1, imageId: 48, imageUrl: "/48.png" });
@@ -180,4 +191,15 @@ it("does not query or generate when submission is still uncertain", async () => 
   expect(await api.render({ ...input, revisionInstruction: undefined, skipCostConfirmation: true })).toMatchObject({status: "error"});
   expect(recovery.mutateAsync).not.toHaveBeenCalled();
   expect(input.generate).not.toHaveBeenCalled();
+});
+
+it("releases chat after an accepted revision and leaves recovery to the durable gallery", async () => {
+  const { withMediaChatSession, answerMediaChatQuestion } = await import("../mediaChatSession");
+  const { api, input } = setup();
+  input.generate.mockRejectedValue(new PendingShotImageError("accepted", "receipt"));
+  const pending = withMediaChatSession(7, () => api.render({ ...input, revisionProvider: "gpt-image" }));
+  answerMediaChatQuestion(7, "确认");
+  expect(await pending).toMatchObject({ status: "success", message: expect.stringContaining("你可以继续发送") });
+  expect(input.generate).toHaveBeenCalledWith(expect.objectContaining({ reference: expect.objectContaining({ conversationRevision: true }) }));
+  expect(recovery.mutateAsync).not.toHaveBeenCalled();
 });

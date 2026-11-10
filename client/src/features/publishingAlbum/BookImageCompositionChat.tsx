@@ -9,12 +9,13 @@ import { formatComputeQuote } from '@shared/computeMoney';
 import { useBookImageCompositionSession, type BookImageCompositionSession } from './bookImageCompositionSession';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { BOOK_COMPOSITION_MODEL } from '@shared/bookImageComposition';
-import { BookImageCompositionCard, compositionStatus } from './BookImageCompositionCard';
+import { BookImageCompositionCard, compositionStatus, compositionTargetLabel } from './BookImageCompositionCard';
 
 export type BookImageCompositionHandle = { submit(text: string): boolean };
-export function BookImageCompositionChat({ session, handle, version=1, onContinue, onTaskChange }: {
+export function BookImageCompositionChat({ session, handle, version=1, onContinue, onTaskChange, shotNumbers }: {
   session: BookImageCompositionSession; handle: MutableRefObject<BookImageCompositionHandle | null>;
   version?:number; onContinue?():void; onTaskChange?(task:BookModuleImageTask|null,proposing:boolean):void;
+  shotNumbers?:number[];
 }) {
   const ui = useUiText(), reduced = useReducedMotion();
   const target = { storyId: session.storyId, chapterId: session.chapterId, moduleIds: session.sources.map(s => s.id) };
@@ -128,11 +129,11 @@ export function BookImageCompositionChat({ session, handle, version=1, onContinu
   }
   const summary=references.length ? ui('整合 {0} 张图与 {1} 段文字；保留原图的线条、配色和质感。',[references.length,session.sources.filter(s=>!compositionReferences([s]).length).length]) : ui('根据已带入的文字与想法，创作一张新图片。');
   return <motion.section initial={{ opacity: 0, y: reduced ? 0 : 6 }} animate={{ opacity: 1, y: 0 }} aria-label={ui('图像方案')}>
-    <BookImageCompositionCard version={version} status={compositionStatus(task,proposing)} createdAt={proposing?session.createdAt:task?.createdAt} instruction={instruction || task?.composition?.instructions.at(-1) || ''}
+    <BookImageCompositionCard version={version} shotNumbers={shotNumbers} status={compositionStatus(task,proposing)} createdAt={proposing?session.createdAt:task?.createdAt} instruction={instruction || task?.composition?.instructions.at(-1) || ''}
       summary={error || task?.error || placement || summary} onOpen={()=>setOpened(true)} disabled={busy || waiting}
       onContinue={()=>{setOpened(false);onContinue?.();}}/>
     <Dialog open={opened} onOpenChange={setOpened}><DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl space-y-2">
-      <DialogHeader><DialogTitle>{ui('图像 V{0} · 方案与参数',[version])}</DialogTitle><DialogDescription>{summary}</DialogDescription></DialogHeader>
+      <DialogHeader><DialogTitle>{compositionTargetLabel(shotNumbers,ui)} · {ui('图像 V{0} · 方案与参数',[version])}</DialogTitle><DialogDescription>{summary}</DialogDescription></DialogHeader>
     <div className="flex items-center justify-between gap-2">
       <p className="text-xs text-muted-foreground">{BOOK_COMPOSITION_MODEL} · 1536 × 1024 · {ui('高质量 · 1 张')}</p>
       <button type="button" aria-label={ui('收起图像方案')} className="shrink-0 rounded border px-2 py-1 text-xs text-muted-foreground hover:bg-muted focus-visible:ring-2" onClick={() => useBookImageCompositionSession.getState().setSession(null)}>{ui('暂时收起')}</button>

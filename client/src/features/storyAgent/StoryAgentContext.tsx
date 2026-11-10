@@ -1,4 +1,10 @@
+import { resolveConversationShot, shotConversationSelection, hasConversationShotReference } from "./shotConversation";
+import { parseArtSystemChat } from "@shared/artSystemChat";
+import { parseArtPreviewChat } from "@shared/artPreview";
+import { useArtSystemChat } from "./useArtSystemChat";
 import { useStoryRename } from "./useStoryRename";
+import { parseVisualProductionChat, usesSelectedImageRevision } from "@shared/visualProductionChat";
+import { withMediaChatSession } from "./mediaChatSession";
 import { useStoryTrashEvents } from "./useStoryTrashEvents";
 /**
  * StoryAgentContext — shared store for chat messages, cards, and generated scripts
@@ -18,7 +24,7 @@ import {
 import { toast } from "sonner";
 import type { WritingCompanionSnapshot } from "@/features/writingCompanion/writingCompanionText";
 
-type ChatSendOptions = { clientMessageId?: string; writingContext?: WritingCompanionSnapshot };
+type ChatSendOptions = { clientMessageId?: string; writingContext?: WritingCompanionSnapshot; workspaceContext?: "book" | "video"; selection?: SelectionState | null };
 import { LegacyStoryRecovery } from "./views/LegacyStoryRecovery";
 import { restoreLegacyDraftToCurrentAccount } from "./restoreLegacyDraftToCurrentAccount";
 import { artTargetFrom } from "./storyAgentUtils";
@@ -27,7 +33,7 @@ import { selectionBelongsToStory } from "./selectionStoryScope";
 import { consumeSubmittedSelection } from "./selectionLifecycle";
 import {
   commitSelectionReply as persistSelectionReply,
-  selectionUserMessage, imageRevisionReply, commitImageRevisionReply,
+  selectionUserMessage, selectionQuoteFrom, imageRevisionReply, commitImageRevisionReply,
 } from "./selectionReplyCommit";
 import {
   handoffConfirmedImageRegion,
@@ -553,7 +559,7 @@ interface StoryAgentContextValue {
   activeSelection: SelectionState | null;
   setActiveSelection: (state: SelectionState | null) => void;
   clearSelection: () => void;
-  sendSelectionEdit: (instruction: string, options?: { regenerateImage?: boolean; imageProvider?: "midjourney" | "gpt-image" }) => Promise<void>;
+  sendSelectionEdit: (instruction: string, options?: { regenerateImage?: boolean; imageProvider?: "midjourney" | "gpt-image"; selection?: SelectionState; clientMessageId?: string }) => Promise<void>;
   confirmSelectionCandidate: (messageId: string) => Promise<void>;
   rejectSelectionCandidate: (messageId: string) => Promise<void>;
   rerenderSelectionImage: (
@@ -1009,7 +1015,6 @@ function reconcileRestoredVisualItems(
   });
 }
 
-
 export function StoryAgentProvider({
   userId,
   projectId,
@@ -1041,7 +1046,8 @@ export function StoryAgentProvider({
       | "rangeId"
       | "selection"
     >,
-    storyId?: number | null
+    storyId?: number | null,
+    workspaceContext?: "book" | "video"
   ) => Promise<{
     handled: boolean;
     reply: string;
@@ -1057,6 +1063,7 @@ export function StoryAgentProvider({
   const chatMut = trpc.storyAgent.chat.useMutation();
   const uploadPhotoMut = trpc.storyAgent.uploadPhoto.useMutation(); // 上传图片用
   const artRiffMut = trpc.artAgent.riff.useMutation();
+  const sendArtSystemChat = useArtSystemChat();
   const analyzeReferenceMut = trpc.artAgent.analyzeReference.useMutation();
   const classifyMut = trpc.storyAgent.classify.useMutation();
   const storyboardImageMut = trpc.storyAgent.generateForMobile.useMutation();
@@ -1802,7 +1809,11 @@ export function StoryAgentProvider({
       const { messages, cards, scripts, storyShots, characters, remoteStoryId,
         storyTitle, storyLogline, storyTheme, storyArc, visualCanvasItems,
         visualPreference, artDirection, publishing, confirmedIntent,
-        pendingIntentDraft, activeSelection, activeStoryId, isReplying } = current;
+        pendingIntentDraft, activeSelection: currentSelection, activeStoryId, isReplying } = current;
+      const submittedSelection = options?.selection !== undefined ? options.selection : currentSelection;
+      const namedShot = options?.workspaceContext === "video" ? resolveConversationShot(text, storyShots) : undefined;
+      const activeSelection = namedShot && activeStoryId ? shotConversationSelection(activeStoryId, namedShot)
+        : options?.workspaceContext === "video" && hasConversationShotReference(text) ? null : submittedSelection;
       const isCurrent = () => {
         const latest = storySpineStore.getState();
         return latest.accountId === current.accountId && latest.storyScopeEpoch === current.storyScopeEpoch &&
@@ -1875,25 +1886,39 @@ export function StoryAgentProvider({
           content: userContent,
           timestamp: Date.now(),
           photoUrl: photoUrlForStore, // 聊天气泡 / 落库都用托管 URL，不存 base64
+          ...(options?.workspaceContext === "video" && activeSelection && selectionBelongsToStory(activeSelection, activeStoryId)
+            ? { selectionQuote: selectionQuoteFrom(activeSelection) } : {}),
         };
         const nextMessages = [...messages, userMsg];
         setMessages(nextMessages);
+
+        const artCommand = !photoBase64 && !parseArtPreviewChat(trimmed) && parseArtSystemChat(trimmed, Boolean(artDirection.recipe?.system) && !activeSelection);
+        if (artCommand) {
+          return sendArtSystemChat({ command: artCommand, instruction: trimmed,
+            storyId: resolvePersistedStoryId(activeStoryId, remoteStoryId),
+            expectedVersion: artDirection.recipe?.version ?? 0,
+            selection: activeSelection, userMessage: userMsg, nextMessages, isCurrent });
+        }
 
         // 剪辑工作室的指令通道：先问剪辑代理，接住就不进故事聊天。
         const selectedVideoForEditing =
           activeSelection?.sourceType === "animatic-video" ||
           activeSelection?.sourceType === "timeline-range";
+        const selectedVisualForProduction = options?.workspaceContext === "video" &&
+          activeSelection &&
+          selectionBelongsToStory(activeSelection, requestStoryId) &&
+          !activeSelection.selection && ["shot", "storyboard-image", "animatic-video"].includes(activeSelection.sourceType);
         if (
           editingCommandRunner &&
           !options?.writingContext &&
           trimmed &&
           !photoBase64 &&
-          (interactionMode === "story" || selectedVideoForEditing)
+          (interactionMode === "story" || selectedVideoForEditing || options?.workspaceContext)
         ) {
           try {
             const outcome = await editingCommandRunner(
               trimmed,
-              selectedVideoForEditing && activeSelection
+              (selectedVideoForEditing || selectedVisualForProduction) && activeSelection
                 ? {
                     sourceType: activeSelection.sourceType,
                     sourceId: activeSelection.sourceId,
@@ -1905,7 +1930,8 @@ export function StoryAgentProvider({
                     selection: activeSelection.selection,
                   }
                 : undefined,
-              requestStoryId
+              requestStoryId,
+              options?.workspaceContext
             );
             if (outcome?.handled) {
               if (
@@ -1933,7 +1959,7 @@ export function StoryAgentProvider({
                       userMessage: {
                         clientMessageId: userMsg.id,
                         content: userMsg.content,
-                        selection: null,
+                        selection: userMsg.selectionQuote ? activeSelection : null,
                       },
                       assistantMessage: {
                         clientMessageId: replyMsg.id,
@@ -2028,7 +2054,8 @@ export function StoryAgentProvider({
             arc: storyArc,
             shots: storyShots,
             publishing,
-          }),
+          }) + (options?.workspaceContext === "video" && activeSelection && selectionBelongsToStory(activeSelection, requestStoryId)
+            ? `\n当前对话选中的镜头：${activeSelection.shotNo ?? ""}（稳定身份 ${activeSelection.stableShotId ?? ""}）。用户说“这个镜头”指这个目标。选中内容：${activeSelection.fullText}。只有工具明确保存后才能报告已修改；范围不明确时直接在对话中询问。` : ""),
           currentShots: storyShots.map(shot => ({
             shotNo: shot.shotNo,
             stableShotId: shot.stableShotId ?? shot.shotIdentity,
@@ -2272,7 +2299,7 @@ export function StoryAgentProvider({
               userMessage: {
                 clientMessageId: userMsg.id,
                 content: userMsg.content,
-                selection: null,
+                selection: userMsg.selectionQuote ? activeSelection : null,
               },
               assistantMessage: {
                 clientMessageId: replyMsg.id,
@@ -2298,6 +2325,7 @@ export function StoryAgentProvider({
     [
       projectId,
       appendConversationTurnMut,
+      sendArtSystemChat,
       storyAutoRenameMut,
       renameStory,
       saveArchiveStory,
@@ -3401,27 +3429,34 @@ export function StoryAgentProvider({
   const registerImageRegionEditRunner = imageRegionEditHandoff.register;
 
   const sendSelectionEdit = useCallback(
-    async (instruction: string, options?: { regenerateImage?: boolean; imageProvider?: "midjourney" | "gpt-image" }) => {
-      if (!activeSelection || isReplying) return;
-      const submittedSelection = activeSelection;
-      if (!selectionBelongsToStory(activeSelection, activeStoryId)) {
+    async (instruction: string, options?: { regenerateImage?: boolean; imageProvider?: "midjourney" | "gpt-image"; selection?: SelectionState; clientMessageId?: string }) => {
+      const selectedSelection = options?.selection ?? activeSelection;
+      if (!selectedSelection || isReplying) return;
+      const submittedSelection = selectedSelection;
+      if (!selectionBelongsToStory(selectedSelection, activeStoryId)) {
         // 兜底：读取侧已经把跨故事选区读成空，能走到这里说明还有别的入口漏了清除。
         setActiveSelection(null);
         toast.error("刚才那个选区属于另一个故事，已经取消；请重新选一次");
         return;
       }
       const requestStoryId = activeStoryId;
-      const storyId = resolvePersistedStoryId(activeSelection.storyId, activeStoryId, remoteStoryId);
+      const requestScope = storySpineStore.getState();
+      const selectionRequestIsCurrent = () => {
+        const current = storySpineStore.getState();
+        return current.accountId === requestScope.accountId && current.activeStoryId === requestStoryId &&
+          current.storyScopeEpoch === requestScope.storyScopeEpoch && current.storyLoadEpoch === requestScope.storyLoadEpoch;
+      };
+      const storyId = resolvePersistedStoryId(selectedSelection.storyId, activeStoryId, remoteStoryId);
 
-      const { sourceType, sourceId, selectedText, fullText } = activeSelection;
-      const userMsg = selectionUserMessage(newId("msg"), instruction, activeSelection);
+      const { sourceType, sourceId, selectedText, fullText } = selectedSelection;
+      const userMsg = selectionUserMessage(options?.clientMessageId ?? newId("msg"), instruction, selectedSelection);
       const nextMessages = [...messages, userMsg]; setMessages(nextMessages);
       setIsReplying(true);
       setReturningGreeting(null);
 
       const commitSelectionReply = async (replyMsg: ChatMessage, persistWarning: string, retainSelection = false) =>
         persistSelectionReply({
-        nextMessages, reply: replyMsg, selection: submittedSelection, retainSelection,
+        nextMessages, currentMessages: () => storySpineStore.getState().messages, reply: replyMsg, selection: submittedSelection, retainSelection,
         userMessage: userMsg, persistWarning, setMessages, setActiveSelection,
         storyId: resolvePersistedStoryId(submittedSelection.storyId, activeStoryId, remoteStoryId),
         appendTurn: appendConversationTurnMut.mutateAsync,
@@ -3432,9 +3467,11 @@ export function StoryAgentProvider({
       });
 
       const commitImageRevision = (revision: StoryboardImageRerenderResult) => commitImageRevisionReply({
-        isCurrent: storyScopeMatches(requestStoryId, storySpineStore.getState().activeStoryId),
+        isCurrent: selectionRequestIsCurrent(),
         reply: imageRevisionReply(newId("msg"), storyId, submittedSelection, revision), revision, commit: commitSelectionReply,
       });
+      const renderInConversation: StoryboardImageRerenderRunner = request =>
+        withMediaChatSession(request.storyId!, () => rerenderSelectionImage(request));
 
       try {
         const imageRegionHandoff = await handoffConfirmedImageRegion({
@@ -3459,12 +3496,12 @@ export function StoryAgentProvider({
           return;
         }
 
-        if (options?.regenerateImage) {
+        if (options?.regenerateImage || usesSelectedImageRevision(parseVisualProductionChat(instruction), submittedSelection)) {
           const revision = await renderSelectionRevision({
             selection: submittedSelection, storyId, instruction,
-            render: rerenderSelectionImage,
+            render: renderInConversation,
             regenerateImage: true,
-            imageProvider: options.imageProvider,
+            imageProvider: options?.imageProvider,
           });
           if (!revision) throw new Error("请重新选中一张完整图片后再生成");
           await commitImageRevision(revision);
@@ -3477,16 +3514,16 @@ export function StoryAgentProvider({
           const outcome = await editingCommandRunner(
             instruction,
             {
-              sourceType: activeSelection.sourceType,
-              sourceId: activeSelection.sourceId,
-              stableShotId: activeSelection.stableShotId,
-              shotNo: activeSelection.shotNo,
-              imageId: activeSelection.imageId,
-              videoTakeId: activeSelection.videoTakeId,
-              rangeId: activeSelection.rangeId,
-              selection: activeSelection.selection,
+              sourceType: selectedSelection.sourceType,
+              sourceId: selectedSelection.sourceId,
+              stableShotId: selectedSelection.stableShotId,
+              shotNo: selectedSelection.shotNo,
+              imageId: selectedSelection.imageId,
+              videoTakeId: selectedSelection.videoTakeId,
+              rangeId: selectedSelection.rangeId,
+              selection: selectedSelection.selection,
             },
-            requestStoryId ?? activeSelection.storyId
+            requestStoryId ?? selectedSelection.storyId
           );
           if (outcome?.handled) {
             if (
@@ -3523,12 +3560,12 @@ export function StoryAgentProvider({
             });
           if (loadedForEdit.mode === "lineage") {
             const target = resolveSelectionPromptTarget({
-              selection: activeSelection,
+              selection: selectedSelection,
               shots: storyShots,
               aggregate: loadedForEdit.projection,
             });
             editText = resolveSelectionEditText({
-              selection: activeSelection,
+              selection: selectedSelection,
               target,
             });
           }
@@ -3539,7 +3576,7 @@ export function StoryAgentProvider({
           selectedText: editText.selectedText,
           instruction,
           promptRewrite,
-          selectionContext: activeSelection,
+          selectionContext: selectedSelection,
           projectId: projectId ?? undefined,
           history: nextMessages.slice(-8).map(m => ({
             role: m.role as "user" | "assistant",
@@ -3560,7 +3597,7 @@ export function StoryAgentProvider({
 
         const revision = await renderSelectionRevision({
           selection: submittedSelection, storyId, instruction, result,
-          originalText: editText.fullText, render: rerenderSelectionImage,
+          originalText: editText.fullText, render: renderInConversation,
           imageProvider: options?.imageProvider,
         });
         if (revision) {
@@ -3580,7 +3617,7 @@ export function StoryAgentProvider({
           });
           if (loaded.mode === "lineage") {
             const target = resolveSelectionPromptTarget({
-              selection: activeSelection,
+              selection: selectedSelection,
               shots: storyShots,
               aggregate: loaded.projection,
             });
@@ -3624,13 +3661,13 @@ export function StoryAgentProvider({
           timestamp: Date.now(),
           promptCandidate,
           imageRerenderAction:
-            sourceType === "storyboard-image" && activeSelection.shotNo != null
+            sourceType === "storyboard-image" && selectedSelection.shotNo != null
               ? {
                   storyId,
-                  stableShotId: activeSelection.stableShotId ?? null,
-                  shotNo: activeSelection.shotNo,
-                  cueCode: activeSelection.cueCode ?? null,
-                  imageId: activeSelection.imageId ?? null,
+                  stableShotId: selectedSelection.stableShotId ?? null,
+                  shotNo: selectedSelection.shotNo,
+                  cueCode: selectedSelection.cueCode ?? null,
+                  imageId: selectedSelection.imageId ?? null,
                   instruction,
                   imageProvider: options?.imageProvider,
                 }
@@ -3647,7 +3684,7 @@ export function StoryAgentProvider({
         );
         // Don't clear selection on failure so user can retry
       } finally {
-        setIsReplying(false);
+        if (selectionRequestIsCurrent()) setIsReplying(false);
       }
     },
     [

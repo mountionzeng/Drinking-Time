@@ -8,7 +8,7 @@ import { formatComputeQuote } from '@shared/computeMoney';
 import { useBookModuleActions } from './bookModuleActions';
 import { BookImageCompositionChat, type BookImageCompositionHandle } from './BookImageCompositionChat';
 import type { BookImageCompositionSession } from './bookImageCompositionSession';
-import { BookImageCompositionCard, compositionStatus } from './BookImageCompositionCard';
+import { BookImageCompositionCard, compositionStatus, compositionTargetLabel } from './BookImageCompositionCard';
 
 export function BookImageCompositionHistory({storyId,session,handle,onContinue}: {
   storyId:number;session:BookImageCompositionSession|null;handle:MutableRefObject<BookImageCompositionHandle|null>;onContinue():void;
@@ -25,6 +25,7 @@ export function BookImageCompositionHistory({storyId,session,handle,onContinue}:
   const records=history.data??[],detail=records.find(task=>task.id===opened);
   const current=active?.key===session?.key?active:null;
   const activeVersion=current?.task && !current.proposing ? records.find(r=>r.id===current.task!.id)?.version ?? records.length+1 : records.length+1;
+  const activeShotNumbers=records.find(r=>r.id===current?.task?.id)?.shotNumbers ?? [...records].reverse().find(r=>session && r.chapterId===session.chapterId && r.composition?.sources.length===session.sources.length && r.composition.sources.every(s=>session.sources.some(source=>source.id===s.id)))?.shotNumbers;
   async function resume(record:typeof records[number]) {
     if(busy)return;
     setBusy(true);setNotice('');
@@ -42,15 +43,16 @@ export function BookImageCompositionHistory({storyId,session,handle,onContinue}:
   return <section aria-label={ui('图像创作记录')}>
     {records.filter(r=>!session || current?.proposing || r.id!==current?.task?.id).map(record=><BookImageCompositionCard key={record.id}
       version={record.version} status={compositionStatus(record)} createdAt={record.createdAt}
+      shotNumbers={record.shotNumbers}
       instruction={record.composition?.instructions.at(-1)??''}
       summary={record.error || (record.status==='succeeded'?ui('图片已生成，原素材和这一版结果均已保留。'):ui('任务已保存，可以打开方案查看进度。'))}
       onOpen={()=>setOpened(record.id)} onContinue={()=>void resume(record)} disabled={busy}/>) }
     {history.error && <p role="alert" className="text-xs text-destructive">{ui('暂时无法读取图像记录，请稍后重试。')}</p>}
     {notice && <p role="status" className="text-xs text-muted-foreground">{notice}</p>}
-    {session && <BookImageCompositionChat key={session.key} session={session} handle={handle} version={activeVersion} onTaskChange={onTaskChange} onContinue={onContinue}/>}
+    {session && <BookImageCompositionChat key={session.key} session={session} handle={handle} version={activeVersion} shotNumbers={activeShotNumbers} onTaskChange={onTaskChange} onContinue={onContinue}/>}
     <Dialog open={Boolean(detail)} onOpenChange={open=>{if(!open)setOpened(null);}}><DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
       {detail?.composition && <>
-        <DialogHeader><DialogTitle>{ui('图像 V{0} · 方案与参数',[detail.version])}</DialogTitle><DialogDescription>{ui(compositionStatus(detail))} · {detail.createdAt?new Date(detail.createdAt).toLocaleString():ui('历史记录')}</DialogDescription></DialogHeader>
+        <DialogHeader><DialogTitle>{compositionTargetLabel(detail.shotNumbers,ui)} · {ui('图像 V{0} · 方案与参数',[detail.version])}</DialogTitle><DialogDescription>{ui(compositionStatus(detail))} · {detail.createdAt?new Date(detail.createdAt).toLocaleString():ui('历史记录')}</DialogDescription></DialogHeader>
         <p className="text-xs text-muted-foreground">{BOOK_COMPOSITION_MODEL} · 1536 × 1024 · {ui('高质量 · 1 张')} · {ui('确认时报价：')}{formatComputeQuote(detail.composition.estimatedCny)}</p>
         <div className="flex flex-wrap gap-2">{compositionReferences(detail.composition.sources).map((url,i)=><img key={url} src={url} alt={ui('参考图 {0}',[i+1])} className="h-20 max-w-36 object-contain"/>)}</div>
         <details><summary className="cursor-pointer text-sm">{ui('所选文字与想法')}</summary><p className="whitespace-pre-wrap text-sm">{detail.composition.sources.filter(s=>!compositionReferences([s]).length).map(s=>s.text).join('\n\n')||ui('按参考图整合画面')}</p></details>

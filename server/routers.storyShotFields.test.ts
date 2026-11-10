@@ -296,6 +296,17 @@ describe("storyAgent.updateStoryShotFields", () => {
       promptDraft: { currentRevision: 2 },
       videoPrompt: { currentRevision: 1 },
     });
+    expect(editedBody.storyboardFieldVersions.tracks.promptDraft.history.at(-1).editorUserId).toBe(614);
+    expect(editedBody.storyboardFieldVersions.tracks.promptDraft.history[0].editorUserId).toBeUndefined();
+
+    // The ordinary chat autosave does not carry this server-owned field.
+    // Its omission must not erase versions before the next restore/edit.
+    const { storyboardFieldVersions: _history, ...autosaveBody } = editedBody;
+    const autosaved = await caller.storyAgent.storyUpsert({
+      id: created.id, title: created.title, body: autosaveBody,
+      baseRevision: (edited.story as any).revision,
+    });
+    expect((autosaved?.body as any).storyboardFieldVersions).toEqual(editedBody.storyboardFieldVersions);
 
     const restored = await caller.storyAgent.restoreStoryShotFieldVersion({
       storyId: created.id,
@@ -308,6 +319,7 @@ describe("storyAgent.updateStoryShotFields", () => {
     expect(
       restoredBody.storyboardFieldVersions.tracks.promptDraft.currentRevision
     ).toBe(3);
+    expect(restoredBody.storyboardFieldVersions.tracks.promptDraft.history.at(-1).editorUserId).toBe(614);
 
     const voiceEdited = await caller.storyAgent.updateStoryShotFields({
       storyId: created.id,

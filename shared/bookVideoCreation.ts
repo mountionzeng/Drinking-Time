@@ -16,6 +16,7 @@ export const bookVideoBriefSchema = z.object({
 });
 export type BookVideoBrief = z.infer<typeof bookVideoBriefSchema>;
 export type BookVideoRecord = {
+  preparedAudio?: import("./bookVideoAudio").PreparedBookVideoAudio;
   directStoryboard?: boolean;
   manuscriptSource?: import("./bookWorkflow").ManuscriptReference;
   creationIntent?: import("./bookWorkflow").CreationIntent;

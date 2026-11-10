@@ -1,5 +1,3 @@
-export type SourceType = 'image' | 'video' | 'script' | 'storyboard' | 'brief' | 'note';
-
 export type ShotStatus =
   | 'idea_pool'
   | 'requirement_pool'

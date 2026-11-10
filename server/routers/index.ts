@@ -92,6 +92,7 @@ import { creationFlowRouter } from "./creationFlow";
 import { textDraftsRouter } from "./textDrafts";
 import { memoryWarehouseRouter } from "./memoryWarehouse";
 import { visualAssetsRouter } from "./visualAssets";
+import { artSystemsRouter } from "./artSystems";
 import { timelineMediaRouter } from "./timelineMedia";
 import { storySoundDirectorRouter } from "./storySoundDirector";
 import { shiguangStoryAccessRouter } from "./shiguangStoryAccess";
@@ -1231,6 +1232,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
   memorySpace: memorySpaceRouter,
   memoryWarehouse: memoryWarehouseRouter,
   visualAssets: visualAssetsRouter,
+  artSystems: artSystemsRouter,
 
   // Subtitle + multi-audio-track narrow commands (one write path per U1/U3).
   timelineMedia: timelineMediaRouter,

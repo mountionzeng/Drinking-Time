@@ -562,7 +562,8 @@ export async function getRecentRejectionSignals(
 
 export async function getRecentChatCorrections(
   projectId: number,
-  limit = 10
+  limit = 10,
+  storyId?: number
 ): Promise<ImageSignal[]> {
   const db = await getDb();
   if (!db) {
@@ -570,6 +571,7 @@ export async function getRecentChatCorrections(
     return memoryState.imageSignals
       .filter(s => {
         if (s.action !== "chat_correction") return false;
+        if (storyId != null && s.storyId !== storyId) return false;
         const meta = s.metadata as Record<string, unknown> | null;
         return meta?.projectId === projectId;
       })
@@ -583,6 +585,7 @@ export async function getRecentChatCorrections(
     .where(
       and(
         eq(imageSignals.action, "chat_correction"),
+        ...(storyId != null ? [eq(imageSignals.storyId, storyId)] : []),
         // @ts-explode — drizzle 不支持 JSON_EXTRACT，用 sql 模板
         sql`JSON_EXTRACT(${imageSignals.metadata}, '$.projectId') = ${projectId}`
       )

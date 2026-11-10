@@ -21,6 +21,9 @@ import {
 } from "../db";
 import type { AudioProbeFacts } from "./audioMedia";
 import { resolveManagedAudioPath } from "./audioMedia";
+import { getStoryById } from "../repositories/stories";
+import { getStoryTimeline } from "../repositories/timelines";
+import { videoMediaHistoryAssetIds } from "../../shared/videoMediaVersions";
 
 export type StoryAudioAssetScope = { storyId: number; userId: number };
 
@@ -148,6 +151,11 @@ export async function discardReadyStoryAudioAsset(input: {
   assetId: number;
   reason: string;
 }): Promise<boolean> {
+  const [story, timeline] = await Promise.all([
+    getStoryById(input.scope.storyId, input.scope.userId),
+    getStoryTimeline(input.scope.storyId, input.scope.userId),
+  ]);
+  if (videoMediaHistoryAssetIds(story?.body, timeline?.extensions ?? {}).has(input.assetId)) return false;
   const asset = await loadReadyStoryAudioAsset({
     scope: input.scope,
     assetId: input.assetId,

@@ -11,6 +11,7 @@ import { fromYuan } from "../../shared/computeMoney";
 import { formatComputeQuote } from "../../shared/computeMoney";
 import { createHash } from "node:crypto";
 import path from "node:path";
+import { artSystemVideoPrompt, withArtSystemVideoPrompt } from "../../shared/artSystem";
 
 import type { VideoTake } from "../../drizzle/schema";
 import { canonicalizeShotNo, type ImageAsset } from "../../shared/imageAsset";
@@ -167,6 +168,12 @@ function expectsStartEndFramePair(shot: RecordValue): boolean {
 }
 
 export function composeStartEndShotEditorDraft(shot: RecordValue): string {
+  // Imported storyboard rows expose videoPrompt as the editable motion brief.
+  // Their original action fields are source snapshots, not a newer direction.
+  if (shot.publishingVideo && text(shot.videoPrompt)) {
+    return [text(shot.videoPrompt), text(shot.dialogue) && `旁白语义：${text(shot.dialogue)}`,
+      text(shot.negativePrompt) && `避免：${text(shot.negativePrompt)}`].filter(Boolean).join("\n").slice(0, 5_000);
+  }
   const directorEntries = [
     ["用户当前画面动作（最高优先级）", text(shot.action)],
     ["当前表演", text(shot.performance)],
@@ -249,14 +256,22 @@ function hashParts(...parts: Array<string | number | null | undefined>) {
   return hash.digest("hex").slice(0, 32);
 }
 
-function assetBelongsToShot(
+export function assetBelongsToShot(
   asset: ImageAsset,
   stableShotId: string,
   shot?: RecordValue
 ) {
-  if (asset.assignment !== "shot" || asset.availability === "missing") {
+  if (asset.availability === "missing" || asset.status === "rejected") {
     return false;
   }
+  // A book reference keeps its original ownership when projected into a shot.
+  const provenance = record(shot?.publishingVideo);
+  const params = generationParams(shot?.generationParams);
+  const references = Array.isArray(params.referenceFrameImageIds)
+    ? positiveImageIds(params.referenceFrameImageIds)
+    : positiveImageIds(provenance.referenceImageIds);
+  if (references.includes(asset.id) || positiveImageId(provenance.referenceImageId) === asset.id) return true;
+  if (asset.assignment !== "shot") return false;
   if (asset.shotIdentity) return asset.shotIdentity === stableShotId;
   const canonicalShotNo = shot
     ? canonicalizeShotNo(text(shot.cueCode ?? shot.shotNo ?? shot.shotKey))
@@ -795,6 +810,7 @@ export async function startEndShotVideoJob(
       userId,
       firstImageId: resolved.firstFrame.id,
       lastImageId: resolved.lastFrame.id,
+      stableShotId: resolved.stableShotId,
       size,
     });
     const frameDataUrl = (bytes: Uint8Array) =>
@@ -825,15 +841,18 @@ export async function startEndShotVideoJob(
         fallbackPrompt: safeguardedPrompt,
         shotNo: resolved.shotNo,
         cueCode: resolved.cueCode,
-        draftPrompt: resolved.prompt,
+        draftPrompt: [resolved.prompt, artSystemVideoPrompt(record(resolved.storyBody))].filter(Boolean).join("\n\n"),
         subtitle: resolved.subtitle ?? undefined,
         storyTitle: resolved.storyTitle,
         ...context,
+        ...(storyShots(resolved.storyBody).find(shot => stableShotIdOf(shot) === resolved.stableShotId)?.publishingVideo
+          ? { currentShot: { action: resolved.prompt, videoPrompt: resolved.prompt, dialogue: resolved.subtitle ?? undefined } }
+          : {}),
       }),
       uploadFrames(),
     ]);
     const { firstImageUrl, lastImageUrl } = uploadedFrames;
-    const providerPrompt = promptDirector.prompt;
+    const providerPrompt = withArtSystemVideoPrompt(promptDirector.prompt, record(resolved.storyBody), 1500);
     take = await patchTake(
       take,
       userId,

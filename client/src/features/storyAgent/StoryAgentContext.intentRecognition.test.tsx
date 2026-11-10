@@ -359,6 +359,9 @@ vi.mock("@/features/storyAgent/useChatImageRemix", () => ({
     promoteRef: () => {},
   }),
 }));
+vi.mock("@/features/storyAgent/useTwoImageChat", () => ({
+  useTwoImageChat: () => ({ state: null, arm: vi.fn(), answer: vi.fn(), revise: vi.fn() }),
+}));
 
 vi.mock("@/features/storyAgent/useAssetSwapProposal", () => ({
   useAssetSwapProposal: () => ({

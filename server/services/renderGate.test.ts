@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 
 const dbMocks = vi.hoisted(() => ({
   getRecentEditPreferences: vi.fn(),
+  getRecentChatCorrections: vi.fn<(...args: unknown[]) => Promise<Array<{ metadata: Record<string, unknown> }>>>(async () => []),
 }));
 
 vi.mock("./artRepository", () => ({
@@ -18,6 +19,24 @@ vi.mock("../db", async importOriginal => {
 import { renderViaGate, type RenderContext } from "./renderGate";
 
 describe("renderViaGate（出图网关）", () => {
+  it("scopes visual corrections to this story and keeps an authored interface layout", async () => {
+    let seen = "";
+    dbMocks.getRecentEditPreferences.mockClear();
+    dbMocks.getRecentChatCorrections.mockClear();
+    dbMocks.getRecentChatCorrections.mockResolvedValueOnce([
+      { metadata: { shotNo: "SH01", correction: "旧镜头的窒息感" } },
+      { metadata: { shotNo: "SH02", correction: "保留温暖色调" } },
+    ]);
+    await renderViaGate({ prompt: "手绘产品界面，文字区域留白", authoredBrief: true,
+      storyId: 1217, projectId: 1129, shotNo: "2" }, async prompt => { seen = prompt; });
+    expect(dbMocks.getRecentChatCorrections).toHaveBeenCalledWith(1129, 5, 1217);
+    expect(dbMocks.getRecentEditPreferences).not.toHaveBeenCalled();
+    expect(seen).toContain("保留物体形状和界面布局");
+    expect(seen).not.toContain("只能显示无字背面");
+    expect(seen).toContain("禁止可读文字");
+    expect(seen).toContain("保留温暖色调");
+    expect(seen).not.toContain("旧镜头的窒息感");
+  });
   it("keeps an explicitly faithful reference brief without restyling or banning its UI", async () => {
     const instruction = "请保留茶壶的形状以及茶壶和聊天框的位置，我希望和参考图一模一样";
     let seen = "";

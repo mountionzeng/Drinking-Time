@@ -29,6 +29,7 @@ import {
   storyboardDragScrollSpeedMultiplier,
   storyboardExplicitImageInstruction,
   storyboardFrameParamsAfterDelete,
+  shouldDetachStoryboardImage,
   storyboardFrameOrderGenerationParams,
   storyboardFrameOrdersAfterMove,
   storyboardFrameRoleForImage,
@@ -849,6 +850,34 @@ describe("StoryCardsBoard intent entry", () => {
         lastImageId: 43,
       },
     });
+  });
+
+  it("does not bring a removed parent image back from the adopted image's lineage", () => {
+    const images = [
+      { id: 2019, imageUrl: "/old.png", shotIdentity: null },
+      { id: 2038, imageUrl: "/new.png", shotIdentity: "shot-01" },
+    ];
+    const generationParams = storyboardFrameParamsAfterDelete("", images, 2019);
+    const restored = { shotNo: 1, shotKey: "story:1", stableShotId: "shot-01", generationParams, imageVersions: images } as unknown as CreationEditorShot;
+    expect(storyboardShotFrameImages(restored).map(image => image.id)).toEqual([2038]);
+    // Explicitly assigning it again to this shot must make it available again.
+    restored.imageVersions = [{ ...images[0], shotIdentity: "shot-01" }, images[1]] as CreationEditorShot["imageVersions"];
+    expect(storyboardShotFrameImages(restored).map(image => image.id)).toContain(2019);
+  });
+
+  it("keeps multiple removals scoped to the shot, including its last image", () => {
+    const a = { id: 1, imageUrl: "/a.png", shotIdentity: null };
+    const b = { id: 2, imageUrl: "/b.png", shotIdentity: null };
+    let generationParams = storyboardFrameParamsAfterDelete("", [a, b], 1);
+    generationParams = storyboardFrameParamsAfterDelete(generationParams, [b], 2);
+    expect(storyboardShotFrameImages({ shotNo: 1, shotKey: "1", stableShotId: "shot-01", generationParams, imageVersions: [a, b] } as CreationEditorShot)).toEqual([]);
+    expect(storyboardShotFrameImages({ shotNo: 2, shotKey: "2", stableShotId: "shot-02", imageVersions: [a, b] } as CreationEditorShot)).toHaveLength(2);
+  });
+
+  it("does not detach a related frame from the different shot that owns it", () => {
+    expect(shouldDetachStoryboardImage({ shotIdentity: "shot-02" }, "shot-01")).toBe(false);
+    expect(shouldDetachStoryboardImage({ shotIdentity: "shot-01" }, "shot-01")).toBe(true);
+    expect(shouldDetachStoryboardImage({ shotIdentity: null }, "shot-01")).toBe(true);
   });
 
   it("preserves neighboring boundary locks when deleting a local candidate", () => {

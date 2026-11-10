@@ -31,7 +31,7 @@ import {
   decideVideoRenderStrategy,
   type VideoRenderDecision,
 } from "@shared/videoMotionPolicy";
-import { shotIdentityFromShot } from "@shared/shotIdentity";
+import { normalizeShotIdentity, shotIdentityFromShot } from "@shared/shotIdentity";
 import {
   parseShotNo,
   type GeneratedImageItem,
@@ -533,87 +533,6 @@ export function storyboardShotCostEstimate(
   };
 }
 
-export type StoryboardOneClickVideoPlan = {
-  shots: Array<{
-    shotNo: number;
-    durationSec: number;
-    estimatedCny: number;
-    needsImage: boolean;
-  }>;
-  durationSec: number;
-  estimatedCny: number;
-  imageGenerationCount: number;
-  skippedCount: number;
-};
-
-/** Build the paid-work plan before the UI asks for one combined confirmation. */
-export function planStoryboardOneClickVideo(
-  shots: readonly CreationEditorShot[],
-  providerStatus: { ready: boolean; reason?: string | null },
-  targetDurationSec = 30,
-  imageStage: {
-    imageProviderReady: boolean;
-    hasInheritedCover: boolean;
-    estimatedImageCny?: number;
-  } = { imageProviderReady: false, hasInheritedCover: false }
-): StoryboardOneClickVideoPlan {
-  const ready = shots.flatMap(shot => {
-    const hasCurrentImage = Boolean(storyboardVideoSourceFrame(shot));
-    const canGenerateImage =
-      !hasCurrentImage &&
-      imageStage.imageProviderReady &&
-      imageStage.hasInheritedCover &&
-      Boolean((shot.promptDraft ?? "").trim());
-    if (!hasCurrentImage && !canGenerateImage) return [];
-    if (!(shot.videoPrompt ?? "").trim() || !providerStatus.ready) return [];
-    const renderPlan = quickShotVideoRenderPlan(
-      hasCurrentImage
-        ? shot
-        : ({
-            ...shot,
-            imageId: -1,
-            imageUrl: "pending-cover-seed",
-          } as CreationEditorShot),
-      []
-    );
-    if (renderPlan.missing.length > 0) return [];
-    return [
-      {
-        shotNo: shot.shotNo,
-        durationSec: renderPlan.durationSec,
-        estimatedCny:
-          renderPlan.estimatedCny +
-          (!hasCurrentImage ? (imageStage.estimatedImageCny ?? 0) : 0),
-        needsImage: !hasCurrentImage,
-      },
-    ];
-  });
-
-  const selected: StoryboardOneClickVideoPlan["shots"] = [];
-  let durationSec = 0;
-  for (const candidate of ready) {
-    const currentDistance = Math.abs(targetDurationSec - durationSec);
-    const nextDistance = Math.abs(
-      targetDurationSec - (durationSec + candidate.durationSec)
-    );
-    if (durationSec > 0 && nextDistance > currentDistance) break;
-    selected.push(candidate);
-    durationSec += candidate.durationSec;
-    if (durationSec === targetDurationSec) break;
-  }
-
-  return {
-    shots: selected,
-    durationSec,
-    estimatedCny: selected.reduce(
-      (total, shot) => total + shot.estimatedCny,
-      0
-    ),
-    imageGenerationCount: selected.filter(shot => shot.needsImage).length,
-    skippedCount: shots.length - ready.length,
-  };
-}
-
 export function storyboardVideoRenderBlockReason(
   shot: CreationEditorShot,
   providerStatus: { ready: boolean; reason?: string | null }
@@ -627,6 +546,26 @@ export function storyboardVideoRenderBlockReason(
   if (!providerStatus.ready) {
     return providerStatus.reason?.trim() || "视频模型状态尚未就绪";
   }
+  return null;
+}
+
+/** A render click may use this shot's own reference; it never borrows another shot. */
+export function storyboardAutomaticVideoShot(shot: CreationEditorShot): CreationEditorShot {
+  const frames = storyboardShotFrameImages(shot).filter(frame => !isFrameCandidateSheet(frame, shot.promptRun?.imageId));
+  const source = storyboardVideoSourceFrame(shot) ??
+    (shot.publishingVideo?.referenceImageIds ?? []).map(id => frames.find(frame => frame.id === id)).find(Boolean) ??
+    frames.at(-1);
+  const videoPrompt = shot.videoPrompt?.trim() || [shot.action, shot.cameraMove, shot.subject, shot.promptDraft].filter(Boolean).join("\n");
+  return { ...shot, videoPrompt, ...(source ? { imageId: source.id, imageUrl: source.imageUrl } : {}) };
+}
+
+export function storyboardVideoPreparationBlockReason(
+  shot: CreationEditorShot, provider: { ready: boolean; reason?: string | null }, imageReady: boolean
+): string | null {
+  const effective = storyboardAutomaticVideoShot(shot);
+  if (!effective.videoPrompt?.trim()) return "请描述这一镜的画面或动作";
+  if (!provider.ready) return provider.reason?.trim() || "视频模型状态尚未就绪";
+  if (!storyboardVideoSourceFrame(effective) && !imageReady) return "图片模型尚未就绪，暂时无法自动准备画面";
   return null;
 }
 
@@ -954,6 +893,9 @@ export function storyboardFrameParamsAfterDelete(
   const remaining = images.filter(image => image.id !== imageId);
   const remainingIds = remaining.map(image => image.id);
   const current = generationParamsRecord(generationParams);
+  current.removedStoryboardImageIds = Array.from(new Set([
+    ...positiveImageIds(current.removedStoryboardImageIds), imageId,
+  ]));
   const sources =
     current.startEndFrameSources &&
     typeof current.startEndFrameSources === "object" &&
@@ -1013,7 +955,7 @@ export function storyboardFrameParamsAfterDelete(
       [...remainingIds].reverse().find(id => id !== firstImageId) ?? null;
   }
   return serializeStoryboardFrameRoles(
-    generationParams,
+    JSON.stringify(current),
     {
       firstImageId,
       lastImageId,
@@ -1023,6 +965,15 @@ export function storyboardFrameParamsAfterDelete(
     },
     durationMs
   );
+}
+
+/** A related image owned by another shot must remain assigned there. */
+export function shouldDetachStoryboardImage(
+  image: Pick<CreationEditorImage, "shotIdentity"> | undefined,
+  targetStableShotId: string
+): boolean {
+  const owner = normalizeShotIdentity(image?.shotIdentity);
+  return !owner || owner === normalizeShotIdentity(targetStableShotId);
 }
 
 export function storyboardFrameRoleForImage(
@@ -1296,6 +1247,8 @@ export function storyboardFrameOrdersAfterMove(
 export function storyboardShotFrameImages(
   shot: CreationEditorShot
 ): CreationEditorImage[] {
+  const removed = new Set(positiveImageIds(generationParamsRecord(shot.generationParams).removedStoryboardImageIds));
+  const identity = normalizeShotIdentity(shotIdentityFromShot(shot));
   const candidates = [...(shot.imageVersions ?? [])];
   if (
     shot.imageId != null &&
@@ -1318,7 +1271,8 @@ export function storyboardShotFrameImages(
   const unique = Array.from(
     new Map(
       candidates
-        .filter(image => image.id > 0 && Boolean(image.imageUrl))
+        .filter(image => image.id > 0 && Boolean(image.imageUrl) &&
+          (!removed.has(image.id) || Boolean(identity && normalizeShotIdentity(image.shotIdentity) === identity)))
         .map(image => [image.id, image])
     ).values()
   ).sort((left, right) => left.id - right.id);
@@ -1648,7 +1602,7 @@ export function storyboardDraftCostEstimate(
   imageCount: number,
   priceProfile?: ShotVideoPriceProfile
 ) {
-  const effective = source ? storyboardRenderShotWithDraft(source, shot, pending) : undefined;
+  const effective = source ? storyboardAutomaticVideoShot(storyboardRenderShotWithDraft(source, shot, pending)) : undefined;
   if (effective) effective.generationParams = storyboardStartEndTuningGenerationParams(effective.generationParams, tuning);
   return storyboardShotCostEstimate(effective, { neighbors, imageCount, priceProfile });
 }

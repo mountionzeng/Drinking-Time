@@ -3470,6 +3470,7 @@ export function StoryboardEditRow({
       {timeline.subtitle ? (
         <>
           <SubtitleRowHeader
+            versions={timeline.subtitle.versions}
             actions={
               timeline.addMedia ? (
                 <AddTimelineMediaMenu {...timeline.addMedia} />
@@ -3491,6 +3492,7 @@ export function StoryboardEditRow({
       ) : null}
       {timeline.audio ? (
         <AudioTrackSection
+          versions={timeline.audio.versions}
           storyId={timeline.audio.storyId}
           audioState={timeline.audio.audioState}
           viewport={viewport}

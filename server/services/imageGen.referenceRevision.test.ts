@@ -37,6 +37,22 @@ describe("selected-image provider routing", () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
+  it("sends the composition base first in a two-reference structural edit", async () => {
+    ENV.image302GptQuality = "high";
+    ENV.image302GptSize = "1024x1024";
+    const reference = "data:image/png;base64,cmVmZXJlbmNlLXBpeGVscw==";
+    const fetcher = vi.fn().mockResolvedValue(response({ data: [{ b64_json: "b3V0cHV0" }] }));
+    const result = await editImage(source, "保留位置", { provider: "gpt-image", preferStructuralEdit: true, referenceContextImageUrls: [reference], fetcher });
+    expect(result.status).toBe("ok");
+    const form = fetcher.mock.calls[0][1].body as FormData;
+    expect(form.get("model")).toBe("gpt-image-2");
+    expect(form.get("quality")).toBe("high");
+    expect(form.get("n")).toBe("1");
+    expect(form.get("input_fidelity")).toBeNull();
+    const images = form.getAll("image[]") as Blob[];
+    expect(await Promise.all(images.map(image => image.text()))).toEqual(["original-pixels", "reference-pixels"]);
+  });
+
   it("sends the exact selected image and revision prompt to MJ, retaining all returned candidates", async () => {
     ENV.image302MjAuthHeader = "mj-api-secret";
     const fetcher = vi.fn()

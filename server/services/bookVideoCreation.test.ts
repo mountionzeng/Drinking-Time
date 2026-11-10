@@ -8,7 +8,8 @@ import {
 } from "../../shared/publishingDraft";
 import { buildPublishingArticleVideoPreview } from "../../shared/publishingArticleVideo";
 import { prepareStoryBody } from "./storySync";
-const mocks = vi.hoisted(() => ({ compute: vi.fn(), generate: vi.fn() }));
+const mocks = vi.hoisted(() => ({ compute: vi.fn(), generate: vi.fn(), prepareAudio: vi.fn() }));
+vi.mock("./bookVideoAudio", () => ({ prepareBookVideoAudio: mocks.prepareAudio }));
 vi.mock("./publishingVideoStoryboard", async importOriginal => ({
   ...(await importOriginal<typeof import("./publishingVideoStoryboard")>()),
   runPublishingVideoStoryboardTextCompute: mocks.compute,
@@ -48,6 +49,7 @@ const brief = {
 };
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.prepareAudio.mockReset().mockResolvedValue(undefined);
   mocks.compute.mockResolvedValue({ parsed: brief, modelLabel: "test" });
   mocks.generate.mockImplementation(async input => ({
     preview: buildPublishingArticleVideoPreview({
@@ -453,7 +455,17 @@ it('imports the current storyboard directly without AI, preserves its source and
   await db.updateStoryTimeline({storyId:input.storyId,userId:31,expectedVersion:oldTimeline.version,items:(oldTimeline.items as any[]).map(item=>({...item,durationFrames:180,plannedDurationMs:6000,timelineStartFrame:60})),extensions:{subtitleTracks:oldSubtitle}});
   await db.createGeneratedImage({storyId:input.storyId,userId:31,projectId:null,shotNo:'SH01',shotIdentity:current.shots[0].stableShotId,imageUrl:'/api/images/old-video.png',imageKey:null,prompt:'旧视频图片',generationType:'initial',isCurrent:true});
   expect(await db.updateStoryBodyIfRevision({id:input.storyId,userId:31,expectedRevision:current._revision,body:{...current,_revision:current._revision+1,shots:current.shots.map((shot:any)=>({...shot,dialogue:'视频里另改过的旧台词',durationMs:6000}))}})).toBe(true);
-  const next = await service.importBookStoryboard({...request,id:crypto.randomUUID()});
+  const derivedMusic = await db.createStoryAudioAssetRow({storyId:input.storyId,userId:31,storageKey:'e'.repeat(32),displayName:'全片配乐',sourceKind:'tts',mediaKind:'music',status:'ready',durationFrames:390,durationSeconds:13});
+  const replacement = {...request,id:crypto.randomUUID()};
+  const beforeFailure = await db.getStoryTimeline(input.storyId,31);
+  mocks.prepareAudio.mockRejectedValueOnce(new Error('语音边界不确定'));
+  await expect(service.importBookStoryboard(replacement)).rejects.toThrow('语音边界不确定');
+  expect(await db.getStoryTimeline(input.storyId,31)).toEqual(beforeFailure);
+  const sourceRow = (await service.listBookVideoRecords(input)).at(-1)!.layout.bookScenes![0];
+  mocks.prepareAudio.mockResolvedValueOnce({version:1,durationFrames:390,shots:[{draftShotId:sourceRow.id,durationFrames:390}],
+    narration:{assetId:audio.id,sourceAssetId:audio.id,speed:0.9,lines:[{draftShotId:sourceRow.id,text:'这把伞，还能陪我们很久。',startFrame:45,durationFrames:270}]},
+    music:[{assetId:derivedMusic.id,sourceAssetId:music.id}]});
+  const next = await service.importBookStoryboard(replacement);
   expect(next.shots[0]).toMatchObject({dialogue:'这把伞，还能陪我们很久。',durationMs:13000});
   const retained = await service.listBookVideoRecords(input);
   expect(retained[0].storyboardSnapshot?.shots[0]).toMatchObject({dialogue:'视频里另改过的旧台词',durationMs:6000});
@@ -463,7 +475,12 @@ it('imports the current storyboard directly without AI, preserves its source and
   expect(material.timeline.items[0]).toMatchObject({durationFrames:390,timelineStartFrame:0,plannedDurationMs:13000});
   expect(JSON.stringify(material.timeline.extensions?.subtitleTracks)).toContain('这把伞，还能陪我们很久。');
   expect(JSON.stringify(material.timeline.extensions?.subtitleTracks)).not.toContain('旧版字幕');
-  expect((material.timeline.extensions?.audioTracks as any).tracks.find((track:any)=>track.kind==='music').clips).toEqual([expect.objectContaining({assetId:music.id,durationFrames:300,timelineStartFrame:0})]);
+  expect((material.timeline.extensions?.subtitleTracks as any).tracks[0].cues).toEqual([expect.objectContaining({text:'这把伞，还能陪我们很久。',startFrame:45,durationFrames:270})]);
+  expect((material.timeline.extensions?.audioTracks as any).tracks.find((track:any)=>track.kind==='music').clips).toEqual([expect.objectContaining({assetId:derivedMusic.id,durationFrames:390,timelineStartFrame:0})]);
+  expect((material.timeline.extensions?.audioTracks as any).tracks.find((track:any)=>track.kind==='narration').clips).toEqual([expect.objectContaining({assetId:audio.id,durationFrames:390,timelineStartFrame:0})]);
+  const afterImport = await db.getStoryTimeline(input.storyId,31);
+  await service.importBookStoryboard(replacement);
+  expect(await db.getStoryTimeline(input.storyId,31)).toEqual(afterImport);
   expect(material.shots[0].currentImage).toBeNull();
   expect(material.shots[0].imageGenerationReferences?.map(image=>image.id)).toEqual([image.id]);
   const saved = (await db.getStoryById(input.storyId,31))!.body as any;
@@ -471,4 +488,9 @@ it('imports the current storyboard directly without AI, preserves its source and
   expect(archived.material.timeline.items[0]).toMatchObject({durationFrames:180,timelineStartFrame:60});
   expect(archived.material.timeline.extensions.subtitleTracks).toEqual(oldSubtitle);
   expect(await listChapters(input.storyId,31,'all')).toEqual(before);
+  mocks.prepareAudio.mockResolvedValueOnce({version:1,durationFrames:390,shots:[{draftShotId:sourceRow.id,durationFrames:390}],
+    narration:{assetId:audio.id,sourceAssetId:audio.id,speed:0.9,lines:[{draftShotId:sourceRow.id,text:'旧的另一句台词',startFrame:45,durationFrames:270}]},music:[]});
+  const beforeStaleVoice = await db.getStoryTimeline(input.storyId,31);
+  await expect(service.importBookStoryboard({...request,id:crypto.randomUUID()})).rejects.toThrow('声音节奏与当前分镜不一致');
+  expect(await db.getStoryTimeline(input.storyId,31)).toEqual(beforeStaleVoice);
 });

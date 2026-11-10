@@ -1,3 +1,11 @@
+import { SHOT_CHAT_FOCUS_EVENT } from "@/features/storyAgent/shotChatFocus";
+import { browserStoryViewStorage, readStoryView, saveStoryView } from "./storyWorkspacePreference";
+import { useImageRevisionChat } from "@/features/storyAgent/useImageRevisionChat";
+import { parseSoundChat } from "@shared/soundChat";
+import { runVisualProductionChat } from "@/features/storyAgent/visualProductionChatBridge";
+import { useArtPreviewChat } from "@/features/storyAgent/useArtPreviewChat";
+import { runSoundChat } from "@/features/creationEditor/timelineMedia/soundChatBridge";
+import { BOOK_NARRATION_OPEN } from "@/features/publishingAlbum/BookSoundMenu";
 import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { BOOK_MUSIC_OPEN } from "@/features/publishingAlbum/BookMusicInsert";
 import { useBookModuleActions } from '@/features/publishingAlbum/bookModuleActions';
@@ -246,6 +254,14 @@ function EditingStudioBody({
     setConfirmedIntent,
   } = useStoryAgentActions();
   const [chatCollapsed, setChatCollapsed] = useState(false);
+  useEffect(() => {
+    const open = (event: Event) => {
+      const detail = (event as CustomEvent<{ storyId: number }>).detail;
+      if (detail?.storyId === activeStoryId) setChatCollapsed(false);
+    };
+    window.addEventListener(SHOT_CHAT_FOCUS_EVENT, open);
+    return () => window.removeEventListener(SHOT_CHAT_FOCUS_EVENT, open);
+  }, [activeStoryId]);
   const [createRequest, setCreateRequest] = useState<StudioCreateRequest | null>(null);
   const { user: creationUser } = useAuth();
   const handoffId = useRef(new URLSearchParams(window.location.search).get("createRequest"));
@@ -299,6 +315,7 @@ function EditingStudioBody({
   const [videoEditorHandoffTarget, setVideoEditorHandoffTarget] =
     useState<VideoClipEditorTarget | null>(null);
   const previousStoryIdRef = useRef<number | null>(null);
+  const restoredWorkspaceScope = useRef<string | null>(null);
   const hasEnteredStoryRef = useRef(false);
   const creationFlowOrigin = useRef<StudioWorkspace | null>(null);
   const savedPublishing = useStorySpine(state => state.publishing);
@@ -347,6 +364,19 @@ function EditingStudioBody({
     previousStoryIdRef.current = activeStoryId;
     const initialEntry = !hasEnteredStoryRef.current && activeStoryId !== null;
     if (activeStoryId !== null) hasEnteredStoryRef.current = true;
+    const scope = creationUser?.id && activeStoryId && activeStoryId > 0
+      ? `${creationUser.id}:${activeStoryId}` : null;
+    const needsRestore = scope !== null && scope !== restoredWorkspaceScope.current;
+    if (scope) restoredWorkspaceScope.current = scope;
+    else if (activeStoryId === null) restoredWorkspaceScope.current = null;
+    const explicitChapterInbox = (initialEntry || (previousStoryId === activeStoryId && needsRestore)) &&
+      new URLSearchParams(window.location.search).get("chapterInbox") === "1";
+    const savedView = activeStoryId !== null && !explicitChapterInbox
+      ? readStoryView(browserStoryViewStorage(), creationUser?.id, activeStoryId, "workspace") : null;
+    if (savedView && needsRestore && previousStoryId !== -1) {
+      onWorkspaceChange(savedView);
+      return;
+    }
     if (
       !shouldRouteWorkspaceForStoryTransition(previousStoryId, activeStoryId, {
         initialEntry,
@@ -354,7 +384,7 @@ function EditingStudioBody({
     )
       return;
     onWorkspaceChange(workspaceForStoryStage(storyShotCount));
-  }, [activeStoryId, onWorkspaceChange, storyShotCount]);
+  }, [activeStoryId, creationUser?.id, onWorkspaceChange, storyShotCount]);
 
   useEffect(() => {
     const startDailyThoughtConversation = (event: Event) => {
@@ -479,7 +509,7 @@ function EditingStudioBody({
   );
 
   return (
-    <BookVideoWorkspaceProvider key={`${creationUser?.id}:${activeStoryId}`} storyId={activeStoryId}
+    <BookVideoWorkspaceProvider key={`${creationUser?.id}:${activeStoryId}`} storyId={activeStoryId} userId={creationUser?.id}
       onOpen={() => onWorkspaceChange("editing")} onDiscuss={() => setChatCollapsed(false)}>
     <CreationEditorProvider activeStoryId={activeStoryId}>
       <StoryActivityTracker storyId={activeStoryId} userId={creationUser?.id ?? null} enabled={!accountMemoriesOpen} />
@@ -520,6 +550,7 @@ function EditingStudioBody({
               <StoryAgentChat
                 showCreationActions
                 showHeader={false}
+                workspaceContext={workspace === "publishing" || workspace === "images" ? "book" : "video"}
                 interactionMode={interactionMode}
                 onOpenPublishingWorkspace={() =>
                   onWorkspaceChange("publishing")
@@ -724,6 +755,8 @@ export default function EditingStudioPage() {
   }, []);
   const utils = trpc.useUtils();
   const timelineEditMut = trpc.creationAgent.timelineEditCommand.useMutation();
+  const runArtPreviewChat = useArtPreviewChat();
+  const runImageRevisionChat = useImageRevisionChat();
   const [accountMemoriesOpen, setAccountMemoriesOpen] = useState(false);
   const [materialVisible, setMaterialVisible] = useState(false);
   const [dailyLetterOpen, setDailyLetterOpen] = useState(() =>
@@ -732,6 +765,10 @@ export default function EditingStudioPage() {
     )
   );
   const [workspace, setWorkspace] = useState<StudioWorkspace>(() => new URLSearchParams(window.location.search).get("chapterInbox") === "1" ? "images" : "publishing");
+  const changeWorkspace = useCallback((next: StudioWorkspace) => {
+    saveStoryView(browserStoryViewStorage(), user?.id, activeStoryId, "workspace", next);
+    setWorkspace(next);
+  }, [user?.id, activeStoryId]);
   const interactionMode = resolveStudioInteractionMode(
     workspace,
     confirmedIntent
@@ -753,7 +790,8 @@ export default function EditingStudioPage() {
         | "rangeId"
         | "selection"
       >,
-      requestedStoryId?: number | null
+      requestedStoryId?: number | null,
+      requestedWorkspace?: "book" | "video"
     ) => {
       const storyId = resolveTimelineCommandStoryId(
         requestedStoryId,
@@ -761,6 +799,36 @@ export default function EditingStudioPage() {
         storySpineStore.getState().activeStoryId
       );
       if (storyId == null) return null;
+      const soundIntent = parseSoundChat(instruction);
+      const surface = requestedWorkspace ?? (workspace === "publishing" || workspace === "images" ? "book" : "video");
+      // A visual brief may mention subtitles or music as constraints. Route its
+      // explicit operation before the broad sound-help fallback.
+      if (surface === "video") {
+        const revision = await runImageRevisionChat(storyId, instruction);
+        if (revision) return revision;
+        const preview = await runArtPreviewChat(storyId, instruction);
+        if (preview) return preview;
+        const production = await runVisualProductionChat(storyId, instruction, selectionContext);
+        if (production) return production;
+      }
+      if (soundIntent) {
+        if (surface === "video") {
+          if (selectionContext?.stableShotId && !/全片|整个视频|整部|全部音乐|whole (?:film|video)|entire (?:film|video)/i.test(instruction))
+            return { handled: true as const, reply: `这条声音要求已记录在第 ${String(selectionContext.shotNo ?? "").padStart(2, "0")} 镜的对话里。当前声音编辑针对全片音轨，单镜音量尚未调整，全片声音也没有改动。` };
+          return runSoundChat(storyId, instruction, soundIntent);
+        }
+        if (workspace !== "publishing" && workspace !== "images") return { handled: true as const, reply: "这条要求属于书页，请回到书页继续；视频没有修改。" };
+        if (/生成|添加|换|重新|制作/.test(instruction) && /音乐|配乐/.test(instruction)) {
+          window.dispatchEvent(new CustomEvent(BOOK_MUSIC_OPEN, { detail: { storyId, wholeBook: true, instruction } }));
+          return { handled: true as const, reply: "已带入这本书和你的音乐要求。确认算力后会生成新的整书配乐，原声音保留。" };
+        }
+        if (/生成|添加|重新|制作/.test(instruction) && /有声书|旁白|台词|朗读/.test(instruction)) {
+          window.dispatchEvent(new CustomEvent(BOOK_NARRATION_OPEN, { detail: { storyId } }));
+          return { handled: true as const, reply: "已打开当前整本书的朗读设置；分镜版只读取台词。确认算力后生成，原声音保留。" };
+        }
+        return { handled: true as const, reply: "当前是书页，可直接说“添加背景音乐”或“生成有声书 / 台词”。调整影片的音量、静音或淡入淡出，请在视频页说，我会修改对应的视频声音版本。" };
+      }
+      if (surface === "book") return null;
       const localCommand = parseLocalEditingChatCommand(instruction);
       if (localCommand?.type === "capabilities") {
         return {
@@ -813,7 +881,7 @@ export default function EditingStudioPage() {
         transitionCandidate: result.proposal,
       };
     },
-    [activeStoryId, timelineEditMut, utils]
+    [workspace, activeStoryId, timelineEditMut, utils, runArtPreviewChat, runImageRevisionChat]
   );
 
   return (
@@ -867,7 +935,7 @@ export default function EditingStudioPage() {
           testId: `topbar-${option.id}-workspace-toggle`,
           tourAnchor: `workspace-${option.id}`,
           onToggle: () => {
-            setWorkspace(option.id);
+            changeWorkspace(option.id);
           },
 
         }))}
@@ -911,7 +979,7 @@ export default function EditingStudioPage() {
             onAccountMemoriesOpenChange={setAccountMemoriesOpen}
             workspace={workspace}
             interactionMode={interactionMode}
-            onWorkspaceChange={setWorkspace}
+            onWorkspaceChange={changeWorkspace}
             materialVisible={materialVisible}
             onMaterialVisibleChange={setMaterialVisible}
             pendingStoryRequestId={pendingStoryRequestId}

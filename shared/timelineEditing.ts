@@ -15,7 +15,6 @@ import {
 } from "./timelineSource";
 import {
   durationFramesForItem,
-  type TimelineLayoutRow,
 } from "./timelineLayout";
 
 export type TimelineEditResult<T> =
@@ -406,16 +405,4 @@ export function splitTimelineItem(input: {
     left: { ...left.item, stableShotId: input.leftStableShotId },
     right: { ...right.item, stableShotId: input.rightStableShotId },
   };
-}
-
-export function timelineItemHasAnchor(item: StoryTimelineItem): boolean {
-  return (item.anchors?.length ?? 0) > 0;
-}
-
-export function timelineItemDurationFrames(item: StoryTimelineItem): number {
-  return durationFramesForItem(item);
-}
-
-export function timelineAnchorFrames(row: TimelineLayoutRow): number[] {
-  return (row.item.anchors ?? []).map(anchor => anchor.timelineFrame);
 }

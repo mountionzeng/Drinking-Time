@@ -9,8 +9,8 @@ import {
 } from "react";
 import { useUiText } from "@/features/uiLanguage/UiLanguage";
 import { useCreationEditor } from "@/features/creationEditor/CreationEditorContext";
+import { browserStoryViewStorage, readStoryView, saveStoryView, type VideoView } from "@/pages/storyWorkspacePreference";
 
-type VideoView = "plan" | "editing";
 type VideoWorkspace = {
   host: HTMLDivElement | null;
   setHost: (host: HTMLDivElement | null) => void;
@@ -28,27 +28,31 @@ export const useBookVideoWorkspace = () => useContext(Context);
 /** Only the presentation moves. BookVideoChat remains the single owner of the review draft. */
 export function BookVideoWorkspaceProvider({
   storyId,
+  userId,
   onOpen,
   onDiscuss,
   children,
 }: {
   storyId: number | null;
+  userId?: number | null;
   onOpen: () => void;
   onDiscuss: () => void;
   children: ReactNode;
 }) {
   const [host, setHost] = useState<HTMLDivElement | null>(null);
-  const [view, updateView] = useState<VideoView>("plan");
+  const [view, updateView] = useState<VideoView>(readStoryView(browserStoryViewStorage(), userId, storyId, "video") ?? "plan");
   const [reviewRequested, setReviewRequested] = useState(false);
   const setView = useCallback((next: VideoView) => {
     setReviewRequested(false);
     updateView(next);
-  }, []);
+    saveStoryView(browserStoryViewStorage(), userId, storyId, "video", next);
+  }, [userId, storyId]);
   const openReview = useCallback(() => {
     setReviewRequested(true);
     updateView("plan");
+    saveStoryView(browserStoryViewStorage(), userId, storyId, "video", "plan");
     onOpen();
-  }, [onOpen]);
+  }, [onOpen, userId, storyId]);
   const showEditing = useCallback(() => {
     setView("editing");
     onOpen();

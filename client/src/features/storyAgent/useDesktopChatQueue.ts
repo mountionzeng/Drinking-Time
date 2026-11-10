@@ -1,3 +1,4 @@
+import type { SelectionState } from "./types";
 import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 import {
@@ -61,9 +62,9 @@ export function useDesktopChatQueue(input: {
   }, [queue, state, input.blocked, accountId, epoch, loadEpoch]);
   return {
     ...state,
-    enqueue(text: string, context?: WritingCompanionSnapshot) {
+    enqueue(text: string, context?: WritingCompanionSnapshot, workspaceContext?: "book" | "video", selection?: SelectionState, imageProvider?: "midjourney" | "gpt-image", productionSelection?: SelectionState | null) {
       try {
-        queue.enqueue(text, context);
+        queue.enqueue(text, context, workspaceContext, selection, imageProvider, productionSelection);
         return true;
       } catch {
         toast.error("本机无法保存待发送消息，输入仍保留，请先复制文字。");

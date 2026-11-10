@@ -3,9 +3,18 @@ import { describe, expect, it } from "vitest";
 import {
   composeStartEndShotEditorDraft,
   findMatchingStartEndFrameTake,
+  assetBelongsToShot,
 } from "./startEndShotVideoWorkflow";
+import type { ImageAsset } from "../../shared/imageAsset";
 
 describe("composeStartEndShotEditorDraft", () => {
+  it("uses the edited video row for an imported storyboard instead of its old action", () => {
+    const prompt = composeStartEndShotEditorDraft({ publishingVideo: { referenceImageIds: [2019] },
+      action: "旧动作：茶壶轻轻弹跳", videoPrompt: "黑暗中放下茶杯，微彩像素点亮整个世界", dialogue: "原旁白" });
+    expect(prompt).toContain("微彩像素点亮整个世界");
+    expect(prompt).not.toContain("弹跳");
+    expect(prompt).toContain("原旁白");
+  });
   it("makes the current storyboard text authoritative over a hidden legacy prompt", () => {
     const prompt = composeStartEndShotEditorDraft({
       action: "女主在黑暗中撑出自己的区域，相机运动加快",
@@ -44,6 +53,21 @@ describe("composeStartEndShotEditorDraft", () => {
         videoPrompt: "人物缓慢向前，摄影机跟随。",
       })
     ).toContain("既有视频方案：人物缓慢向前，摄影机跟随。");
+  });
+});
+
+describe("start/end shot book references", () => {
+  const asset = { id: 2019, assignment: "unassigned", status: "pending", availability: "available" } as ImageAsset;
+  it("accepts this shot's explicit book references without transferring ownership", () => {
+    expect(assetBelongsToShot(asset, "shot-1", { publishingVideo: { referenceImageIds: [2019] } })).toBe(true);
+    expect(asset.assignment).toBe("unassigned");
+    expect(assetBelongsToShot(asset, "shot-2", { publishingVideo: { referenceImageIds: [2003] } })).toBe(false);
+  });
+  it("does not revive removed, rejected or missing references", () => {
+    const shot = { publishingVideo: { referenceImageIds: [2019] }, generationParams: JSON.stringify({ referenceFrameImageIds: [] }) };
+    expect(assetBelongsToShot(asset, "shot-1", shot)).toBe(false);
+    expect(assetBelongsToShot({ ...asset, status: "rejected" }, "shot-1", { publishingVideo: { referenceImageIds: [2019] } })).toBe(false);
+    expect(assetBelongsToShot({ ...asset, availability: "missing" }, "shot-1", { publishingVideo: { referenceImageIds: [2019] } })).toBe(false);
   });
 });
 

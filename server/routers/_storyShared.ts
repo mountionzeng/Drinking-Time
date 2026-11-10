@@ -344,22 +344,6 @@ export async function writeCharacterAnchor(
   };
 }
 
-export function artRecipePrompt(recipe: ArtRecipeDNA | undefined): string {
-  if (!recipe) return "";
-  return [
-    recipe.style.length ? `style: ${recipe.style.join(", ")}` : "",
-    recipe.palette.length ? `palette: ${recipe.palette.join(", ")}` : "",
-    recipe.light.length ? `lighting: ${recipe.light.join(", ")}` : "",
-    recipe.composition.length
-      ? `composition: ${recipe.composition.join(", ")}`
-      : "",
-    recipe.material.length ? `materials: ${recipe.material.join(", ")}` : "",
-    recipe.negative.length ? `avoid: ${recipe.negative.join(", ")}` : "",
-  ]
-    .filter(Boolean)
-    .join("; ");
-}
-
 function shotStatusFromBeat(beat: string) {
   if (beat === "收束") return "production_ready" as const;
   if (beat === "转折") return "structured" as const;

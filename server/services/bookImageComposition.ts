@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { compositionSources, compositionReferences, compositionPrompt, compositionQuote, BOOK_COMPOSITION_MODEL, type CompositionSource } from '../../shared/bookImageComposition';
+import { compositionSources, compositionReferences, compositionPrompt, compositionQuote, compositionShotNumbers, BOOK_COMPOSITION_MODEL, type CompositionSource } from '../../shared/bookImageComposition';
+import { getStoryGeneratedImages } from '../repositories/images';
 import type { BookModuleImageTask } from '../../shared/bookModuleImageTask';
 import { writingModuleTexts } from '../../shared/bookWritingStyle';
 import { getChapter } from '../repositories/chapters';
@@ -24,8 +25,11 @@ async function owned(target: Target) {
 export async function listBookImageCompositions(input: {storyId:number;userId:number}) {
   const story=await getStoryById(input.storyId,input.userId);
   if(!story) throw new Error('故事不存在或无权访问');
-  return moduleImageTasks(story.body).filter(task=>Boolean(task.composition))
-    .map((task,index)=>({...task,version:index+1}));
+  const tasks=moduleImageTasks(story.body).filter(task=>Boolean(task.composition));
+  const body=(story.body ?? {}) as Record<string,unknown>;
+  const shots=Array.isArray(body.shots)?body.shots:[];
+  const images=await getStoryGeneratedImages(input.storyId,input.userId);
+  return tasks.map((task,index)=>({...task,version:index+1,shotNumbers:compositionShotNumbers(task,tasks,shots,images)}));
 }
 export async function readBookImageComposition(target: Target) {
   const { story } = await owned(target);

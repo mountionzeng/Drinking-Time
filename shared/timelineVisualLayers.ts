@@ -95,18 +95,6 @@ export function resolveTimelineVisualLayerState(
   };
 }
 
-/**
- * 旧名字保留给只关心「画几层 / 哪几层隐藏」的调用点。
- * 注意它返回的 `count` 是渲染层数，**不能**直接落库。
- */
-export function normalizeTimelineVisualLayerState(
-  state: StoryTimelineVisualLayerState | null | undefined,
-  items: readonly StoryTimelineItem[],
-  overlays: readonly StoryTimelineOverlay[] = []
-): ResolvedTimelineVisualLayerState {
-  return resolveTimelineVisualLayerState(state, items, overlays);
-}
-
 function remapItems(
   items: readonly StoryTimelineItem[],
   remap: (layer: number) => number

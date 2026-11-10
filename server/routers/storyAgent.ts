@@ -1,4 +1,8 @@
+import { jsonRecord } from "../repositories/storyValues";
+import { recordShotConversationMedia } from "../services/shotConversationMedia";
+import { readChatImageRevisions, decideChatImageRevision } from "../services/chatImageRevision";
 import { detachGeneratedImageFromShot } from "../repositories/images";
+import { artPreviewGenerationInput } from "../services/artPreview";
 import { pendingStoryboardImageTasks, recoverStoryboardImageTask, runStoryboardImageTask, type StoryboardImageRender } from "../services/storyboardImageTask";
 import { generateLegnextImage } from "../services/legnextImage";
 import { storyTagsSchema } from "../../shared/storyTags";
@@ -87,6 +91,7 @@ import {
   deriveStoryboardReferenceInjection,
 } from "../services/imageInjection";
 import { synthesizeShotPrompt } from "../services/synthesizeShotPrompt";
+import { confirmedStoryboardImagePrompt } from "../services/confirmedStoryboardImagePrompt";
 import { directImagePrompt } from "../services/imagePromptDirector";
 import { planImageGenerationReferences } from "../services/imageGenerationReference";
 import { readModuleImageTask, recoverModuleImageTask, runModuleImageTask, type ModuleImageHooks } from "../services/bookModuleImageRecovery";
@@ -900,7 +905,7 @@ export const storyAgentRouter = router({
           });
           const nextBody =
             input.body === undefined
-              ? prepareStoryBody(existing.body, nextRevision)
+              ? prepareStoryBody(existing.body, nextRevision, existing.body)
               : syncConflict
                 ? mergeStaleStoryBody(existing.body, input.body, nextRevision)
                 : prepareStoryBody(input.body, nextRevision, existing.body);
@@ -1325,11 +1330,12 @@ export const storyAgentRouter = router({
           fields: ["dialogue"],
           now: generatedAt,
           source: "edited",
+          editorUserId: ctx.user.id,
         });
         const nextBody = prepareStoryBody(
           { ...body, shots: nextShots, storyboardFieldVersions },
           getStoryRevision(latestStory.body) + 1,
-          latestStory.body
+          { ...body, storyboardFieldVersions }
         );
         try {
           const saved = await persistPreparedStoryBody({
@@ -1389,6 +1395,7 @@ export const storyAgentRouter = router({
           field: input.field,
           revision: input.revision,
           now: Date.now(),
+          editorUserId: ctx.user.id,
         });
       } catch (error) {
         return {
@@ -1403,7 +1410,7 @@ export const storyAgentRouter = router({
           storyboardFieldVersions: restored.state,
         },
         getStoryRevision(story.body) + 1,
-        story.body
+        { ...body, storyboardFieldVersions: restored.state }
       );
       let saved;
       try {
@@ -1815,9 +1822,12 @@ export const storyAgentRouter = router({
       z.object({
         warehouseTextureSourceId: z.number().int().positive().optional(),
         shotImageRequestId: z.string().uuid().optional(),
+        conversationShotId: z.string().min(1).max(96).optional(),
+        previewBatchId: z.string().uuid().optional(),
         moduleTarget: z.object({ chapterId: z.number().int().positive(), moduleId: z.string().min(1).max(240), expectedText: z.string().max(200_000), requestId: z.string().uuid() }).optional(),
         renderReferences: shotRenderReferencesSchema.optional(),
         referenceRevision: z.boolean().optional(),
+        conversationRevision: z.boolean().optional(),
         prompt: z.string().optional(), // 可选：缺失时由服务端从对话现编（手动「画出来」）
         explicitInstruction: z.string().trim().min(1).max(2_000).optional(),
         costConfirmation: z
@@ -1874,9 +1884,30 @@ export const storyAgentRouter = router({
     // Every metered AI call made while preparing the prompt is recorded so that a
     // definite image failure can refund them (each one exactly once).
     .mutation(({ ctx, input }) => collectInferenceBilling(async () => {
+      if (input.previewBatchId) {
+        const { batch, shot } = await artPreviewGenerationInput(input.storyId, ctx.user.id, input.previewBatchId, input.shotNo ?? 0);
+        const estimate = estimateStoryboardImageCost();
+        if (!input.costConfirmation?.accepted || Math.abs(input.costConfirmation.estimatedCny - estimate.estimatedCny) > 0.001) {
+          return { status: "error" as const, error: `请先确认本批示意图算力；每镜 ${formatComputeQuote(estimate.estimatedCny)}` };
+        }
+        const prompt = `跨镜头美术示意图：只迁移参考图的视觉效果，按本镜内容重新安排构图，不复制上一镜的事件。\n${shot.brief}\n迁移意图：${shot.adaptation}`;
+        input = { storyId: input.storyId, previewBatchId: batch.id, shotNo: shot.shotNo,
+          shotImageRequestId: shot.requestId, prompt, explicitInstruction: prompt,
+          renderReferences: { imageIds: [batch.baselineImageId], imagePurpose: "scene-style", assets: {} },
+          imageProvider: "midjourney", mode: "final", autoSelect: false, sceneWeight: 0.5, costConfirmation: input.costConfirmation };
+      }
+      if (input.conversationRevision && (!input.referenceRevision || !input.shotImageRequestId || input.shotNo == null || input.moduleTarget))
+        throw new TRPCError({ code: "BAD_REQUEST", message: "对话改图需要完整的原图和镜头信息" });
       const execute = async (moduleImage?: ModuleImageHooks, storyboardImage?: StoryboardImageRender) => {
       try {
         const story = await getStoryById(input.storyId, ctx.user.id);
+        if (input.conversationShotId) {
+          if (!story) throw new Error("故事不存在或无权访问");
+          const body = jsonRecord(story.body);
+          const shots = Array.isArray(body.shots) ? body.shots : [];
+          if (!shots.some((shot, index) => shotIdentityFromShot(shot as Record<string, unknown>, index) === input.conversationShotId))
+            throw new Error("镜头已变化，请重新选择；尚未生成图片");
+        }
         if (input.warehouseTextureSourceId) {
           const source = await getGeneratedImageById(input.warehouseTextureSourceId);
           if (!story || !source || source.storyId !== input.storyId || source.userId !== ctx.user.id)
@@ -1907,9 +1938,11 @@ export const storyAgentRouter = router({
           if (selectedImages.some(image => !image || image.storyId !== input.storyId || image.userId !== ctx.user.id)) {
             throw new Error("参考图片已删除或不属于当前故事");
           }
-          input = { ...input, referenceImageUrl: selectedImages[0]?.imageUrl,
-            referenceContextImageUrls: selectedImages.slice(1).map(image => image!.imageUrl),
-            referenceIdentityImageUrl: undefined, originalImageUrl: undefined, storyStyleReferenceImageUrl: undefined,
+          const inheritVisual = input.renderReferences.imagePurpose === "scene-style" && !input.referenceRevision;
+          input = { ...input, referenceImageUrl: inheritVisual ? undefined : selectedImages[0]?.imageUrl,
+            referenceContextImageUrls: inheritVisual ? undefined : selectedImages.slice(1).map(image => image!.imageUrl),
+            referenceIdentityImageUrl: undefined, originalImageUrl: undefined,
+            storyStyleReferenceImageUrl: inheritVisual ? selectedImages[0]?.imageUrl : undefined,
             autoSelect: false };
         }
 
@@ -2204,7 +2237,13 @@ export const storyAgentRouter = router({
             }
           : null;
 
-        if (
+        const confirmedFramePrompt = input.previewBatchId ? input.prompt : !input.referenceRevision && !input.exactFrameEdit && !input.remixEdit
+          ? confirmedStoryboardImagePrompt({ body: storyBody, shot: storyShot,
+              title: story.title, instruction: input.explicitInstruction })
+          : null;
+        if (confirmedFramePrompt) {
+          prompt = confirmedFramePrompt;
+        } else if (
           promptContext &&
           !input.referenceRevision &&
           ENV.forgeApiKey &&
@@ -2239,7 +2278,7 @@ export const storyAgentRouter = router({
 
         const promptBeforeLegacyStyleHint = prompt;
         // 风格锁：如果 prompt 里还没有风格描述，追加 styleHint
-        if (input.styleHint?.trim() && !styleHintApplied) {
+        if (!confirmedFramePrompt && input.styleHint?.trim() && !styleHintApplied) {
           const hasStyle =
             prompt.includes("Shared visual framework") ||
             prompt.includes("Art style") ||
@@ -2299,11 +2338,11 @@ export const storyAgentRouter = router({
           originalImageUrl: input.originalImageUrl,
           characterReferenceImageUrl: rawCharacterRef,
           storyReferenceImageUrls: storyReferences,
-          storyStyleReferenceImageUrl: lockedAssets
+          storyStyleReferenceImageUrl: lockedAssets && !input.renderReferences?.imagePurpose
             ? undefined
             : input.storyStyleReferenceImageUrl,
         });
-        if (!lockedAssets && !input.renderReferences)
+        if (!confirmedFramePrompt && !lockedAssets && !input.renderReferences)
           prompt = withCharacterContinuityPrompt(prompt, storyBody, {
             hasCharacterReference: Boolean(
               referencePlan.usesStoryboardFrames
@@ -2320,12 +2359,15 @@ export const storyAgentRouter = router({
           (input.renderReferences ? Object.values(lockedAssets?.dimensions ?? {})[0]?.providerReferenceUrl : undefined);
         const strictReferenceFidelity = Boolean(referenceImage) &&
           requestsStrictReferenceFidelity(input.explicitInstruction ?? "");
+        if (confirmedFramePrompt && referenceImage && referencePlan.referencePurpose === "scene-style") {
+          prompt += "\n【已确定画面的连续性】所附图片是本片已经确定的视觉依据：沿用对应物体的造型、材质、线条与色调。本镜的内容、构图和动作仍按本镜要求；未在本镜出现的物体不搬过来，不把参考图直接当成本镜首帧。";
+        }
         let referenceImageInput: string | undefined;
         if (referenceImage) {
           try {
             referenceImageInput = await materializeImageInput(referenceImage);
           } catch (error) {
-            if (referencePlan.usesStoryboardFrames) {
+            if (referencePlan.usesStoryboardFrames || referencePlan.usesStoryStyleReference) {
               return {
                 status: "error" as const,
                 error:
@@ -2338,7 +2380,11 @@ export const storyAgentRouter = router({
             );
           }
         }
-        const injection = input.renderReferences ? {} : lockedAssets
+        const injection = input.renderReferences
+          ? input.renderReferences.imagePurpose === "scene-style" && referenceImage && !input.referenceRevision
+            ? { styleRef: referenceImage }
+            : {}
+          : lockedAssets
           ? {
               ...(lockedAssets.characterRef
                 ? {
@@ -2401,7 +2447,7 @@ export const storyAgentRouter = router({
             `Edit the supplied base image (图1) for shot ${input.shotNo ?? ""}. ` +
             "The base image defines the scene, location, background content, lighting, camera and composition; keep all of it. " +
             "Apply only the user's named changes below.";
-        } else if (referenceImageInput) {
+        } else if (referenceImageInput && !confirmedFramePrompt) {
           try {
             const directed = await directImagePrompt({
               imageInput: referenceImageInput,
@@ -2427,10 +2473,10 @@ export const storyAgentRouter = router({
           }
         }
         const explicitStyleRecipe = artRecipeFromStyleHint(input.styleHint);
-        if (!strictReferenceFidelity && !lockedAssets && !input.renderReferences) {
+        if (!confirmedFramePrompt && !strictReferenceFidelity && !lockedAssets && !input.renderReferences) {
           prompt = applyPublishingCoverArtDirection(prompt, coverArtDirection);
         }
-        if (!strictReferenceFidelity && coverArtDirection && !lockedAssets && !input.renderReferences) {
+        if (!confirmedFramePrompt && !strictReferenceFidelity && coverArtDirection && !lockedAssets && !input.renderReferences) {
           prompt = await compilePublishingCoverStoryboardPrompt({
             prompt,
             provider: input.imageProvider ?? "midjourney",
@@ -2463,7 +2509,7 @@ export const storyAgentRouter = router({
           shotNo: input.shotNo != null ? String(input.shotNo) : undefined,
           projectId: input.referenceRevision ? undefined : story.projectId ?? undefined,
           storyId: story.id,
-          preservePrompt: Boolean(coverArtDirection),
+          preservePrompt: !confirmedFramePrompt && Boolean(coverArtDirection),
           outputPurpose: "story-frame" as const,
           // 首次正式出图的候选不该只是同一居中画面的换色。已有画面、用户精确指令
           // 和锁定资产都由各自的连续性约束接管，不能在这里强行分叉。
@@ -2495,8 +2541,8 @@ export const storyAgentRouter = router({
           // 这时再叠加流派、策展库、手作与「艺术跃迁」只会稀释他的要求——0307 那轮
           // 编译出来 2615 字，用户的 400 字只占 14.1%，八次重渲全被拉回同一个平均值。
           authoredBrief:
-            Boolean(input.explicitInstruction?.trim()) &&
-            referencePlan.usesStoryboardFrames,
+            Boolean(confirmedFramePrompt) || (Boolean(input.explicitInstruction?.trim()) &&
+            referencePlan.usesStoryboardFrames),
           artDirection: lockedAssets || input.renderReferences
             ? undefined
             : referencePlan.usesStoryboardFrames
@@ -2509,7 +2555,7 @@ export const storyAgentRouter = router({
         };
 
         const imageWeight =
-          input.sceneWeight ?? (referencePlan.usesStoryboardFrames ? 2 : 0.5);
+          input.sceneWeight ?? (referencePlan.usesStoryboardFrames || input.renderReferences?.imagePurpose === "scene-style" ? 2 : 0.5);
         const promptCompilationId = await resolveStoryImageCompilationId({
           story,
           storyId: input.storyId,
@@ -2592,6 +2638,14 @@ export const storyAgentRouter = router({
                 : "none"
             }`
           );
+          if (storyboardImage && input.conversationRevision && input.imageProvider === "gpt-image") {
+            return storyboardImage(accepted => editMobileImage(referenceImage!, renderedFinalPrompt, {
+              provider: "gpt-image", referenceRevision: true, gptImageModel: "gpt-image-2", gptSubmitOnly: true,
+              onProviderTaskAccepted: accepted,
+            }), { prompt: renderedFinalPrompt, shotNo: canonicalizeShotNo(input.shotNo)!, promptCompilationId,
+              generationType: "inpaint", provider: "gpt-image", parentImageId: input.renderReferences!.imageIds[0],
+              conversationRevision: true, instruction: input.explicitInstruction });
+          }
           if (storyboardImage) {
             return storyboardImage(accepted => generateLegnextImage(renderedFinalPrompt, accepted, {
               ...injection, referenceImageUrl: referenceImage,
@@ -2601,8 +2655,8 @@ export const storyAgentRouter = router({
                 ...(lockedAssets?.sceneRef ? [lockedAssets.sceneRef] : []),
                 ...(lockedAssets?.petRef ? [lockedAssets.petRef] : []),
               ])).filter(url => url !== referenceImage).slice(0, 3),
-              imageWeight, aspectRatio: "16:9",
-            }), { prompt: renderedFinalPrompt, shotNo: canonicalizeShotNo(input.shotNo)!, promptCompilationId, generationType: referencePlan.usesStoryboardFrames ? "inpaint" : "initial" });
+              imageWeight, aspectRatio: "16:9", inlinePoll: false,
+            }), { prompt: renderedFinalPrompt, shotNo: canonicalizeShotNo(input.shotNo)!, promptCompilationId, generationType: referencePlan.usesStoryboardFrames ? "inpaint" : "initial", ...(input.previewBatchId ? { detached: true } : {}), ...(input.conversationRevision ? { conversationRevision: true, parentImageId: input.renderReferences!.imageIds[0], instruction: input.explicitInstruction } : {}) });
           }
           if (moduleImage && (input.imageProvider ?? "midjourney") === "midjourney") {
             return generateLegnextImage(renderedFinalPrompt, moduleImage.onMidjourneyTaskAccepted, { inlinePoll: !moduleImage.asyncSubmit });
@@ -2664,7 +2718,7 @@ export const storyAgentRouter = router({
           // Table mode, non-module request: hand the accepted receipt to the background worker
           // (query only) so the paid result is fetched into the warehouse instead of being lost.
           const backgroundTask =
-            providerTaskId && !moduleImage && imageTaskAsyncSubmitEnabled() &&
+            providerTaskId && !moduleImage && !storyboardImage && imageTaskAsyncSubmitEnabled() &&
             ["midjourney", "gpt-image"].includes(input.imageProvider ?? "midjourney")
               ? await registerAcceptedImageTask({
                   userId: ctx.user.id, storyId: input.storyId, provider: input.imageProvider ?? "midjourney",
@@ -2719,8 +2773,8 @@ export const storyAgentRouter = router({
               projectId: story.projectId ?? null,
               storyId: input.storyId,
               userId: ctx.user.id,
-              shotNo: canonicalizeShotNo(input.shotNo),
-              shotIdentity,
+              shotNo: input.previewBatchId ? null : canonicalizeShotNo(input.shotNo),
+              shotIdentity: input.previewBatchId ? null : shotIdentity,
               imageKey: candidate.imageKey ?? null,
               imageUrl: candidate.imageUrl,
               prompt: renderedFinalPrompt,
@@ -2733,9 +2787,13 @@ export const storyAgentRouter = router({
             })
           );
         }
-        const image = storedImages[0]!;
         let timelinePlacementWarning: string | undefined;
-        if (input.referenceRevision && shotIdentity) {
+        if (input.conversationShotId) try { await recordShotConversationMedia({
+          storyId: input.storyId, userId: ctx.user.id, stableShotId: input.conversationShotId,
+          imageIds: storedImages.map(image => image.id), instruction: input.explicitInstruction ?? input.prompt ?? "",
+        }); } catch { timelinePlacementWarning = "图片已保存在仓库，镜头对话记录暂未同步"; }
+        const image = storedImages[0]!;
+        if (input.referenceRevision && shotIdentity && !input.conversationRevision) {
           try {
             const placement = await placeImageRevisionForStory({
               storyId: input.storyId, userId: ctx.user.id,
@@ -2787,18 +2845,19 @@ export const storyAgentRouter = router({
         };
       }
       };
-      if (!input.moduleTarget && input.shotImageRequestId && input.shotNo != null && (input.imageProvider ?? "midjourney") === "midjourney" && input.mode !== "draft" && !input.referenceRevision && !input.editMaskImageUrl) {
+      if (!input.moduleTarget && input.shotImageRequestId && input.shotNo != null &&
+          (((input.imageProvider ?? "midjourney") === "midjourney" && !input.referenceRevision) || (input.conversationRevision && input.referenceRevision)) && input.mode !== "draft" && !input.editMaskImageUrl) {
         const story = await getStoryById(input.storyId, ctx.user.id);
         if (!story) throw new TRPCError({ code: "NOT_FOUND", message: "故事不存在" });
         const identity = shotIdentityForStoryShot(story, input.shotNo);
         if (!identity) throw new TRPCError({ code: "BAD_REQUEST", message: "镜头已变化，请重新打开分镜表" });
-        return runStoryboardImageTask({ storyId: input.storyId, userId: ctx.user.id, shotIdentity: identity, requestId: input.shotImageRequestId }, async render => {
+        return runStoryboardImageTask({ requireNewIntent: input.conversationRevision, storyId: input.storyId, userId: ctx.user.id, shotIdentity: input.previewBatchId ? `preview:${input.previewBatchId}:${identity}` : identity, requestId: input.shotImageRequestId }, async render => {
           const result = await execute(undefined, render);
           return result.status === "ok" ? { ...result, candidates: "candidates" in result ? result.candidates : [{ imageId: result.imageId, imageUrl: result.imageUrl }] } : result;
         });
       }
       if (!input.moduleTarget) return execute();
-      if (input.referenceImageUrl || input.referenceIdentityImageUrl || input.referenceContextImageUrls?.length || input.renderReferences || input.mode !== "final" || input.autoSelect || input.shotNo != null || input.referenceRevision || input.editMaskImageUrl || input.remixEdit || input.warehouseTextureSourceId || (input.imageProvider && !["midjourney", "gpt-image"].includes(input.imageProvider))) {
+      if (input.conversationShotId || input.referenceImageUrl || input.referenceIdentityImageUrl || input.referenceContextImageUrls?.length || input.renderReferences || input.mode !== "final" || input.autoSelect || input.shotNo != null || input.referenceRevision || input.editMaskImageUrl || input.remixEdit || input.warehouseTextureSourceId || (input.imageProvider && !["midjourney", "gpt-image"].includes(input.imageProvider))) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "模块任务只支持已确认的文字生成图片" });
       }
       return runModuleImageTask({ storyId: input.storyId, userId: ctx.user.id, ...input.moduleTarget,
@@ -2982,6 +3041,14 @@ export const storyAgentRouter = router({
           createdAt: new Date(asset.createdAt),
         }));
     }),
+
+  chatImageRevisions: protectedProcedure
+    .input(z.object({ storyId: z.number().int().positive() }))
+    .query(({ ctx, input }) => readChatImageRevisions(input.storyId, ctx.user.id)),
+
+  decideChatImageRevision: protectedProcedure
+    .input(z.object({ storyId: z.number().int().positive(), requestId: z.string().min(1).max(100), kind: z.enum(["keep", "replace"]), imageId: z.number().int().positive().optional() }))
+    .mutation(({ ctx, input }) => decideChatImageRevision({ ...input, userId: ctx.user.id })),
 
   pendingStoryboardImages: protectedProcedure
     .input(z.object({ storyId: z.number() }))

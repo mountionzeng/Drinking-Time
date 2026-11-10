@@ -1,3 +1,4 @@
+import { useStorySpine } from "@/features/storyAgent/spine/storySpine";
 import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { WarehouseBookMedia } from "./WarehouseBookMedia";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
@@ -45,6 +46,8 @@ import { trpc } from "@/lib/trpc";
 import { useCreationEditor } from "../CreationEditorContext";
 import OneClickEditAssistant from "./OneClickEditAssistant";
 import VisualAssetLibrary from "../visualAssets/VisualAssetLibrary";
+import ArtSystemLibrary from "../visualAssets/ArtSystemLibrary";
+import { ArtPreviewGallery } from "@/features/storyAgent/views/ArtPreviewGallery";
 
 type WarehouseImage = Pick<
   ImageAsset,
@@ -657,7 +660,8 @@ export default function MaterialWarehousePanel({
     },
     [imageItems, materialState?.visualAssets?.images]
   );
-  const visualAssetCount = materialState?.visualAssets?.assets.length ?? 0;
+  const hasArtSystem = useStorySpine(state => state.activeStoryId === activeStoryId && Boolean(state.artDirection.recipe?.system));
+  const visualAssetCount = (materialState?.visualAssets?.assets.length ?? 0) + (hasArtSystem ? 1 : 0);
 
   const unavailableTakeCount = videoItems.filter(
     item => item.take.status === "unfollowable"
@@ -1133,6 +1137,9 @@ export default function MaterialWarehousePanel({
             </div>
           ) : null}
           {pendingImports.length > 0 ? importQueue : (drawerTab === "music" || drawerTab === "text") && activeStoryId ? <WarehouseBookMedia key={`${activeStoryId}:${drawerTab}`} storyId={activeStoryId} kind={drawerTab}/> : drawerTab === "assets" ? (
+            <>
+            <ArtSystemLibrary storyId={activeStoryId ?? null} images={visualAssetImages} />
+            {activeStoryId != null && <ArtPreviewGallery key={activeStoryId} storyId={activeStoryId} includePlans />}
             <VisualAssetLibrary
               storyId={activeStoryId ?? null}
               images={visualAssetImages}
@@ -1148,6 +1155,7 @@ export default function MaterialWarehousePanel({
               currentStableShotId={currentStableShotId}
               onRequestImport={() => inputRef.current?.click()}
             />
+            </>
           ) : drawerItems.length === 0 ? (
             <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
               {isLoading
@@ -1476,6 +1484,8 @@ export default function MaterialWarehousePanel({
           </div>
 
           <div className="mx-4 mb-4 rounded-lg border border-border bg-background p-3">
+            <ArtSystemLibrary storyId={activeStoryId ?? null} images={visualAssetImages} />
+            {activeStoryId != null && <ArtPreviewGallery key={activeStoryId} storyId={activeStoryId} includePlans />}
             <VisualAssetLibrary
               storyId={activeStoryId ?? null}
               images={visualAssetImages}

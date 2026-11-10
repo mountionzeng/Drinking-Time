@@ -157,6 +157,14 @@ const IMAGE_GENERATION_INTENT =
 const NEGATED_IMAGE_GENERATION_INTENT =
   /(?:不要|不用|无需|别).{0,12}(?:生成|生图|出图|画|重绘|重画|改图)|(?:do\s+not|don't).{0,20}(?:generate|create|redraw|restyle)/i;
 
+/** In the video workspace, ordinary wording like “这张图再改一下” is an edit request. */
+export function isVideoImageEditRequest(instruction: string): boolean {
+  const text = instruction.trim();
+  return Boolean(text && !NEGATED_IMAGE_GENERATION_INTENT.test(text) &&
+    !isPhotoSaveOnlyReply(text) && !isPhotoAssetRequest(text) &&
+    /改|调整|重画|重绘|生成|画一|出图|edit|change|generate|redraw/i.test(text));
+}
+
 /** Asset preparation is a review/quote workflow, not a one-off paid remix. */
 export function isPhotoAssetRequest(instruction: string): boolean {
   return /艺术化|(?:照片|图片|宠物|小猫|猫咪).{0,16}(?:素材|资产|多视|三视)|(?:提取|建立|制作|生成|打开|查看).{0,12}(?:素材库|素材仓库|视觉资产|标准视图)|(?:正面.{0,12}侧面|侧面.{0,12}正面)|(?:顶视|顶部视图|三视图|多视角)/i.test(instruction);

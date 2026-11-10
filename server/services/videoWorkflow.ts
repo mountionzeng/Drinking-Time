@@ -21,6 +21,9 @@ import {
 import { updateStoryAndTimelineAtomic } from "../repositories/timelines";
 import { generatedSubtitleSpans } from "../../shared/generatedSubtitles";
 import { emptyAudioState } from "../../shared/timelineAudioModel";
+import type { PreparedBookVideoAudio } from "../../shared/bookVideoAudio";
+import { bookVoiceLines } from "../../shared/bookVideoAudio";
+import { loadReadyStoryAudioAsset } from "./storyAudioAssets";
 import {
   emptySubtitleState,
   initializeSubtitleCues,
@@ -96,7 +99,11 @@ function appendVideoSnapshot(
   snapshot.unassignedImages = [];
   snapshot.unassignedVideoTakes = [];
   if (snapshot.timeline.extensions) {
+    const mediaVersions = snapshot.timeline.extensions.videoMediaVersions as
+      import("../../shared/videoMediaVersions").VideoMediaVersions | undefined;
+    if (mediaVersions) snapshot.timeline.extensions.videoMediaVersionRefs = { ...mediaVersions.current };
     delete snapshot.timeline.extensions.videoEditHistory;
+    delete snapshot.timeline.extensions.videoMediaVersions;
   }
   snapshot.timeline.extensions = {
     ...snapshot.timeline.extensions,
@@ -149,6 +156,7 @@ export async function preserveVideoWhileReplacing(
     nextBody: Record<string, unknown>;
     expectedRevision: number;
     resetEditing?: boolean;
+    preparedAudio?: PreparedBookVideoAudio;
   }
 ) {
   const material = await getStoryMaterialState(input.storyId, input.userId);
@@ -184,15 +192,37 @@ export async function preserveVideoWhileReplacing(
       const shots = (next.shots ?? []) as Array<{
         stableShotId: string;
         dialogue?: string;
+        publishingVideo?: { draftShotId?: string };
       }>;
+      const prepared = input.preparedAudio;
+      if (prepared && (timeline.items.length !== prepared.shots.length || timeline.items.some(item => {
+        const shot = shots.find(shot => shot.stableShotId === item.stableShotId);
+        const timing = prepared.shots.find(timing => timing.draftShotId === shot?.publishingVideo?.draftShotId);
+        const voice = prepared.narration?.lines.filter(line => line.draftShotId === timing?.draftShotId).map(line => line.text).join("\n");
+        return !timing || timing.durationFrames !== item.durationFrames ||
+          (voice !== undefined && voice !== bookVoiceLines(shot?.dialogue ?? "").join("\n"));
+      }))) throw new Error("声音节奏与当前分镜不一致，当前视频仍保留。");
+      const audio = emptyAudioState();
+      for (const entry of [
+        ...(prepared?.narration ? [{ ...prepared.narration, kind: "narration" as const, gain: 1 }] : []),
+        ...(prepared?.music ?? []).map(music => ({ ...music, kind: "music" as const, gain: 0.25 })),
+      ]) {
+        const asset = await loadReadyStoryAudioAsset({ scope: input, assetId: entry.assetId });
+        if (!asset || (asset.durationFrames ?? 0) < prepared!.durationFrames) throw new Error("已处理声音无法读取，当前视频仍保留。");
+        audio.tracks.find(track => track.kind === entry.kind)!.clips.push({ id: randomUUID(), assetId: asset.id,
+          timelineStartFrame: 0, sourceInFrame: 0, sourceOutFrame: prepared!.durationFrames, durationFrames: prepared!.durationFrames,
+          gain: entry.gain, muted: false, fadeInFrames: 0, fadeOutFrames: 0 });
+      }
       const subtitles = initializeSubtitleCues(emptySubtitleState(), {
         candidates: timeline.items.flatMap(item =>
-          generatedSubtitleSpans(
+          (prepared?.narration ? prepared.narration.lines.filter(line => line.draftShotId ===
+            shots.find(shot => shot.stableShotId === item.stableShotId)?.publishingVideo?.draftShotId)
+            .map(line => ({ text: line.text, startFrame: line.startFrame, durationFrames: line.durationFrames })) : generatedSubtitleSpans(
             shots.find(shot => shot.stableShotId === item.stableShotId)
               ?.dialogue ?? "",
             item.timelineStartFrame ?? 0,
             item.durationFrames ?? 1
-          ).map(span => ({
+          )).map(span => ({
             ...span,
             id: randomUUID(),
             provenance: {
@@ -215,7 +245,7 @@ export async function preserveVideoWhileReplacing(
           overlays: [],
           extensions: {
             subtitleTracks: subtitles.state,
-            audioTracks: emptyAudioState(),
+            audioTracks: audio,
             bookMusicReuse: [],
           },
         },

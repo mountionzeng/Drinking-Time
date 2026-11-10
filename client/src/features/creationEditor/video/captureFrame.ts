@@ -12,20 +12,6 @@ const MAX_REFERENCE_FRAME_SIZE = 1024;
 const MAX_IDENTITY_CROP_SIZE = 768;
 const JPEG_QUALITY = 0.88;
 
-export async function captureFrameFromVideoUrl(
-  videoUrl: string,
-  timeSec = 0.5
-): Promise<string> {
-  return (await captureReferenceFrameFromSource(videoUrl, timeSec)).frameUrl;
-}
-
-export async function captureFrameFromFile(
-  file: File,
-  timeSec = 0.5
-): Promise<string> {
-  return (await captureReferenceFrameFromFile(file, timeSec)).frameUrl;
-}
-
 export async function captureReferenceFrameFromVideoUrl(
   videoUrl: string,
   timeSec = 0.5

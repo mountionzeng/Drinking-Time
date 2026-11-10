@@ -1,4 +1,8 @@
 {
+  "点击图片，再说出你的想法。": {
+    "en": "Select an image, then say what you have in mind.",
+    "fr": "Sélectionnez une image, puis dites ce que vous imaginez."
+  },
   "来源：{0} V{1}": {
     "en": "Source: {0} V{1}",
     "fr": "Source : {0} V{1}"
@@ -3335,14 +3339,6 @@
     "en": "This is mine — recover a copy",
     "fr": "这是我的内容，恢复副本"
   },
-  "你常喜欢": {
-    "en": "You often like",
-    "fr": "你常喜欢"
-  },
-  "，要用上吗？": {
-    "en": ". Would you like to use it?",
-    "fr": "，要用上吗？"
-  },
   "这镜还没视觉提示词": {
     "en": "This shot has no visual prompt yet",
     "fr": "这镜还没视觉提示词"
@@ -4166,10 +4162,6 @@
   "继承文字稿封面": {
     "en": "Use manuscript cover style",
     "fr": "继承文字稿封面"
-  },
-  "根据现有图案和文字一键生成约30秒视频": {
-    "en": "Create an approximately 30-second video from the current images and text",
-    "fr": "根据现有图案和文字一键生成约30秒视频"
   },
   "读取完整故事版；缺图时先继承正式封面生成主图，再生成约 30 秒视频": {
     "en": "Load the complete storyboard, generate missing main images using the chosen cover style, then create an approximately 30-second video",
@@ -6365,7 +6357,7 @@
   },
   "构图": {
     "en": "Composition",
-    "fr": "构图"
+    "fr": "Composition"
   },
   "字幕": {
     "en": "Subtitles",
@@ -7129,7 +7121,7 @@
   },
   "已确认": {
     "en": "Confirmed",
-    "fr": "已确认"
+    "fr": "Confirmé"
   },
   "302 专业外扩": {
     "en": "302 professional outpainting",
@@ -8022,10 +8014,6 @@
   "人物外观": {
     "en": "Character appearance",
     "fr": "人物外观"
-  },
-  "一键生成 · 约30秒": {
-    "en": "Quick generation · About 30 seconds",
-    "fr": "一键生成 · 约30秒"
   },
   "生成故事版中": {
     "en": "Generating storyboard",
@@ -10805,11 +10793,11 @@
   },
   "光线": {
     "en": "Lighting",
-    "fr": "光线"
+    "fr": "Éclairage"
   },
   "材质": {
-    "en": "Material",
-    "fr": "材质"
+    "en": "Materials",
+    "fr": "Matières"
   },
   "情绪": {
     "en": "Mood",
@@ -13078,5 +13066,541 @@
   "分镜未导入，请重试": {
     "en": "Could not import the storyboard. Please try again.",
     "fr": "Impossible d’importer le storyboard. Veuillez réessayer."
+  },
+  "字幕版本": {
+    "en": "Subtitle versions",
+    "fr": "Versions des sous-titres"
+  },
+  "声音版本": {
+    "en": "Audio versions",
+    "fr": "Versions audio"
+  },
+  "编辑者未记录": {
+    "en": "Editor not recorded",
+    "fr": "Auteur non enregistré"
+  },
+  "用户 {0}": {
+    "en": "User {0}",
+    "fr": "Utilisateur {0}"
+  },
+  "保存字幕内容与时间": {
+    "en": "Saved subtitle text and timing",
+    "fr": "Texte et minutage enregistrés"
+  },
+  "保存声音素材与剪辑设置": {
+    "en": "Saved audio and editing settings",
+    "fr": "Audio et montage enregistrés"
+  },
+  "时间线或历史版本正在使用此素材": {
+    "en": "Used by the timeline or version history",
+    "fr": "Utilisé par la timeline ou son historique"
+  },
+  "版本中使用": {
+    "en": "Used in a version",
+    "fr": "Utilisé dans une version"
+  },
+  "自动准备画面并生成视频": {
+    "en": "Prepare a frame and generate video",
+    "fr": "Préparer une image et générer la vidéo"
+  },
+  "这一镜还没有画面，将按现有描述补图，自动采用一张，再继续生成视频。旧版本保留。": {
+    "en": "This shot has no frame yet. A frame will be generated from its description and used for the video. Previous versions are kept.",
+    "fr": "Ce plan n’a pas encore d’image. Une image sera créée à partir de sa description, puis utilisée pour la vidéo. Les versions précédentes sont conservées."
+  },
+  "图片与视频合计约 {0}": {
+    "en": "Images and video: about {0} total",
+    "fr": "Images et vidéo : environ {0} au total"
+  },
+  "视频准备失败": {
+    "en": "Video preparation failed",
+    "fr": "Échec de la préparation vidéo"
+  },
+  "含自动补图，随后生成视频": {
+    "en": "Includes frame preparation, then video",
+    "fr": "Inclut la préparation de l’image, puis la vidéo"
+  },
+  "确认生成所需算力": {
+    "en": "Confirm generation credits",
+    "fr": "Confirmer les crédits de génération"
+  },
+  "请描述这一镜的画面或动作": {
+    "en": "Describe this shot’s scene or action",
+    "fr": "Décrivez la scène ou l’action de ce plan"
+  },
+  "图片模型尚未就绪，暂时无法自动准备画面": {
+    "en": "The image model is unavailable; automatic frame preparation cannot start yet",
+    "fr": "Le modèle d’image est indisponible ; la préparation automatique ne peut pas encore démarrer"
+  },
+  "当前视频 · 可以直接说音乐小一点、旁白音量或淡入淡出": {
+    "en": "Current video · Ask to lower music, change narration volume, or add fades",
+    "fr": "Vidéo actuelle · Demandez de baisser la musique, régler la voix ou ajouter des fondus"
+  },
+  "美术体系": {
+    "en": "Art system",
+    "fr": "Système artistique"
+  },
+  "美术体系版本": {
+    "en": "Art system version",
+    "fr": "Version du système artistique"
+  },
+  "在对话中描述想要的美术体系，规则、参考图和 Skill 会保存在这里。": {
+    "en": "Describe your art direction in chat. Its rules, references and Skill will be saved here.",
+    "fr": "Décrivez votre direction artistique dans le chat. Les règles, références et le Skill seront enregistrés ici."
+  },
+  "制作使用 V{0}": {
+    "en": "Production uses V{0}",
+    "fr": "Production avec V{0}"
+  },
+  "确认后用于制作": {
+    "en": "Confirm in chat to use in production",
+    "fr": "Confirmez dans le chat pour la production"
+  },
+  "修改意图": {
+    "en": "Change intent",
+    "fr": "Intention de modification"
+  },
+  "物体规则": {
+    "en": "Object rules",
+    "fr": "Règles des objets"
+  },
+  "运动规则": {
+    "en": "Motion rules",
+    "fr": "Règles de mouvement"
+  },
+  "连续性": {
+    "en": "Continuity",
+    "fr": "Continuité"
+  },
+  "基准图": {
+    "en": "Visual baseline",
+    "fr": "Référence visuelle"
+  },
+  "下载 Skill": {
+    "en": "Download Skill",
+    "fr": "Télécharger le Skill"
+  },
+  "继续在对话中修改或确认；这里只查看版本。": {
+    "en": "Continue editing or confirming in chat. Browse versions here.",
+    "fr": "Modifiez ou confirmez dans le chat. Consultez les versions ici."
+  },
+  "美术体系暂未载入，请稍后重试": {
+    "en": "Art system could not be loaded. Try again shortly.",
+    "fr": "Impossible de charger le système artistique. Réessayez plus tard."
+  },
+  "正在读取美术体系…": {
+    "en": "Loading art system…",
+    "fr": "Chargement du système artistique…"
+  },
+  "聊美术体系，或说第 02 镜生成图片、视频…": {
+    "en": "Discuss art direction, or ask to generate an image or video for shot 02…",
+    "fr": "Discutez de la direction artistique ou demandez une image ou vidéo pour le plan 02…"
+  },
+  "可在对话中调整要求、生成素材或采用候选": {
+    "en": "Adjust the brief, generate media or adopt a candidate in chat",
+    "fr": "Modifiez les consignes, générez un média ou adoptez une proposition dans le chat"
+  },
+  "制作上下文": {
+    "en": "Production context",
+    "fr": "Contexte de production"
+  },
+  "未知编辑者": {
+    "en": "Unknown editor",
+    "fr": "Auteur inconnu"
+  },
+  "避免": {
+    "en": "Avoid",
+    "fr": "À éviter"
+  },
+  "待确认": {
+    "en": "Pending confirmation",
+    "fr": "À confirmer"
+  },
+  "规则与修改记录": {
+    "en": "Rules and change record",
+    "fr": "Règles et historique des modifications"
+  },
+  "制作确认": {
+    "en": "Production confirmation",
+    "fr": "Confirmation de création"
+  },
+  "回复“放入”或“先保留”即可。": {
+    "en": "Reply “place it” or “keep it”.",
+    "fr": "Répondez « place it » ou « keep it »."
+  },
+  "回复“确认”开始，或回复“取消”。": {
+    "en": "Reply “confirm” to start, or “cancel”.",
+    "fr": "Répondez « confirm » pour démarrer ou « cancel »."
+  },
+  "请回复“确认”或“取消”；放入视频时回复“放入”或“先保留”。": {
+    "en": "Reply “confirm” or “cancel”; for placement, reply “place it” or “keep it”.",
+    "fr": "Répondez « confirm » ou « cancel » ; pour le placement, « place it » ou « keep it »."
+  },
+  "镜头示意图": {
+    "en": "Shot previews",
+    "fr": "Aperçus des plans"
+  },
+  "示意图版本": {
+    "en": "Preview version",
+    "fr": "Version des aperçus"
+  },
+  "最新版本": {
+    "en": "Latest version",
+    "fr": "Dernière version"
+  },
+  "参考图片": {
+    "en": "Reference image",
+    "fr": "Image de référence"
+  },
+  "回复“第 2 镜用第 3 张”即可选择；历史方案请带上 V 版本号。": {
+    "en": "Reply “Shot 2 use image 3” to choose; include the V version for an older set.",
+    "fr": "Répondez « Shot 2 use image 3 » pour choisir ; ajoutez la version V pour une ancienne série."
+  },
+  "第 {0} 镜": {
+    "en": "Shot {0}",
+    "fr": "Plan {0}"
+  },
+  "第 {0} 镜 · 第 {1} 张": {
+    "en": "Shot {0} · Image {1}",
+    "fr": "Plan {0} · Image {1}"
+  },
+  "等待本批算力确认": {
+    "en": "Awaiting compute confirmation for this set",
+    "fr": "En attente de confirmation du coût de calcul"
+  },
+  "本镜尚未生成成功，原记录保留": {
+    "en": "This shot has not completed; its record is retained",
+    "fr": "Ce plan n’a pas abouti ; son historique est conservé"
+  },
+  "原任务正在生成或取回，无需再次提交": {
+    "en": "Generating or retrieving the original job; no resubmission needed",
+    "fr": "Génération ou récupération en cours ; inutile de renvoyer la demande"
+  },
+  "书稿图像 · 未关联镜头": {
+    "en": "Book image · No linked shot",
+    "fr": "Image du livre · Aucun plan associé"
+  },
+  "等待你的确认 · 也可以继续发送其他内容": {
+    "en": "Waiting for your confirmation · You can keep messaging",
+    "fr": "En attente de votre confirmation · Vous pouvez continuer à écrire"
+  },
+  "正在思考 · 可以继续输入": {
+    "en": "Thinking · You can keep typing",
+    "fr": "Réflexion en cours · Vous pouvez continuer à écrire"
+  },
+  "对话改图": {
+    "en": "Image revisions in chat",
+    "fr": "Retouches dans la conversation"
+  },
+  "第 {0} 镜 · 改图": {
+    "en": "Shot {0} · Image revision",
+    "fr": "Plan {0} · Retouche"
+  },
+  "原图": {
+    "en": "Original image",
+    "fr": "Image originale"
+  },
+  "改图未完成，原图保留": {
+    "en": "Revision incomplete; original preserved",
+    "fr": "Retouche inachevée ; original conservé"
+  },
+  "正在核对原任务，暂不重复提交": {
+    "en": "Checking the original task; do not resubmit",
+    "fr": "Vérification de la tâche initiale ; ne la renvoyez pas"
+  },
+  "图片正在生成，你可以继续聊天": {
+    "en": "Generating your image. You can keep chatting.",
+    "fr": "Création de votre image. Vous pouvez continuer à discuter."
+  },
+  "已采用 · 旧版保留在仓库": {
+    "en": "Selected · Previous version kept in library",
+    "fr": "Adoptée · Version précédente conservée dans la bibliothèque"
+  },
+  "已保留原图 · 新图留在仓库": {
+    "en": "Original kept · New image saved in library",
+    "fr": "Original conservé · Nouvelle image dans la bibliothèque"
+  },
+  "是否替换原素材？回复“替换原图”或“保留原图”。": {
+    "en": "Replace the original? Reply “replace original” or “keep original”.",
+    "fr": "Remplacer l’original ? Répondez « replace original » ou « keep original »."
+  },
+  "是否替换原素材？回复“第 {0} 镜第 2 张替换原图”，或“第 {0} 镜保留原图”。": {
+    "en": "Replace the original? Specify shot {0} and an image number, or keep the original for shot {0}.",
+    "fr": "Remplacer l’original ? Précisez le plan {0} et le numéro de l’image, ou conservez l’original du plan {0}."
+  },
+  "图像 V{0} · {1}": {
+    "en": "Image V{0} · {1}",
+    "fr": "Image V{0} · {1}"
+  },
+  "图像创作记录": {
+    "en": "Image creation history",
+    "fr": "Historique de création d’images"
+  },
+  "历史记录": {
+    "en": "History",
+    "fr": "Historique"
+  },
+  "根据所选素材创作一张图片": {
+    "en": "Create an image from the selected materials",
+    "fr": "Créer une image à partir des éléments sélectionnés"
+  },
+  "图片已生成，原素材和这一版结果均已保留。": {
+    "en": "Image generated. The original materials and this version have been saved.",
+    "fr": "Image créée. Les éléments d’origine et cette version ont été conservés."
+  },
+  "任务已保存，可以打开方案查看进度。": {
+    "en": "Task saved. Open the plan to check its progress.",
+    "fr": "Tâche enregistrée. Ouvrez le plan pour suivre sa progression."
+  },
+  "核对中": {
+    "en": "Checking",
+    "fr": "Vérification en cours"
+  },
+  "待核对": {
+    "en": "Awaiting verification",
+    "fr": "À vérifier"
+  },
+  "未完成": {
+    "en": "Incomplete",
+    "fr": "Inachevée"
+  },
+  "已生成": {
+    "en": "Generated",
+    "fr": "Créée"
+  },
+  "图像 V{0} · 方案与参数": {
+    "en": "Image V{0} · Plan and settings",
+    "fr": "Image V{0} · Plan et paramètres"
+  },
+  "高质量 · 1 张": {
+    "en": "High quality · 1 image",
+    "fr": "Haute qualité · 1 image"
+  },
+  "确认时报价：": {
+    "en": "Confirmed estimate: ",
+    "fr": "Estimation confirmée : "
+  },
+  "所选文字与想法": {
+    "en": "Selected text and ideas",
+    "fr": "Texte et idées sélectionnés"
+  },
+  "按参考图整合画面": {
+    "en": "Compose the image using the references",
+    "fr": "Composer l’image à partir des références"
+  },
+  "图像 V{0} 的生成结果": {
+    "en": "Generated image for V{0}",
+    "fr": "Image créée pour V{0}"
+  },
+  "暂时无法读取图像记录，请稍后重试。": {
+    "en": "Image history is temporarily unavailable. Please try again shortly.",
+    "fr": "L’historique des images est temporairement indisponible. Réessayez dans un instant."
+  },
+  "已接续此方案的最新版本 V{0}；旧版仍可打开查看。": {
+    "en": "Continuing from the latest version, V{0}. Earlier versions remain available to view.",
+    "fr": "Reprise à partir de la dernière version, V{0}. Les versions précédentes restent consultables."
+  },
+  "已放入文章，仓库也已保存": {
+    "en": "Added to the article and saved in the library",
+    "fr": "Ajoutée à l’article et enregistrée dans la bibliothèque"
+  },
+  "原素材已变化；这一版保留在仓库，可以继续说明新要求": {
+    "en": "The source materials have changed. This version is saved in the library; you can describe your next changes.",
+    "fr": "Les éléments d’origine ont changé. Cette version est conservée dans la bibliothèque ; vous pouvez décrire vos prochaines modifications."
+  },
+  "第 {0} 镜 · 修改与历史": {
+    "en": "Shot {0} · Edit and history",
+    "fr": "Plan {0} · Modification et historique"
+  },
+  "第 {0} 镜 · 修改镜头": {
+    "en": "Shot {0} · Edit shot",
+    "fr": "Plan {0} · Modifier le plan"
+  },
+  "说说第 {0} 镜想怎么改…": {
+    "en": "Describe your changes to shot {0}…",
+    "fr": "Décrivez les modifications du plan {0}…"
+  },
+  "在下方说想怎么改，修改会对应这个镜头。": {
+    "en": "Describe your changes below. They will apply to this shot.",
+    "fr": "Décrivez vos modifications ci-dessous. Elles concernent ce plan."
+  },
+  "当前镜头内容": {
+    "en": "Current shot content",
+    "fr": "Contenu actuel du plan"
+  },
+  "当前镜头画面": {
+    "en": "Current shot image",
+    "fr": "Image actuelle du plan"
+  },
+  "修改历史 · {0} 条": {
+    "en": "History · {0} records",
+    "fr": "Historique · {0} entrées"
+  },
+  "更早的修改 · {0} 条": {
+    "en": "Earlier changes · {0} records",
+    "fr": "Modifications précédentes · {0} entrées"
+  },
+  "还没有这个镜头的修改记录。": {
+    "en": "No changes recorded for this shot yet.",
+    "fr": "Aucune modification enregistrée pour ce plan."
+  },
+  "图片历史暂未读到，文字历史仍可查看。": {
+    "en": "Image history is temporarily unavailable. Text history is still visible.",
+    "fr": "Historique des images indisponible. Celui du texte reste visible."
+  },
+  "时间未记录": {
+    "en": "Time not recorded",
+    "fr": "Date non enregistrée"
+  },
+  "修改前": {
+    "en": "Before",
+    "fr": "Avant"
+  },
+  "修改后": {
+    "en": "After",
+    "fr": "Après"
+  },
+  "保留的内容": {
+    "en": "Saved content",
+    "fr": "Contenu enregistré"
+  },
+  "空内容": {
+    "en": "Empty",
+    "fr": "Vide"
+  },
+  "台词与声音": {
+    "en": "Dialogue and sound",
+    "fr": "Dialogues et son"
+  },
+  "剪辑位置与素材": {
+    "en": "Timeline placement and media",
+    "fr": "Placement et médias"
+  },
+  "图片生成未完成": {
+    "en": "Image generation failed",
+    "fr": "Échec de génération de l’image"
+  },
+  "图片生成中": {
+    "en": "Generating image",
+    "fr": "Génération de l’image"
+  },
+  "历史图片": {
+    "en": "Saved image",
+    "fr": "Image enregistrée"
+  },
+  "采用图片": {
+    "en": "Image adopted",
+    "fr": "Image adoptée"
+  },
+  "对话要求": {
+    "en": "Chat request",
+    "fr": "Demande dans la conversation"
+  },
+  "剪辑快照": {
+    "en": "Editing snapshot",
+    "fr": "Instantané du montage"
+  },
+  "图片 #{0}": {
+    "en": "Image #{0}",
+    "fr": "Image n°{0}"
+  },
+  "视频 Take {0}": {
+    "en": "Video Take {0}",
+    "fr": "Vidéo Take {0}"
+  },
+  "视频 Take {0} · 当前已采用": {
+    "en": "Video Take {0} · Currently adopted",
+    "fr": "Vidéo Take {0} · Actuellement adoptée"
+  },
+  "视频 Take {0} · 可回复“采用 Take {0}”放入本镜": {
+    "en": "Video Take {0} · Reply “adopt Take {0}” to place it in this shot",
+    "fr": "Vidéo Take {0} · Répondez « adopt Take {0} » pour l’ajouter à ce plan"
+  },
+  "视频生成中": {
+    "en": "Generating video",
+    "fr": "Génération de la vidéo"
+  },
+  "视频生成未完成": {
+    "en": "Video generation incomplete",
+    "fr": "Génération de la vidéo incomplète"
+  },
+  "编辑者：用户 #{0}": {
+    "en": "Edited by user #{0}",
+    "fr": "Modifié par l’utilisateur n°{0}"
+  },
+  "此记录未保存编辑者": {
+    "en": "Editor not recorded",
+    "fr": "Auteur non enregistré"
+  },
+  "对话图片候选": {
+    "en": "Chat image candidates",
+    "fr": "Images proposées"
+  },
+  "第 {0} 镜生成两张图，预计 {1}。回复“确认”或“取消”。": {
+    "en": "Generate two images for shot {0}, estimated {1}. Reply “confirm” or “cancel”.",
+    "fr": "Générer deux images pour le plan {0}, coût estimé {1}. Répondez « confirm » ou « cancel »."
+  },
+  "正在生成两张图，你可以继续聊天。": {
+    "en": "Generating two images. You can keep chatting.",
+    "fr": "Génération de deux images. Vous pouvez continuer à discuter."
+  },
+  "第 {0} 张": {
+    "en": "Image {0}",
+    "fr": "Image {0}"
+  },
+  "已加入镜头": {
+    "en": "Added to shot",
+    "fr": "Ajoutée au plan"
+  },
+  "喜欢的话回复“加入第1张”或“两张都加入”；想修改就说“第1张再改……”。": {
+    "en": "Reply “add image 1” or “add both”; to revise, say “edit image 1…”.",
+    "fr": "Répondez « add image 1 » ou « add both » ; pour modifier, dites « edit image 1… »."
+  },
+  "部分图片未返回，请先查看仓库，避免重复生成。": {
+    "en": "Some images did not return. Check the library before generating again.",
+    "fr": "Certaines images ne sont pas revenues. Vérifiez la bibliothèque avant de réessayer."
+  },
+  "刷新时图片任务仍在进行，请先在仓库查看，避免重复生成。": {
+    "en": "Image generation was still running when the page reloaded. Check the library before trying again.",
+    "fr": "La génération était en cours au rechargement. Vérifiez la bibliothèque avant de réessayer."
+  },
+  "说说图片想怎么改…": {
+    "en": "Describe how you want to change the images…",
+    "fr": "Décrivez comment modifier les images…"
+  },
+  "第 {0} 镜 · 对话与素材": {
+    "en": "Shot {0} · Conversation & media",
+    "fr": "Plan {0} · Conversation et médias"
+  },
+  "第 {0} 镜 · 记录": {
+    "en": "Shot {0} · History",
+    "fr": "Plan {0} · Historique"
+  },
+  "本镜图片 · {0} 张": {
+    "en": "Shot images · {0}",
+    "fr": "Images du plan · {0}"
+  },
+  "选择图片 #{0}": {
+    "en": "Select image #{0}",
+    "fr": "Sélectionner l’image nº {0}"
+  },
+  "直接说想改哪个镜头的画面、音乐或视频…": {
+    "en": "Say which shot’s image, music or video you’d like to change…",
+    "fr": "Dites quel plan modifier : image, musique ou vidéo…"
+  },
+  "请说清一个镜号，我会打开它的对话；尚未修改。": {
+    "en": "Name one shot so I can open its conversation. Nothing has changed.",
+    "fr": "Indiquez un plan pour ouvrir sa conversation. Rien n’a été modifié."
+  },
+  "旧对话中的镜号提及": {
+    "en": "Shot mentioned in an older conversation",
+    "fr": "Plan mentionné dans une ancienne conversation"
+  },
+  "未标记镜头的旧图片 · {0} 张": {
+    "en": "Older images without a shot · {0}",
+    "fr": "Anciennes images sans plan · {0}"
+  },
+  "旧流程未保存这些图片的镜头归属，原图仍在这里。": {
+    "en": "The earlier workflow did not record a shot for these images. The originals are still available.",
+    "fr": "L’ancien processus n’a pas enregistré le plan de ces images. Les originaux restent disponibles."
   }
 }

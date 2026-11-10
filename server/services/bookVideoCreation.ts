@@ -6,6 +6,7 @@ import { writingModuleTexts } from "../../shared/bookWritingStyle";
 import { readBookAudio } from "../../shared/bookAudioBlock";
 import { listOwnedStoryAudioAssets } from "./storyAudioAssets";
 import { directBookStoryboardPreview } from "./directBookStoryboard";
+import { prepareBookVideoAudio } from "./bookVideoAudio";
 import { currentManuscript, versionReference, type VersionActor } from "../../shared/bookWorkflow";
 import { reuseBookMusicForStory } from "./timelineAudioEditing";
 import { TRPCError } from "@trpc/server";
@@ -22,7 +23,7 @@ import {
   confirmedBookVideoVersions,
   type BookVideoRecord,
 } from "../../shared/bookVideoCreation";
-import type { PublishingArticleLayout } from "../../shared/publishingArticleVideo";
+import { publishingArticleVideoRows, type PublishingArticleLayout } from "../../shared/publishingArticleVideo";
 import { runPublishingVideoStoryboardTextCompute } from "./publishingVideoStoryboard";
 import {
   generateAndPersistPublishingVideoPreview,
@@ -83,20 +84,39 @@ export async function importBookStoryboard(input: Owner & { id: string; chapterI
       request: "直接使用当前分镜", directStoryboard: true, layout: source.layout, bookSource: true, sourceHash: source.sourceHash,
       manuscriptSource: versionReference(manuscript!), creationIntent: manuscript!.intent, author: input.actor,
       musicAssets: source.musicAssets, missingImages: 0, missingMusic: 0,
-      brief: { ...manuscript!.intent, tone: "沿用分镜原稿", duration: "沿用分镜时长；未写明的保留默认时长待调整",
-        narration: "原样保留已标记台词，已有朗读素材待对齐", music: "沿用书稿中已有音乐及声音说明", useBookMusic: true,
+      brief: { ...manuscript!.intent, tone: "沿用分镜原稿", duration: "沿用分镜时长，为旁白慢放与停顿预留必要时间",
+        narration: "原样保留已标记台词，匹配当前稿件的整书录音自动慢放并对齐字幕", music: "沿用书稿音乐，平滑延长至全片", useBookMusic: true,
         reuse: "按原归属保留图片和声音", changes: "当前分镜原样放入视频表格", question: "" },
     }];
   });
   let record = getRecord(records, input.id);
   if (!record.preview) {
+    const preview = directBookStoryboardPreview(publishingArticleVideoRows(source.layout), Date.now(), audioByShot);
+    const preparedAudio = await prepareBookVideoAudio({ ...input, chapters, shots: preview.shots,
+      musicAssetIds: source.musicAssets.map(asset => asset.assetId) });
+    if (preparedAudio) preview.shots = preview.shots.map(shot => ({ ...shot,
+      durationSec: preparedAudio.shots.find(timing => timing.draftShotId === shot.draftShotId)!.durationFrames / 30,
+      soundRequirement: shot.soundRequirement.split("\n").map(line => {
+        const narration = preparedAudio.narration;
+        const assetPath = (id: number) => `(/api/story-audio-asset/${input.storyId}/${id})`;
+        if (narration && line.includes(assetPath(narration.sourceAssetId)))
+          return line.replace("（待对齐）", "（0.9倍速，已对齐字幕）").replace(assetPath(narration.sourceAssetId), assetPath(narration.assetId));
+        const music = preparedAudio.music.find(music => line.includes(assetPath(music.sourceAssetId)));
+        return music ? line.replace("声音：", "配乐（已延长至全片）：").replace(assetPath(music.sourceAssetId), assetPath(music.assetId)) : line;
+      }).join("\n"),
+    }));
+    if ((await readBookVideoSource(input))?.sourceHash !== source.sourceHash)
+      throw new TRPCError({ code: "CONFLICT", message: "声音处理期间分镜已更新，请重新导入；当前视频仍保留。" });
     const generated = await generateAndPersistPublishingVideoPreview({ ...input, versionId: record.versionId,
       bookSource: true, articleLayout: source.layout, operationToken: `book-video-${input.id}`,
-      generate: async args => ({ preview: directBookStoryboardPreview(args.articleRows ?? [], Date.now(), audioByShot), modelLabel: "existing-storyboard" }),
+      generate: async () => ({ preview, modelLabel: "existing-storyboard" }),
     });
     if (generated.status !== "ready" || !generated.preview) throw new TRPCError({ code: "CONFLICT", message: "分镜正在放入视频表格，请稍后重试。" });
     record = getRecord(await mutateRecords(input, records => records.map(item => item.id === input.id
-      ? { ...item, preview: generated.preview!, status: "ready", revision: item.revision + 1 } : item)), input.id);
+      ? { ...item, preview: generated.preview!, preparedAudio,
+          ...(preparedAudio && item.brief ? { brief: { ...item.brief, duration: `${(preparedAudio.durationFrames / 30).toFixed(2)}秒（按旁白与分镜节奏调整）`,
+            narration: preparedAudio.narration ? "原台词0.9倍速，保留音色并增加停顿；字幕按实际语音逐句对齐" : item.brief.narration } } : {}),
+          status: "ready", revision: item.revision + 1 } : item)), input.id);
   }
   return adoptBookVideo({ ...input, reviewedRevision: record.revision });
 }
@@ -422,8 +442,9 @@ export async function adoptBookVideo(input: Owner & { id: string; reviewedRevisi
     operationToken: `book-video-adopt-${r.id}`,
     preserveVideoActor: input.actor,
     preferSourceContent: r.directStoryboard,
+    preparedAudio: r.preparedAudio,
   });
-  if (r.status !== "adopted" && r.brief.useBookMusic !== false && r.musicAssets?.length) {
+  if (!r.preparedAudio && r.status !== "adopted" && r.brief.useBookMusic !== false && r.musicAssets?.length) {
     const durationFrames = Math.max(1, Math.round(result.shots.reduce((sum, shot) => sum + (typeof shot.durationMs === "number" && shot.durationMs > 0 ? shot.durationMs : 5000), 0) * 30 / 1000));
     const reused = await reuseBookMusicForStory({ ...input, planId: r.id, assetIds: r.musicAssets.map(a => a.assetId), durationFrames });
     if (reused.status === "error")

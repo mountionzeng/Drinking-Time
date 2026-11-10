@@ -1,3 +1,4 @@
+import { editTimelineSoundFromChat } from "../services/timelineSoundChat";
 import { wholeBookSoundSchema } from "../../shared/bookSound";
 import { getMediaTaskStatus, mediaTaskAsyncSubmitEnabled, runSyncMediaInBackground } from "../services/mediaTaskSwitch";
 import { listChapters, listChapterVersions } from "../repositories/chapters";
@@ -64,6 +65,9 @@ import {
 } from "../services/storyAudioAssets";
 import { loadOwnedStoryTimelineEnvelope } from "../persistence/storyVisualPersistence";
 import { withVisualEditServiceLock } from "../services/visualClipEditing";
+import { VIDEO_MEDIA_KINDS, videoMediaHistoryAssetIds } from "../../shared/videoMediaVersions";
+import { getStoryById } from "../repositories/stories";
+import { getVideoMediaVersions, restoreVideoMediaVersion } from "../services/videoMediaVersions";
 
 const operationInput = z.object({
   editorSessionEpoch: z.string().min(1).max(80),
@@ -100,6 +104,13 @@ const subtitleCandidateInput = z.object({
 });
 
 export const timelineMediaRouter = router({
+  editSoundFromChat: protectedProcedure.input(z.object({ storyId, operation: operationInput, instruction: z.string().trim().min(1).max(2000) }))
+    .mutation(({ ctx, input }) => editTimelineSoundFromChat({ ...input, userId: ctx.user.id })),
+  versions: protectedProcedure.input(z.object({ storyId })).query(({ ctx, input }) =>
+    getVideoMediaVersions({ ...input, userId: ctx.user.id, name: ctx.user.name ?? undefined })),
+  restoreVersion: protectedProcedure.input(z.object({ storyId, operation: operationInput,
+    kind: z.enum(VIDEO_MEDIA_KINDS), versionId: z.string().min(1).max(100), expectedCurrentId: z.string().max(100).nullable() }))
+    .mutation(({ ctx, input }) => restoreVideoMediaVersion({ ...input, userId: ctx.user.id })),
   /** Seed the subtitle track from upstream candidates. No-op once cues exist. */
   initializeSubtitles: protectedProcedure
     .input(
@@ -691,15 +702,17 @@ export const timelineMediaRouter = router({
   audioAssetLibrary: protectedProcedure
     .input(z.object({ storyId }))
     .query(async ({ ctx, input }) => {
-      const [assets, envelope] = await Promise.all([
+      const [assets, envelope, story] = await Promise.all([
         listOwnedStoryAudioAssets({ storyId: input.storyId, userId: ctx.user.id }),
         loadOwnedStoryTimelineEnvelope({ storyId: input.storyId, userId: ctx.user.id }),
+        getStoryById(input.storyId, ctx.user.id),
       ]);
       const referenced = new Set(
         normalizeAudioState(envelope?.extensions.audioTracks).tracks.flatMap(track =>
           track.clips.map(clip => clip.assetId)
         )
       );
+      for (const id of videoMediaHistoryAssetIds(story?.body, envelope?.extensions ?? {})) referenced.add(id);
       return assets
         .filter(asset => asset.status === "ready")
         .map(asset => ({
@@ -728,6 +741,9 @@ export const timelineMediaRouter = router({
           track.clips.some(clip => clip.assetId === input.assetId)
         );
         if (used) return { status: "error" as const, message: "这份声音正在时间线上使用，请先删除时间线片段" };
+        const story = await getStoryById(input.storyId, ctx.user.id);
+        if (videoMediaHistoryAssetIds(story?.body, envelope?.extensions ?? {}).has(input.assetId))
+          return { status: "error" as const, message: "这份声音保存在历史版本中，不能删除素材。" };
         const chapters = await listChapters(input.storyId, ctx.user.id, "all");
         for (const chapter of chapters) {
           const versions = await listChapterVersions(chapter.id, ctx.user.id);

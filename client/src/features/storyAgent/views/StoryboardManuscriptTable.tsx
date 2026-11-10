@@ -160,6 +160,7 @@ function Row({ entry, ...props }: Props & { entry: ManuscriptEntry }) {
       data-shot-id={entry.stableShotId}
       data-shot-code={label}
       onFocus={() => props.onSelect(shot.shotNo)}
+      onClick={() => props.onSelect(shot.shotNo)}
       className={`align-top border-b border-border/60 ${props.selectedShotNo === shot.shotNo ? "bg-[var(--nayin-accent)]/5" : ""}`}
     >
       <th scope="row" className="w-24 px-3 py-4 text-left font-normal">

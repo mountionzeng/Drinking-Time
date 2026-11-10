@@ -49,3 +49,12 @@ describe("image revision conversation lifecycle", () => {
     ).toEqual(imageRevision);
   });
 });
+
+it("merges a late image reply without erasing messages that arrived during generation", async () => {
+  const user = { id: "u", role: "user" as const, content: "改图", timestamp: 1 };
+  const later = { id: "later", role: "user" as const, content: "其他内容", timestamp: 2 };
+  const setMessages = vi.fn();
+  await commitSelectionReply({ nextMessages: [user], currentMessages: () => [user, later], reply: { id: "r", role: "assistant", content: "图片已完成", timestamp: 3 }, userMessage: user,
+    selection: {} as SelectionState, storyId: null, setMessages, setActiveSelection: vi.fn(), appendTurn: vi.fn(), archive: vi.fn(), persistWarning: "test" });
+  expect(setMessages.mock.calls[0][0].map((m: any) => m.id)).toEqual(["u", "later", "r"]);
+});

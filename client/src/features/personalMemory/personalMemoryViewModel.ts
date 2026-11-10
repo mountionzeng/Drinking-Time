@@ -71,25 +71,3 @@ export function groupPersonalMemoryTimeline(
     }))
     .sort((left, right) => right.occurredOn.localeCompare(left.occurredOn));
 }
-
-export function describeSummarySources(
-  sourceTypes: readonly PersonalMemorySourceType[]
-): string {
-  const labels = sourceTypes.map(type => {
-    switch (type) {
-      case "chat_message":
-        return "原话";
-      case "daily_letter_message":
-        return "回信留言";
-      case "publishing_adoption":
-        return "文章";
-      case "image_adoption":
-        return "图片";
-      case "insight":
-        return "理解";
-      case "daily_letter_version":
-        return "来信";
-    }
-  });
-  return [...new Set(labels)].join("、");
-}

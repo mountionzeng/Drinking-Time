@@ -24,6 +24,40 @@
 
 ## 当前在场
 
+- 2026-11-10 文档07联合发布：用户已授权本对话与“调整网页制作流程”全部代码合main/push/部署；来源会话idle并已释放。独占本轮合并/发布窗口，保留最新远端算力账单与现有生产配置/数据库；不纳入其他会话手机号修复和outputs私人素材。占发布回归必要修复、账本与QA，完成立即释放。
+
+2026-11-10 文档07全系统冗余清理本地完成并释放文件：19个产品/测试文件净删515行，旧摘要/外形弹窗、无入口偏好提醒、旧抽帧/时间轴包装及重复后端辅助实现清理；用户明确保留的六个情绪检索函数已完整恢复。225专项、补充63项及构建77草稿测试通过，类型/92卡/契约/diff通过；既有架构行数测试1项失败（StoryAgentContext4558>4528，本轮未改）。Knip条目721→695，新增0。未提交/发布/付费/改作品，其他未提交修改保留。QA docs/qa/2026-11-10-system-unused-code-cleanup.md；开工快照 /tmp/document07-cleanup-20261110/。
+
+
+
+
+2026-11-10 chat 01a1bedb：对话图片可点击选中已本地完成并释放文件；关联镜头图片支持文字设置帧角色，未关联候选设帧及自由意图路由仍未打通，防止绑定接口意外替换主图。真实3000验证选中 #2038，未修改镜头或购买媒体；53项测试、类型及92卡通过。QA docs/qa/2026-11-10-chat-image-selection.md。
+2026-11-10 chat 01a1bedb：两图候选停留修复完成并释放文件；候选移入可滚动对话区，识别明确拒绝，素材保留仓库。真实3000输入都不要后刷新不再显示；26项测试、最终4项、类型及92卡通过，无新付费任务。QA docs/qa/2026-11-10-two-image-chat-dismiss.md。
+2026-11-10 chat 01a1bedb：完成 MJ 编辑接口只读核查并释放；Legnext 现有接入为 V7 Fast 参考重绘，官方另有 upload-paint 外部原图编辑及 inpaint 任务后续编辑；后者依赖兼容的原任务和通道。302 另有 edits 接口。对话底图自动判断和真正编辑接入尚未实现；本次未提交付费任务，右侧已有两张候选，保留原状。
+
+
+
+
+
+
+
+
+
+
+
+2026-11-10 chat 01a1bedb 两图底图顺序核对本地完成并释放文件（未提交/发布）：twoImageChat/useTwoImageChat、相关测试与账本/QA。确认当前为302 GPT Image 2，预计每图2.86算力、两图5.72；图1优先采用当前已选完整镜头，上传图片为参考，用户明确指定底图时优先；约束构图与主体相对位置但不承诺像素锁定。302/OpenAI官方文档明确GPT Image 2默认高保真且不接受input_fidelity。36项专项、类型及92卡通过；无真实生成，待用户明确费用授权，详见docs/qa/2026-11-10-two-image-chat.md。
+
+2026-11-10 chat 01a1bedb 视频对话两张图入口本地实现并释放文件（未提交/发布，真实付费验收待用户确认）：StoryAgentChat、chatMediaAttachments、twoImageChat/useTwoImageChat、测试/词典/账本/QA。去掉附件提取追问，识别自然改图要求，准备两张候选并经文字确认与采用；原MJ四图入口保留。3000真实故事1217用用户两张原图和原话复现到第01镜5.72算力报价，未提交付费生成；53文件462项、最终48项、类型和构建通过。生成中刷新暂只能检查仓库，结果/采用真实验收尚未完成；QA docs/qa/2026-11-10-two-image-chat.md。
+
+2026-11-10 chat 01a1bedb 镜头图片删除修复本地完成并释放文件（未提交/发布）：storyboardReviewModel/ReviewBoard、StoryCardsBoard.intent测试、账本及QA。修复已移除父图因谱系回带再次显示；镜头保存移除 ID、显式重新关联可恢复，关联他镜图片不解除原镜归属。真实3000删除故事1217首帧#2019并刷新仍不显示，尾帧#2038及仓库原图保留，无付费生成；4文件131项、类型、92卡和diff检查通过，尾帧未实际删除。QA docs/qa/2026-11-10-storyboard-image-removal.md。
+
+2026-11-10 chat 01a1bedb 界面刷新恢复本地完成并释放文件（未提交/发布）：EditingStudioPage、BookVideoWorkspace、storyWorkspacePreference、专项测试和账本/QA。按账户及故事记住书/视频和视频子视图；原首次入口和显式跳转保留，本机存储不可用时回退。35项专项、类型、92卡及差异检查通过；3000真实故事实测视频剪辑、书页、视频分镜稿刷新保持，无付费生成或作品改动。仅本浏览器生效，QA docs/qa/2026-11-10-story-view-restore.md。
+
+2026-11-10 chat 01a1bedb 镜头对话修改/历史本地完成并释放本轮文件（未提交/发布）：ShotChatInspector/shotChangeHistory、StoryboardPanel/ReviewBoard/ManuscriptTable、NLE、StoryAgentChat/Context、桌面排队、字段版本/自动保存与对应词典/测试/账本。点击镜头展开原对话、按稳定身份查看历史/媒体；修复自动保存清历史、切镜排队目标漂移及表格光标被抢。新字段修订记录用户ID，旧记录如实显示未知；镜头2空白媒体区也可选中。56文件469项回归、最终历史48项、类型/构建77草稿保护、92卡验证及diff检查通过；3000实点01/02、收起展开、输入草稿清空、表格焦点、剪辑空白镜、刷新历史。真实1217仍7镜/37图/0视频Take，未新购媒体。此前声音、视频完成刷新恢复/时长策略与真实付费视觉验收等缺口仍保留，不宣称全流程完成。QA docs/qa/2026-11-10-shot-chat-history.md；截图 /tmp/shot-chat-history-20261110.png。
+
+2026-11-09 手机号登录修复本地完成并释放代码：phoneLogin改为49字符完整哈希，修复线上70字符超过VARCHAR(64)导致验证成功后建号失败；PhoneLoginPanel长等待与发送限流提示改善。线上只读证实挑战已消费/无身份/4次列超长，未读取验证码摘要或写库。20专项通过，隔离HEAD快照类型/前后端构建、88卡和diff校验通过；未提交/部署/恢复额度/发送短信，产物/tmp/phone-debug-20261109/src/dist，QA docs/qa/2026-11-09-phone-login-repair.md。生产额度定向恢复待用户批准，未占用发布窗口。
+
+
 2026-11-09 手机验收与工作流发布完成，释放提交/部署窗口：6e3ea4fe、cfa6fe12及此前4提交已push main；生产版本6b247713-cfad-4f08-831f-3cb9bdaa4536，174产物哈希、HTTPS手机/编辑页/ready通过，麦克风self已上线，配置和数据库未改。6914全量、215小程序、73隔离MySQL及最终77项通过，原跳过如实保留。真机新图片/系统分享、旧ASR上游仍留缺口；outputs私人素材留本地。详见docs/qa/2026-11-09-mobile-workflow-release.md。
 
 
@@ -236,6 +270,25 @@
 ---
 
 ## 最近落地
+
+2026-11-10 chat 01a1bedb 冗余清理首批完成并释放（未提交/发布）：storyboardReviewModel无入口30秒planner/类型、其旧专属测试/翻译、StoryAgentChat恒false分支、ShotChatInspector无效prop及测试、QA/账本；相对本轮起点净删202行。89相关/类型/92卡/diff通过，Knip既有727提示未新增；保留逐镜/对话生成、素材数据/历史兼容和其他未提交工作。QA docs/qa/2026-11-10-unused-workflow-cleanup.md。
+
+2026-11-10 chat 01a1bedb 播放闪动/界面精简完成并释放（未提交/发布）：EditingNleWorkspace/storyboardSelectionFollow及测试、StoryboardReviewBoard、StoryboardTimelineRuler、StoryAgentChat/QA/账本。根因是时钟选镜与旧聊天选区反复回拉，改为显式选择只跟随一次；总时长20px红色、移除约30秒一键按钮、退出镜头历史回到对话底部。135项/类型/92卡/diff通过；真实3000播放至64.467秒无新循环错误、退出底部差值0、按钮0与20px颜色验证。临时main诊断已移除，无媒体/音轨/算力变更，QA docs/qa/2026-11-10-playback-ui.md。
+
+2026-11-10 chat 01a1bedb 镜头对话入口完成并释放本轮文件（未提交/发布）：StoryAgentChat/Context、ShotChatInspector、gallery、shotConversation、Storyboard/NLE、两图归属服务与路由、storySync、声音作用范围保护、测试/词典/QA/账本。镜头小框打开双方对话/修改/图片，右侧点击与自然镜号定位一致；新两图落盘后保留稳定镜头来源且不自动采用，旧无归属图折叠保留。157专项、95增量、40最终及类型通过（重叠）；真实3000切镜/选图/本地历史查询/刷新通过，算力25.21未变，无素材改动。旧归属缺失与单镜音量编辑仍有缺口，详见 docs/qa/2026-11-10-shot-conversation-context.md。
+
+2026-11-10 chat 01a1bedb 图像版本卡英文显示完成并释放：BookImageCompositionCard、uiLanguage/messages.json、账本/QA。标题/状态/历史标记/默认要求/结果说明与参数固定文案补齐翻译；3000真实1217书工作区English下V1/V2验证通过，原始创作要求保留。14项测试、类型、91卡和diff通过；未提交/部署，无AI或媒体变更。QA docs/qa/2026-11-10-image-history-language.md。
+
+2026-11-10 chat 01a1bedb 对话改图输入/预览/文字替换完成并释放（main，未提交/push/部署）：StoryAgentChat/Context、mediaChatSession、desktopChatQueue、rerender/useShotImageRender、storyboardImageTask/storyAgent、新chatImageRevision与gallery/choice、EditingStudioPage、字典/测试/账本。154相关测试、主图同步增量80项、类型、构建77草稿保护、91卡校验通过；唯一3000实测报价等待时发其他消息、取消后续处理、2038原图回显并刷新恢复。无新付费、真实时间轴仍15；新GPT/MJ效果仅模拟供应商测链路，待真实生成验收。QA docs/qa/2026-11-10-chat-image-preview.md。
+
+2026-11-09 chat 01a1bedb 图像历史镜号标注完成并释放：shared/bookImageComposition、bookImageComposition服务、BookImageCompositionCard/History/Chat、词典及相关测试/QA/账本。35专项、类型、91卡与diff通过；真实3000图像V1/V2及详情标明第01镜。只读关联投影，原图片/历史不变；无AI调用、未提交部署。QA docs/qa/2026-11-09-image-history-shot-label.md。
+
+2026-11-09 chat 01a1bedb 对话美术/示意流程本地完成并释放全部登记文件（未提交/push/部署）：artSystem/Skill、StoryAgent 对话制作/费用确认、artPreview 跨镜头方案/候选/文字采用、storySync 服务端方案保护、Legnext 回执与并行取回及首尾帧参考修复。311相关测试、类型、构建77草稿保护、91卡与diff通过。3000真实7镜方案/28图9.52算力报价、文字取消、刷新保留与仓库查看通过；单镜改图2.86/视频7.10报价取消通过；没有新付费媒体提交，两次文本规划约0.50算力。用户已明确采用#2038，第02镜旧2030–2037退仓保留。迁移真实画质/视频效果未验收、音频节拍未分析、13秒镜头当前视频报价8秒、视频完成问答刷新续接仍有缺口，详见 docs/qa/2026-11-09-conversation-art-system.md。
+
+- 2026-11-09 chat 01a1bedb 对话声音编辑与视频生成解阻本地完成并释放文件（未提交/push/部署）：EditingStudioPage/StoryAgentChat/队列按书视频区分上下文；timelineMedia声音窄命令支持音量、静音、淡入淡出并记录原话子版本；StoryboardReviewBoard/reviewModel/逐镜生成自动准备本镜完整帧，合并算力确认、取消旧裁图与封面门槛。156专项、类型/构建77草稿保护、90卡账本及diff校验通过。3000真实书页音乐指令打开原整书入口；视频音量修改创建V08.3后恢复V08.1（25%），旁白/字幕不变。第02镜原补图任务已取回4图，未重复购买，未新增VideoTake；完整付费视频及生产/MySQL仍未验收。302 MJ原图edits/局部modal已查官方文档，尚未接入。其他未提交工作保留。QA docs/qa/2026-11-09-sound-chat-video-flow.md，截图 outputs/sound-chat-video-20261109/sound-chat-final.png。
+
+2026-11-09 chat 01a1bedb 旁白字幕节奏与全片配乐完成并释放本轮文件（未提交/push/部署）：bookVideoCreation/shared、publishingVideoStoryboardPersistence/videoWorkflow、bookVideoAudio共享规划与服务、离线对齐脚本、配置/测试/账本QA。分镜入口自动匹配整书录音、0.9倍保调慢放加停顿、13段字幕同步与全片配乐；真实1217当前视频V8源分镜V2，7镜64.466667秒，派生16/17复用，旧V6声音15/14及原稿原图保留。76项、最终24项/类型/构建77草稿保护/88卡通过，真实3000完整回放至64.467秒，音频边界误差≤0.03秒；无付费调用。Python/Whisper/FFmpeg为本机已配依赖，生产未验收；详见docs/qa/2026-11-09-book-video-audio-pacing.md。其他手机号登录会话改动保留。
+
 
 - 2026-11-09 素材提交前失败恢复完成并释放（未提交）：useMaterialCapture及新增hook测试，只对尚未上传的新批次解锁读取/暂存失败，未知请求保留原锁定与幂等。32项相关/类型通过；既有6份原件真实3000读取与SHA/Range验证通过。QA见2026-11-09-mobile-import.md；按用户要求不再尝试镜像，不占合并部署窗口。
 
@@ -522,3 +575,5 @@
 2026-11-03 首页微信码申请合并/发布窗口：以 main 9f12d94b 和生产 conversation-fixes-20261103 为基线，隔离9个文件（含原有功能账本和证据），仅前端发布；保留所有主仓未提交文件，其他会话请避免同时进行跨分支合并/生产发布。4项入口测试、类型、构建和77卡账本通过；体验码未真机验证。
 
 2026-11-03 首页微信码已上线并释放合并/发布窗口：main 2973a9d1（入口）及08590c90（验证记录）均已push，生产 release=wechat-home-qr-20261103，manifest=/opt/Drinking-Time/dist.release-wechat-home-qr-20261103.json。116产物哈希、ready/mysql/required、HTTPS二维码原图哈希通过；正式站浏览器实点确认原设备选择弹窗内手机版、电脑版、微信版二维码与11月9日前有效提示完整可见。仅前端发布，后端/环境/数据库不变，旧资源保留。4项测试、类型、构建、77卡账本通过；未进行手机扫码或体验资格验收。源码与产物保存在/tmp/wechat-home-qr-release-20261103/src，正式截图/tmp/wechat-home-qr-release-20261103/production-entry.png；临时git worktree/分支已删除。主仓原87个未提交文件已保留，备份/tmp/wechat-home-qr-workspace-before-merge-20261103。后续发布以该线上基线为准。QA docs/qa/2026-11-03-wechat-home-qr.md。
+
+2026-11-09 chat 01a1bedb 影片内音乐/字幕子版本完成并释放本轮文件（未提交/push/部署）：shared/server videoMediaVersions、Timeline CAS/音频命令/路由、素材历史保留、快照引用与前端轨道下拉/字典/测试/账本QA。各轨按影片V02→V02.1独立递增，恢复真实切片、新身份防迟到写入、会话/CAS/幂等/撤销保持。14文件155项回归、类型、构建77项草稿保护、89卡及差异检查通过；真实3000故事1217实点音乐V06.2素材14→V08.1素材17、音量修改得到V08.2后恢复V08.1（25%），刷新保留；最终旁白16/音乐17均1934帧、13字幕、影片仍V8，账本155/供应商18/22.96算力未变。旧未保存编辑不可补造、部分作者缺失如实显示，2000项/4MiB上限保留旧记录报错。生产/MySQL未在本轮验收，其他手机号登录修复保留。QA docs/qa/2026-11-09-video-media-versions.md，截图outputs/video-media-versions-20261109/versions.png。

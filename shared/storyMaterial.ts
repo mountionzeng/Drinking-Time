@@ -283,6 +283,8 @@ export type StoryVisualAssetMaterialState = {
 
 export type StoryMaterialState = {
   storyId: number;
+  /** Explicitly confirmed art-system baseline; not a shot adoption. */
+  artSystemReference?: { version: number; name: string; image: ImageAsset };
   timeline: TimelineDocument;
   shots: ShotMaterialState[];
   /** Complete story image archive, independent of shot assignment/adoption. */

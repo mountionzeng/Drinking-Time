@@ -36,6 +36,7 @@ export function selectionQuoteFrom(selection: SelectionState) {
 
 export async function commitSelectionReply(input: {
   nextMessages: ChatMessage[];
+  currentMessages?: () => ChatMessage[];
   reply: ChatMessage;
   selection: SelectionState;
   userMessage: ChatMessage;
@@ -51,7 +52,9 @@ export async function commitSelectionReply(input: {
   persistWarning: string;
   retainSelection?: boolean;
 }) {
-  const finalMessages = [...input.nextMessages, input.reply];
+  const base = input.currentMessages?.() ?? input.nextMessages;
+  const ids = new Set(base.map(m => m.id));
+  const finalMessages = [...base, ...input.nextMessages.filter(m => !ids.has(m.id)), input.reply];
   input.setMessages(finalMessages);
   if (!input.retainSelection) input.setActiveSelection(current =>
     consumeSubmittedSelection(current, input.selection)

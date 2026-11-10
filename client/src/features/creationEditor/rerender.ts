@@ -13,6 +13,7 @@ import type { ImageProvider } from "@shared/imageProvider";
 export type RerenderReference = {
   selection?: ShotRenderReferences;
   referenceRevision?: boolean;
+  conversationRevision?: boolean;
   /** Full frame sent to FLUX Kontext as the visual/style reference. */
   imageUrl?: string;
   /** Cropped face/lower-face anchor used only for identity analysis. */
@@ -27,6 +28,7 @@ export type GenerateForMobileInput = {
   shotImageRequestId?: string;
   renderReferences?: ShotRenderReferences;
   referenceRevision?: boolean;
+  conversationRevision?: boolean;
   storyId: number;
   shotNo: number;
   prompt: string;
@@ -127,6 +129,7 @@ export function createGenerateForMobileInput(params: {
     shotImageRequestId: crypto.randomUUID(),
     renderReferences: params.reference?.selection,
     referenceRevision: params.reference?.referenceRevision,
+    conversationRevision: params.reference?.conversationRevision,
     storyId: params.storyId,
     shotNo: params.shot.shotNo,
     imageProvider: params.imageProvider ?? "midjourney",
@@ -178,7 +181,7 @@ export async function rerenderShotImage(params: {
     throw new Error(readableRerenderError(error, "重渲请求失败"));
   }
   if (result.status !== "ok" || !result.imageUrl) {
-    if (result.providerTaskId && input.shotImageRequestId && !input.referenceRevision) {
+    if (result.providerTaskId && input.shotImageRequestId && (!input.referenceRevision || input.conversationRevision)) {
       throw new PendingShotImageError(result.error || "图片任务已受理，请恢复原任务", result.providerTaskId);
     }
     throw new Error(readableRerenderError(result.error, "图片生成失败"));

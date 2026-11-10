@@ -1,3 +1,4 @@
+import { shotConversationSelection } from "../shotConversation";
 import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { Clapperboard, ImagePlus, Loader2 } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
@@ -14,12 +15,13 @@ import type { CreationEditorShot } from "@/features/creationEditor/types";
 import { useStorySpine } from "@/features/storyAgent/spine/storySpine";
 import type { GeneratedImageItem } from "@/features/storyAgent/storyTypes";
 import type { StoryShot } from "@/features/storyAgent/types";
-import { displayShotCode, shotIdentityFromShot } from "@shared/shotIdentity";
+import { shotIdentityFromShot } from "@shared/shotIdentity";
 import { summarizeShotCandidates } from "@/features/storyAgent/shotCandidateSummary";
 import type { VideoClipEditorTarget } from "@/features/creationEditor/videoClipEditorModel";
 import type { ImageClipEditorTarget } from "@/features/creationEditor/imageClipEditorModel";
 import type { StoryboardBoardTimeline } from "@/features/creationEditor/views/StoryboardEditRow";
 import { withStoryboardVoiceTextFallbacks } from "./storyboardVoiceText";
+import { focusShotChat } from "../shotChatFocus";
 
 export function mergeStoryboardDisplayShots(
   creationShots: readonly CreationEditorShot[],
@@ -134,6 +136,7 @@ export default function StoryboardPanel({
     refreshShotVideoStatus,
     markVideoTakeUnusable,
     assignStoryImageToShot,
+    promoteStoryImage,
     deleteStoryImage,
     moveVideoTake,
     adoptVideoTake,
@@ -245,27 +248,10 @@ export default function StoryboardPanel({
       onSelectShot={shotNo => {
         setSelectedShotNo(shotNo);
         const shot = displayShots.find(item => item.shotNo === shotNo);
-        if (!shot) return;
-        const creationShot = creationShots.find(item => item.shotNo === shotNo);
-        const imageId = creationShot?.imageId ?? null;
-        const fullText = [shot.subject, shot.action, shot.dialogue]
-          .filter(Boolean)
-          .join("；");
-        setActiveSelection({
-          sourceType: imageId ? "storyboard-image" : "shot",
-          sourceId: imageId
-            ? String(imageId)
-            : `${Math.max(0, displayShots.indexOf(shot))}:subject`,
-          selectedText: fullText || displayShotCode(shot),
-          fullText: fullText || displayShotCode(shot),
-          storyId: activeStoryId,
-          stableShotId: shot.stableShotId ?? shot.shotIdentity ?? null,
-          shotNo,
-          cueCode: shot.cueCode ?? null,
-          imageId,
-          objectVersion: imageId ? `image:${imageId}` : null,
-          materialStatus: imageId ? "current-image" : "unknown",
-        });
+        if (!shot) { setActiveSelection(null); return; }
+        if (activeStoryId) setActiveSelection(shotConversationSelection(activeStoryId, shot));
+        const identity = shotIdentityFromShot(shot, displayShots.indexOf(shot));
+        if (activeStoryId && identity) focusShotChat(activeStoryId, identity);
       }}
       onUpdateShotField={async (index, field, value) => {
         const target = displayShots[index];
@@ -327,6 +313,7 @@ export default function StoryboardPanel({
       creationShots={mergedCreationShots}
       timelineShotIds={timelineShotIds}
       onAddShotToTimeline={addShotToTimeline}
+      onPromoteStoryImage={promoteStoryImage}
       onInsertShotAfter={async (shotNo, stableShotId) => {
         if (!stableShotId) return;
         const insertedShotNo = await insertPersistedShotAfter(stableShotId);

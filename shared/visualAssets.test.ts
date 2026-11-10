@@ -432,6 +432,13 @@ describe("normalizeStoryVisualAssets", () => {
     expect(aggregate.bindings).toEqual([]);
   });
 
+  it("does not duplicate a conversation art system as a legacy style asset", () => {
+    const aggregate = normalizeStoryVisualAssets(undefined, { legacyArtDirection: {
+      recipe: { version: 1, style: ["paper"], system: { name: "Paper world" } },
+    } });
+    expect(aggregate.assets).toEqual([]);
+  });
+
   it("兼容旧人物、场景和故事风格时只建立草案，不自动锁定", () => {
     const aggregate = normalizeStoryVisualAssets(undefined, {
       legacyArtDirection: {

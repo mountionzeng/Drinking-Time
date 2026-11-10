@@ -33,6 +33,7 @@ export function shotRenderReferenceOptions(
 ): RenderReferenceOption[] {
   const imageMap = new Map(
     [
+      ...(material.artSystemReference ? [material.artSystemReference.image] : []),
       ...material.unassignedImages,
       ...material.shots.flatMap(shot => [
         ...shot.imageVersions,
@@ -95,8 +96,10 @@ export function selectedReferenceKeys(refs: ShotRenderReferences): string[] {
 export function changeRenderReference(
   refs: ShotRenderReferences,
   option: RenderReferenceOption,
-  remove: boolean
+  remove: boolean,
+  establishedImageIds: number[] = []
 ): ShotRenderReferences {
+  const { imagePurpose: _inheritedPurpose, ...explicitRefs } = refs;
   if (option.kind) {
     const assets = { ...refs.assets };
     if (remove) delete assets[option.kind];
@@ -105,14 +108,28 @@ export function changeRenderReference(
         assetId: option.assetId!,
         versionId: option.versionId!,
       };
-    return { ...refs, assets };
+    return { ...explicitRefs, assets };
   }
+  const imageIds = remove
+    ? refs.imageIds.filter(id => id !== option.imageId)
+    : [...new Set([...refs.imageIds, option.imageId!])];
   return {
-    ...refs,
-    imageIds: remove
-      ? refs.imageIds.filter(id => id !== option.imageId)
-      : [...new Set([...refs.imageIds, option.imageId!])],
+    ...explicitRefs,
+    imageIds,
+    ...(imageIds.length === 1 && Object.keys(refs.assets).length === 0 && establishedImageIds.includes(imageIds[0])
+      ? { imagePurpose: "scene-style" as const } : {}),
   };
+}
+
+function earlierEstablishedImages(material: StoryMaterialState | null | undefined, stableShotId: string) {
+  const index = material?.shots.findIndex(shot => shot.stableShotId === stableShotId) ?? -1;
+  return index > 0
+    ? material!.shots.slice(0, index).reverse().flatMap(shot => {
+        const image = shot.imageVersions?.find(image => image.isPrimary && image.selectionSource === "explicit")
+          ?? shot.currentImage ?? shot.imageGenerationReference ?? shot.imageGenerationReferences?.[0];
+        return image?.imageUrl && image.status !== "rejected" && image.availability !== "missing" ? [image] : [];
+      })
+    : [];
 }
 
 export function loadShotRenderSettings(
@@ -134,6 +151,14 @@ export function loadShotRenderSettings(
   const shotMaterial = material?.shots.find(
     shot => shot.stableShotId === stableShotId
   );
+  if (shotMaterial?.currentImage?.imageUrl && shotMaterial.currentImage.status !== "rejected" && shotMaterial.currentImage.availability !== "missing") {
+    return { count: STORYBOARD_IMAGE_CANDIDATE_COUNT, references: { imageIds: [shotMaterial.currentImage.id], assets: {} } };
+  }
+  const artReference = material?.artSystemReference?.image;
+  const hasBoundAssets = material?.visualAssets?.bindings.some(binding => binding.stableShotId === stableShotId) || material?.visualAssets?.defaultPet;
+  if (artReference && !hasBoundAssets) {
+    return { count: STORYBOARD_IMAGE_CANDIDATE_COUNT, references: { imageIds: [artReference.id], imagePurpose: "scene-style", assets: {} } };
+  }
   if (shotMaterial?.imageGenerationReferences?.length) {
     return { count: STORYBOARD_IMAGE_CANDIDATE_COUNT, references: { imageIds: shotMaterial.imageGenerationReferences.map(image => image.id), assets: {} } };
   }
@@ -154,10 +179,16 @@ export function loadShotRenderSettings(
     : material?.visualAssets?.defaultPet
       ? { pet: material.visualAssets.defaultPet }
       : {};
+  // Match the existing neighbour-continuity rule: only an adopted earlier
+  // image can establish the look. Unchosen generated candidates are not facts.
+  const established = !Object.values(assets).some(Boolean)
+    ? earlierEstablishedImages(material, stableShotId)[0]
+    : undefined;
   return {
     count: STORYBOARD_IMAGE_CANDIDATE_COUNT,
     references: {
-      imageIds: [],
+      imageIds: established ? [established.id] : [],
+      ...(established ? { imagePurpose: "scene-style" as const } : {}),
       assets: Object.fromEntries(
         Object.entries(assets).filter(([, value]) => value)
       ),
@@ -223,7 +254,7 @@ export function ShotImageRenderControl({
   };
   const toggle = (option: RenderReferenceOption) => {
     const remove = keys.includes(option.key);
-    const next = changeRenderReference(references, option, remove);
+    const next = changeRenderReference(references, option, remove, earlierEstablishedImages(material, stableShotId).map(image => image.id));
     if (selectedReferenceKeys(next).length > 4) {
       setError("最多选择 4 个参考素材");
       return;
@@ -292,7 +323,8 @@ export function ShotImageRenderControl({
         aria-label={_ui("{0} 生成4张图", [label])}
         onClick={() => {
           setError(null);
-          save(references);
+          // Rendering does not turn inherited references into a fixed override.
+          // The next shot must follow a newly adopted predecessor automatically.
           void onRender({ count, references }).catch(cause =>
             setError(cause instanceof Error ? cause.message : "渲染失败")
           );

@@ -6,6 +6,7 @@ import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage"
  */
 import { useCallback, useState } from "react";
 import { FolderOpen, Layers, Plus } from "lucide-react";
+import { VideoMediaVersionSelect, type VideoMediaVersionBinding } from "./VideoMediaVersionSelect";
 import {
   audioClipEndFrame,
   type AudioClip,
@@ -62,6 +63,7 @@ export type AudioTrackRowCallbacks = {
 };
 
 export type AudioTrackBinding = AudioTrackRowCallbacks & {
+  versions?: VideoMediaVersionBinding;
   storyId: number;
   audioState: TimelineAudioState;
   selectedClipId: string | null;
@@ -424,7 +426,9 @@ function AudioTrackHeader({
   kind,
   action,
   tools,
+  versions,
 }: {
+  versions?: VideoMediaVersionBinding;
   kind: AudioTrack["kind"] | null;
   action?: React.ReactNode;
   tools?: React.ReactNode;
@@ -445,6 +449,7 @@ function AudioTrackHeader({
         <span className="shrink-0 whitespace-nowrap">{_ui(label)}</span>
         {tools}
       </div>
+      {kind ? <VideoMediaVersionSelect kind={kind} binding={versions} /> : null}
       {action}
     </div>
   );
@@ -452,6 +457,7 @@ function AudioTrackHeader({
 
 /** Render content tracks by default; all five empty tracks collapse to one row. */
 export function AudioTrackSection({
+  versions,
   storyId,
   audioState,
   viewport,
@@ -471,6 +477,7 @@ export function AudioTrackSection({
   onRequestGenerateMusic,
   columnSpan = 1,
 }: {
+  versions?: VideoMediaVersionBinding;
   storyId: number;
   audioState: TimelineAudioState;
   viewport: TimelineViewport;
@@ -493,7 +500,7 @@ export function AudioTrackSection({
   const [showLibrary, setShowLibrary] = useState(false);
   const contentTracks = AUDIO_KIND_ORDER.map(kind =>
     audioState.tracks.find(track => track.kind === kind)
-  ).filter((track): track is AudioTrack => Boolean(track?.clips.length));
+  ).filter((track): track is AudioTrack => Boolean(track && (track.clips.length || versions?.history?.entries.some(entry => entry.kind === track.kind))));
 
   const controls = (
     <div className="flex min-w-0 flex-col gap-1">
@@ -612,7 +619,7 @@ export function AudioTrackSection({
                     disabled={pending || asset.referenced || !onDiscardAsset}
                     title={
                       asset.referenced
-                        ? _ui("正在时间线上使用，请先删除片段")
+                        ? _ui("时间线或历史版本正在使用此素材")
                         : _ui("删除这份完整素材")
                     }
                     onClick={() => void onDiscardAsset?.(asset.id)}
@@ -620,7 +627,7 @@ export function AudioTrackSection({
                   >
                     {_ui("删除素材")}</button>
                   {asset.referenced ? (
-                    <span className="text-muted-foreground">{_ui("时间线中")}</span>
+                    <span className="text-muted-foreground">{_ui("版本中使用")}</span>
                   ) : null}
                 </div>
               </div>
@@ -643,6 +650,7 @@ export function AudioTrackSection({
         <div key={track.kind} className="contents">
           <AudioTrackHeader
             kind={track.kind}
+            versions={versions}
             tools={index === 0 ? addControl : undefined}
             action={index === 0 ? controls : undefined}
           />

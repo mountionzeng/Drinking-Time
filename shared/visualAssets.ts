@@ -847,7 +847,9 @@ function legacyDraftAssets(value: unknown): StoryVisualAsset[] {
       });
     });
   const styleReferences = draftReferences.styles;
-  if (direction.recipe || styleReferences.length > 0) {
+  // Conversation art systems have their own versioned warehouse view. They are
+  // not pre-migration visual assets and must not create a duplicate legacy card.
+  if (!direction.recipe?.system && (direction.recipe || styleReferences.length > 0)) {
     const id = "legacy-style";
     const recipe = direction.recipe;
     assets.push({

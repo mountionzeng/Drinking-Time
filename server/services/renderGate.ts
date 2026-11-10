@@ -218,6 +218,9 @@ const STATIC_IMAGE_STYLIZATION_CONSTRAINT =
 const STATIC_IMAGE_TEXT_FREE_CONSTRAINT =
   "【静态图片无字硬约束】这是不可被故事、用户指令、参考图或风格规则覆盖的产品不变量：画面像素中禁止可读文字、伪文字、字母、数字、Logo、品牌标记、签名、水印、标题、字幕、标签、书脊字和界面字符。不要描绘钟表、日历、书页、报纸、招牌、包装、屏幕等通常承载字符的正面；故事确实需要时，只能显示无字背面、被完全遮挡或裁出画外的表面。任何需要的标题或文案只能由产品界面后期叠加，绝不能画进图片像素中。";
 
+const AUTHORED_IMAGE_TEXT_FREE_CONSTRAINT =
+  "【静态图片无字硬约束】画面像素中禁止可读文字、伪文字、字母、数字、Logo、品牌标记、签名、水印、标题、字幕、标签和界面字符。保留物体形状和界面布局，仅将文字区域留白；不要为了去字而删除用户要求的物体、屏幕或界面。所需文字保留在影片文字轨，由后期叠加。";
+
 const TEXT_EMOTION_SIGNALS: Array<[RegExp, string]> = [
   [/怀旧|记忆|童年|过去/, "怀旧"],
   [/焦虑|窒息|压迫|慌张|不安/, "焦虑与不安"],
@@ -350,7 +353,9 @@ function productConstraintBlock(ctx: RenderContext): string[] {
   }
   if (ctx.referencePolicy === "style-only") {
     blocks.push(
-      "【参考图边界】只继承已提取并经用户确认的美术 DNA；不得复制参考图中的人物身份、物体、地点、情节或文本。内容事实始终以上游故事为准。"
+      ctx.authoredBrief
+        ? "【参考图边界】本镜明确出现的同一物体沿用参考图的造型、材质、线条与色调，保持视觉连续；本镜内容、构图和动作以当前要求为准。未在本镜出现的人物、物体、地点和文字不搬过来。"
+        : "【参考图边界】只继承已提取并经用户确认的美术 DNA；不得复制参考图中的人物身份、物体、地点、情节或文本。内容事实始终以上游故事为准。"
     );
   } else if (ctx.referencePolicy === "preserve-identity") {
     blocks.push(
@@ -519,12 +524,12 @@ export async function compileImagePrompt(ctx: RenderContext): Promise<CompiledIm
 
   // 矫正循环：读取用户最近拒绝的图片信号 + 聊天矫正，生成负面约束
   if (ctx.storyId || ctx.projectId) {
-    const rejectedBlock = await buildRejectionBlock(ctx.storyId, ctx.projectId);
+    const rejectedBlock = await buildRejectionBlock(ctx.storyId, ctx.projectId, ctx.shotNo);
     if (rejectedBlock) additions.push(rejectedBlock);
   }
 
   // 矫正循环：读取编辑器里的语义注解，把推断的创作偏好注入出图 prompt
-  if (ctx.projectId) {
+  if (ctx.projectId && !ctx.authoredBrief) {
     const prefBlock = await buildEditPreferenceBlock(ctx.projectId);
     if (prefBlock) additions.push(prefBlock);
   }
@@ -536,7 +541,7 @@ export async function compileImagePrompt(ctx: RenderContext): Promise<CompiledIm
     );
   const hardConstraints = [
     STATIC_IMAGE_STYLIZATION_CONSTRAINT,
-    STATIC_IMAGE_TEXT_FREE_CONSTRAINT,
+    ctx.authoredBrief ? AUTHORED_IMAGE_TEXT_FREE_CONSTRAINT : STATIC_IMAGE_TEXT_FREE_CONSTRAINT,
   ].join("\n");
   const bodyBudget = Math.max(
     0,
@@ -569,7 +574,8 @@ export async function engineerImagePrompt(ctx: RenderContext): Promise<string> {
  */
 async function buildRejectionBlock(
   storyId: number | undefined,
-  projectId: number | undefined
+  projectId: number | undefined,
+  shotNo: string | undefined
 ): Promise<string | null> {
   const parts: string[] = [];
 
@@ -625,11 +631,14 @@ async function buildRejectionBlock(
   // 2. chat_correction 信号：用户在聊天中的视觉修正指令
   if (projectId) {
     try {
-      const corrections = await getRecentChatCorrections(projectId, 5);
+      const corrections = await getRecentChatCorrections(projectId, 5, storyId);
       if (corrections.length > 0) {
         const texts: string[] = [];
         for (const sig of corrections) {
           const meta = sig.metadata as Record<string, unknown> | null;
+          const scopeShot = meta?.shotNo;
+          if (scopeShot != null && String(scopeShot).replace(/^SH0*/i, "").replace(/^0+/, "") !==
+            String(shotNo ?? "").replace(/^SH0*/i, "").replace(/^0+/, "")) continue;
           const correction = meta?.correction;
           if (typeof correction === "string" && correction.trim()) {
             texts.push(correction.trim());

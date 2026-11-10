@@ -1,3 +1,4 @@
+import { artSystemSkillDownload } from "./artSystemSkillDownload";
 import { handleChapterMedia } from "../chapterMediaStore";
 import { handleWechatImportMedia } from "./wechatImportMediaRoute";
 import { startMediaBillingRecovery } from "../services/mediaBillingRecovery";
@@ -424,6 +425,8 @@ async function startServer() {
       res.status(404).end();
     }
   });
+  app.get("/api/art-systems/:storyId/versions/:version/skill", artSystemSkillDownload);
+
   // OAuth callback under /api/oauth/callback
   registerOAuthRoutes(app);
 

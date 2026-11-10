@@ -1,5 +1,6 @@
 import { readBookImage } from './bookImageBlock';
 import { readBookAudio } from './bookAudioBlock';
+import type { BookModuleImageTask } from './bookModuleImageTask';
 
 export const BOOK_COMPOSITION_MODEL = 'gpt-image-2.5-sunburst' as const;
 export type CompositionSource = { id: string; text: string };
@@ -11,6 +12,34 @@ export type BookImageComposition = {
   billingOperationId: string | null;
   compiledPrompt?: string;
 };
+
+/** Resolve actual shot links, never infer a shot from creative prose or reference-image contents. */
+export function compositionShotNumbers(task: BookModuleImageTask, tasks: BookModuleImageTask[], shots: unknown[], images: { id: number; shotIdentity: string | null; shotNo: string | null }[]): number[] {
+  const related = tasks.filter(t => t.chapterId === task.chapterId && t.moduleId === task.moduleId);
+  const chain = new Set([task.id]);
+  let size = 0;
+  while (size !== chain.size) {
+    size = chain.size;
+    for (const t of related) {
+      const previous = t.composition?.previousTaskId;
+      if (previous && (chain.has(t.id) || chain.has(previous))) { chain.add(t.id); chain.add(previous); }
+    }
+  }
+  const candidateIds = new Set(related.filter(t => chain.has(t.id)).flatMap(t => t.candidates.map(i => i.imageId)));
+  const sourceIds = new Set(task.composition?.sources.map(s => `${task.chapterId}:${s.id}`));
+  const record = (v: unknown): Record<string, unknown> => v && typeof v === 'object' ? v as Record<string, unknown> : {};
+  return [...new Set(shots.flatMap(raw => {
+    const shot = record(raw), source = record(shot.publishingVideo);
+    const shotNo = Number(shot.shotNo), identity = shot.stableShotId || shot.shotIdentity;
+    if (!Number.isInteger(shotNo) || shotNo < 1) return [];
+    const moduleMatch = Array.isArray(source.sourceModuleIds) && source.sourceModuleIds.some(id => sourceIds.has(String(id)));
+    const resultMatch = Array.isArray(source.referenceImageIds) && source.referenceImageIds.some(id => candidateIds.has(Number(id)));
+    const assigned = images.some(i => candidateIds.has(i.id) && (i.shotIdentity
+      ? i.shotIdentity === identity
+      : /^(?:SH)?0*\d+$/i.test(i.shotNo ?? '') && Number(i.shotNo!.replace(/^SH/i, '')) === shotNo));
+    return moduleMatch || resultMatch || assigned ? [shotNo] : [];
+  }))].sort((a, b) => a - b);
+}
 
 export function compositionSources(blocks: CompositionSource[], ids?: readonly string[]) {
   const selected = ids?.length ? blocks.filter(b => ids.includes(b.id)) : blocks;

@@ -14,8 +14,11 @@ function snapshot(
   body: unknown,
   timeline: StoredStoryTimelinePayload
 ): VideoEditRevision {
-  const { videoEditHistory: _history, ...extensions } =
+  const { videoEditHistory: _history, videoMediaVersions: _mediaHistory, ...extensions } =
     timeline.extensions ?? {};
+  if (_mediaHistory) extensions.videoMediaVersionRefs = {
+    ...(_mediaHistory as import("../../shared/videoMediaVersions").VideoMediaVersions).current,
+  };
   const shots =
     body &&
     typeof body === "object" &&

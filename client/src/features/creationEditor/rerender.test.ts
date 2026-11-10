@@ -329,3 +329,9 @@ describe("creation editor rerender", () => {
     );
   });
 });
+
+it("keeps an accepted selected-image revision recoverable rather than reporting a lost result", async () => {
+  const { PendingShotImageError } = await import("@shared/shotImageRender");
+  await expect(rerenderShotImage({ storyId: 7, shot, rows: [], reference: { referenceRevision: true, conversationRevision: true, selection: { imageIds: [12], assets: {} } },
+    generate: async () => ({ status: "error", providerTaskId: "gpt:receipt", error: "accepted" }) })).rejects.toBeInstanceOf(PendingShotImageError);
+});

@@ -21,6 +21,7 @@ export type StoryboardFieldVersionSource = "generated" | "edited" | "restored";
 export type StoryboardFieldVersionEntry = {
   revision: number;
   createdAt: number;
+  editorUserId?: number;
   source: StoryboardFieldVersionSource;
   restoredFromRevision?: number;
   values: Record<string, StoryboardFieldVersionValue>;
@@ -113,6 +114,11 @@ function normalizeEntry(value: unknown): StoryboardFieldVersionEntry | null {
     revision: raw.revision,
     createdAt: raw.createdAt,
     source: raw.source as StoryboardFieldVersionSource,
+    ...(typeof raw.editorUserId === "number" &&
+    Number.isInteger(raw.editorUserId) &&
+    raw.editorUserId > 0
+      ? { editorUserId: raw.editorUserId }
+      : {}),
     ...(typeof raw.restoredFromRevision === "number" &&
     Number.isInteger(raw.restoredFromRevision) &&
     raw.restoredFromRevision > 0
@@ -210,6 +216,7 @@ function appendSnapshot(input: {
   values: Record<string, StoryboardFieldVersionValue>;
   now: number;
   source: StoryboardFieldVersionSource;
+  editorUserId?: number;
   restoredFromRevision?: number;
 }): StoryboardFieldVersionTrack {
   const current = input.track.history.at(-1);
@@ -223,6 +230,7 @@ function appendSnapshot(input: {
         revision,
         createdAt: input.now,
         source: input.source,
+        ...(input.editorUserId ? { editorUserId: input.editorUserId } : {}),
         ...(input.restoredFromRevision
           ? { restoredFromRevision: input.restoredFromRevision }
           : {}),
@@ -269,6 +277,7 @@ export function recordStoryboardFieldVersions(input: {
   now: number;
   source: Exclude<StoryboardFieldVersionSource, "restored">;
   initializeFrom?: "before" | "after";
+  editorUserId?: number;
 }): StoryboardFieldVersions {
   let next = normalizeStoryboardFieldVersions(input.state);
   for (const field of input.fields) {
@@ -281,6 +290,8 @@ export function recordStoryboardFieldVersions(input: {
         values: valuesForField(initialShots, field),
         now: input.now,
         source: input.source,
+        editorUserId:
+          input.initializeFrom === "after" ? input.editorUserId : undefined,
       });
     }
     track = appendSnapshot({
@@ -288,6 +299,7 @@ export function recordStoryboardFieldVersions(input: {
       values: valuesForField(input.afterShots, field),
       now: input.now,
       source: input.source,
+      editorUserId: input.editorUserId,
     });
     next = {
       ...next,
@@ -303,6 +315,7 @@ export function restoreStoryboardFieldVersion(input: {
   field: StoryboardVersionedField;
   revision: number;
   now: number;
+  editorUserId?: number;
 }): { state: StoryboardFieldVersions; shots: VersionableShot[] } {
   const state = normalizeStoryboardFieldVersions(input.state);
   const track = state.tracks[input.field];
@@ -361,6 +374,7 @@ export function restoreStoryboardFieldVersion(input: {
     values: valuesForField(shots, input.field),
     now: input.now,
     source: "restored",
+    editorUserId: input.editorUserId,
     restoredFromRevision: input.revision,
   });
   return {

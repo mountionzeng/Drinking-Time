@@ -107,12 +107,6 @@ export function timelineTotalMs(rows: readonly TimelineLayoutRow[]): number {
   return timelineFramesToMs(timelineTotalFrames(rows));
 }
 
-export function timelineBoundaries(rows: readonly TimelineLayoutRow[]): number[] {
-  return Array.from(new Set(rows.flatMap(row => [row.startFrame, row.endFrame]))).sort(
-    (left, right) => left - right
-  );
-}
-
 function isAnchored(row: TimelineLayoutRow): boolean {
   return (row.item.anchors?.length ?? 0) > 0;
 }
@@ -359,10 +353,6 @@ export function moveTimelineGroup(
       };
     }),
   };
-}
-
-export function timelineFrameToMs(frame: number): number {
-  return timelineFramesToMs(frame);
 }
 
 export type TimelineImageClipPlacement = {

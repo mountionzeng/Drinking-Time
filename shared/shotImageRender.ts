@@ -5,7 +5,7 @@ import { estimateStoryboardImageCost } from "./imageRenderCost";
 export function requestsStrictReferenceFidelity(instruction: string): boolean {
   return instruction.split(/[。！？\n;]/u).some(clause => {
     if (/(?:不要|不用|不必|无需|不需要).{0,12}(?:一模一样|完全一致|严格保留|完全保留)|(?:not|don't|do not).{0,30}(?:exactly|identical)/i.test(clause)) return false;
-    return /一模一样|完全一致|(?:严格|完全)保留(?:原图|参考图)|(?:保留|保持).{0,35}(?:形状|位置|构图|画风|风格).{0,20}不变|(?:keep|preserve).{0,35}(?:exactly the same|identical)/i.test(clause);
+    return /一模一样|完全一致|(?:严格|完全)保留|(?:保留|保持).{0,60}(?:原样|不变)|(?:keep|preserve).{0,60}(?:exactly the same|identical|unchanged)/i.test(clause);
   });
 }
 export const STRICT_REFERENCE_MJ_NOTICE = "已按原图优先处理要求。MJ仍会重绘，不能保证形状、位置和文字完全一致；若必须完全一致，请取消生成，直接把原图设为首帧或尾帧。";
@@ -20,6 +20,8 @@ const versionRef = z
 export const shotRenderReferencesSchema = z
   .object({
     imageIds: z.array(z.number().int().positive()).max(4),
+    /** An established earlier frame supplies objects/materials/palette, not this shot's composition. */
+    imagePurpose: z.literal("scene-style").optional(),
     assets: z
       .object({
         character: versionRef.optional(),
@@ -33,6 +35,10 @@ export const shotRenderReferencesSchema = z
   .refine(
     value => value.imageIds.length + Object.keys(value.assets).length <= 4,
     "最多选择 4 个参考素材"
+  )
+  .refine(
+    value => !value.imagePurpose || (value.imageIds.length === 1 && Object.keys(value.assets).length === 0),
+    "视觉继承需要一张已确定的图片"
   );
 export type ShotRenderReferences = z.infer<typeof shotRenderReferencesSchema>;
 export const shotImageRenderSettingsSchema = z

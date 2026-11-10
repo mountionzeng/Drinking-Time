@@ -2437,5 +2437,3 @@ export async function writePublishingDraftState(params: {
     };
   });
 }
-
-export const getActivePublishingVersion = resolvePublishingActiveVersion;

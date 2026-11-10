@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PersonalMemoryTimelineItem } from "@shared/personalMemory";
 import {
-  describeSummarySources,
   groupPersonalMemoryTimeline,
 } from "./personalMemoryViewModel";
 
@@ -48,14 +47,4 @@ describe("personalMemoryViewModel", () => {
     expect(groups[2].items).toEqual([]);
   });
 
-  it("摘要来源去重并使用用户能懂的名称", () => {
-    expect(
-      describeSummarySources([
-        "chat_message",
-        "daily_letter_version",
-        "chat_message",
-        "image_adoption",
-      ])
-    ).toBe("原话、来信、图片");
-  });
 });

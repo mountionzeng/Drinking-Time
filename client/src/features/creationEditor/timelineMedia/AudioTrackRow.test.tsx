@@ -217,7 +217,7 @@ describe("AudioTrackRow", () => {
     expect(html).toContain("完整配乐.mp3");
     expect(html).toContain("60.7s");
     expect(html).toContain("再次放入播放头");
-    expect(html).toContain("时间线中");
+    expect(html).toContain("版本中使用");
     expect(html).toContain('<div class="hidden">');
     expect(html).toContain('aria-expanded="false"');
     expect(html).toContain('aria-label="声音素材库，1 份素材"');

@@ -891,6 +891,7 @@ function formalShotFromPreview(input: {
       referenceFrameImageIds: input.shot.referenceImageIds,
     }) } : {}),
     publishingVideo: {
+      draftShotId: input.shot.draftShotId,
       ...(input.shot.sourceModuleIds ? {sourceModuleIds:[...input.shot.sourceModuleIds]} : {}),
       ...(input.shot.referenceImageIds ? { referenceImageIds: [...input.shot.referenceImageIds] } : {}),
       ...(input.shot.referenceImageId
@@ -1022,6 +1023,7 @@ export async function confirmPublishingVideoStoryboard(
   input: Parameters<typeof confirmPublishingVideoShots>[0]
 ): Promise<PublishingVideoConfirmationResult> {
   const result = await confirmPublishingVideoShots(input);
+  if (input.preparedAudio?.narration) return result;
   const subtitles = await initializeGeneratedSubtitlesForStory({
     storyId: input.storyId, userId: input.userId, generationId: input.previewId,
   });
@@ -1040,6 +1042,7 @@ async function confirmPublishingVideoShots(input: {
   preserveVideoActor?: VersionActor;
   /** Start a fresh video from this manuscript; archive the old table and edit before replacement. */
   preferSourceContent?: boolean;
+  preparedAudio?: import("../../shared/bookVideoAudio").PreparedBookVideoAudio;
   /** 必须与生成时用的规格一致，否则会出现「按 10 秒出镜头、按 30 秒分时长」 */
   narrativeSpec?: NarrativeSpecId;
   creativeIntent?: string;
@@ -1330,6 +1333,7 @@ async function confirmPublishingVideoShots(input: {
       now,
       source: "generated",
       initializeFrom: rawShots.length > 0 ? "before" : "after",
+      editorUserId: input.userId,
     });
     const nextBody = prepareStoryBody(
       {
@@ -1348,6 +1352,7 @@ async function confirmPublishingVideoShots(input: {
       {
         ...body,
         publishing,
+        storyboardFieldVersions,
         storyboardTextSource: normalizeTextSource(context.version.textSource),
         ...(archivedBookRecords ? { bookVideoRecords: archivedBookRecords } : {}),
       }
@@ -1360,7 +1365,7 @@ async function confirmPublishingVideoShots(input: {
         body: nextBody,
       };
       const saved = input.preserveVideoActor && (rawShots.length || input.preferSourceContent)
-        ? await preserveVideoWhileReplacing({ ...saveInput, before: body, nextBody, actor: input.preserveVideoActor, id: randomUUID(), resetEditing: input.preferSourceContent })
+        ? await preserveVideoWhileReplacing({ ...saveInput, before: body, nextBody, actor: input.preserveVideoActor, id: randomUUID(), resetEditing: input.preferSourceContent, preparedAudio: input.preparedAudio })
         : await persistPreparedStoryBody(saveInput);
       return {
         status: "confirmed",
@@ -1392,7 +1397,7 @@ export async function applyTextSourceStoryboardCandidate(input: {
     ...input.body, shots: input.shots, storyboardTextSource: input.source,
     ...(input.body.publishing ? { publishing: { ...storyBodyRecord(input.body.publishing), activeVideoStoryboardVersionId: null, activeVideoStoryboardGroupId: null } } : {}),
     _storyboardRevision: Number(input.body._storyboardRevision ?? 0) + 1,
-    storyboardFieldVersions: recordStoryboardFieldVersions({ state: input.body.storyboardFieldVersions, beforeShots: oldShots, afterShots: input.shots, fields: STORYBOARD_VERSIONED_FIELDS, now: Date.now(), source: "generated", initializeFrom: oldShots.length ? "before" : "after" }),
+    storyboardFieldVersions: recordStoryboardFieldVersions({ state: input.body.storyboardFieldVersions, beforeShots: oldShots, afterShots: input.shots, fields: STORYBOARD_VERSIONED_FIELDS, now: Date.now(), source: "generated", initializeFrom: oldShots.length ? "before" : "after", editorUserId: input.userId }),
   };
   return persistPreparedStoryBody({ ...input, body: prepareStoryBody(next, input.expectedRevision + 1, next) });
 }

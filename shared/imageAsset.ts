@@ -83,11 +83,3 @@ export function canonicalizeShotNo(
   if (!Number.isSafeInteger(numeric) || numeric < 1) return null;
   return `SH${String(numeric).padStart(2, "0")}`;
 }
-
-export function shotNoToMobileNumber(
-  shotNo: string | number | null | undefined
-): number | undefined {
-  const canonical = canonicalizeShotNo(shotNo);
-  if (!canonical) return undefined;
-  return Number(canonical.slice(2));
-}

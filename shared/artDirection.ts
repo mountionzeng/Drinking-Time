@@ -69,6 +69,23 @@ export type StoryArtRecipe = ArtRecipeDNA & {
   version: number;
   sourceCandidateIds: string[];
   updatedAt: number;
+  /** Conversation-authored reusable art system; legacy recipes remain valid. */
+  system?: {
+    name: string;
+    intent: string;
+    editorId: number;
+    editorName: string;
+    operationToken: string;
+    englishPrompt: string;
+    objectRules: string[];
+    motionRules: string[];
+    continuityRules: string[];
+    referenceImageIds: number[];
+    confirmedImageId?: number;
+    confirmedAt?: number;
+    sourceStoryId?: number;
+    sourceVersion?: number;
+  };
 };
 
 export type StoryArtDirectionPhase =
@@ -90,20 +107,11 @@ export type StoryArtDirection = {
   updatedAt: number;
 };
 
-export const EMPTY_ART_RECIPE_DNA: ArtRecipeDNA = {
-  style: [],
-  palette: [],
-  light: [],
-  composition: [],
-  material: [],
-  negative: [],
-};
-
 /**
  * 零点击艺术底线：只要求内容驱动的艺术表达，不预设色板、光线、构图或材质。
  * 具体美术判断由 renderGate 的唯一提示词工程完成；锁定配方存在时永远优先。
  */
-export const DEFAULT_ART_RECIPE_DNA: ArtRecipeDNA = {
+const DEFAULT_ART_RECIPE_DNA: ArtRecipeDNA = {
   style: ["content-led fine art", "non-photographic visual invention"],
   palette: [],
   light: [],
@@ -266,11 +274,25 @@ function normalizeCandidate(value: unknown): ArtDirectionCandidate | null {
 function normalizeRecipe(value: unknown): StoryArtRecipe | undefined {
   if (!value || typeof value !== "object") return undefined;
   const obj = value as Record<string, unknown>;
+  const system = obj.system && typeof obj.system === "object" ? obj.system as Record<string, unknown> : undefined;
   return {
     ...normalizeRecipeDNA(obj),
     version: typeof obj.version === "number" ? obj.version : 1,
     sourceCandidateIds: stringList(obj.sourceCandidateIds),
     updatedAt: typeof obj.updatedAt === "number" ? obj.updatedAt : Date.now(),
+    ...(system && typeof system.name === "string" ? { system: {
+      name: system.name, intent: typeof system.intent === "string" ? system.intent : "",
+      editorId: typeof system.editorId === "number" ? system.editorId : 0,
+      editorName: typeof system.editorName === "string" ? system.editorName : "",
+      operationToken: typeof system.operationToken === "string" ? system.operationToken : "",
+      englishPrompt: typeof system.englishPrompt === "string" ? system.englishPrompt : "",
+      objectRules: stringList(system.objectRules), motionRules: stringList(system.motionRules), continuityRules: stringList(system.continuityRules),
+      referenceImageIds: Array.isArray(system.referenceImageIds) ? system.referenceImageIds.filter((id): id is number => typeof id === "number" && Number.isInteger(id) && id > 0) : [],
+      ...(typeof system.confirmedImageId === "number" ? { confirmedImageId: system.confirmedImageId } : {}),
+      ...(typeof system.confirmedAt === "number" ? { confirmedAt: system.confirmedAt } : {}),
+      ...(typeof system.sourceStoryId === "number" ? { sourceStoryId: system.sourceStoryId } : {}),
+      ...(typeof system.sourceVersion === "number" ? { sourceVersion: system.sourceVersion } : {}),
+    } } : {}),
   };
 }
 

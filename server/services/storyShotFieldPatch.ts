@@ -119,6 +119,7 @@ export async function applyStoryShotFieldPatch(input: {
           fields: versionedFields,
           now,
           source: "edited",
+          editorUserId: input.userId,
         })
       : body.storyboardFieldVersions;
 
@@ -129,7 +130,7 @@ export async function applyStoryShotFieldPatch(input: {
       ...(versionedFields.length > 0 ? { storyboardFieldVersions } : {}),
     },
     getStoryRevision(story.body) + 1,
-    story.body
+    { ...body, ...(versionedFields.length > 0 ? { storyboardFieldVersions } : {}) }
   );
 
   try {

@@ -24,7 +24,9 @@ type Props = {
   imageUrl?: string;
   compact?: boolean;
   onClear?: () => void;
+  onOpen?: () => void;
   readiness?: SelectionReadiness;
+  productionContext?: boolean;
 };
 
 const FIELD_LABELS: Record<string, string> = {
@@ -35,11 +37,11 @@ const FIELD_LABELS: Record<string, string> = {
   rationale: "导演解释",
 };
 
-function contextLabel(selection: Props["selection"]): string {
+function contextLabel(selection: Props["selection"], ui: (text: string) => string): string {
   if (selection.sourceType === "shot") {
     const [rawIndex, field] = selection.sourceId.split(":");
     const shotNo = selection.shotNo ?? Number(rawIndex) + 1;
-    return `${displayShotCode({ cueCode: selection.cueCode, shotNo })} · ${FIELD_LABELS[field] ?? field}`;
+    return `${displayShotCode({ cueCode: selection.cueCode, shotNo })} · ${ui(FIELD_LABELS[field] ?? field ?? "镜头")}`;
   }
   if (selection.sourceType === "storyboard-image") {
     return selection.sourceId.startsWith("timeline-frame:")
@@ -69,12 +71,14 @@ export default function SelectionContextCard({
   selection,
   compact = false,
   onClear,
+  onOpen,
   readiness,
   imageUrl,
+  productionContext = false,
 }: Props) {
   const _ui = useDesktopUiText();
   const kind = selectionEditKind(selection as SelectionContext);
-  const scopePromise =
+  const scopePromise = productionContext ? _ui("可在对话中调整要求、生成素材或采用候选") :
     readiness && readiness.status !== "executable"
       ? readiness.reason
       : selection.sourceType === "chat"
@@ -105,16 +109,16 @@ export default function SelectionContextCard({
       <span className="mt-0.5 shrink-0 text-nayin-bright">
         <ContextIcon sourceType={selection.sourceType} />
       </span>
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0 flex-1" role={onOpen ? "button" : undefined} tabIndex={onOpen ? 0 : undefined} onClick={onOpen} onKeyDown={event => { if (onOpen && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); onOpen(); } }} style={onOpen ? {cursor: "pointer"} : undefined}>
         <div className="flex flex-wrap items-center gap-1 text-[9px] font-mono uppercase tracking-wider text-muted-foreground">
-          <span>{contextLabel(selection)}</span>
+          <span>{_ui(contextLabel(selection, _ui))}</span>
           {selection.objectVersion ? (
             <span>{_ui("· 版本")}{" "}{selection.objectVersion}</span>
           ) : null}
           {readiness ? (
             <span>
               ·{" "}
-              {readiness.status === "executable"
+              {productionContext ? _ui("制作上下文") : readiness.status === "executable"
                 ? _ui("可修改")
                 : readiness.status === "stale"
                   ? _ui("已失效")

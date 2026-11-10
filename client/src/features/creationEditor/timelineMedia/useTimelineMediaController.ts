@@ -1,3 +1,4 @@
+import { registerSoundChatRunner } from "./soundChatBridge";
 import { formatComputeQuote } from "@shared/computeMoney";
 import { awaitMediaTask } from "@/lib/mediaTaskPolling";
 /**
@@ -32,6 +33,7 @@ import {
   trackCreationEditorOperation,
 } from "../timelineUndoStore";
 import { isPersistedStoryId } from "@shared/persistedStoryId";
+import type { VideoMediaVersionBinding } from "./VideoMediaVersionSelect";
 
 export type MediaCommandResult =
   | {
@@ -112,6 +114,7 @@ export type TimelineAudioAssetLibraryItem = {
 export type TimelineGeneratedAudioKind = "music" | "ambience" | "sfx";
 
 export type TimelineMediaController = {
+  mediaVersions: VideoMediaVersionBinding;
   /** The persisted slice is authoritative even when it contains no cues. */
   subtitleSlicePresent: boolean;
   subtitleState: TimelineSubtitleStateModel;
@@ -342,6 +345,17 @@ export function useTimelineMediaController(
     { enabled: isPersistedStoryId(storyId) }
   );
   const discardAudioAssetMut = trpc.timelineMedia.discardAudioAsset.useMutation();
+  const soundChatMut = trpc.timelineMedia.editSoundFromChat.useMutation();
+  const restoreVersionMut = trpc.timelineMedia.restoreVersion.useMutation();
+  const versionsQuery = trpc.timelineMedia.versions.useQuery(
+    { storyId: storyId ?? 0 },
+    { enabled: isPersistedStoryId(storyId) }
+  );
+  useEffect(() => {
+    if (isPersistedStoryId(storyId)) {
+      void mediaTaskUtils.timelineMedia.versions.invalidate({ storyId });
+    }
+  }, [storyId, extensions, mediaTaskUtils]);
 
   const runForResult = useCallback(
     async (call: () => Promise<MediaCommandResult>): Promise<boolean> => {
@@ -390,7 +404,36 @@ export function useTimelineMediaController(
     [editorSessionEpoch]
   );
 
+  useEffect(() => {
+    if (!isPersistedStoryId(storyId)) return;
+    return registerSoundChatRunner(storyId, async instruction => {
+      let result: MediaCommandResult | undefined;
+      const succeeded = await runForResult(async () => {
+        result = await soundChatMut.mutateAsync({ storyId, instruction, operation: operation() });
+        return result;
+      });
+      return { handled: true, reply: succeeded
+        ? result?.status === "ok" && result.changed
+          ? "已调整当前视频的声音，保存了新的声音子版本；旧版本可以在版本菜单恢复，也可以说“撤销”。"
+          : "当前声音已经是这个设置，无需新增版本。"
+        : result?.status === "error" ? `声音未修改：${result.error}` : "声音修改未完成，请稍后重试。" };
+    });
+  }, [storyId, runForResult, operation, soundChatMut.mutateAsync]);
+
   return {
+    mediaVersions: {
+      history: versionsQuery.data,
+      pending: pendingCount > 0 || versionsQuery.isFetching,
+      onRestore: async (kind, versionId) => {
+        const restored = await runForResult(() => restoreVersionMut.mutateAsync({
+          storyId: storyId as number, operation: operation(), kind, versionId,
+          expectedCurrentId: versionsQuery.data?.current[kind] ?? null,
+        }));
+        if (sessionKeyRef.current !== renderedSessionKey) return;
+        if (restored) { setSelectedCueId(null); setSelectedAudioClipId(null); }
+        await mediaTaskUtils.timelineMedia.versions.invalidate({ storyId: storyId as number });
+      },
+    },
     subtitleSlicePresent,
     subtitleState,
     cues,
@@ -404,7 +447,7 @@ export function useTimelineMediaController(
       [subtitleState]
     ),
     pending: pendingCount > 0,
-    lastError,
+    lastError: lastError ?? versionsQuery.error?.message ?? null,
     clearError: useCallback(() => setLastError(null), []),
     initializeSubtitles: useCallback(
       (candidates: SubtitleCandidateModel[]) =>

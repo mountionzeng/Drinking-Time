@@ -65,7 +65,7 @@ export function StoryboardTimelineZoomBar({
     );
   return (
     <div className="flex shrink-0 items-center justify-end gap-2 border-b px-2 py-1">
-      <span className="mr-auto font-mono text-[10px] tabular-nums text-muted-foreground">
+      <span className="mr-auto font-mono text-[20px] font-semibold tabular-nums text-red-600" data-testid="storyboard-total-duration">
         {formatTimelineTimecode(viewport.totalMs)}
       </span>
       <button

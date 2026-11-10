@@ -10,7 +10,6 @@ import type {
 } from "../../shared/videoAsset";
 import {
   getStoryById,
-  getReusableVideoTakesForStory,
   getStoryVideoTakeRanges,
   getStoryVideoTakes,
   getStoryVideoTimelineSelections,
@@ -149,49 +148,4 @@ export async function getStoryVideoAssets(
   );
 
   return takes.map(take => projectTake(take, rangesByTake, selectedByShot));
-}
-
-export async function getReusableVideoAssetsForStory(
-  storyId: number,
-  userId: number
-): Promise<VideoTakeAsset[]> {
-  const story = await getStoryById(storyId, userId);
-  if (!story) return [];
-  const takes = await getReusableVideoTakesForStory(storyId, userId);
-  const sourceStoryIds = Array.from(new Set(takes.map(take => take.storyId)));
-  const [rangeGroups, selectionGroups] = await Promise.all([
-    Promise.all(
-      sourceStoryIds.map(sourceStoryId =>
-        getStoryVideoTakeRanges(sourceStoryId, userId)
-      )
-    ),
-    Promise.all(
-      sourceStoryIds.map(sourceStoryId =>
-        getStoryVideoTimelineSelections(sourceStoryId, userId)
-      )
-    ),
-  ]);
-  const rangesByTake = new Map<number, VideoTakeRange[]>();
-  for (const range of rangeGroups.flat().map(projectRange)) {
-    const group = rangesByTake.get(range.takeId) ?? [];
-    group.push(range);
-    rangesByTake.set(range.takeId, group);
-  }
-  const selectedByTake = new Map(
-    selectionGroups
-      .flat()
-      .map(projectSelection)
-      .map(selection => [selection.takeId, selection])
-  );
-  return takes.map(take =>
-    projectTake(
-      take,
-      rangesByTake,
-      new Map(
-        selectedByTake.has(take.id)
-          ? [[take.stableShotId, selectedByTake.get(take.id)!]]
-          : []
-      )
-    )
-  );
 }

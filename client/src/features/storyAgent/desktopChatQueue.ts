@@ -1,3 +1,4 @@
+import type { SelectionState } from "./types";
 import type { WritingCompanionSnapshot } from "@/features/writingCompanion/writingCompanionText";
 
 export type DesktopQueuedMessage = {
@@ -6,6 +7,10 @@ export type DesktopQueuedMessage = {
   createdAt: number;
   status: "queued" | "sending" | "failed";
   writingContext?: WritingCompanionSnapshot;
+  selection?: SelectionState;
+  productionSelection?: SelectionState | null;
+  imageProvider?: "midjourney" | "gpt-image";
+  workspaceContext?: "book" | "video";
 };
 type QueueState = { items: DesktopQueuedMessage[]; paused: boolean };
 type StorageLike = Pick<Storage, "getItem" | "setItem" | "removeItem">;
@@ -75,12 +80,16 @@ export class DesktopChatQueue {
     this.state = next;
     this.listeners.forEach(listener => listener());
   }
-  enqueue(text: string, writingContext?: WritingCompanionSnapshot) {
+  enqueue(text: string, writingContext?: WritingCompanionSnapshot, workspaceContext?: "book" | "video", selection?: SelectionState, imageProvider?: "midjourney" | "gpt-image", productionSelection?: SelectionState | null) {
     const item: DesktopQueuedMessage = {
       id: `desktop-chat-${crypto.randomUUID()}`,
       text: text.trim(),
       createdAt: Date.now(),
       status: "queued",
+      workspaceContext,
+      selection: selection ? structuredClone(selection) : undefined,
+      productionSelection: productionSelection ? structuredClone(productionSelection) : null,
+      imageProvider,
       writingContext: writingContext
         ? structuredClone(writingContext)
         : undefined,

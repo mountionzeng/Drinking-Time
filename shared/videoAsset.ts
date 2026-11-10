@@ -89,21 +89,6 @@ export function isVideoTakeStatus(value: unknown): value is VideoTakeStatus {
   );
 }
 
-export function normalizeVideoTakeStatus(value: unknown): VideoTakeStatus {
-  return isVideoTakeStatus(value) ? value : "submitted";
-}
-
-export function isVideoTakePlayable(status: VideoTakeStatus): boolean {
-  return status === "available";
-}
-
 export function isVideoTakeTerminal(status: VideoTakeStatus): boolean {
   return ["available", "failed", "timeout", "unfollowable"].includes(status);
-}
-
-export function sanitizeVideoError(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const text = value.trim();
-  if (!text) return null;
-  return text.slice(0, 500);
 }

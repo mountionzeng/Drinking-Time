@@ -1,3 +1,5 @@
+import { shotConversationSelection } from "@/features/storyAgent/shotConversation";
+import { focusShotChat } from "@/features/storyAgent/shotChatFocus";
 import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { Clapperboard, FileUp, Loader2, Upload } from "lucide-react";
 import { BookVideoStartButton } from "@/features/bookVideo/BookVideoStartButton";
@@ -41,6 +43,7 @@ import { readStoryImageDragPayload } from "@/features/storyAgent/storyImageDrag"
 import { readVideoTakeDragPayload } from "@/features/storyAgent/views/videoTakeDrag";
 import { useStorySpine } from "@/features/storyAgent/spine/storySpine";
 import { useTimelinePlaybackClock } from "../useTimelinePlaybackClock";
+import { createStoryboardSelectionFollow } from "../storyboardSelectionFollow";
 import { useCurrentFrameEditingSession } from "../currentFrameEditingSession";
 import { useVisualObjectEditingSession } from "../useVisualObjectEditingSession";
 import { TimelineAudioPlayback } from "../TimelineAudioPlayback";
@@ -112,7 +115,6 @@ import {
 } from "../timelineMedia/TimelineAudioCreationDialog";
 import {
   storyboardEditSelectionSummary,
-  storyboardEditShouldFollowSelectionToShot,
   type StoryboardEditRange,
 } from "../storyboardEditRow";
 import { shouldHandleCreationEditorUndoShortcut } from "../timelineUndoStore";
@@ -137,10 +139,7 @@ export {
   timelineVideoShouldHoldLastFrame,
   timelineSubtitleText,
 } from "../previewPlaybackModel";
-export type {
-  EditingShortcutTargetKind,
-  TimelineVideoSource,
-} from "../previewPlaybackModel";
+export type { TimelineVideoSource } from "../previewPlaybackModel";
 
 function timelineVisualClipFrameUrl(
   clip: Pick<StoryTimelineVisualClip, "takeId" | "rangeId" | "sourceStartSec">
@@ -946,11 +945,6 @@ export function buildTimelineLanes(
   return lanes;
 }
 
-export {
-  clearVisualIntentIfCurrent,
-  visualClipboardTargetLayer,
-} from "../useVisualObjectEditingSession";
-
 export default function EditingNleWorkspace({
   presentation = "editing",
   suspended = false,
@@ -1141,6 +1135,7 @@ export default function EditingNleWorkspace({
   ]);
   const subtitleBinding = useMemo<SubtitleTrackBinding>(
     () => ({
+      versions: timelineMedia.mediaVersions,
       cues: timelineMedia.cues,
       selectedCueId: timelineMedia.selectedCueId,
       onSelectCue: timelineMedia.selectCue,
@@ -1398,22 +1393,9 @@ export default function EditingNleWorkspace({
       setSelectedShotNo(shotNo);
       const shot = shots.find(item => item.shotNo === shotNo);
       if (!shot) return;
-      const fullText = [shot.dialogue, shot.action, shot.subject]
-        .filter(Boolean)
-        .join("；");
-      setActiveSelection({
-        sourceType: shot.imageId ? "storyboard-image" : "shot",
-        sourceId: shot.imageId ? String(shot.imageId) : String(shotNo),
-        selectedText: fullText || shotLabel(shot),
-        fullText: fullText || shotLabel(shot),
-        storyId: activeStoryId,
-        stableShotId: shot.stableShotId ?? shot.shotIdentity ?? null,
-        shotNo,
-        cueCode: shot.cueCode ?? null,
-        imageId: shot.imageId ?? null,
-        objectVersion: shot.imageId ? `image:${shot.imageId}` : null,
-        materialStatus: shot.imageId ? "current-image" : "unknown",
-      });
+      if (activeStoryId) setActiveSelection(shotConversationSelection(activeStoryId, shot));
+      const identity = shot.stableShotId ?? shot.shotIdentity;
+      if (activeStoryId && identity) focusShotChat(activeStoryId, identity);
     },
     [activeStoryId, setActiveSelection, setSelectedShotNo, shots]
   );
@@ -1645,6 +1627,7 @@ export default function EditingNleWorkspace({
           : `image:${target.imageId}`,
         materialStatus: "current-image",
       });
+      if (activeStoryId && target.stableShotId) focusShotChat(activeStoryId, target.stableShotId);
     },
     [activeStoryId, setActiveSelection, setSelectedShotNo]
   );
@@ -1871,28 +1854,17 @@ export default function EditingNleWorkspace({
     setVideoEditorPreviewDraft(null);
   }, []);
 
-  // 聊聊生成并插入镜头后会把该镜头设为活动选区；剪辑台跟随这个稳定 ID
-  // 定位，而不是依赖会因插入而变化的 SH 序号。
+  // Follow each explicit chat selection once. Playback may subsequently move
+  // the selected shot without the old chat target pulling it back every frame.
+  const followChatSelection = useMemo(createStoryboardSelectionFollow, []);
   useEffect(() => {
-    if (
-      !storyboardEditShouldFollowSelectionToShot(activeSelection?.sourceType)
-    ) {
-      return;
-    }
-    const stableShotId = activeSelection?.stableShotId;
-    if (!stableShotId) return;
-    const shot = shots.find(
-      item => (item.stableShotId ?? item.shotIdentity) === stableShotId
-    );
-    if (!shot || shot.shotNo === selectedShotNo) return;
-    // Follow the chat selection without replacing its exact candidate with the
-    // shot's adopted image (or a text selection when no image is adopted).
-    setSelectedShotNo(shot.shotNo);
+    const shotNo = followChatSelection(activeSelection, activeStoryId, shots);
+    if (shotNo != null) setSelectedShotNo(shotNo);
   }, [
-    activeSelection?.sourceType,
-    activeSelection?.stableShotId,
+    activeSelection,
+    activeStoryId,
+    followChatSelection,
     setSelectedShotNo,
-    selectedShotNo,
     shots,
   ]);
 
@@ -2180,6 +2152,7 @@ export default function EditingNleWorkspace({
         ? {}
         : {
             audio: {
+              versions: timelineMedia.mediaVersions,
               storyId: activeStoryId,
               audioState: timelineMedia.audioState,
               selectedClipId: timelineMedia.selectedAudioClipId,

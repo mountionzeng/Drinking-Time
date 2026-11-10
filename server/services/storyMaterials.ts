@@ -1,4 +1,5 @@
 import type { Story } from "../../drizzle/schema";
+import { activeArtSystemRecipe } from "../../shared/artSystem";
 import { normalizePublishingAlbumTypographyLayout } from "../../shared/publishingAlbum";
 import { canonicalizeShotNo } from "../../shared/imageAsset";
 import {
@@ -1052,9 +1053,12 @@ export async function getStoryMaterialState(
   const matchedVideoTakeIds = new Set(
     shots.flatMap(shot => shot.videoTakes.map(take => take.id))
   );
+  const artRecipe = activeArtSystemRecipe(storyBody);
+  const artReference = artRecipe?.system?.confirmedImageId ? imageById.get(artRecipe.system.confirmedImageId) : undefined;
 
   return {
     storyId,
+    ...(artReference && artRecipe?.system ? { artSystemReference: { version: artRecipe.version, name: artRecipe.system.name, image: artReference } } : {}),
     timeline,
     // Covers (including illustration/texture candidates), style references and
     // old/rejected candidates remain discoverable without becoming shot inputs.

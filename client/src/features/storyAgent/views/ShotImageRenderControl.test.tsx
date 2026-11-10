@@ -11,6 +11,45 @@ import {
 import type { StoryMaterialState } from "@shared/storyMaterial";
 beforeEach(() => vi.stubGlobal("React", React));
 describe("shot render control", () => {
+  it("uses a confirmed art-system baseline unless the user has an explicit override", () => {
+    const getItem = vi.fn().mockReturnValue(null); vi.stubGlobal("localStorage", { getItem });
+    const image = { id: 88, imageUrl: "/baseline.png" };
+    const material = { artSystemReference: { version: 2, name: "Watercolor", image }, shots: [{ stableShotId: "s2", imageVersions: [] }], unassignedImages: [] } as unknown as StoryMaterialState;
+    expect(loadShotRenderSettings(1, "s2", material).references).toEqual({ imageIds: [88], imagePurpose: "scene-style", assets: {} });
+    expect(shotRenderReferenceOptions(material).map(ref => ref.imageId)).toContain(88);
+    getItem.mockReturnValue(JSON.stringify({ count: 4, references: { imageIds: [], assets: {} } }));
+    expect(loadShotRenderSettings(1, "s2", material).references.imageIds).toEqual([]);
+    vi.unstubAllGlobals();
+  });
+
+  it("recognizes a manually reselected established image as continuity, preserving composition freedom", () => {
+    const reference = { key: "image:19", label: "图片 #19", imageId: 19, imageUrl: "/confirmed.png" };
+    const selected = changeRenderReference({ imageIds: [], assets: {} }, reference, false, [19]);
+    expect(selected).toEqual({ imageIds: [19], imagePurpose: "scene-style", assets: {} });
+    expect(changeRenderReference(selected, reference, true, [19])).toEqual({ imageIds: [], assets: {} });
+  });
+  it("inherits the established earlier image, never an unchosen candidate, and preserves an empty override", () => {
+    const getItem = vi.fn().mockReturnValue(null);
+    vi.stubGlobal("localStorage", { getItem });
+    const material = { shots: [
+      { stableShotId: "first", currentImage: { id: 19, imageUrl: "/confirmed.png" } },
+      { stableShotId: "unselected", currentImage: null, imageVersions: [{ id: 22, imageUrl: "/wrong.png" }] },
+      { stableShotId: "target", currentImage: null },
+    ] } as unknown as StoryMaterialState;
+    expect(loadShotRenderSettings(1, "target", material).references).toEqual({ imageIds: [19], imagePurpose: "scene-style", assets: {} });
+    material.shots[0].currentImage = { id: 20, imageUrl: "/second-selected.png" } as typeof material.shots[0]["currentImage"];
+    expect(loadShotRenderSettings(1, "target", material).references.imageIds).toEqual([20]);
+    material.shots[0].currentImage = { id: 19, imageUrl: "/confirmed.png" } as typeof material.shots[0]["currentImage"];
+    material.shots[0].imageVersions = [{ id: 20, imageUrl: "/second-selected.png", isPrimary: true, selectionSource: "explicit" }] as typeof material.shots[0]["imageVersions"];
+    expect(loadShotRenderSettings(1, "target", material).references.imageIds).toEqual([20]);
+    material.shots[0].imageVersions = [];
+    material.shots[0].imageGenerationReferences = [material.shots[0].currentImage!];
+    material.shots[0].currentImage = null;
+    expect(loadShotRenderSettings(1, "target", material).references.imageIds).toEqual([19]);
+    getItem.mockReturnValue(JSON.stringify({ count: 4, references: { imageIds: [], assets: {} } }));
+    expect(loadShotRenderSettings(1, "target", material).references.imageIds).toEqual([]);
+    vi.unstubAllGlobals();
+  });
   it("prefills every book-act reference, while an explicit saved empty selection stays empty", () => {
     const material = { shots: [{ stableShotId: "act-1", imageGenerationReferences: [{id: 1}, {id: 2}] }] } as unknown as StoryMaterialState;
     expect(loadShotRenderSettings(1, "act-1", material).references.imageIds).toEqual([1, 2]);
@@ -61,6 +100,8 @@ describe("shot render control", () => {
       pet,
       false
     );
+    expect(changeRenderReference({ imageIds: [19], imagePurpose: "scene-style", assets: {} }, pet, false))
+      .toEqual({ imageIds: [19], assets: { pet: { assetId: "a", versionId: "v1" } } });
     expect(selectedReferenceKeys(selected)).toEqual(["asset:v1"]);
     expect(changeRenderReference(selected, pet, true)).toEqual({
       imageIds: [],

@@ -193,6 +193,8 @@ export async function loadOwnedStoryTimelineEnvelope(input: {
  * unchanged visual `items` read back in the same command.
  */
 export async function saveStoryTimelineExtensionCas(input: {
+  mediaVersionIntent?: string;
+  mediaVersionSelection?: import("../../shared/videoMediaVersions").VideoMediaSelection;
   storyId: number;
   userId: number;
   expectedVersion: number;
@@ -206,6 +208,8 @@ export async function saveStoryTimelineExtensionCas(input: {
   extensions: Record<string, unknown>;
 }): Promise<StoryVisualTimelineRecord> {
   return updateStoryTimeline({
+    mediaVersionSelection: input.mediaVersionSelection,
+          mediaVersionIntent: input.mediaVersionIntent,
     storyId: input.storyId,
     userId: input.userId,
     expectedVersion: input.expectedVersion,
