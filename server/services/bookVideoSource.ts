@@ -1,4 +1,7 @@
+import { manuscriptFingerprint } from "./manuscriptSnapshot";
 import { createHash } from "node:crypto";
+import { bookStoryboardModules } from './bookStoryboardModules';
+import { TRPCError } from '@trpc/server';
 import { writingModuleTexts, validWritingStyle } from "../../shared/bookWritingStyle";
 import { listChapters } from "../repositories/chapters";
 import { getStoryImageAssets } from "./imageAssets";
@@ -14,14 +17,26 @@ export async function readBookVideoSource(input: {
   storyId: number;
   userId: number;
 }) {
-  const chapters = await listChapters(input.storyId, input.userId);
+  const storyboard = await listChapters(input.storyId, input.userId, "storyboard");
+  const chapters = storyboard.length ? storyboard : await listChapters(input.storyId, input.userId);
   if (!chapters.length) return null;
   const assets = await getStoryImageAssets(input.storyId, input.userId);
   const audioAssets = await listOwnedStoryAudioAssets(input);
+  const explicitShots = bookStoryboardModules(chapters, assets);
+  if (explicitShots) {
+    for (const chapter of chapters) {
+      const inlineUrls = new Set(writingModuleTexts(chapter.blocks.body, chapter.blocks.writingStyle).flatMap(text => {
+        const image = readBookImage(text); return image ? [image.url] : [];
+      }));
+      if (chapter.layout?.pages.some(page => page.modules.some(module => module.kind === 'image' && !inlineUrls.has(module.imageUrl))))
+        throw new TRPCError({code:'BAD_REQUEST',message:'旧排版中还有未归属镜头的图片，请先将它们插入对应镜头再转视频。'});
+    }
+  }
   const musicAssets: NonNullable<BookVideoRecord["musicAssets"]> = [];
   const seenMusic = new Set<number>();
   let missingMusic = 0;
   const lines: string[] = [];
+  const sourceModules: Array<{id:string;line:number}> = [];
   const dialogueLines = new Set<number>();
   let hasDialogueClassification = false;
   const pending: Array<{ assetId: number; line: number }> = [];
@@ -49,6 +64,7 @@ export async function readBookVideoSource(input: {
     const validStyle = style && validWritingStyle(chapter.blocks.body,style);
     const modules=writingModuleTexts(chapter.blocks.body,style);
     for (const [moduleIndex,moduleText] of modules.entries()) {
+      const moduleStart = lines.length;
       const isDialogue=Boolean(validStyle && style[moduleIndex]?.videoRole==='dialogue');
       for (const line of moduleText.split("\n")) {
       const audio = readBookAudio(line.trim());
@@ -84,6 +100,9 @@ export async function readBookVideoSource(input: {
       }
       addImage(image.url, lines.length);
       }
+      // Media contributes no prose line. At an act boundary it belongs before
+      // the next heading, just like its reference-image anchor above.
+      if (validStyle) sourceModules.push({id:`${chapter.id}:${style[moduleIndex].id}`,line:lines.length === moduleStart ? moduleStart - 0.5 : moduleStart});
     }
     // Old layout-only pictures are established selections too. Never sweep the warehouse.
     for (const page of chapter.layout?.pages ?? []) {
@@ -136,13 +155,15 @@ export async function readBookVideoSource(input: {
     const end = starts[index + 1] ?? lines.length + 1;
     return {
       id: `book-scene-${index + 1}`,
+      sourceModuleIds: sourceModules.filter(module => (index === 0 || module.line >= from) && module.line < end).map(module => module.id),
       text: lines.slice(from, end).join("\n").trim(),
       ...(hasDialogueClassification ? {dialogueText:lines.slice(from,end).filter((_,i)=>dialogueLines.has(from+i)).join('\n')} : {}),
       referenceImageIds: pending.filter(p => (index === 0 || p.line > from) && p.line <= end).map(p => p.assetId),
     };
   }) : undefined;
   return {
-    layout: { body, illustrations, ...(dialogueRanges ? {dialogueRanges} : {}), ...(bookScenes ? { bookScenes } : {}) },
+    layout: { body: body || explicitShots?.map(s => s.text).join('\n') || '', illustrations, ...(dialogueRanges ? {dialogueRanges} : {}), ...((explicitShots ?? bookScenes) ? { bookScenes: explicitShots ?? bookScenes } : {}) },
+    manuscriptFingerprint: manuscriptFingerprint(chapters),
     missingImages,
     musicAssets,
     missingMusic,
@@ -153,6 +174,7 @@ export async function readBookVideoSource(input: {
             id: c.id,
             title: c.title,
             body: c.blocks.body,
+            ...(explicitShots ? {storyboardModules:c.blocks.writingStyle?.map(row=>({id:row.id,format:row.format,parentId:row.parentId,lineCount:row.lineCount??1,videoRole:row.videoRole??null}))} : {}),
             ...(c.blocks.writingStyle?.some(row=>row.videoRole==='dialogue') ? {dialogueModules:c.blocks.writingStyle.map(row=>({id:row.id,lineCount:row.lineCount??1,role:row.videoRole??null}))} : {}),
             position: c.position,
             ...(c.layout ? { layout: c.layout } : {}),

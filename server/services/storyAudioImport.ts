@@ -56,6 +56,8 @@ import {
 
 const DEFAULT_ALLOWED_HOSTS = [
   /^file\.302\.ai$/,
+  /^file\.302ai\.cn$/,
+  /^minimax-algeng-chat-tts\.oss-cn-wulanchabu\.aliyuncs\.com$/,
   /^s3\.amazonaws\.com$/,
   /\.s3(?:[.-][a-z0-9-]+)?\.amazonaws\.com$/,
 ];

@@ -1,10 +1,17 @@
 import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import React, { useEffect, useRef } from "react";
-import { X } from "lucide-react";
+import { Check, X } from "lucide-react";
 import type { CreationEditorShot } from "@/features/creationEditor/types";
 import { timelineTransformStyle } from "@/features/creationEditor/imageClipEditorModel";
 import type { TimelineTransform } from "@shared/storyMaterial";
 import { videoTakeAffordance } from "@/features/creationEditor/videoAssetViewModel";
+
+export function StoryboardMediaSelectionIndicator({ selected }: { selected: boolean }) {
+  const _ui = useDesktopUiText();
+  if (!selected) return null;
+  return <span className="absolute left-1 top-1 z-20 inline-flex items-center gap-0.5 rounded-sm bg-[var(--nayin-accent)] px-1.5 py-0.5 text-[8px] font-semibold text-white shadow-sm"
+    data-storyboard-media-selection-indicator="true"><Check className="h-2.5 w-2.5" />{_ui("已选")}</span>;
+}
 
 export type StoryboardMediaPreview =
   | {

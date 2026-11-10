@@ -85,6 +85,7 @@ function fakeProviderAsset(durationFrames = 90) {
     scope: { storyId: number; userId: number };
     operationId: string;
     provenance?: unknown;
+    sourceKey?: string;
   }) => ({
     status: "ready" as const,
     reused: false,
@@ -95,7 +96,7 @@ function fakeProviderAsset(durationFrames = 90) {
       displayName: "旁白.mp3",
       mediaKind: "narration",
       sourceKind: "tts",
-      sourceKey: input.operationId,
+      sourceKey: input.sourceKey ?? input.operationId,
       status: "ready",
       durationFrames,
       provenance: input.provenance as any,
@@ -113,6 +114,77 @@ beforeEach(() => {
 });
 
 describe("story narration candidate workflow", () => {
+  it("binds a Doubao audition to its unversioned service and voice and materializes it only once", async () => {
+    ENV.tts302Provider = "doubao";
+    ENV.tts302Voice = "zh_female_wenrouxiaoya_moon_bigtts";
+    const { storyId, cue } = await seed(882, "字".repeat(66));
+    const quote = await quoteStoryNarration({ storyId, userId: 882, subtitleCueId: cue.id, now: () => NOW });
+    expect(quote).toMatchObject({ estimatedCny: 0.02, provider: "doubao", voice: ENV.tts302Voice });
+    const generateVoice = vi.fn(async () => ({ audioUrl: "https://file.302.ai/gpt/tts/a.mp3", provider: "doubao", voice: ENV.tts302Voice }));
+    const materializeRemote = vi.fn(fakeProviderAsset(450));
+    const request = { storyId, userId: 882, subtitleCueId: cue.id, operationId: "doubao-op-1", quoteToken: quote.quoteToken,
+      dependencies: { now: () => NOW + 1000, generateVoice, materializeRemote } };
+    expect(await generateStoryNarrationCandidate(request)).toMatchObject({ status: "candidate-ready" });
+    expect(await generateStoryNarrationCandidate(request)).toMatchObject({ status: "candidate-ready", replayed: true });
+    expect(generateVoice).toHaveBeenCalledTimes(1);
+    expect(materializeRemote).toHaveBeenCalledTimes(1);
+    expect(materializeRemote).toHaveBeenCalledWith(expect.objectContaining({ provenance: expect.objectContaining({ model: "doubao-tts-unversioned" }) }));
+    expect(await listOperationProviderAttempts(request.operationId)).toMatchObject([{ model: "doubao-tts-unversioned", status: "succeeded", usage: { priceVersion: "tts-302-doubao-tts-unversioned-cny-v1" } }]);
+    expect(await findBillingOperation(request.operationId)).toMatchObject({ status: "settled", actualCostMinor: fromYuan(0.02) });
+    ENV.tts302Voice = "zh_male_wennuanahu_moon_bigtts";
+    expect(await generateStoryNarrationCandidate({ ...request, operationId: "doubao-changed-voice" })).toMatchObject({ status: "error" });
+    expect(generateVoice).toHaveBeenCalledTimes(1);
+  });
+  it("records ElevenLabs actual model and voice once, and rejects a changed voice before charging", async () => {
+    ENV.tts302Provider = "elevenlabs";
+    ENV.tts302Voice = "EXAVITQu4vr4xnSDxMaL";
+    const { storyId, cue } = await seed(881, "字".repeat(233));
+    const quote = await quoteStoryNarration({ storyId, userId: 881, subtitleCueId: cue.id, now: () => NOW });
+    const generateVoice = vi.fn(async () => ({ audioUrl: "https://file.302ai.cn/gpt/test.mp3", provider: "elevenlabs", voice: ENV.tts302Voice }));
+    const request = { storyId, userId: 881, subtitleCueId: cue.id, operationId: "elevenlabs-op-1", quoteToken: quote.quoteToken,
+      dependencies: { now: () => NOW + 1000, generateVoice, materializeRemote: fakeProviderAsset(1800) } };
+    expect(await generateStoryNarrationCandidate(request)).toMatchObject({ status: "candidate-ready" });
+    expect(await generateStoryNarrationCandidate(request)).toMatchObject({ status: "candidate-ready", replayed: true });
+    expect(generateVoice).toHaveBeenCalledTimes(1);
+    expect(await listOperationProviderAttempts(request.operationId)).toMatchObject([{
+      model: "eleven_multilingual_v2", status: "succeeded", usage: {
+        model: "eleven_multilingual_v2", voice: "EXAVITQu4vr4xnSDxMaL",
+        priceVersion: expect.stringMatching(/^tts-302-eleven_multilingual_v2-cny-v1-[a-f0-9]{12}$/),
+      },
+    }]);
+    expect(await findBillingOperation(request.operationId)).toMatchObject({ status: "settled", actualCostMinor: fromYuan(0.06) });
+    ENV.tts302Voice = "other-voice";
+    expect(await generateStoryNarrationCandidate({ ...request, operationId: "changed-elevenlabs-voice" })).toMatchObject({ status: "error" });
+    expect(generateVoice).toHaveBeenCalledTimes(1);
+  });
+  it("binds MiniMax quotes and receipts to the model, and reuses a paid candidate", async () => {
+    ENV.tts302Provider = "minimaxi";
+    ENV.tts302Voice = "audiobook_female_1";
+    const { storyId, cue } = await seed(880, "字".repeat(233));
+    const quote = await quoteStoryNarration({ storyId, userId: 880, subtitleCueId: cue.id, now: () => NOW });
+    expect(quote).toMatchObject({ provider: "minimaxi", voice: "audiobook_female_1", estimatedCny: 0.06 });
+    const generateVoice = vi.fn(async () => ({
+      audioUrl: "https://minimax-algeng-chat-tts.oss-cn-wulanchabu.aliyuncs.com/audio/test.mp3",
+      provider: "minimaxi", voice: "audiobook_female_1",
+    }));
+    const request = {
+      storyId, userId: 880, subtitleCueId: cue.id, operationId: "minimax-op-1", quoteToken: quote.quoteToken,
+      dependencies: { now: () => NOW + 1000, generateVoice, materializeRemote: fakeProviderAsset(1800) },
+    };
+    expect(await generateStoryNarrationCandidate(request)).toMatchObject({ status: "candidate-ready" });
+    expect(await generateStoryNarrationCandidate(request)).toMatchObject({ status: "candidate-ready", replayed: true });
+    expect(generateVoice).toHaveBeenCalledTimes(1);
+    expect(await listOperationProviderAttempts("minimax-op-1")).toMatchObject([{
+      model: "speech-2.8-turbo", status: "succeeded",
+      usage: { model: "speech-2.8-turbo", priceVersion: "tts-302-speech-2.8-turbo-cny-v1" },
+    }]);
+    expect(await findBillingOperation("minimax-op-1")).toMatchObject({ status: "settled", actualCostMinor: fromYuan(0.06) });
+    ENV.tts302Provider = "openai";
+    ENV.tts302Voice = "alloy";
+    expect(await generateStoryNarrationCandidate({ ...request, operationId: "changed-provider" })).toMatchObject({ status: "error" });
+    expect(generateVoice).toHaveBeenCalledTimes(1);
+  });
+
   it("reserves, records one provider attempt, creates an immutable candidate, then adopts with one Timeline write", async () => {
     const { storyId, cue } = await seed(801);
     const generateVoice = vi.fn(async () => ({
@@ -526,6 +598,37 @@ describe("story narration candidate workflow", () => {
   });
 });
 
+it.each([
+ ['female','zh_female_wenrouxiaoya_moon_bigtts'],
+ ['male','zh_male_wennuanahu_moon_bigtts'],
+] as const)('generates the signed %s audiobook voice independently of the global TTS default',async(voiceGender,voice)=>{
+ const {insertChapter}=await import('../repositories/chapters');
+ const {storyId,cue}=await seed(896);
+ const chapter=await insertChapter({storyId,userId:896,content:{title:'书',layout:null,blocks:{body:'只朗读这一段。',blockIds:['one'],writingStyle:[{id:'one',format:'text',parentId:null,collapsed:false}],containsAiText:false,settings:null,coverKey:null,bodyTextureKey:null,images:{},illustrations:[]}}});
+ const input={storyId,userId:896,subtitleCueId:'book-voice',bookTarget:{chapterId:chapter.id,moduleId:'one'},voiceGender,now:()=>NOW};
+ const quote=await quoteStoryNarration(input);
+ expect(quote).toMatchObject({provider:'doubao',voice,estimatedCny:.02});
+ await expect(quoteStoryNarration({...input,provider:'openai',voice:'alloy'})).rejects.toThrow('声音已更新');
+ await expect(quoteStoryNarration({...input,bookTarget:undefined,subtitleCueId:cue.id})).rejects.toThrow('声音选择无效');
+ ENV.tts302Provider='minimaxi';ENV.tts302Voice='danya_xuejie';
+ const generateVoice=vi.fn(async()=>({audioUrl:'https://file.302.ai/voice/test.mp3',provider:'doubao',voice}));
+ const materializeRemote=vi.fn(fakeProviderAsset(90));
+ const request={storyId,userId:896,subtitleCueId:'book-voice',operationId:`book-${voiceGender}`,quoteToken:quote.quoteToken,dependencies:{now:()=>NOW+1000,generateVoice,materializeRemote}};
+ expect(await generateStoryNarrationCandidate(request)).toMatchObject({status:'candidate-ready'});
+ expect(await generateStoryNarrationCandidate(request)).toMatchObject({status:'candidate-ready',replayed:true});
+ expect(generateVoice).toHaveBeenCalledTimes(1);
+ expect(generateVoice).toHaveBeenCalledWith({text:'只朗读这一段。',provider:'doubao',voice});
+ expect(materializeRemote).toHaveBeenCalledWith(expect.objectContaining({provenance:expect.objectContaining({voiceGender,provider:'doubao',voice})}));
+ const otherQuote=await quoteStoryNarration({...input,voiceGender:voiceGender==='female'?'male':'female'});
+ expect(await generateStoryNarrationCandidate({...request,quoteToken:otherQuote.quoteToken})).toMatchObject({status:'error',message:'这个生成操作已用于另一份旁白'});
+ expect(generateVoice).toHaveBeenCalledTimes(1);
+ const [payload,signature]=quote.quoteToken.split('.');
+ const tampered=JSON.parse(Buffer.from(payload,'base64url').toString());tampered.voiceGender=voiceGender==='female'?'male':'female';
+ const tamperedToken=Buffer.from(JSON.stringify(tampered)).toString('base64url')+'.'+signature;
+ expect(await generateStoryNarrationCandidate({...request,operationId:'tampered-gender',quoteToken:tamperedToken})).toMatchObject({status:'error',message:'旁白报价无效，请重新确认'});
+ expect(generateVoice).toHaveBeenCalledTimes(1);
+});
+
 it('reads a book module verbatim, saves narration without timeline mutation, rejects deleted sources',async()=>{
  const {insertChapter,deleteChapter}=await import('../repositories/chapters');
  const {storyId}=await seed(899);
@@ -564,4 +667,24 @@ it('rejects oversized selected narration instead of truncating it',async()=>{
  const {insertChapter}=await import('../repositories/chapters');const {storyId}=await seed(897);
  const chapter=await insertChapter({storyId,userId:897,content:{title:'书',layout:null,blocks:{body:'甲'.repeat(2500)+'\n'+'乙'.repeat(2500),blockIds:['a','b'],writingStyle:['a','b'].map(id=>({id,format:'text' as const,parentId:null,collapsed:false})),containsAiText:false,settings:null,coverKey:null,bodyTextureKey:null,images:{},illustrations:[]}}});
  await expect(quoteStoryNarration({storyId,userId:897,subtitleCueId:'too-long',bookTarget:{chapterId:chapter.id,moduleId:'a',moduleIds:['a','b']},now:()=>NOW})).rejects.toThrow('最多5000字');
+});
+
+it('binds each full-book narration segment to all chapters and reuses renewed quotes without another provider call', async () => {
+  const { insertChapter, saveChapterContent } = await import('../repositories/chapters');
+  const { storyId } = await seed(895);
+  const blocks = (body: string) => ({ body, blockIds: [], manuscriptKind: 'text' as const, containsAiText: false, settings: null, coverKey: null, bodyTextureKey: null, images: {}, illustrations: [] });
+  const first = await insertChapter({ storyId, userId: 895, content: { title: '开头', layout: null, blocks: blocks('甲'.repeat(4800)) } });
+  const last = await insertChapter({ storyId, userId: 895, content: { title: '末章', layout: null, blocks: blocks('末章不可遗漏') } });
+  const request = { storyId, userId: 895, subtitleCueId: 'whole-book-segment-0', voiceGender: 'female' as const, bookTarget: { chapterId: first.id, moduleId: 'whole-book', wholeBook: { kind: 'text' as const, dialogueOnly: false, segment: 0 } }, now: () => NOW };
+  const original = await quoteStoryNarration(request);
+  const renewed = await quoteStoryNarration({ ...request, now: () => NOW + 1000 });
+  const generateVoice = vi.fn(async (_input: { text: string }) => ({ audioUrl: 'https://file.302.ai/voice/test.mp3', provider: 'doubao', voice: 'zh_female_wenrouxiaoya_moon_bigtts' }));
+  const generate = { storyId, userId: 895, subtitleCueId: request.subtitleCueId, operationId: 'whole-book-one', quoteToken: original.quoteToken, dependencies: { now: () => NOW + 2000, generateVoice, materializeRemote: fakeProviderAsset(90) } };
+  expect(await generateStoryNarrationCandidate(generate)).toMatchObject({ status: 'candidate-ready' });
+  expect(await generateStoryNarrationCandidate({ ...generate, quoteToken: renewed.quoteToken })).toMatchObject({ status: 'candidate-ready', replayed: true });
+  expect(generateVoice).toHaveBeenCalledTimes(1);
+  expect(generateVoice.mock.calls[0][0].text).toHaveLength(4800);
+  await saveChapterContent({ id: last.id, userId: 895, expectedVersion: last.version, reason: 'autosave', content: { blocks: { ...last.blocks, body: '末章有新修改' } } });
+  expect(await generateStoryNarrationCandidate({ ...generate, operationId: 'stale-whole-book' })).toMatchObject({ status: 'error' });
+  expect(generateVoice).toHaveBeenCalledTimes(1);
 });

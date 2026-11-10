@@ -183,6 +183,16 @@ describe("mobile image studio", () => {
     await mocks.pack.onGenerateCover("");
     expect(mocks.mutate).not.toHaveBeenCalled();
   });
+  it("shows a persisted recovery error while preserving the original task", () => {
+    mocks.data.publishing.coverGeneration = {
+      status: "pending", operationToken: "old-task", taskId: "existing-task", error: "fetch failed",
+    };
+    const html = render();
+    expect(html).toContain("图片取回时网络中断，请恢复原任务。");
+    expect(html).toContain("恢复上次生成");
+    expect(mocks.pack.generationError).toBeUndefined();
+    expect(mocks.mutate).not.toHaveBeenCalled();
+  });
 });
 
 it("opens the story gallery even without a publishing body, but cannot buy images", async () => {

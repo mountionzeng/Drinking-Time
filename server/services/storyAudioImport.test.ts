@@ -68,6 +68,15 @@ afterEach(async () => {
 });
 
 describe("SSRF guard — assertAllowedRemoteAudioUrl", () => {
+  it("accepts only the documented MiniMax audio bucket", async () => {
+    const { assertAllowedRemoteAudioUrl } = await importSvc();
+    expect(() => assertAllowedRemoteAudioUrl("https://minimax-algeng-chat-tts.oss-cn-wulanchabu.aliyuncs.com/audio/test.mp3")).not.toThrow();
+    expect(() => assertAllowedRemoteAudioUrl("https://file.302ai.cn/gpt/voice.mp3")).not.toThrow();
+    expect(() => assertAllowedRemoteAudioUrl("https://file.302ai.cn.evil.example/voice.mp3")).toThrow();
+    expect(() => assertAllowedRemoteAudioUrl("http://file.302ai.cn/voice.mp3")).toThrow();
+    expect(() => assertAllowedRemoteAudioUrl("https://other-bucket.oss-cn-wulanchabu.aliyuncs.com/audio/test.mp3")).toThrow();
+    expect(() => assertAllowedRemoteAudioUrl("https://minimax-algeng-chat-tts.oss-cn-wulanchabu.aliyuncs.com.evil.example/audio/test.mp3")).toThrow();
+  });
   it("accepts an HTTPS S3 url on 443", async () => {
     const { assertAllowedRemoteAudioUrl } = await importSvc();
     expect(() =>

@@ -24,7 +24,7 @@ import { stripAssistantReasoning } from "@shared/assistantReplyText";
 import { useMobileConversation } from "./useMobileConversation";
 import type { MobileConversationRecoveryTurn } from "./mobileConversationStore";
 import { MobileVoiceInput } from "./MobileVoiceInput";
-import { MobileCaptureAttachments, MobileCaptureButton, MobileCaptureReceipts, type CaptureController } from "./MobileCaptureAttachments";
+import { MobileCaptureAttachments, MobileCaptureButton, MobileCaptureRecordButton, MobileCaptureReceipts, type CaptureController } from "./MobileCaptureAttachments";
 
 export type MobileConversationController = ReturnType<
   typeof useMobileConversation
@@ -214,6 +214,8 @@ export function MobileChatView({
   const setDraft = onDraftChange ?? setLocalDraft;
   const [announcement, setAnnouncement] = useState("");
   const [voiceBusy, setVoiceBusy] = useState(false);
+  const [voicePreview, setVoicePreview] = useState("");
+  const [voiceNotice, setVoiceNotice] = useState("");
   const draftRef = useRef(draft);
   draftRef.current = draft;
   useEffect(() => {
@@ -437,14 +439,19 @@ export function MobileChatView({
         onSubmit={handleSubmit}
       >
         {capture && <MobileCaptureAttachments capture={capture} />}
+        {voiceNotice && <p role="status" className="mx-auto max-w-2xl pb-2 text-xs leading-5 text-muted-foreground">{voiceNotice}</p>}
         <div className="mx-auto flex max-w-2xl items-end gap-2">
-          {capture && <MobileCaptureButton capture={capture} />}
-          {!capture?.active &&
+          {capture && <MobileCaptureButton capture={capture} disabled={voiceBusy || composerDisabled || !controller.canSend} />}
+          {capture?.active ? <MobileCaptureRecordButton capture={capture} disabled={composerDisabled || voiceBusy} /> :
           <MobileVoiceInput
             disabled={composerDisabled || controller.historyState === "loading"}
             onBusyChange={setVoiceBusy}
+            onPreviewChange={setVoicePreview}
+            onNoticeChange={setVoiceNotice}
             onText={text => {
-              setDraft([draftRef.current, text].filter(Boolean).join("\n"));
+              const next = [draftRef.current, text].filter(Boolean).join("\n");
+              draftRef.current = next;
+              setDraft(next);
               setAnnouncement("语音已转成文字，请确认后发送");
             }}
           />
@@ -453,9 +460,10 @@ export function MobileChatView({
             aria-label={t("给聊聊发送消息")}
             className="max-h-32 min-h-11 resize-none rounded-2xl bg-background px-4 py-3 leading-5 shadow-sm"
             disabled={controller.historyState === "loading" || composerDisabled || capture?.busy || capture?.locked}
-            placeholder={t("继续聊聊…")}
+            placeholder={capture?.active ? "整理为新故事…" : t("继续聊聊…")}
             rows={1}
-            value={draft}
+            value={[draft, voicePreview].filter(Boolean).join("\n")}
+            readOnly={Boolean(voicePreview)}
             onChange={event => setDraft(event.target.value)}
             onKeyDown={handleKeyDown}
           />

@@ -1,3 +1,4 @@
+import type { ManuscriptKind } from "@shared/bookWorkflow";
 import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { awaitMediaTask } from "@/lib/mediaTaskPolling";
 import { MediaPlayer } from "@/components/ui/media-player";
@@ -11,14 +12,17 @@ import {
 } from "@/components/ui/dialog";
 import { bookAudioText } from "@shared/bookAudioBlock";
 import { isPersistedStoryId } from "@shared/persistedStoryId";
+import { formatComputeQuote } from "@shared/computeMoney";
 export const BOOK_MUSIC_OPEN = "dt:book-music-open";
 export function BookMusicInsert({
   storyId,
   disabled,
   prepare,
   onInsert,
+  wholeBook,
 }: {
   storyId: number;
+  wholeBook?: { chapterId: number; kind: ManuscriptKind };
   disabled: boolean;
   prepare?(): Promise<void>;
   onInsert(text: string): void;
@@ -158,6 +162,7 @@ export function BookMusicInsert({
                   kind: "music",
                   targetFrame: 0,
                   scope: "book",
+                  ...(wholeBook ? { bookTarget: { chapterId: wholeBook.chapterId, moduleId: "whole-book", wholeBook: { kind: wholeBook.kind, dialogueOnly: false } } } : {}),
                   intent,
                 });
                 if (active.current) {
@@ -188,7 +193,9 @@ export function BookMusicInsert({
                 })
               }
             >
-              {_ui("确认生成约30秒配乐（预计 ¥")}{quote.estimatedCny.toFixed(2)}）
+              {_ui("确认生成约30秒配乐（预计 {0}）", [
+                formatComputeQuote(quote.estimatedCny).replace("算力", _ui("算力")),
+              ])}
             </button>
           )}
           {assets.error && (

@@ -128,7 +128,7 @@ describe("personalizeEmotionDailyReference302", () => {
 
   it("新一天没有新话时参考作品，不传入旧聊天事件", async () => {
     const safeSummary = [
-      "今天还没有新的话，也没有关系。一天刚开始时，不需要立刻替它找到主题，可以先让眼前的光线、声音和手边的事情慢慢落到各自的位置。",
+      "先给今天留一点余量。一天刚开始时，不需要立刻替它找到主题，可以先让眼前的光线、声音和手边的事情慢慢落到各自的位置。",
       "如果事情很多，先挑一件最小的：倒一杯水、收好桌面，或者写下今天最想完成的一步。穿一件轻薄、方便活动的衣服，出门前再按体感增减一层。",
       "现在是巳时，可以把注意力留给一段完整、不被打断的时间。做完以后停一下，给自己一点余量，再决定下一段要交给什么。",
       "没有完成的部分可以继续留着。今天不必装下所有答案，只要比刚打开页面时多看清一个小地方，就已经足够。",
@@ -183,6 +183,10 @@ describe("personalizeEmotionDailyReference302", () => {
     expect(prompt).toContain("虚构人物在雨中读书");
     expect(body.messages[0].content).toContain("不是用户真实经历的证明");
     expect(body.messages[0].content).toContain("即使今天没有留言");
+    expect(body.messages[0].content).toContain("不代表用户没有在网站写作或生成内容");
+    expect(body.messages[0].content).toContain("savedOn 是正文最近保存日期");
+    expect(body.messages[0].content).toContain("提到农历必须明确写‘农历’");
+    expect(prompt).toContain('"gregorianDate":"2026-07-27"');
     expect(prompt).toContain("北京通州");
     expect(prompt).toContain('"age":31');
     expect(prompt).toContain("甲戌年");
@@ -194,6 +198,24 @@ describe("personalizeEmotionDailyReference302", () => {
       "不得复述、引用或追问某一次旧事件"
     );
     expect(body.messages[0].content).toContain("每天必须从零重算");
+
+    // A model cannot turn a blank letter-specific field into "no website activity".
+    fetcher.mockImplementation(async () => ({
+      ok: true, status: 200, text: async () => "",
+      json: async () => ({ choices: [{ message: { content: JSON.stringify({
+        summary: safeSummary.replace("先给今天留一点余量", "今天没有留下新的话"),
+        avoid: "别急", note: "慢一点",
+      }) } }] }),
+    }) as never);
+    const deniedActivity = await personalizeEmotionDailyReference302({
+      ...baseInput, generationIntent: "daily-letter",
+      analysisSeed: { ...baseInput.analysisSeed, userMessage: "" },
+      authoredWorks: [{ storyId: 9, title: "雨中书店", excerpt: "已经保存的文字", savedOn: baseInput.date }],
+      fetcher, now: new Date("2026-07-27T02:30:00Z"),
+    });
+    expect(deniedActivity.source).toBe("local-template");
+    expect(deniedActivity.fallbackReason).toContain("不能把来信输入框空白");
+    expect(deniedActivity.dailyReference.summary).not.toContain("没有留下新的话");
   });
 
   it("无模型可用且当天没有新话时不会复用旧摘要", async () => {
@@ -214,7 +236,7 @@ describe("personalizeEmotionDailyReference302", () => {
 
     expect(result.source).toBe("local-template");
     expect(result.dailyReference.summary).not.toContain("猫");
-    expect(result.dailyReference.summary).toContain("今天还没有新的话");
+    expect(result.dailyReference.summary).toContain("先给今天留一点余量");
     expect(result.dailyReference.summary).toContain("穿衣以");
     expect(result.dailyReference.personalizedYi).not.toContain("理清轻重");
     expect(result.dailyReference.personalizedJi).not.toContain("情绪化回应");

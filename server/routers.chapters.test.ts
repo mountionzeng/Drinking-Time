@@ -792,6 +792,22 @@ it('rejects formatting that has mismatched lines or invalid nesting',async()=>{
   await expect(caller(10).save({chapterId:created.id,expectedVersion:created.version,writingStyle:[{id:'a',format:'text',parentId:null,collapsed:false},{id:'b',format:'text',parentId:'a',collapsed:false}]})).rejects.toThrow();
 });
 
+it('saves scene/shot ownership, media references and dialogue through CAS, reopen and restore',async()=>{
+  const id=await story();
+  const body='我的场\n镜头标题\n![图片](/api/images/storyboard.png)\n你好\n再见';
+  const created=await caller(10).create({storyId:id,title:'Storyboard',body});
+  const writingStyle=[{id:'scene',format:'scene' as const,parentId:null,collapsed:false},
+    {id:'shot',format:'shot' as const,parentId:'scene',collapsed:true},
+    {id:'image',format:'text' as const,parentId:'shot',collapsed:false},
+    {id:'dialogue',format:'text' as const,parentId:'shot',collapsed:false,lineCount:2,videoRole:'dialogue' as const}];
+  const saved=await caller(10).save({chapterId:created.id,expectedVersion:created.version,body,writingStyle});
+  expect((await caller(10).get({chapterId:created.id})).chapter.blocks).toMatchObject({body,writingStyle});
+  await expect(caller(10).save({chapterId:created.id,expectedVersion:created.version,writingStyle})).rejects.toThrow();
+  const edited=await caller(10).save({chapterId:created.id,expectedVersion:saved.version,body:'另一版'});
+  const restored=await caller(10).restoreVersion({chapterId:created.id,expectedVersion:edited.version,version:saved.version});
+  expect(restored.blocks).toMatchObject({body,writingStyle});
+});
+
 it('saves and restores a two-column row without dropping its membership on another client', async()=>{
   const id=await story();
   const created=await caller(10).create({storyId:id,title:'Columns',body:'Left\nRight'});

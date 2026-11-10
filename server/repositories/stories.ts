@@ -81,8 +81,9 @@ export function storyActivityDates(body: unknown, createdAt: Date): string[] {
     if (Array.isArray(messages)) {
       for (const message of messages) {
         if (!message || typeof message !== "object") continue;
-        const record = message as { role?: unknown; timestamp?: unknown };
-        if (record.role !== "user") continue;
+        const record = message as { role?: unknown; who?: unknown; timestamp?: unknown };
+        const role = record.role ?? (record.who === "u" ? "user" : record.who);
+        if (role !== "user") continue;
         if (
           typeof record.timestamp !== "number" &&
           typeof record.timestamp !== "string"

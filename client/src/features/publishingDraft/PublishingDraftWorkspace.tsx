@@ -1,3 +1,4 @@
+import { requestNewVersion } from "./newVersionRequest";
 import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { COVER_POLL_MS, GATEWAY_TIMEOUT_MESSAGE, IMAGE_TASK_POLL_LIMIT_MS, isGatewayTimeoutError } from "@/lib/imageTaskPolling";
 import { prepareBookForVideo } from "@/features/bookVideo/bookPreparation";
@@ -589,7 +590,9 @@ export default function PublishingDraftWorkspace({
     generateCoverMut.isPending ||
     adoptCoverMut.isPending ||
     analyzeReferenceMut.isPending;
-  const videoPreparing = buildVideoStoryboardMut.isPending || initializeAlbumMut.isPending;
+  const importStoryboardMut = trpc.bookVideo.importStoryboard.useMutation({ retry: false });
+  const importingStoryboard = useRef(false);
+  const videoPreparing = buildVideoStoryboardMut.isPending || initializeAlbumMut.isPending || importStoryboardMut.isPending;
   const videoBusy = videoPreparing;
   const coverGenerationPresentation =
     getCoverGenerationPresentation(coverGenerationMode);
@@ -1339,7 +1342,7 @@ export default function PublishingDraftWorkspace({
     publishing.activeVersionId,
   ]);
 
-  const openVideoSetup = async (preferredDuration?: string) => {
+  const openVideoSetup = async (preferredDuration?: string, recordId?: string) => {
     if (activeStoryId == null || coverBusy || dirty || videoBusy) return;
     // 书稿模式：视频以章节正文为准，不再要求旧发布稿正文非空。
     if (!activeVersion || (!unifiedChapters && !editorContent?.body.trim())) { toast.info("请先保存书稿，再制作视频"); return; }
@@ -1360,7 +1363,7 @@ export default function PublishingDraftWorkspace({
     const currentScope=storySpineStore.getState();
     if(currentScope.activeStoryId!==activeStoryId || currentScope.accountId!==scope.accountId || currentScope.storyScopeEpoch!==scope.storyScopeEpoch)return;
     useBookMediaSession.getState().setSession(null);
-    useBookVideoSession.getState().setSession({storyId:activeStoryId,accountId:scope.accountId,epoch:scope.storyScopeEpoch,versionId:activeVersion.versionId, preferredDuration,
+    useBookVideoSession.getState().setSession({storyId:activeStoryId,accountId:scope.accountId,epoch:scope.storyScopeEpoch,versionId:activeVersion.versionId, preferredDuration, recordId,
       layout:{body:videoBody,illustrations:bookMode ? [] : selectedIllustrationsRef.current.scope === `${activeStoryId}:${activeVersion.versionId}:${platform}` ? selectedIllustrationsRef.current.placements : []},
       onAdopt:async()=>{await loadStory(activeStoryId,{silent:true,expectedActiveStoryId:activeStoryId});onContinueToVideo?.()},
       onAlbum:()=>{
@@ -1382,6 +1385,46 @@ export default function PublishingDraftWorkspace({
   useEffect(() => {
     if (!createRequest || createRequest.storyId !== activeStoryId || createRequest.kind !== "video") return;
     onCreateRequestHandled?.();
+    if (unifiedChapters && createRequest.storyboardChapterId) {
+      if (importingStoryboard.current || coverBusy || videoBusy) return;
+      importingStoryboard.current = true;
+      const scope = storySpineStore.getState();
+      const isCurrent = () => {
+        const now = storySpineStore.getState();
+        return now.activeStoryId === scope.activeStoryId && now.accountId === scope.accountId && now.storyScopeEpoch === scope.storyScopeEpoch;
+      };
+      void (async () => {
+        try {
+          await prepareBookForVideo(createRequest.storyId, scope.accountId);
+          if (!isCurrent()) return;
+          const source = await utils.bookWorkflow.get.fetch({ storyId: createRequest.storyId }, { staleTime: 0 });
+          if (!isCurrent()) return;
+          await importStoryboardMut.mutateAsync({ storyId: createRequest.storyId, id: createRequest.id,
+            chapterId: createRequest.storyboardChapterId!, expectedFingerprint: source.drafts.storyboard.fingerprint });
+          if (!isCurrent()) return;
+          await utils.bookVideo.list.invalidate({ storyId: createRequest.storyId });
+          await utils.bookWorkflow.get.invalidate({ storyId: createRequest.storyId });
+          await utils.storyAgent.storyMaterialState.invalidate({ storyId: createRequest.storyId });
+          if (!isCurrent()) return;
+          const refreshLoadEpoch = storySpineStore.getState().storyLoadEpoch + 1;
+          await loadStory(createRequest.storyId, { silent: true, expectedActiveStoryId: createRequest.storyId });
+          const refreshed = storySpineStore.getState();
+          // Our reload advances the scope once. Another load or account/story switch cancels navigation.
+          if (refreshed.accountId !== scope.accountId || refreshed.activeStoryId !== createRequest.storyId ||
+              refreshed.storyLoadEpoch !== refreshLoadEpoch || refreshed.storyScopeEpoch !== scope.storyScopeEpoch + 1) return;
+          useBookVideoSession.getState().setSession(null);
+          onContinueToVideo?.();
+          toast.success(_ui("当前分镜已放入视频表格"));
+        } catch (cause) {
+          if (isCurrent()) toast.error(cause instanceof Error ? cause.message : _ui("分镜未导入，请重试"));
+        } finally { importingStoryboard.current = false; }
+      })();
+      return;
+    }
+    if (unifiedChapters && !createRequest.videoRecordId) {
+      requestNewVersion({ storyId: createRequest.storyId, presentation: "film", instruction: createRequest.instruction });
+      return;
+    }
     if (!unifiedChapters && (!draft || dirty || !editorContent?.body.trim())) {
       toast.info("请先在文字区保存当前文案，再制作视频。");
       onOpenWriting?.();
@@ -1391,7 +1434,7 @@ export default function PublishingDraftWorkspace({
       toast.info("当前生成还在进行，请完成后再制作视频。");
       return;
     }
-    openVideoSetup();
+    openVideoSetup(undefined, createRequest.videoRecordId);
   }, [createRequest, activeStoryId, draft, dirty, unifiedChapters, editorContent?.body, coverBusy, videoBusy, activeVersion?.narrativeSpec, onCreateRequestHandled, onOpenWriting]);
 
   const confirmVideoSetup = async () => {

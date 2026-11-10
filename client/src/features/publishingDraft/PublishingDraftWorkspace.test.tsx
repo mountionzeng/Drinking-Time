@@ -62,6 +62,7 @@ vi.mock("@/lib/trpc", () => {
   });
   return {
     trpc: {
+      bookVideo: { importStoryboard: { useMutation: mutation } },
       storyAgent: { storyMaterialState: { useQuery: () => ({ data: undefined }) } },
       useUtils: () => ({
         publishingDraft: {

@@ -40,7 +40,8 @@ export function buildSecurityHeaders(input: {
   const headers: Record<string, string> = {
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "strict-origin-when-cross-origin",
-    "Permissions-Policy": "camera=(), geolocation=(), microphone=()",
+    // Recording still requires browser consent; only this origin may request it.
+    "Permissions-Policy": "camera=(), geolocation=(), microphone=(self)",
     "X-Frame-Options": "DENY",
   };
   if (!input.isProduction) return headers;

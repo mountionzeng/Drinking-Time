@@ -1055,8 +1055,11 @@ export async function exportStoryTimeline(params: {
   fallbackToLatestTake?: boolean;
   /** strict 时缺素材直接失败；relaxed 补等长黑场并记录诊断。 */
   missingSourceMode?: "strict" | "relaxed";
+  /** Server-owned version snapshot only; never exposed as client input. */
+  frozenMaterial?: StoryMaterialState;
+  frozenLegacyAudioSources?: LegacyExportAudioSource[];
 }): Promise<ExportResult> {
-  const material = await getStoryMaterialState(params.storyId, params.userId);
+  const material = params.frozenMaterial ?? await getStoryMaterialState(params.storyId, params.userId);
   if (!material) return { status: "error", error: "故事不存在或无权访问" };
 
   const storyBody = await getOwnedStoryBody(params.storyId, params.userId);
@@ -1279,14 +1282,14 @@ export async function exportStoryTimeline(params: {
 
     const visualSources = buildExportVisualAudioSources(material);
     const audioPlan = buildAudioMixPlan({ audioState, visualSources });
-    const legacyAudioPaths = hasFormalAudio
-      ? undefined
-      : await downloadLegacyAudioForExport({
-          sources: legacyMedia.audioSources,
+    const legacyAudioSources = params.frozenMaterial ? params.frozenLegacyAudioSources : hasFormalAudio ? undefined : legacyMedia.audioSources;
+    const legacyAudioPaths = legacyAudioSources
+      ? await downloadLegacyAudioForExport({
+          sources: legacyAudioSources,
           workDir,
           missingSourceMode,
           diagnostics: mediaDiagnostics,
-        });
+        }) : undefined;
     const resolvedAudioInputs = await resolveExportAudioInputs({
       storyId: params.storyId,
       userId: params.userId,
@@ -1296,9 +1299,7 @@ export async function exportStoryTimeline(params: {
       missingSourceMode,
       diagnostics: mediaDiagnostics,
       assetFilePaths: legacyAudioPaths,
-      projectedAssetIds: hasFormalAudio
-        ? undefined
-        : new Set(legacyMedia.audioSources.map(source => source.assetId)),
+      projectedAssetIds: legacyAudioSources ? new Set(legacyAudioSources.map(source => source.assetId)) : undefined,
     });
     await composeTimelineMedia({
       visualMasterPath,

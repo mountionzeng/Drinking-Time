@@ -4,26 +4,20 @@ import { readBookAudio } from "@shared/bookAudioBlock";
 import { intersectingBookIds, resizeBookColumn, moveBookSelection, resizeBookSelection, selectedBookIds, type SelectionBox } from './bookBlockSelection';
 import { bookImageModule, transformBookImage } from "./bookImageTransform";
 import { bookImageUrl, readBookImage } from "@shared/bookImageBlock";
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent, type ReactNode } from 'react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { bookBaseFont, deleteBookBlock, deleteBookBlocks, findBookDrop, layoutBookBlocks, moveBookBlockByKey, resizeBookBlock, type BookDropTarget, type BookPlacement } from './bookBlockLayout';
-import { blockAncestors, isHeading, setBlockFormat, type BlockFormat, type WritingBlock } from './chapterBlockTree';
+import { BOOK_BLOCK_INDENT, bookBaseFont, deleteBookBlock, deleteBookBlocks, findBookDrop, layoutBookBlocks, moveBookBlockByKey, resizeBookBlock, type BookDropTarget, type BookPlacement } from './bookBlockLayout';
+import { blockAncestors, canSetBlockFormat, isHeading, setBlockFormat, type BlockFormat, type WritingBlock } from './chapterBlockTree';
 import type { ImageModule, ModuleHandle } from './imagePackModules';
 import { flushSync } from 'react-dom';
 import { bindBookViewZoom } from './bookViewZoom';
+import { bookBlockNumbers, bookBlockNumberLabel, chineseBookNumber } from '@shared/bookBlockNumbering';
+import { bookOutlineSummaries, BOOK_SHOT_SUMMARY_HEIGHT, BOOK_SHOT_IMAGES_HEIGHT } from './bookOutlineSummary';
 
-const formats: Array<[BlockFormat, string]> = [['text', '正文'], ['heading1', '转换成一章'], ['heading2', '转换成一节']];
+const formats: Array<[BlockFormat, string]> = [['text', '正文'], ['heading1', '转换成一章'], ['heading2', '转换成一节'], ['scene', '转换成一场'], ['shot', '转换成一个镜头']];
 const corners = { nw: '-left-2 -top-2 cursor-nwse-resize', ne: '-right-2 -top-2 cursor-nesw-resize', sw: '-left-2 -bottom-2 cursor-nesw-resize', se: '-right-2 -bottom-2 cursor-nwse-resize' } as const;
 const cornerEdges = { nw: 'border-l border-t', ne: 'border-r border-t', sw: 'border-l border-b', se: 'border-r border-b' };
 const cornerNames = { nw: '左上角', ne: '右上角', sw: '左下角', se: '右下角' };
-function chineseChapterNumber(number: number): string {
-  const digits = '零一二三四五六七八九';
-  if (number < 10) return digits[number];
-  if (number === 10) return '十';
-  if (number < 20) return `十${digits[number % 10]}`;
-  if (number < 100) return `${digits[Math.floor(number / 10)]}十${number % 10 ? digits[number % 10] : ''}`;
-  return number === 100 ? '一百' : String(number);
-}
 
 const action = 'min-h-11 w-full rounded px-3 py-2 text-left text-sm hover:bg-accent focus-visible:outline focus-visible:outline-2 disabled:opacity-40';
 
@@ -126,11 +120,34 @@ export function BookBlockCanvas({ importedChapterIds, blocks, disabled, onCommit
   // separate from the saved document so opening a book never rewrites it.
   const [openImportedChapters, setOpenImportedChapters] = useState<Set<string>>(() => new Set());
   const chapterIds = new Set(importedChapterIds ?? []);
-  const chapterOrder = (preview ?? blocks).filter(block => chapterIds.has(block.id) && block.format === 'heading1');
-  const chapterNumbers = new Map(chapterOrder.map((block, index) => [block.id, index + 1]));
-  const displayed = (preview ?? blocks).map(block => chapterNumbers.has(block.id)
+  const numbers = bookBlockNumbers(preview ?? blocks);
+  const displayed = (preview ?? blocks).map(block => chapterIds.has(block.id) && block.format === 'heading1'
     ? { ...block, collapsed: !openImportedChapters.has(block.id) }
     : block);
+  const [audioDurations, setAudioDurations] = useState<Record<string, number>>({});
+  const musicUrls = [...new Set(blocks.flatMap(block => {
+    const audio = readBookAudio(block.text);
+    return audio?.kind === 'music' ? [audio.url] : [];
+  }))].join('\n');
+  useEffect(() => {
+    // Read metadata only; folding a shot must never start playback or generation.
+    const audios = musicUrls.split('\n').filter(Boolean).map(url => {
+      const audio = new Audio();
+      audio.preload = 'metadata';
+      audio.onloadedmetadata = () => {
+        if (Number.isFinite(audio.duration) && audio.duration > 0)
+          setAudioDurations(previous => ({ ...previous, [url]: audio.duration }));
+      };
+      audio.src = url;
+      return audio;
+    });
+    return () => audios.forEach(audio => {
+      audio.onloadedmetadata = null; audio.removeAttribute('src'); audio.load();
+    });
+  }, [musicUrls]);
+  const summaries = useMemo(() => bookOutlineSummaries(preview ?? blocks, audioDurations), [preview, blocks, audioDurations]);
+  const sceneCount = blocks.filter(block => block.format === 'scene').length;
+  const shotCount = blocks.filter(block => block.format === 'shot').length;
   const layouts = layoutBookBlocks(displayed,imageRatios,pageWidth, chapterIds,formulaHeights);
   useLayoutEffect(()=>{
     const formulas=Array.from(root.current?.querySelectorAll<HTMLElement>('[data-book-math-preview]')??[]);
@@ -185,7 +202,7 @@ export function BookBlockCanvas({ importedChapterIds, blocks, disabled, onCommit
     event.preventDefault(); event.stopPropagation(); if (ids.length === 1) onSelect(id); setMenuId(null);
     event.currentTarget.focus({ preventScroll: true }); (root.current ?? event.currentTarget).setPointerCapture(event.pointerId);
     const block = blocks.find(item=>item.id===id)!;
-    const baseX = 24 + Math.min(blockAncestors(blocks,id).length,4)*12;
+    const baseX = 24 + Math.min(blockAncestors(blocks,id).length,4)*BOOK_BLOCK_INDENT;
     const imageFactor = layouts.find(item => item.block.id === id)?.imageFactor ?? Math.min((884-baseX)/900,1104/1200);
     const image = imageGesture && ids.length === 1 && !column ? bookImageModule(block.text,imageFactor) ?? undefined : undefined;
     if (image && !readBookImage(block.text)?.frame) {
@@ -268,6 +285,7 @@ export function BookBlockCanvas({ importedChapterIds, blocks, disabled, onCommit
     <button type="button" className="min-h-11 px-2" onClick={() => {setSelecting(false);root.current?.focus({preventScroll:true});}}>{_ui("完成选择")}</button>
     {selected.size > 1 && mergeBookText(blocks,[...selected]) !== blocks && <button type="button" className="min-h-11 px-2" onClick={() => {const first=blocks.find(b=>selected.has(b.id));if(first) apply(mergeBookText(blocks,[...selected]),first.id);setSelectedIds([]);setSelecting(false);}}>{_ui("合并文字")}</button>}
   </div>}<div ref={viewport} aria-label={_ui("文章缩放视图")} data-book-zoom={zoom} onPointerDown={beginSelection} className="-ml-11 -mr-2 -mt-8 min-w-0 overflow-x-auto pl-11 pr-2 pt-8" style={{ touchAction: 'pan-x pan-y' }}>
+  {sceneCount > 0 && <p data-book-outline-total className="px-6 text-sm text-muted-foreground">{_ui("{0} 场戏 · {1} 个镜头", [sceneCount, shotCount])}</p>}
   <div ref={root} data-book-selecting={selecting || undefined} onContextMenu={event=>{
     if(disabled || selected.size<2)return;
     event.preventDefault();openGroupMenu(event.clientX,event.clientY);
@@ -290,9 +308,17 @@ export function BookBlockCanvas({ importedChapterIds, blocks, disabled, onCommit
       style={{ height: 1200 * scale }}
 >
       {layouts.filter(item => item.placement.page === page).map(({ block, index, placement }) => {
-        const chapterNumber = chapterNumbers.get(block.id);
-        const isImportedChapter = chapterNumber !== undefined;
-        const chapterLabel = chapterNumber === undefined ? '' : language === 'zh' ? chineseChapterNumber(chapterNumber) : chapterNumber;
+        const number = numbers.get(block.id);
+        const isImportedChapter = chapterIds.has(block.id) && block.format === 'heading1';
+        const chapterLabel = !number ? '' : language === 'zh' ? chineseBookNumber(number.number) : number.number;
+        const numberLabel = number ? bookBlockNumberLabel(number, language) : '';
+        const summary = summaries.get(block.id)!;
+        const summaryText = block.format === 'shot' ? [
+          _ui("{0} 字", [summary.characters]), _ui("{0} 句台词", [summary.dialogue]), _ui("{0} 张图片", [summary.images.length]),
+          !summary.music ? _ui("无音乐") : summary.unknownMusic
+            ? _ui("{0} 段音乐 · 时长待读取", [summary.music]) : _ui("{0} 秒音乐", [Math.round(summary.musicSeconds * 10) / 10]),
+          ...(summary.narration ? [_ui("{0} 段有声书", [summary.narration])] : []),
+        ].join(' · ') : '';
         const toggleImportedChapter = () => {
           if (block.collapsed) {
             setOpenImportedChapters(previous => new Set(previous).add(block.id));
@@ -339,11 +365,11 @@ export function BookBlockCanvas({ importedChapterIds, blocks, disabled, onCommit
             <Popover open={menuId === block.id} onOpenChange={open => setMenuId(open ? block.id : null)}>
               <PopoverTrigger asChild><button type="button" aria-label={_ui("模块 {0} 格式", [index + 1])} disabled={disabled}
                 className="rounded border border-[var(--panel-border)] bg-[var(--nayin-surface)] px-2 py-1 text-xs shadow-sm [@media(pointer:coarse)]:min-h-8 [@media(pointer:coarse)]:min-w-20">
-                {readBookAudio(block.text) ? (readBookAudio(block.text)?.kind==='narration'?_ui("有声书"):_ui("音乐")) : bookImageUrl(block.text) ? _ui("图片") : block.videoRole==='dialogue' ? _ui("台词/字幕") : block.format === 'text' ? _ui("正文") : block.format === 'heading1' ? _ui("章") : _ui("节")}<span className="hidden [@media(pointer:coarse)]:inline"> {_ui("· 操作")}</span> ▾
+                {readBookAudio(block.text) ? (readBookAudio(block.text)?.kind==='narration'?_ui("有声书"):_ui("音乐")) : bookImageUrl(block.text) ? _ui("图片") : block.videoRole==='dialogue' ? _ui("台词/字幕") : block.format === 'text' ? _ui("正文") : block.format === 'scene' ? _ui("场") : block.format === 'shot' ? _ui("镜头") : block.format === 'heading1' ? _ui("章") : _ui("节")}<span className="hidden [@media(pointer:coarse)]:inline"> {_ui("· 操作")}</span> ▾
               </button></PopoverTrigger>
               <PopoverContent align="start" className="max-h-[var(--radix-popover-content-available-height)] w-48 overflow-y-auto p-1" onCloseAutoFocus={event => event.preventDefault()} aria-label={_ui("模块 {0} 设置", [index + 1])}>
                 <p hidden={!bookImageUrl(block.text)} className="px-3 py-2 text-xs text-muted-foreground">{_ui("拖图片移动 · 四角缩放 · 四边裁切")}</p>
-                <div hidden={Boolean(bookImageUrl(block.text) || readBookAudio(block.text))} role="group" aria-label={_ui("格式")}>{formats.map(([value, label]) => <button key={value} type="button" disabled={disabled} className={action}
+                <div hidden={Boolean(bookImageUrl(block.text) || readBookAudio(block.text))} role="group" aria-label={_ui("格式")}>{formats.map(([value, label]) => <button key={value} type="button" disabled={disabled || !canSetBlockFormat(blocks, index, value)} className={action}
                   aria-pressed={!block.videoRole && (block.format === value || block.format === 'heading3' && value === 'heading2')} onClick={() => apply(setBlockFormat(blocks, index, value), block.id)}>{!block.videoRole && (block.format === value || block.format === 'heading3' && value === 'heading2') ? '✓ ' : ''}{_ui(label)}</button>)}</div>
                 {!bookImageUrl(block.text) && !readBookAudio(block.text) && <button type="button" className={action} disabled={disabled} aria-pressed={block.videoRole==='dialogue'} onClick={()=>{
                   const next=setBlockFormat(blocks,index,'text').map(item=>item.id===block.id?{...item,videoRole:'dialogue' as const}:item);
@@ -392,7 +418,7 @@ export function BookBlockCanvas({ importedChapterIds, blocks, disabled, onCommit
           {isImportedChapter && block.collapsed ? (
             <button type="button" aria-expanded={false} onClick={toggleImportedChapter}
               className="flex h-full w-full items-center gap-3 border-b border-[var(--nayin-border)] text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--nayin-accent)]">
-              <span className="shrink-0 whitespace-nowrap text-[var(--nayin-accent)]" style={{ fontSize: 20 * scale }}>{_ui("第{0}章", [chapterLabel])}</span>
+              <span className="shrink-0 whitespace-nowrap text-[var(--nayin-accent)]" style={{ fontSize: 26 * scale }}>{_ui("第{0}章", [chapterLabel])}</span>
               <span className="min-w-0 flex-1 truncate" style={{ fontSize: Math.min(placement.fontSize, 32) * scale }}>{block.text || _ui("未命名章节")}</span>
               <span aria-hidden="true" className="text-muted-foreground" style={{ fontSize: 24 * scale }}>›</span>
             </button>
@@ -403,10 +429,19 @@ export function BookBlockCanvas({ importedChapterIds, blocks, disabled, onCommit
             } : undefined}>
               {isImportedChapter && <button type="button" aria-expanded={true} onClick={toggleImportedChapter}
                 aria-label={_ui("收起第{0}章", [chapterLabel])}
-                className="shrink-0 whitespace-nowrap text-[var(--nayin-accent)] focus-visible:outline focus-visible:outline-2" style={{ fontSize: 20 * scale, lineHeight: 1.6 }}>
+                className="shrink-0 whitespace-nowrap text-[var(--nayin-accent)] focus-visible:outline focus-visible:outline-2" style={{ fontSize: 26 * scale, lineHeight: 1.6 }}>
                 {_ui("第{0}章", [chapterLabel])} ▾
               </button>}
-              {isImportedChapter ? <div className="min-w-0 flex-1 h-full">{children(block, index, { fontSize: placement.fontSize * scale, lineHeight: 1.6, fontWeight: 650 })}</div> :
+              {isImportedChapter ? <div className="min-w-0 flex-1 h-full">{children(block, index, { fontSize: placement.fontSize * scale, lineHeight: 1.6, fontWeight: 650 })}</div> : number ?
+              <div className="flex h-full w-full flex-col">
+                <span className="shrink-0 select-none text-[var(--nayin-accent)]" style={{ fontSize: 18 * scale, height: 32 * scale, lineHeight: `${32 * scale}px` }}><span data-book-number={block.id} style={{ fontSize: (number.kind === 'scene' || number.kind === 'chapter' ? 26 : 18) * scale }}>{numberLabel}</span>{(block.format === 'scene' || block.format === 'heading1') && <span className="ml-3 text-muted-foreground">{block.format === 'scene' ? [_ui("{0} 个镜头", [summary.shots]), ...(summary.images.length ? [_ui("{0} 张图片", [summary.images.length])] : [])].join(' · ') : _ui("{0} 节", [summary.sections])}</span>}</span>
+                <div className="min-h-0 flex-1">{children(block, index, { fontSize: placement.fontSize * scale, lineHeight: 1.6, fontWeight: 650,
+                  color: block.emphasis === 'bright' ? 'var(--nayin-accent)' : undefined, textShadow: block.emphasis === 'bright' ? '0 0 6px rgba(255,255,255,.8)' : undefined })}</div>
+                {summaryText && <p data-book-summary={block.id} className="shrink-0 text-muted-foreground" style={{ height: BOOK_SHOT_SUMMARY_HEIGHT * scale, fontSize: 18 * scale, lineHeight: `${28 * scale}px` }}>{summaryText}</p>}
+                {block.format === 'shot' && !block.collapsed && summary.images.length > 0 && <div aria-label={_ui("镜头参考图")} className="flex shrink-0 gap-2 overflow-x-auto" style={{ height: BOOK_SHOT_IMAGES_HEIGHT * scale }}>
+                  {summary.images.map((image, i) => <img key={image.id} src={image.url} alt={_ui("镜头参考图 {0}", [i + 1])} loading="lazy" className="shrink-0 rounded object-contain object-left" style={{ height: 92 * scale, maxWidth: 180 * scale }} />)}
+                </div>}
+              </div> :
               children(block, index, { fontSize: placement.fontSize * scale, lineHeight: 1.6, fontWeight: isHeading(block) || block.emphasis === 'bright' ? 650 : 400,
                 color: block.emphasis === 'bright' ? 'var(--nayin-accent)' : undefined, textShadow: block.emphasis === 'bright' ? '0 0 6px rgba(255,255,255,.8)' : undefined })}
             </div>

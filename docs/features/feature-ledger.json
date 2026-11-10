@@ -1677,7 +1677,8 @@
         "shared/scopedResource.test.ts",
         "client/src/features/creationEditor/publishingHandoffScope.test.ts",
         "server/services/publishingPersistence.test.ts",
-        "server/services/storyBodyPersistence.test.ts"
+        "server/services/storyBodyPersistence.test.ts",
+        "docs/qa/2026-11-09-book-video-workflow.md"
       ],
       "invariants": [
         "已完成的成品版本不可修改；新更新只能建立或修改唯一一条 editing 组合行。",
@@ -1760,6 +1761,16 @@
           "date": "2026-10-30",
           "kind": "fix",
           "summary": "书稿模式下 dirty 改为 !unifiedChapters && …，不再因发布稿缓冲区有未采用版本而一直提示“正文有未保存的修改”。"
+        },
+        {
+          "date": "2026-11-07",
+          "kind": "feature",
+          "summary": "原历史版本入口加入独立自动剪辑修订；保留成品显式保存/完成规则，自动剪辑不得冻结或覆盖成品Vn。"
+        },
+        {
+          "date": "2026-11-09",
+          "kind": "feature",
+          "summary": "接入双稿件及视频作品版本，保留原章修订、场镜模块和成品组合历史。"
         }
       ]
     },
@@ -1856,7 +1867,8 @@
         "client/src/features/publishingAlbum/ChapterWorkspace.test.tsx",
         "docs/qa/2026-11-03-book-story-title.md",
         "client/src/features/storyAgent/useStoryRename.test.ts",
-        "docs/qa/2026-11-04-book-editor-release.md"
+        "docs/qa/2026-11-04-book-editor-release.md",
+        "docs/qa/2026-11-08-book-outline-overview.md"
       ],
       "invariants": [
         "自动标题只能替换未命名标题。",
@@ -1907,6 +1919,11 @@
           "date": "2026-11-04",
           "kind": "verification",
           "summary": "本轮书稿编辑、格式、图片导入及图文分享随0db079d4合main/push并部署book-editor-20261104；175产物哈希、HTTPS版本/资源与ready/mysql/required通过，正式站发送菜单/全文定位等入口实点通过。旧权限、保存CAS、账号和已发布计费保护保留。类型/构建通过，10项非本轮测试失败在原70031a98基线复现；真实付费改写、真机和公网图文完整发送仍沿用既有验收缺口。详见2026-11-04-book-editor-release QA。"
+        },
+        {
+          "date": "2026-11-08",
+          "kind": "fix",
+          "summary": "书稿顶部故事标题从20px增至30px，大于场/章编号，沿用已有共用名称与自动保存；17项现有输入及章节工作区测试和3000页面字号验证通过。"
         }
       ]
     },
@@ -1954,7 +1971,15 @@
         "server/services/imageGen.ts",
         "server/services/legnextImage.ts",
         "client/src/features/storyAgent/views/pollStoryboardImage.ts",
-        "server/services/storyboardImageTask.ts"
+        "server/services/storyboardImageTask.ts",
+        "server/services/bookStoryboardModules.ts",
+        "server/services/bookVideoShotContinuity.ts",
+        "server/services/bookVideoImageContinuity.ts",
+        "client/src/features/bookVideo/BookVideoWorkspace.tsx",
+        "client/src/features/bookVideo/bookVideoReviewDraft.ts",
+        "client/src/features/storyAgent/views/StoryboardManuscriptTable.tsx",
+        "client/src/features/storyAgent/views/StoryboardManuscriptSection.tsx",
+        "client/src/features/creationEditor/videoAssetViewModel.ts"
       ],
       "evidence": [
         "server/services/publishingVideoStoryboard.test.ts",
@@ -2007,7 +2032,18 @@
         "client/src/features/storyAgent/views/pollStoryboardImage.test.ts",
         "server/services/storyboardImageTask.test.ts",
         "docs/qa/2026-11-04-book-dialogue-review.md",
-        "docs/qa/2026-11-05-book-video-release.md"
+        "docs/qa/2026-11-05-book-video-release.md",
+        "docs/qa/2026-11-06-book-scene-shot-modules.md",
+        "docs/qa/2026-11-06-launch-video-manuscript.md",
+        "server/services/bookVideoShotContinuity.test.ts",
+        "server/services/bookVideoImageContinuity.test.ts",
+        "docs/qa/2026-11-06-reusable-book-storyboard.md",
+        "client/src/features/bookVideo/BookVideoWorkspace.test.tsx",
+        "docs/qa/2026-11-06-video-wide-storyboard.md",
+        "client/src/features/storyAgent/views/StoryboardManuscriptTable.test.tsx",
+        "docs/qa/2026-11-07-unified-video-storyboard.md",
+        "docs/qa/2026-11-09-other-worktree-integration.md",
+        "docs/qa/2026-11-09-mobile-workflow-release.md"
       ],
       "invariants": [
         "预览不得修改正式镜头。",
@@ -2020,7 +2056,8 @@
         "书内视频对话须先确认用途与受众；明确确认意图后可改编voiceText，来源scriptText保留。方案与参数修改历史由服务端保存，旧客户端普通保存不得覆盖；明确采用才写入正式镜头，书稿变化拒绝采用过期方案。",
         "书内音乐复用只引用本故事ready资产，经唯一音轨CAS写入；确认前不写时间轴、不购买媒体；保留人工配乐和已删除选择，有声书不冒充配乐。",
         "明确含第N幕标题的书稿按幕一镜，幕内多图均为非拥有参考引用，空幕保留空数组，不自动选首帧、不跨幕借图；新版本通过CAS归档旧活动镜头快照，保留原资产与人工音轨。原文章插图首帧模式不变。",
-        "书转视频必须先展示逐镜人物、台词/字幕和背景音，再由用户确认当前修订；方向确认不得自动采用。已明确标记的台词原样带入，其他资料不自动朗读；新预览或用途变化使旧确认失效。"
+        "书转视频必须先展示逐镜人物、台词/字幕和背景音，再由用户确认当前修订；方向确认不得自动采用。已明确标记的台词原样带入，其他资料不自动朗读；新预览或用途变化使旧确认失效。",
+        "桌面视频分镜稿与聊天复用同一编辑会话；查看及切换视图不生成、不采用。已确认方案明确为只读快照，当前正式视频的分镜稿和剪辑预览共用同一控制器、稳定镜头身份与时间轴排序；未保存稿按账号/故事隔离并锁定原修订，冲突不清空。"
       ],
       "dependencies": [
         "publishing-versions",
@@ -2044,7 +2081,8 @@
         "书内配乐按源长度顺接、裁至成片，不自动循环补足；后续方案保留人工时间轴，不自动重排已有配乐。带真实音乐的整片导出试听仍待验收。",
         "按幕书稿已真实验证V2七镜及2/0/3/0/0/0/0参考；旧版完整时间轴编辑的一键恢复UI与同一图片跨幕重复引用尚未扩展。",
         "分镜自动取回依赖当前编辑页面存活，离开页面后不会由本次客户端轮询继续；重新点击原镜头生成时先查询已存任务并接续恢复。新流程未新增真实付费生成验收，供应商三次实收未核验。",
-        "2026-11-04新分类与两阶段确认以自动化验证；本地只读核对旧V2和新菜单，真实模型新方案/多人配音/生产数据库未复验。"
+        "2026-11-04新分类与两阶段确认以自动化验证；本地只读核对旧V2和新菜单，真实模型新方案/多人配音/生产数据库未复验。",
+        "显式场/镜头稿要求图片和台词完整归属镜头；混合未分镜章节、旧排版独有图片需先整理，当前明确拒绝而不自动猜测。镜头内音乐尚未按镜头精确排入/出点，仍沿用整片顺接；真实模型/付费成片未验收。"
       ],
       "history": [
         {
@@ -2254,6 +2292,51 @@
         {
           "date": "2026-11-05",
           "summary": "42ee3e29已合main并push，生产book-video-20261105已上线；6733项测试、类型/构建/83卡/41迁移基线通过，175产物及公网页面/版本/健康验证通过，正式发送平台菜单实点确认。图像缓存按当前故事刷新、视频帧来源规则抽入model；原付费/跨设备验收缺口继续保留，见汇总发布QA。"
+        },
+        {
+          "date": "2026-11-06",
+          "kind": "feature",
+          "summary": "显式场/镜头稿优先按稳定模块ID映射一镜一行，多图限于所属镜头，可跨镜复用；源指纹包含层级/顺序/分类。旧第N幕路径不变，归属不完整明确拒绝。音乐仍沿用整片顺接，未做逐镜音轨定时或真实付费验收。"
+        },
+        {
+          "date": "2026-11-06",
+          "kind": "verification",
+          "summary": "故事1217真实书稿整理到章节9版本110：7场7镜，原23模块完整保留，4图归属1/0/3/0/0/0/0，13段原台词相等，版本108历史可恢复；浏览器重开与持久结构校验通过。V3方向已保存，逐镜预览遇文本超时和热更新中断，未采用，旧正式镜头不变。详见launch-video-manuscript QA。"
+        },
+        {
+          "date": "2026-11-06",
+          "kind": "fix",
+          "summary": "书稿幕式转场/镜头及跨发布稿版本时，唯一来源匹配继承活动镜头身份、已生成图片及手动首尾帧；当前书图更新并保留手动移除。方案盘点原图和旧生成画面，歧义单列；175专项+3路由及类型通过，真实方案可见4张原图与1张旧图。未采用新视频、未购买媒体、未部署。"
+        },
+        {
+          "date": "2026-11-06",
+          "kind": "verification",
+          "summary": "真实故事V3逐镜预览已恢复：首轮文本90秒超时，已区分服务失败并为整片规划按镜数延长默认截止（最高180秒，显式配置优先），同模型复验7镜共60秒成功，13段原台词逐字一致、4张书图与旧生成画面2010可见。追加2项超时测试后累计180专项及类型通过，未采用正式视频或购买媒体；进度Page更新sequence10。"
+        },
+        {
+          "date": "2026-11-06",
+          "kind": "fix",
+          "summary": "现有逐镜确认表移入视频页宽幅分镜稿，聊天原入口定位同一会话；剪辑与预览切换保留原制作能力。固定表头与确认区、收起说明，草稿跨视图及故事返回保留、锁定原修订并防止新聊天方案覆盖。83专项、类型及主仓3000实页通过，7镜60秒与原图/旧生成图可见；临时编辑已取消，V3仍ready/revision4，未采用、购买媒体或部署。关闭网页后持久草稿恢复与触屏验收仍待补，详见video-wide-storyboard QA。"
+        },
+        {
+          "date": "2026-11-07",
+          "kind": "fix",
+          "summary": "正式视频统一逐镜稿和剪辑预览两种投影，切换保留选择、播放位置和生成会话，待确认方案保留原聊天入口。每镜一个生成菜单复用原图像/视频流程和旁白估价确认；主仓3000实点第03镜切换、三张参考图、候选返回和三项菜单，未购买媒体。"
+        },
+        {
+          "date": "2026-11-09",
+          "kind": "fix",
+          "summary": "分镜稿对应镜头显示最新视频任务失败原因，不从供应商错误文字猜测扣费；新任务进行中或成功时不显示旧错误。相关状态与渲染测试通过，未发起视频生成。"
+        },
+        {
+          "date": "2026-11-09",
+          "kind": "verification",
+          "summary": "发布前整合验收：全量6914项、小程序215项通过；隔离MySQL73项通过/1项跳过，生产41条迁移哈希一致。手机实时听写与手机到电脑文字获用户确认；素材新图片、双手机系统分享及旧转写上游仍保留缺口。分镜直入表格本地7镜60秒及原图/声音引用已验收，付费成片与逐镜朗读对齐未验收。"
+        },
+        {
+          "date": "2026-11-09",
+          "kind": "verification",
+          "summary": "代码cfa6fe12已push main并生产部署，版本6b247713-cfad-4f08-831f-3cb9bdaa4536；174项产物哈希一致，真实域名手机页/编辑页/健康200，麦克风策略允许self，配置/依赖/迁移元数据不变。登录态生产UI、手机新图片和系统分享未新增验收；既有功能状态及缺口不因部署升级。"
         }
       ]
     },
@@ -2393,13 +2476,18 @@
         "server/routers/storyAgent.ts",
         "client/src/features/storyAgent/views/StoryboardPanel.tsx",
         "client/src/features/storyAgent/views/StoryboardMatrix.tsx",
-        "client/src/features/storyAgent/views/StoryboardReviewBoard.tsx"
+        "client/src/features/storyAgent/views/StoryboardReviewBoard.tsx",
+        "server/services/storyVoice302.ts"
       ],
       "evidence": [
         "client/src/features/storyAgent/views/storyboardVoiceText.test.ts",
         "server/routers.storyAgent.test.ts",
         "client/src/features/storyAgent/views/StoryboardMatrix.accessibility.test.tsx",
-        "docs/qa/2026-11-04-storyboard-voice-failure.md"
+        "docs/qa/2026-11-04-storyboard-voice-failure.md",
+        "docs/qa/2026-11-06-302-minimax-narration.md",
+        "server/services/storyVoice302.test.ts",
+        "server/services/storyNarration.test.ts",
+        "server/services/storyAudioImport.test.ts"
       ],
       "invariants": [
         "朗读文本不得混入环境声说明。",
@@ -2412,7 +2500,7 @@
       "replaces": [],
       "knownGaps": [
         "旧 voiceAudio* 字段仍可被读取以兼容历史 Story；退役时间由 timeline-subtitle-audio-editing 的数据门禁决定。",
-        "2026-11-04故事1217旁白请求178失败，预占释放且实际扣费为0；供应商真实生成未恢复，精确错误待一次明确授权的0.04算力以内测试。当前仅修复按钮旁持续反馈，不视为TTS端到端验收通过。"
+        "2026-11-06本地MiniMax正式旁白已真实生成入仓库并解码通过；视频镜头按钮→采用/替换的完整浏览器验收、用户听感确认与生产配置部署仍待完成。原OpenAI通道500未宣称恢复。"
       ],
       "history": [
         {
@@ -2434,6 +2522,11 @@
           "date": "2026-11-04",
           "kind": "fix",
           "summary": "镜头旁白失败原因按故事与稳定镜头身份在原按钮下持续显示，下一次明确发起时清除，保留原音频且不新增按钮。52项专项、类型与diff检查通过；本次账务记录证明发起后失败且未扣费，未重复付费生成，供应商恢复与真实播放尚未验证。"
+        },
+        {
+          "date": "2026-11-06",
+          "kind": "fix",
+          "summary": "用户否定本机试听后，按已授权小额算力接入302 MiniMax Speech 2.8 Turbo；显式模型/签名价格版本、回执记模型、精确音频域名及未知结果不重试。故事1217真实一次生成13段旁白，资产8/43.668秒/应用记账0.06算力，解码与206读取通过，未采用正式时间轴。80专项、类型通过；本地配置已切换，未部署。"
         }
       ]
     },
@@ -2476,7 +2569,8 @@
         "server/repositories/timelineCodec.ts",
         "shared/generatedSubtitles.ts",
         "client/src/features/creationEditor/previewPlaybackModel.ts",
-        "client/src/features/creationEditor/views/ShotPreview.tsx"
+        "client/src/features/creationEditor/views/ShotPreview.tsx",
+        "server/services/storyVoice302.ts"
       ],
       "evidence": [
         "shared/timelineSubtitleModel.test.ts",
@@ -2511,7 +2605,12 @@
         "shared/generatedSubtitles.test.ts",
         "client/src/features/creationEditor/views/ShotPreview.test.tsx",
         "server/services/bookVideoCreation.test.ts",
-        "server/services/publishingVideoStoryboardPersistence.test.ts"
+        "server/services/publishingVideoStoryboardPersistence.test.ts",
+        "docs/qa/2026-11-06-302-minimax-narration.md",
+        "server/services/storyVoice302.test.ts",
+        "docs/qa/2026-11-06-302-elevenlabs-narration.md",
+        "docs/qa/2026-11-06-chinese-voice-auditions.md",
+        "docs/qa/2026-11-06-audiobook-voice-choice.md"
       ],
       "invariants": [
         "所有字幕与音频结构时间使用 30fps 非负整数帧；总时长取视觉、字幕、音频三者的最大结束帧。",
@@ -2548,7 +2647,6 @@
       "replaces": [],
       "knownGaps": [
         "主仓 main:3000 已完成生成并改字幕、键盘移动/裁剪、Preview 与真实 Export；尚未完成付费旁白生成/替换及导入音乐后裁剪的整条不看说明任务，因此状态保持 observing。",
-        "真实付费 TTS smoke 未获授权、未执行；U5 的全链路以 fake/cached candidate 验证。",
         "302 ElevenLabs 当前接口未提供已验证的幂等提交键或任务查询凭据；若进程恰好在供应商成功回包与 provider URL 持久化之间崩溃，该操作会冻结为 submission_unknown，必须人工对账，系统不会冒险自动重提。",
         "legacy 读取按 U10 数据门禁保留：2026-09-05 复核显示 37 个故事中有 3 个只能靠 ChatCut adapter 才有字幕/声音（0 个已迁移到正式 Timeline），因此本轮不删除任何旧读取。",
         "镜头 voiceAudio* 在本地真实数据中为 0 条，但只统计了本地环境；删除该读取前需要再看生产/MySQL 侧数据。",
@@ -2556,7 +2654,10 @@
         "孤立音频资产的用户级 GC 尚未定义保留策略。",
         "当前开发机 FFmpeg 不含 libass；≤64 个字幕区间走有界 PNG 兼容路径，更长字幕导出需要安装支持 libass 的 FFmpeg。",
         "真实指针拖拽与中文输入法组合态仍以导出的纯函数锁定；字幕键盘移动/裁剪已在 main:3000 人工验证，全局看板快捷键不再抢走媒体轨按键。",
-        "2026-11-04初始自动字幕按镜头计划时长分配，尚非实际语音逐字对齐。已有正式字幕继续独立编辑，新的方案版本不自动重写原字幕；当前真实页面已有3条字幕被保留，新生成自动写入通过隔离服务链测试验证。"
+        "2026-11-04初始自动字幕按镜头计划时长分配，尚非实际语音逐字对齐。已有正式字幕继续独立编辑，新的方案版本不自动重写原字幕；当前真实页面已有3条字幕被保留，新生成自动写入通过隔离服务链测试验证。",
+        "2026-11-06已授权真实MiniMax候选生成入库、全文件解码及Range读取；该候选尚未采用到正式时间轴，旁白替换/逐镜对齐完整体验仍待确认。",
+        "2026-11-06用户听验否定ElevenLabs Multilingual v2 / Sarah：英语语调读中文、听感诡异，本作品淘汰该候选。当前302账号完整25音色中只查到一个原始zh音色Stella Gu但描述冷淡疏离，未找到合适温暖中文候选，未再付费；随后已生成豆包小雅/阿虎与MiniMax淡雅学姐三段中文短试听，用户已认可豆包温柔小雅与温暖阿虎；不能把技术成功等同质量通过。",
+        "2026-11-06三版66字同稿中文短试听已受管入库为资产10/11/12，合计0.06算力；用户已选定豆包女声温柔小雅与男声温暖阿虎；MiniMax候选未选用。豆包通用接口不披露底层模型版本，使用明确unversioned服务标识。Qwen3文档版本实际404/Model not exist，未重试，应用0扣费。"
       ],
       "history": [
         {
@@ -2663,6 +2764,31 @@
           "date": "2026-11-04",
           "kind": "fix",
           "summary": "按用户要求将初始字幕接入发布稿/书稿视频方案确认；长台词分句、按时间线绝对帧生成，空台词和排除镜头跳过。沿用共享锁/CAS/持久幂等，保护人工稿、删空、撤销和legacy字幕。82项专项（含FFmpeg帧边界）及类型通过，当前文章无视频画面也可走带，Preview随镜头显示描述和已有字幕；未购买生成/未提交部署。详见auto-subtitles-preview QA。"
+        },
+        {
+          "date": "2026-11-06",
+          "kind": "fix",
+          "summary": "用户否定本机试听后，按已授权小额算力接入302 MiniMax Speech 2.8 Turbo；显式模型/签名价格版本、回执记模型、精确音频域名及未知结果不重试。故事1217真实一次生成13段旁白，资产8/43.668秒/应用记账0.06算力，解码与206读取通过，未采用正式时间轴。80专项、类型通过；本地配置已切换，未部署。"
+        },
+        {
+          "date": "2026-11-06",
+          "kind": "fix",
+          "summary": "按用户指定接入302 ElevenLabs官方格式Multilingual v2 / Sarah中文试听；模型与声音设置绑定签名报价，保留MiniMax/OpenAI、未知结果防重及受管下载边界。故事1217同稿仅生成一次，资产9/46.718549秒，应用实际结算0.06算力；供应商标价约0.0699 PTC，未核对供应商实际账单。84专项、类型、完整MP3解码及206读取通过；未采用时间轴、未改书稿、未部署，听感待用户判断。"
+        },
+        {
+          "date": "2026-11-06",
+          "kind": "fix",
+          "summary": "记录用户真实听验：Sarah中文有英语语调，被本作品淘汰。只读完整25音色复查未找到适合温暖叙述的原生中文选项；未再付费或修改技术路由，后续必须以原始普通话音色和短句试听筛选，不以多语言支持及英语warm标签替代质量验收。"
+        },
+        {
+          "date": "2026-11-06",
+          "kind": "fix",
+          "summary": "用户授权先查再试几个版本；查询中文音色后生成豆包温柔小雅/温暖阿虎和MiniMax淡雅学姐同稿66字符候选，资产10/11/12，各0.02算力且只提交一次，13.92/11.645875/12.968375秒。豆包未披露底层版本如实标记、500未知防重保留；Qwen旧版本404且0扣费，未重试/保留不可用接入。最终87专项、类型、三文件解码和206读取通过，未改书稿/采用时间轴/部署，待用户选声。"
+        },
+        {
+          "date": "2026-11-06",
+          "kind": "fix",
+          "summary": "用户已听验认可豆包温柔小雅/温暖阿虎；共享旁白服务为书稿目标增加男女声预设及签名校验，时间轴默认/现有供应商兼容不变。77项相关测试与类型通过；未采用候选到正式时间轴、未新增付费或部署。"
         }
       ]
     },
@@ -3169,7 +3295,8 @@
         "shared/visualObject.test.ts",
         "shared/visualObjectCapabilities.test.ts",
         "client/src/features/creationEditor/visualObjectSelection.test.ts",
-        "docs/qa/2026-11-04-storyboard-space-default.md"
+        "docs/qa/2026-11-04-storyboard-space-default.md",
+        "docs/qa/2026-11-07-unified-video-storyboard.md"
       ],
       "invariants": [
         "所有结构性时间统一走 30fps 整数帧，毫秒只是显示投影。",
@@ -3274,6 +3401,11 @@
           "date": "2026-11-04",
           "kind": "fix",
           "summary": "修复镜头标题与已采用媒体选择块的空格走带；分镜表与Preview非交互区域点击后接收焦点，沿用唯一父级播放时钟。保留文字输入、字幕音轨、菜单和普通按钮键盘语义及点图定位聊天；阻止输入法组合态、修饰键空格与长按重复切换。简化显示默认开启，仍可切回详细。176专项、类型和主仓3000真实标题/Preview空格播放暂停、输入空格与默认状态验收通过；未部署，未购买媒体，真实生成视频原生控件未验。"
+        },
+        {
+          "date": "2026-11-07",
+          "kind": "fix",
+          "summary": "逐镜表复用时间轴排序与稳定身份，上方保留原剪辑行，同一时间只挂载一条剪辑控制行。移动后图文跟随，未放置镜头保留末尾，跨视图选择定位Preview；自动剪辑修订由video-edit-revisions记录。"
         }
       ]
     },
@@ -5082,7 +5214,10 @@
         "client/src/features/nayin/views/EmotiveWuxingIcon.tsx",
         "client/src/features/mobileWorkspace/mobileConversationStore.ts",
         "client/src/features/mobileWorkspace/MobileVoiceInput.tsx",
-        "client/src/features/storyAgent/hooks/useVoiceInput.ts"
+        "client/src/features/storyAgent/hooks/useVoiceInput.ts",
+        "client/src/features/mobileWorkspace/liveDictation.ts",
+        "server/_core/securityHeaders.ts",
+        "client/src/features/storyAgent/views/StoryAgentChat.tsx"
       ],
       "evidence": [
         "docs/brainstorms/2026-05-25-mobile-chat-image-experience-requirements.md",
@@ -5127,7 +5262,14 @@
         "scripts/verify-mobile-text-confirmation.cjs",
         "docs/qa/2026-11-01-conversation-exploration.md",
         "client/src/features/mobileWorkspace/MobileMemoryFollowupChat.test.tsx",
-        "docs/qa/2026-11-01-web-button-acceptance.md"
+        "docs/qa/2026-11-01-web-button-acceptance.md",
+        "client/src/features/mobileWorkspace/liveDictation.test.ts",
+        "client/src/features/mobileWorkspace/MobileVoiceInput.test.tsx",
+        "docs/qa/2026-11-09-mobile-live-dictation.md",
+        "server/_core/securityHeaders.test.ts",
+        "docs/qa/2026-11-09-microphone-permissions.md",
+        "docs/qa/2026-11-09-mobile-import.md",
+        "docs/qa/2026-11-09-mobile-workflow-release.md"
       ],
       "invariants": [
         "手机与电脑必须使用同一邮箱身份、同一 Story 和同一份权威对话与正文数据，不得建立仅属于手机的副本。",
@@ -5137,7 +5279,7 @@
         "基于旧版本的正文保存不得静默覆盖较新的权威版本；冲突或网络失败时用户输入必须可恢复或复制。",
         "手机当前发布正文保存仍为body-only；按2026-10-11用户追加授权，记忆和独立文字历史可显式保存新修订到共同仓储，原始记忆与历史快照保留；阶段切换不得生成、采用或修改时间线，视频先查看。",
         "手机新增与电脑相同的文字候选生成/预览/显式采用入口；人工正文仍走body-only，候选采用走已有textDrafts.adopt并校验发布修订，不自动修改正式正文。",
-        "故事对话显示完整权威历史，不再按接着聊时的本机基线隐藏旧消息；语音复用电脑转写服务，结果仅追加草稿，由用户发送。关闭后迟到的权限与转写结果不得写入新对话。"
+        "故事对话显示完整权威历史，不再按接着聊时的本机基线隐藏旧消息；按用户2026-11-09要求，手机优先浏览器实时听写，不支持时沿用电脑录后转写服务，结果仅追加草稿，由用户发送。关闭后迟到的权限与转写结果不得写入新对话。"
       ],
       "dependencies": [
         "story-ownership",
@@ -5151,7 +5293,9 @@
       "knownGaps": [
         "尚未用真实 iOS Safari 与 Android Chrome 验收软件键盘、safe-area、横竖屏、系统字号、中文 IME、断网重连和复制恢复。",
         "尚未用手机与电脑两个独立设备完成双向聊天、双向正文和同 revision 冲突的公网跨端验收。",
-        "手机媒体导入仍保存素材及说明；电脑聊天的识图归类、图片提取/重绘和声音导演等高级素材工具尚未整体迁入，不能宣称全部高级对话工具已对齐。"
+        "手机媒体导入仍保存素材及说明；电脑聊天的识图归类、图片提取/重绘和声音导演等高级素材工具尚未整体迁入，不能宣称全部高级对话工具已对齐。",
+        "2026-11-09实时听写已获用户iPhone临时HTTPS真机实时出字成功反馈，未部署；Android Chrome真实麦克风、系统识别权限及网络可达性待验。浏览器不支持时退回录后转写；截图中旧豆包极速版403和302回退500的上游故障未修复，不宣称兼容路径可用。实时听写不生成可回听音频原件，原件收集仍使用素材录音入口。",
+        "2026-11-09修复网站禁用麦克风的响应头并接入电脑实时听写；桌面Safari授权提示可出现，但实时识别启动超时，内置浏览器仍拒绝录音。普通录后转写豆包403/302 500仍未修复，不能宣称所有浏览器或普通录后转写验收成功。"
       ],
       "history": [
         {
@@ -5518,6 +5662,36 @@
           "date": "2026-11-01",
           "kind": "fix",
           "summary": "首页恢复上次聊天时改为继续上次对话，避免错误标为新故事；不清除原对话。电脑生成写入与版本保留、手机保存后电脑提示更新并明确接收实测通过。 本地未部署。"
+        },
+        {
+          "date": "2026-11-09",
+          "kind": "enhancement",
+          "summary": "手机话筒单击直接启动浏览器实时听写，临时文字进入原输入框，确认片段追加草稿；停止/断网保留已识别文字，等待超时和卸载停止识别，不自动重试或发送。旧录后转写兼容保留，报错改为整行短提示；听写中禁止切换素材，原素材录音/系统分享不变。本地单元与隔离页面验收见QA；未部署、未真实录音或付费调用。"
+        },
+        {
+          "date": "2026-11-09",
+          "kind": "fix",
+          "summary": "修复Permissions-Policy全局禁止录音，限定本站请求麦克风且仍需用户授权；电脑原话筒复用实时听写，中间文字显示、最终片段追加草稿，按账号/故事隔离迟到回调，不自动发送或付费回退。短错误原位展示。Safari真实授权提示通过但识别启动超时、内置浏览器仍拒绝；60项相关自动化通过，完整语音未验收、未部署，详见麦克风QA。 Chrome随后完成真实启动、出字、停止验证，测试草稿清空且未发送；不将其作为Safari或手机成功证据。"
+        },
+        {
+          "date": "2026-11-09",
+          "kind": "verification",
+          "summary": "用户在iPhone临时HTTPS手机入口登录后反馈实时听写启动、出字、停止保留均正常。这是用户真机反馈，未独立观察，不代表Android、素材录音转写及系统分享通过；桌面Safari启动超时与旧ASR403/500缺口保留。"
+        },
+        {
+          "date": "2026-11-09",
+          "kind": "verification",
+          "summary": "用户确认手机发送文本后可在电脑主仓本地端口看到，单向同故事文本同步获真机反馈；不外推为图片上传、双向正文或并发冲突验收。"
+        },
+        {
+          "date": "2026-11-09",
+          "kind": "verification",
+          "summary": "发布前整合验收：全量6914项、小程序215项通过；隔离MySQL73项通过/1项跳过，生产41条迁移哈希一致。手机实时听写与手机到电脑文字获用户确认；素材新图片、双手机系统分享及旧转写上游仍保留缺口。分镜直入表格本地7镜60秒及原图/声音引用已验收，付费成片与逐镜朗读对齐未验收。"
+        },
+        {
+          "date": "2026-11-09",
+          "kind": "verification",
+          "summary": "代码cfa6fe12已push main并生产部署，版本6b247713-cfad-4f08-831f-3cb9bdaa4536；174项产物哈希一致，真实域名手机页/编辑页/健康200，麦克风策略允许self，配置/依赖/迁移元数据不变。登录态生产UI、手机新图片和系统分享未新增验收；既有功能状态及缺口不因部署升级。"
         }
       ]
     },
@@ -5788,7 +5962,9 @@
         "client/src/features/mobileWorkspace/MobileMePage.tsx",
         "server/services/dailyLetterTranslation.ts",
         "client/src/features/analysis/views/DailyLetterBody.tsx",
-        "server/services/dailyLetterWorks.ts"
+        "server/services/dailyLetterWorks.ts",
+        "shared/dailyLetterReading.ts",
+        "shared/dailyLetterCalendar.ts"
       ],
       "evidence": [
         "docs/brainstorms/2026-09-02-personal-memory-daily-letter-requirements.md",
@@ -5841,7 +6017,13 @@
         "server/services/dailyLetterWorks.integration.test.ts",
         "docs/qa/2026-10-29-daily-letter-works-almanac.md",
         "docs/qa/2026-11-01-conversation-exploration.md",
-        "client/src/features/analysis/views/DailyLetterWelcome.test.ts"
+        "client/src/features/analysis/views/DailyLetterWelcome.test.ts",
+        "shared/dailyLetterReading.test.ts",
+        "server/routers.dailyLetterReading.test.ts",
+        "server/repositories/storyActivityDates.test.ts",
+        "docs/qa/2026-11-08-daily-letter-writing.md",
+        "shared/dailyLetterCalendar.test.ts",
+        "docs/qa/2026-11-08-daily-letter-calendar.md"
       ],
       "invariants": [
         "用户主动提交的原话和明确采用的作品属于原始经历；系统不得自动硬删除或改写，未提交草稿和未采用候选不得进入长期记忆。",
@@ -5868,7 +6050,7 @@
         "历史确定性回填仍保持 dry-run，歧义图片采用不会写入；来源删除后的历史来信段落级隐私 overlay 尚未完成。",
         "手机 Web 足迹入口已接入并通过本机浏览器验证；真实 MySQL 升级克隆演练、两台物理设备跨端验收和保留/加密策略仍属于上线门禁。",
         "来信翻译缓存为进程内一小时有界缓存，重启后或过期可能重新调用模型；私人来信真实供应商译文质量待验收。正文已接入，桌面外围旧文案和历法专名尚未全部翻译。",
-        "本轮作品选材只读已保存的书稿 blocks.body；未迁入书稿的旧平台稿、未采用候选不读取。真实模型对作品的自然延续质量仍需观察，降级模板不会声称参考作品。"
+        "作品选材只读最近8个故事中已保存的书稿 blocks.body，最多两篇限长片段；未保存输入、独立聊天、纯媒体生成与未采用候选不读取。旧日期正文若已被后续编辑覆盖，不用未来正文冒充过去，可靠历史重建尚未实现。真实模型自然延续质量仍需观察，降级模板不声称参考作品。"
       ],
       "history": [
         {
@@ -5980,6 +6162,16 @@
           "date": "2026-11-01",
           "kind": "fix",
           "summary": "用户主动将回信带入故事时保留全文并标明系统回信来源，选择参考不代表确认其中事实/情绪/偏好。来源边界回归先红后绿，相关82项及类型通过；手机每日信暂无同一转故事入口，未宣称跨端已打通，未部署。"
+        },
+        {
+          "date": "2026-11-08",
+          "kind": "fix",
+          "summary": "修正空章节篡改正文保存日期及旧消息who=u活动日期遗漏，选材优先近期非空正文；桌面/手机展示当前可读书稿与旧信来源回执，说明凌晨来信早于晚间创作。来信专用留言空白不再代表全站没有写作，模型质量守卫与降级模板同步修正。保持旧信、账号隔离、长期记忆门禁与原重读入口；59项回归通过，主仓3000实测11月6日分镜可读，未付费生成/部署。"
+        },
+        {
+          "date": "2026-11-08",
+          "kind": "fix",
+          "summary": "用户要求去掉书稿列表/摘录/来源说明：桌面与手机删除该展示，后台选材及回执保留。核验2026-11-08对应农历九月三十，页头明确公历/农历；旧信阅读和翻译输入对经核实的今日农历月末补历法标签，存档不改。生成上下文明示两种历法，51项测试/类型/主仓3000实测通过，无真实模型调用、未部署。"
         }
       ]
     },
@@ -7379,7 +7571,8 @@
         "docs/qa/2026-11-04-book-editor-release.md",
         "client/src/features/publishingAlbum/bookPlatformExport.test.ts",
         "client/src/features/publishingDraft/publishingCoverExport.test.ts",
-        "docs/qa/2026-11-04-book-send-platforms.md"
+        "docs/qa/2026-11-04-book-send-platforms.md",
+        "docs/qa/2026-11-09-other-worktree-integration.md"
       ],
       "invariants": [
         "仅在用户明确确认费用后生成图片；进入、排版、下载和分享不调用生成模型，恢复沿用既有任务编号。",
@@ -7496,6 +7689,11 @@
           "date": "2026-11-04",
           "kind": "fix",
           "summary": "恢复书稿发送的平台选择：小程序/朋友圈/其他平台及原文章链接；复用六平台尺寸、X分条规则和图片导出，准备已保存的当前草稿及全部配图，分享副本不改原稿、不自动改写或发布。36项专项、76项草稿安全及类型通过，真实6图朋友圈1080×1080与小红书1080×1440预览通过。本地未提交/部署，详见book-send-platforms QA。"
+        },
+        {
+          "date": "2026-11-09",
+          "kind": "fix",
+          "summary": "手机图文恢复区显示已存的图片任务错误；MJ已生成但下载失败时保留原任务号及恢复状态，恢复只查询原任务，避免重新购买。相关测试通过，真实付费及真机未验。"
         }
       ]
     },
@@ -7871,7 +8069,9 @@
         "docs/qa/2026-10-20-mobile-create-menu.md",
         "docs/qa/2026-10-24-mobile-text-confirmation.md",
         "scripts/verify-mobile-text-confirmation.cjs",
-        "docs/qa/2026-11-01-web-button-acceptance.md"
+        "docs/qa/2026-11-01-web-button-acceptance.md",
+        "docs/qa/2026-11-09-other-worktree-integration.md",
+        "docs/qa/2026-11-09-mobile-import.md"
       ],
       "invariants": [
         "旧回忆不被覆盖；新想法与明确标注的来源引用追加到来源故事。",
@@ -7949,6 +8149,16 @@
           "date": "2026-11-01",
           "kind": "fix",
           "summary": "修复失败聊天恢复记录误锁独立模块生成/合并按钮；保留消息与聊天顺序保护，实际提交和编辑中仍锁定。复现回归先红后绿，手机真实音乐生成及合并成功。 本地未部署。"
+        },
+        {
+          "date": "2026-11-09",
+          "kind": "fix",
+          "summary": "重开聊天在页面来源不变或为空时保留当前会话，显式新建和原上下文不被覆盖；真实页面变更仍跟随，原账号隔离与未同步草稿保护保持。相关隔离回归通过，浏览器自动操作被工作设置禁用，真机未验。"
+        },
+        {
+          "date": "2026-11-09",
+          "kind": "fix",
+          "summary": "导入目标列表明确独立故事身份，标记当前故事及北京时间创建时间，区分同名故事；不删除或合并故事，不改变导入/版本存储。42项相关测试和类型通过，临时HTTPS真实表单核对默认当前故事、两个同名故事不同创建时间及说明通过。"
         }
       ]
     },
@@ -9158,7 +9368,8 @@
         "shared/bookWritingStyle.ts",
         "client/src/features/publishingAlbum/bookBlockSelection.ts",
         "client/src/features/publishingAlbum/bookTextRange.ts",
-        "client/src/features/publishingAlbum/useBookTextRange.tsx"
+        "client/src/features/publishingAlbum/useBookTextRange.tsx",
+        "shared/bookBlockNumbering.ts"
       ],
       "evidence": [
         "server/routers.chapters.test.ts",
@@ -9205,11 +9416,14 @@
         "docs/qa/2026-11-03-book-change-note-position.md",
         "docs/qa/2026-11-04-book-editor-release.md",
         "docs/qa/2026-11-04-book-multiselect-menu.md",
-        "docs/qa/2026-11-04-book-dialogue-review.md"
+        "docs/qa/2026-11-04-book-dialogue-review.md",
+        "docs/qa/2026-11-06-book-scene-shot-modules.md",
+        "docs/qa/2026-11-08-book-outline-overview.md",
+        "docs/qa/2026-11-09-book-video-workflow.md"
       ],
       "invariants": [
         "CHAPTER_PACKAGE_ENABLED gates chapter reads/writes. When enabled, text and image-layout use one chapter workspace; the separate platform/chapter navigation is removed. Disabled flag retains the legacy editor.",
-        "章节内容不写入 stories.body；排版持久化只存文字块引用，文字只存章节正文的一份；图片不得嵌入 data URL 或签名临时地址。",
+        "活动章节正文仍存章节仓库；显式保存的不可变作品版本快照存入 stories.body.bookWorkflow；排版持久化只存文字块引用，文字只存章节正文的一份；图片不得嵌入 data URL 或签名临时地址。",
         "Chapter writes use expectedVersion CAS. Switching chapters/views saves current work first. Comparison reads do not flush or adopt. Adoption first saves pending work and uses the resulting local queue version, preserving overwritten content.",
         "Generated platform text is an explicit comparison candidate in the chapter workspace; it does not automatically overwrite chapter writing. The legacy draft marker remains only for compatible initial layout recovery.",
         "文件包含原章节包和独立图片字节，导入校验哈希；保留 AI 标记、blockId 与发回 lineage。请求回执和多章写入一起提交。",
@@ -9476,6 +9690,26 @@
         {
           "date": "2026-11-04",
           "summary": "新增持久台词/字幕用途分类与书转视频逐镜人物/台词/背景音核对；方向确认只生成预览，另一次确认绑定记录与预览修订后才采用，旧已确认版本可直接打开。139项相关测试、类型和本地菜单/历史方案布局验证，未调用真实模型或付费媒体。"
+        },
+        {
+          "date": "2026-11-06",
+          "kind": "feature",
+          "summary": "章/节显示自动编号并保留微信目录；新增场/镜头格式共享保存、重开及版本恢复，编号与标题分离。跨场移动保留全部子内容，沿用多选/折叠/撤销/排版。629项相关回归及3000内存页面实际拖动、展开、重开、菜单验证通过，未改真实书稿或部署。"
+        },
+        {
+          "date": "2026-11-08",
+          "kind": "fix",
+          "summary": "修复章/节转换和移动的父子关系，与场/镜共享约束，折叠章后新节自动归入前章，按同级整组排序并保持自动编号；28像素统一缩进兼容图片变换和多选。相关回归与草稿安全检查通过，旧稿不做破坏性结构迁移。"
+        },
+        {
+          "date": "2026-11-08",
+          "kind": "fix",
+          "summary": "按用户反馈将场/章编号统一放大为26设计像素，导入章的展开与收起编号同步调整，沿用原位置和32像素编号行。53项现有编辑器测试及类型通过，3000截图确认场编号大于镜头编号，未改书稿内容或部署。"
+        },
+        {
+          "date": "2026-11-09",
+          "kind": "feature",
+          "summary": "接入双稿件及视频作品版本，保留原章修订、场镜模块和成品组合历史。"
         }
       ]
     },
@@ -9719,7 +9953,11 @@
         "server/services/materialCaptureProcessing.ts",
         "server/routers/materialCapture.ts",
         "server/services/materialCaptureShortcut.ts",
-        "server/services/materialCaptureTranscription.ts"
+        "server/services/materialCaptureTranscription.ts",
+        "client/src/features/mobileWorkspace/MobileCaptureAttachments.tsx",
+        "client/src/features/mobileWorkspace/MobileChatView.tsx",
+        "client/src/features/mobileWorkspace/MobileCaptureChatView.tsx",
+        "client/src/features/mobileWorkspace/MobileCompanionActions.tsx"
       ],
       "evidence": [
         "docs/qa/2026-10-30-mobile-material-capture.md",
@@ -9734,7 +9972,13 @@
         "docs/qa/2026-10-31-web-material-capture.md",
         "client/src/features/mobileWorkspace/captureRecordingError.test.ts",
         "client/src/features/mobileWorkspace/MobileCaptureAttachments.test.tsx",
-        "docs/qa/2026-11-01-web-button-acceptance.md"
+        "docs/qa/2026-11-01-web-button-acceptance.md",
+        "docs/qa/2026-11-09-other-worktree-integration.md",
+        "docs/qa/2026-11-09-microphone-permissions.md",
+        "docs/qa/2026-11-09-mobile-import.md",
+        "client/src/features/mobileWorkspace/materialCaptureDraft.test.ts",
+        "client/src/features/mobileWorkspace/useMaterialCapture.test.ts",
+        "docs/qa/2026-11-09-mobile-workflow-release.md"
       ],
       "invariants": [
         "新批次新建故事，不覆盖正在编辑的故事；普通聊天行为保留。",
@@ -9751,10 +9995,10 @@
       ],
       "replaces": [],
       "knownGaps": [
-        "仅本地集成，未部署、未提审；iPhone快捷指令未导入运行，Android未安装分享接收，双手机待验收。",
+        "Web已随2026-11-09发布部署；iPhone快捷指令未导入运行，Android未安装分享接收，新图片完整上传和双手机系统分享待验收。",
         "支持静态JPG/PNG/WebP和MP3/M4A/WAV/WebM/Ogg；HEIC、Live Photo、其他二进制尚不支持。",
         "小程序需配置私有规则和真实供应商服务、部署验收后启用MATERIAL_CAPTURE_READY。",
-        "Web标准版ASR已本地实测MP3/M4A；真机录音权限、WebM/Ogg真实转写与系统分享仍待验收，未部署本次修复。"
+        "浏览器实时听写已获手机用户确认；旧录完转写近期Doubao403/302500未解决，WebM/Ogg真实转写与生产登录态回归仍待验收。"
       ],
       "history": [
         {
@@ -9786,6 +10030,51 @@
           "date": "2026-11-01",
           "kind": "verification",
           "summary": "390px手机入口实点虚构文字素材发送、整理为独立故事1216、打开书稿通过；本轮未测试文件上传或真机录音。 本地未部署。"
+        },
+        {
+          "date": "2026-11-09",
+          "kind": "verification",
+          "summary": "复核手机素材网页入口已在main；素材路由、原件及转写恢复自动化通过。真机分享、录音权限、真实供应商及上线继续列为缺口，状态保持partial。"
+        },
+        {
+          "date": "2026-11-09",
+          "kind": "fix",
+          "summary": "修复Web共用响应头microphone=()阻止录音的原因，改为同源请求并保留浏览器授权；不修改素材原件、标准ASR、系统分享或故事。Safari已出现授权提示，真机录音与系统分享仍未验收。"
+        },
+        {
+          "date": "2026-11-09",
+          "kind": "fix",
+          "summary": "原回形针改为同次手势直接打开多选图片/录音选择器，保留录音/系统分享入口和新批次新故事语义；加载、录音和编辑锁定期间禁用。42项相关测试及类型通过，Chrome真实单击触发filechooser；自动文件选择受扩展文件权限限制，手机上传/整理待复验，未触发付费任务或修改故事。"
+        },
+        {
+          "date": "2026-11-09",
+          "kind": "improvement",
+          "summary": "按用户反馈在原回形针下增加“素材”标签，展开区说明图片、录音转写和文字发送后整理为新故事，保留原件；无新增按钮或行为变更，14项既有组件测试通过，手机视觉待刷新复验。"
+        },
+        {
+          "date": "2026-11-09",
+          "kind": "verification",
+          "summary": "继续手机验收：12文件79项素材、分享、转写恢复和跨端相关测试通过（隔离数据/模拟供应商）。主仓3000分享manifest、worker及iOS快捷指令下载均200。手机图片缩略图/上传及系统分享真机等待用户配合；临时入口Basic Auth不直接兼容快捷指令Bearer请求，未弱化保护或生成长期绑定。无新增付费调用。详见2026-11-09-mobile-import QA。"
+        },
+        {
+          "date": "2026-11-09",
+          "kind": "improvement",
+          "summary": "用户明确否定冗长说明区，改为输入栏素材/录音两图标，移除素材字样、长文案和重复选文件入口；返回聊天/系统分享收进原更多操作，录音停止、附件及必要错误保留。输入框占位说明整理为新故事。iPhone误选MOV改为短提示引导原文件导入，录音audio/mp4保留。48项相关测试与类型通过，真实浏览器filechooser、双图标/无说明段、分享展开及返回聊天验证通过，未实际上传/生成。"
+        },
+        {
+          "date": "2026-11-09",
+          "kind": "fix",
+          "summary": "后续验收发现素材提交前FileReader/本地暂存失败会错误锁死附件。新增两项先红复现，按receive是否已开始及批次既往submitted状态只解锁确定未上传的新批次；已上传结果未知、重试本地失败仍保持原锁定/幂等。4项hook及相关共32项回归、类型通过。真实主仓接口6份既有图片/录音均200且SHA一致，Range均206；未新上传、未调用付费模型、未部署，手机端完整新上传仍待验收。"
+        },
+        {
+          "date": "2026-11-09",
+          "kind": "verification",
+          "summary": "发布前整合验收：全量6914项、小程序215项通过；隔离MySQL73项通过/1项跳过，生产41条迁移哈希一致。手机实时听写与手机到电脑文字获用户确认；素材新图片、双手机系统分享及旧转写上游仍保留缺口。分镜直入表格本地7镜60秒及原图/声音引用已验收，付费成片与逐镜朗读对齐未验收。"
+        },
+        {
+          "date": "2026-11-09",
+          "kind": "verification",
+          "summary": "代码cfa6fe12已push main并生产部署，版本6b247713-cfad-4f08-831f-3cb9bdaa4536；174项产物哈希一致，真实域名手机页/编辑页/健康200，麦克风策略允许self，配置/依赖/迁移元数据不变。登录态生产UI、手机新图片和系统分享未新增验收；既有功能状态及缺口不因部署升级。"
         }
       ]
     },
@@ -9796,18 +10085,22 @@
       "userValue": "在书中插入导入或生成的音乐并随正文保存。",
       "entryPoints": [
         "client/src/features/publishingAlbum/BookMusicInsert.tsx",
-        "client/src/pages/EditingStudioPage.tsx"
+        "client/src/pages/EditingStudioPage.tsx",
+        "client/src/features/publishingAlbum/BookSoundMenu.tsx"
       ],
       "owners": [
         "shared/bookAudioBlock.ts",
         "client/src/features/publishingAlbum/BookMusicInsert.tsx",
-        "server/services/storyAudioGeneration.ts"
+        "server/services/storyAudioGeneration.ts",
+        "client/src/features/publishingAlbum/BookSoundMenu.tsx"
       ],
       "evidence": [
         "shared/bookAudioBlock.test.ts",
         "server/services/storyAudioGeneration.test.ts",
         "docs/qa/2026-10-31-book-music.md",
-        "docs/qa/2026-11-03-book-shortcut-removal.md"
+        "docs/qa/2026-11-03-book-shortcut-removal.md",
+        "docs/qa/2026-11-09-book-video-workflow.md",
+        "client/src/features/publishingAlbum/BookSoundMenu.test.tsx"
       ],
       "invariants": [
         "音频仅引用受管资产，播放校验故事归属；删除模块不删除素材。",
@@ -9822,7 +10115,8 @@
       "replaces": [],
       "knownGaps": [
         "跨账号音乐包与小程序播放未实现。",
-        "付费供应商未实测，生成服务模拟测试通过，浏览器验证至报价。"
+        "付费供应商未实测，生成服务模拟测试通过，浏览器验证至报价。",
+        "标题下整书配乐仍沿用现有约30秒生成和提示词长度上限，过长明确拒绝，不声称自动生成整书时长音乐。"
       ],
       "history": [
         {
@@ -9839,6 +10133,16 @@
           "date": "2026-11-03",
           "kind": "fix",
           "summary": "按用户明确要求移除书末添加音乐按钮；保留挂载的音乐弹窗与聊天菜单BOOK_MUSIC_OPEN调用，导入/生成/插入及报价确认不变。36项相关、类型及3000真实页面核对通过，本地未部署。"
+        },
+        {
+          "date": "2026-11-09",
+          "kind": "feature",
+          "summary": "按用户要求标题下仅添加一个添加声音菜单，背景音乐使用当前稿件全部章节，结果插在书稿开头；保留音乐导入/仓库与费用确认，中英文入口实点，无付费调用。"
+        },
+        {
+          "date": "2026-11-09",
+          "kind": "fix",
+          "summary": "配乐确认沿用统一换算显示算力（本地实际报价0.60算力），中英法文齐全；实点复现书页负上边距覆盖添加声音按钮下半部，提升菜单层级后中心点击可反复开关。21项相关测试及主仓3000实际报价/点击验证通过，未付费生成。"
         }
       ]
     },
@@ -9846,12 +10150,13 @@
       "id": "book-module-conversion",
       "name": "书内图文音乐转换",
       "status": "partial",
-      "userValue": "从模块六点菜单按当前图片或文字生成文字、插图、配乐或中英译文；多选后可整组转文字或音乐，并将所选文字合成有声书，生成结果保留原素材。",
+      "userValue": "从模块六点菜单按当前图片或文字生成文字、插图、配乐或中英译文；多选后可整组转文字或音乐，并选择女声温柔小雅或男声温暖阿虎将所选文字合成有声书，生成结果保留原素材。",
       "entryPoints": [
         "client/src/features/publishingAlbum/BookBlockCanvas.tsx",
         "client/src/features/publishingAlbum/BookModuleConvert.tsx",
         "client/src/features/mobileWorkspace/MobileStoryWorkspace.tsx",
-        "client/src/features/mobileWorkspace/MobileImageStudio.tsx"
+        "client/src/features/mobileWorkspace/MobileImageStudio.tsx",
+        "client/src/features/publishingAlbum/BookSoundMenu.tsx"
       ],
       "owners": [
         "client/src/features/publishingAlbum/BookModuleConvert.tsx",
@@ -9873,7 +10178,11 @@
         "shared/bookModuleImageTask.ts",
         "server/services/legnextImageDownload.ts",
         "client/src/features/publishingAlbum/BookBlockCanvas.tsx",
-        "server/routers/timelineMedia.ts"
+        "server/routers/timelineMedia.ts",
+        "server/services/storyVoice302.ts",
+        "shared/bookNarrationVoice.ts",
+        "shared/bookSound.ts",
+        "client/src/features/publishingAlbum/BookSoundMenu.tsx"
       ],
       "evidence": [
         "server/services/bookModuleSource.test.ts",
@@ -9903,15 +10212,26 @@
         "server/integration/bookModuleImageTask.mysql.test.ts",
         "server/routers.storyAgent.test.ts",
         "docs/qa/2026-11-04-book-multiselect-menu.md",
-        "docs/qa/2026-11-05-book-video-release.md"
+        "docs/qa/2026-11-05-book-video-release.md",
+        "docs/qa/2026-11-06-302-minimax-narration.md",
+        "server/services/storyVoice302.test.ts",
+        "server/services/storyAudioImport.test.ts",
+        "docs/qa/2026-11-06-302-elevenlabs-narration.md",
+        "docs/qa/2026-11-06-chinese-voice-auditions.md",
+        "docs/qa/2026-11-06-audiobook-voice-choice.md",
+        "docs/qa/2026-11-09-book-video-workflow.md",
+        "shared/bookSound.test.ts",
+        "client/src/features/publishingAlbum/BookSoundMenu.test.tsx",
+        "docs/qa/2026-11-09-mobile-workflow-release.md"
       ],
       "invariants": [
-        "转换仅使用所选模块，服务端解析所属故事/章节/模块与图片资产，禁止跨账号读取。",
+        "模块菜单转换仅使用所选模块；标题下添加声音按用户明确要求读取当前文字或分镜稿的全部章节。服务端校验故事/章节/模块与资产归属，禁止跨账号读取。",
         "源模块不覆盖，结果插入后走现有保存和撤销；删除或修改源模块后阻止错误插入。",
         "生成音乐先报价再确认，签名绑定源模块指纹；已接单操作重试复用原回执。",
-        "生成成功自动插入源模块下方；文字先入仓库再返回，图片多候选均入库、默认插入首张，音乐引用受管音频。",
+        "模块菜单生成成功自动插入源模块下方；标题整书声音插在书稿开头。文字先入仓库再返回，图片多候选均入库、默认插入首张，音乐引用受管音频。",
         "图片默认MJ，GPT Image2备用必须由用户显式选择并确认单图预估费用；不得自动换模型或重复提交未知任务。",
-        "多选文字/音乐转换使用全部所选文字和图片，按书稿顺序读取并校验每张图片归属；音乐签名绑定全部源内容，过长明确拒绝不静默截取。结果插在最后一个所选模块之后，保存前后及插入时验证所有源模块。纯文字合并沿用直接合并行为。"
+        "多选文字/音乐转换使用全部所选文字和图片，按书稿顺序读取并校验每张图片归属；音乐签名绑定全部源内容，过长明确拒绝不静默截取。结果插在最后一个所选模块之后，保存前后及插入时验证所有源模块。纯文字合并沿用直接合并行为。",
+        "有声书男女声由服务端固定映射至用户听验认可的豆包小雅/阿虎，签名报价绑定性别、供应商与音色；切换声音清除报价，生成及结果未知时锁定选择，不能绕过原文校验或重复付费保护。"
       ],
       "dependencies": [
         "book-music-blocks",
@@ -9921,8 +10241,11 @@
       "knownGaps": [
         "书稿文生图已部署Legnext MJ V7 Fast，供应商直测和生产四图下载通过；完整书稿按钮生成→入库→插入→刷新闭环仍需验收。旧302任务按原供应商恢复，未知回执不得重复购买。",
         "音乐指定对话提出的时间演进编曲与生成前完整提示词编辑尚未接入；不能将旧音乐生成成功视为新标准完成。",
-        "有声书真实测试302 /302/tts/generate返回HTTP500，结果未知，未重试；报价0.04算力成功，真实生成/播放尚未通过。2026-11-03 本地补充未知结果提示及当前弹窗防重；跨弹窗和设备持久防重、供应商失败原因与费用核对仍待解决，未部署。",
-        "2026-11-04多选六点菜单和音乐弹窗已在3000实点，108项相关测试覆盖；多图理解与音乐真实付费全链未验收。音频模块尚不支持反向转文字、混音或转图，菜单明确禁用。"
+        "2026-11-04多选六点菜单和音乐弹窗已在3000实点，108项相关测试覆盖；多图理解与音乐真实付费全链未验收。音频模块尚不支持反向转文字、混音或转图，菜单明确禁用。",
+        "2026-11-06多选13段原文经正式报价/生成接口取得MiniMax受管音频，应用记账0.06算力；有声书按钮→插入书稿→保存重开完整体验和跨弹窗防重仍待验收，未部署。",
+        "2026-11-06用户听验否定ElevenLabs Multilingual v2 / Sarah：英语语调读中文、听感诡异，本作品淘汰该候选。当前302账号完整25音色中只查到一个原始zh音色Stella Gu但描述冷淡疏离，未找到合适温暖中文候选，未再付费；随后已生成豆包小雅/阿虎与MiniMax淡雅学姐三段中文短试听，用户已认可豆包温柔小雅与温暖阿虎；不能把技术成功等同质量通过。",
+        "2026-11-06三版66字同稿中文短试听已受管入库为资产10/11/12，合计0.06算力；用户已选定豆包女声温柔小雅与男声温暖阿虎；MiniMax候选未选用。豆包通用接口不披露底层模型版本，使用明确unversioned服务标识。Qwen3文档版本实际404/Model not exist，未重试，应用0扣费。",
+        "整书朗读上限10万字，按4800字符分段并统一确认费用；部分失败/未知回执先到仓库核对，尚无批量续传界面，整书音频未自动按视频镜头对齐。新整书入口为桌面书页，手机入口未改。"
       ],
       "history": [
         {
@@ -10072,6 +10395,46 @@
         {
           "date": "2026-11-05",
           "summary": "42ee3e29已合main并push，生产book-video-20261105已上线；6733项测试、类型/构建/83卡/41迁移基线通过，175产物及公网页面/版本/健康验证通过，正式发送平台菜单实点确认。图像缓存按当前故事刷新、视频帧来源规则抽入model；原付费/跨设备验收缺口继续保留，见汇总发布QA。"
+        },
+        {
+          "date": "2026-11-06",
+          "kind": "fix",
+          "summary": "用户否定本机试听后，按已授权小额算力接入302 MiniMax Speech 2.8 Turbo；显式模型/签名价格版本、回执记模型、精确音频域名及未知结果不重试。故事1217真实一次生成13段旁白，资产8/43.668秒/应用记账0.06算力，解码与206读取通过，未采用正式时间轴。80专项、类型通过；本地配置已切换，未部署。"
+        },
+        {
+          "date": "2026-11-06",
+          "kind": "fix",
+          "summary": "按用户指定接入302 ElevenLabs官方格式Multilingual v2 / Sarah中文试听；模型与声音设置绑定签名报价，保留MiniMax/OpenAI、未知结果防重及受管下载边界。故事1217同稿仅生成一次，资产9/46.718549秒，应用实际结算0.06算力；供应商标价约0.0699 PTC，未核对供应商实际账单。84专项、类型、完整MP3解码及206读取通过；未采用时间轴、未改书稿、未部署，听感待用户判断。"
+        },
+        {
+          "date": "2026-11-06",
+          "kind": "fix",
+          "summary": "记录用户真实听验：Sarah中文有英语语调，被本作品淘汰。只读完整25音色复查未找到适合温暖叙述的原生中文选项；未再付费或修改技术路由，后续必须以原始普通话音色和短句试听筛选，不以多语言支持及英语warm标签替代质量验收。"
+        },
+        {
+          "date": "2026-11-06",
+          "kind": "fix",
+          "summary": "用户授权先查再试几个版本；查询中文音色后生成豆包温柔小雅/温暖阿虎和MiniMax淡雅学姐同稿66字符候选，资产10/11/12，各0.02算力且只提交一次，13.92/11.645875/12.968375秒。豆包未披露底层版本如实标记、500未知防重保留；Qwen旧版本404且0扣费，未重试/保留不可用接入。最终87专项、类型、三文件解码和206读取通过，未改书稿/采用时间轴/部署，待用户选声。"
+        },
+        {
+          "date": "2026-11-06",
+          "kind": "fix",
+          "summary": "用户选定豆包温柔小雅/温暖阿虎；有声书弹窗新增男女声选择、默认女声，切换清除报价、忙碌/提交未知锁定。路由枚举与服务端共享预设绑定签名、资产来源及幂等请求，独立于全局MiniMax默认。77项相关测试、类型及3000实点选声/报价/切换失效通过；无新增付费、未写书稿/时间轴、未部署。完整付费插入保存链及跨弹窗防重缺口保留。"
+        },
+        {
+          "date": "2026-11-09",
+          "kind": "feature",
+          "summary": "新增整书声音：文字版为有声书，分镜版仅提取标记台词；完整预览、长文分段、整书指纹与报价续签、稳定操作ID和本机跨弹窗提交标记。全书后续章节改动拒绝陈旧生成，续签重试不重复提交供应商的模拟测试通过；本地3000台词预览233字/1段，中英文选项通过，未付费生成。"
+        },
+        {
+          "date": "2026-11-09",
+          "kind": "verification",
+          "summary": "发布前整合验收：全量6914项、小程序215项通过；隔离MySQL73项通过/1项跳过，生产41条迁移哈希一致。手机实时听写与手机到电脑文字获用户确认；素材新图片、双手机系统分享及旧转写上游仍保留缺口。分镜直入表格本地7镜60秒及原图/声音引用已验收，付费成片与逐镜朗读对齐未验收。"
+        },
+        {
+          "date": "2026-11-09",
+          "kind": "verification",
+          "summary": "代码cfa6fe12已push main并生产部署，版本6b247713-cfad-4f08-831f-3cb9bdaa4536；174项产物哈希一致，真实域名手机页/编辑页/健康200，麦克风策略允许self，配置/依赖/迁移元数据不变。登录态生产UI、手机新图片和系统分享未新增验收；既有功能状态及缺口不因部署升级。"
         }
       ]
     },
@@ -10273,7 +10636,8 @@
         "docs/qa/2026-11-04-storyboard-auto-recovery.md",
         "client/src/features/storyAgent/views/pollStoryboardImage.test.ts",
         "client/src/features/storyAgent/views/useShotImageRender.test.tsx",
-        "server/services/storyboardImageTask.test.ts"
+        "server/services/storyboardImageTask.test.ts",
+        "docs/qa/2026-11-09-other-worktree-integration.md"
       ],
       "invariants": [
         "已有任务号或请求已发出无响应的任务绝不重新提交；后台只调用查询型 resume 接口。",
@@ -10327,6 +10691,11 @@
           "date": "2026-11-04",
           "kind": "fix",
           "summary": "分镜图片已受理后的正常排队改为自动取回原任务，串行每6秒查询、10分钟上限、作用域离开取消；成功刷新画面行/仓库，明确失败和未确认提交不自动重买。Legnext复用timeout_pending区分等待与明确失败；三次历史生成已各入仓4图，新自动流程为模拟测试验证，未新购媒体。详见storyboard-auto-recovery QA。"
+        },
+        {
+          "date": "2026-11-09",
+          "kind": "fix",
+          "summary": "MJ成功后文件下载失败返回已有任务号与待恢复状态，复用原任务而不重新提交。无任务号封面预占按用户选择维持原自动释放规则。"
         }
       ]
     },
@@ -10629,7 +10998,10 @@
         "client/src/features/publishingAlbum/bookBlockLayout.test.ts",
         "docs/qa/2026-11-04-book-dialogue-review.md",
         "command:pnpm check",
-        "docs/qa/2026-11-05-book-video-release.md"
+        "docs/qa/2026-11-05-book-video-release.md",
+        "docs/qa/2026-11-06-book-scene-shot-modules.md",
+        "shared/bookSound.test.ts",
+        "docs/qa/2026-11-09-book-video-workflow.md"
       ],
       "invariants": [
         "用途分类不改写原文，随章节保存/恢复，选择正文可取消；绿色前后引号仅装饰、不入正文和选择偏移；无标记旧稿保留原规划方式。",
@@ -10664,10 +11036,368 @@
         {
           "date": "2026-11-05",
           "summary": "42ee3e29已合main并push，生产book-video-20261105已上线；6733项测试、类型/构建/83卡/41迁移基线通过，175产物及公网页面/版本/健康验证通过，正式发送平台菜单实点确认。图像缓存按当前故事刷新、视频帧来源规则抽入model；原付费/跨设备验收缺口继续保留，见汇总发布QA。"
+        },
+        {
+          "date": "2026-11-06",
+          "kind": "feature",
+          "summary": "显式镜头按模块归属逐字传递台词，多行及重复文字保留；无台词镜头明确静默，描述不转旁白。模型返回不同台词时仍以源模块为准，原无分类旧稿路径保留。"
+        },
+        {
+          "date": "2026-11-09",
+          "kind": "feature",
+          "summary": "分镜转换提示词要求口语台词独立标记；标题添加声音的台词项只收集全书已标记台词，不朗读画面与动作说明。集成测试和本地既有13段台词预览通过，未生成新音频。"
+        }
+      ]
+    },
+    {
+      "id": "book-scene-shot-modules",
+      "name": "书稿场与镜头层级模块",
+      "status": "working",
+      "userValue": "在书页内按场组织多镜头，每镜保留图文、台词和音乐，移动或折叠整组内容并按新位置自动编号。",
+      "entryPoints": [
+        "client/src/features/publishingAlbum/BookBlockCanvas.tsx",
+        "client/src/features/publishingAlbum/ChapterTextModules.tsx"
+      ],
+      "owners": [
+        "shared/bookWritingStyle.ts",
+        "shared/bookBlockNumbering.ts",
+        "client/src/features/publishingAlbum/chapterBlockTree.ts",
+        "client/src/features/publishingAlbum/bookBlockLayout.ts",
+        "client/src/features/publishingAlbum/bookBlockSelection.ts",
+        "server/services/bookStoryboardModules.ts",
+        "client/src/features/publishingAlbum/bookOutlineSummary.ts",
+        "client/src/features/publishingAlbum/BookBlockCanvas.tsx",
+        "server/services/directBookStoryboard.ts"
+      ],
+      "evidence": [
+        "client/src/features/publishingAlbum/chapterBlockTree.test.ts",
+        "client/src/features/publishingAlbum/BookWritingContext.test.tsx",
+        "server/routers.chapters.test.ts",
+        "server/services/bookVideoSource.test.ts",
+        "server/services/publishingVideoStoryboard.test.ts",
+        "docs/qa/2026-11-06-book-scene-shot-modules.md",
+        "command:pnpm check",
+        "docs/qa/2026-11-06-launch-video-manuscript.md",
+        "docs/qa/2026-11-06-reusable-book-storyboard.md",
+        "docs/qa/2026-11-08-book-outline-overview.md",
+        "client/src/features/publishingAlbum/bookOutlineSummary.test.ts",
+        "docs/qa/2026-11-09-book-video-workflow.md",
+        "server/services/bookVideoCreation.test.ts"
+      ],
+      "invariants": [
+        "场/镜头是持久格式和parentId子树；编号从顺序与归属推导，不写进标题，不用显示序号替代稳定ID。",
+        "移动/折叠场或镜头携带完整子树，图片、台词、音乐及描述不丢；文字稿与仓库素材不批量重写，删除和多选沿用原撤销规则。",
+        "微信导入章目录与原章/节、台词、排版保持；显式镜头优先映射视频，旧第N幕稿保持原路径。",
+        "内容统计从实际子树派生，图像预览不复制媒体模块；配乐建议与镜头时长不能冒充已存在的音乐或音频时长。"
+      ],
+      "dependencies": [
+        "story-chapters",
+        "book-dialogue-classification"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "本地实现已验收，尚未部署；触屏真机、生产MySQL未复验。",
+        "视频端逐镜图片和台词已接入预览，但音乐精确入/出点及音效轨未接入；不完整混合结构需先整理，详见QA。",
+        "微信章节包仍有未携带全部writingStyle的既有缺口；旧客户端需刷新后再编辑新格式。"
+      ],
+      "history": [
+        {
+          "date": "2026-11-06",
+          "kind": "feature",
+          "summary": "原菜单新增场/镜头层级，章/节/场/镜头位置编号，跨场拖动、保存/重开、折叠、撤销及显式镜头视频映射。84文件626项全组回归后新增3项并复跑相关文件，累计629测试；主仓3000纯内存鼠标操作验证通过，未改真实数据、未付费生成或部署。"
+        },
+        {
+          "date": "2026-11-06",
+          "kind": "verification",
+          "summary": "故事1217真实书稿整理到章节9版本110：7场7镜，原23模块完整保留，4图归属1/0/3/0/0/0/0，13段原台词相等，版本108历史可恢复；浏览器重开与持久结构校验通过。V3方向已保存，逐镜预览遇文本超时和热更新中断，未采用，旧正式镜头不变。详见launch-video-manuscript QA。"
+        },
+        {
+          "date": "2026-11-06",
+          "kind": "fix",
+          "summary": "折叠场/镜头旁显示内部图片数量，避免误认为原图丢失；原层级、编号、折叠和图片数据保持，BookWritingContext52项及真实书页核对通过。"
+        },
+        {
+          "date": "2026-11-08",
+          "kind": "fix",
+          "summary": "场/镜与章/节统一父子转换和完整子树排序，拖到父单位边缘保持归属；镜头收起显示实存字数/台词/图片/音乐统计，展开先展示参考图。真实7场7镜与第三镜3图加载通过，150相关与77草稿安全测试、类型/账本通过。原文媒体/ID/两栏/撤销保留，无付费生成或部署。"
+        },
+        {
+          "date": "2026-11-08",
+          "kind": "fix",
+          "summary": "按用户反馈将场/章编号统一放大为26设计像素，导入章的展开与收起编号同步调整，沿用原位置和32像素编号行。53项现有编辑器测试及类型通过，3000截图确认场编号大于镜头编号，未改书稿内容或部署。"
+        },
+        {
+          "date": "2026-11-09",
+          "kind": "feature",
+          "summary": "接入双稿件及视频作品版本，保留原章修订、场镜模块和成品组合历史。"
+        },
+        {
+          "date": "2026-11-09",
+          "kind": "fix",
+          "summary": "按用户要求将当前显式场镜直接映射到视频表格，无AI改写、无新按钮；原台词/完整描述/时长/图片归属/声音引用保留。主仓3000真实1217的7场7镜、60秒、13段台词、4张图片及已有配乐导入通过；整书朗读明确待对齐。"
+        }
+      ]
+    },
+    {
+      "id": "book-storyboard-preparation",
+      "name": "书稿自动整理为可编辑分镜稿",
+      "status": "superseded",
+      "userValue": "从原书转视频入口先将全部原模块组织为场和镜头，沿用图文音频并保留可恢复原稿，用户可编辑后再确认视频。",
+      "entryPoints": [
+        "client/src/features/bookVideo/BookVideoChat.tsx",
+        "server/routers/bookVideo.ts"
+      ],
+      "owners": [
+        "server/services/bookStoryboardPreparation.ts",
+        "server/repositories/bookStoryboard.ts",
+        "client/src/features/bookVideo/bookPreparation.ts",
+        "client/src/features/publishingAlbum/ChapterWorkspace.tsx"
+      ],
+      "evidence": [
+        "server/services/bookStoryboardPreparation.test.ts",
+        "server/repositories/bookStoryboard.test.ts",
+        "server/routers/bookVideoPreparation.test.ts",
+        "client/src/features/bookVideo/BookVideoChat.test.tsx",
+        "client/src/features/bookVideo/bookPreparation.test.ts",
+        "docs/qa/2026-11-06-reusable-book-storyboard.md",
+        "command:pnpm check",
+        "docs/qa/2026-11-08-book-outline-overview.md"
+      ],
+      "invariants": [
+        "沿用原视频入口，仅对话内可选先整理；不自动购买媒体或采用正式视频。",
+        "模型仅提供原模块连续分组及未分类正文的台词建议；原文、媒体、模块ID、行ID、已标记台词不改写，漏项重排重复均拒绝。",
+        "所有章节版本与顺序匹配才原子保存，原稿写入版本历史；脏草稿不接受后台更新，跨账号或故事不刷新错页。",
+        "已有场/镜头直接沿用；旧排版独有未归属图片明确拒绝，不能静默丢失。",
+        "新生成分镜稿默认场展开、镜头详情收起；折叠只影响视图，不过滤源文字或媒体。"
+      ],
+      "dependencies": [
+        "story-chapters",
+        "book-scene-shot-modules",
+        "book-dialogue-classification",
+        "publishing-video-storyboard",
+        "text-compute-provider-routing"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "当前真实故事入口与素材核对通过，另一故事分组以模拟回归验证；真实模型分组质量、生产MySQL与触屏验收待补。",
+        "大于10万字或100镜明确拒绝；旧独立布局图片需先放到书内对应位置，镜头内音频精确入出点沿用既有缺口。",
+        "本地未提交/部署。"
+      ],
+      "history": [
+        {
+          "date": "2026-11-06",
+          "kind": "feature",
+          "summary": "默认勾选先整理分镜稿，先保存编辑器、原子组织章节并刷新干净草稿后进入原方向/逐镜确认流程；178相关测试及类型通过，实际入口已核对。"
+        },
+        {
+          "date": "2026-11-06",
+          "kind": "verification",
+          "summary": "真实故事V3逐镜预览已恢复：首轮文本90秒超时，已区分服务失败并为整片规划按镜数延长默认截止（最高180秒，显式配置优先），同模型复验7镜共60秒成功，13段原台词逐字一致、4张书图与旧生成画面2010可见。追加2项超时测试后累计180专项及类型通过，未采用正式视频或购买媒体；进度Page更新sequence10。"
+        },
+        {
+          "date": "2026-11-08",
+          "kind": "fix",
+          "summary": "新整理分镜稿默认展开场、收起镜头详情，让用户先看每场镜头及内容统计；生成保留全部原模块、媒体、ID和版本CAS。默认折叠与原素材保留测试通过，本轮不发起真实模型生成。"
+        },
+        {
+          "date": "2026-11-09",
+          "kind": "decision",
+          "summary": "用户确认双稿件、目的驱动互转与版本留存；原地分组入口退役，改写仅作用于待确认的目标稿，旧服务和历史保留。"
+        }
+      ],
+      "replacedBy": "book-workflow-versions"
+    },
+    {
+      "id": "video-edit-revisions",
+      "name": "视频剪辑自动修订",
+      "status": "working",
+      "userValue": "调整镜头后自动留存前后视频状态，在原历史入口核对镜头文字。",
+      "entryPoints": [
+        "client/src/features/creationEditor/VideoVersionHistory.tsx",
+        "server/routers/creationAgent.ts"
+      ],
+      "owners": [
+        "shared/videoEditHistory.ts",
+        "server/persistence/videoEditHistory.ts",
+        "server/persistence/storyVisualPersistence.ts",
+        "server/repositories/timelines.ts"
+      ],
+      "evidence": [
+        "server/persistence/videoEditHistory.test.ts",
+        "server/repositories/videoEditHistory.test.ts",
+        "server/services/visualClipEditing.test.ts",
+        "docs/qa/2026-11-07-unified-video-storyboard.md"
+      ],
+      "invariants": [
+        "正式视觉剪辑与兼容时间轴保存启用；快照与时间轴同一CAS事务提交，失败、冲突和相同内容不建修订。",
+        "保留稳定镜头、图像视频引用、字幕和音轨；快照不递归包含历史，保留最近30个状态。",
+        "本地与SQL均按Story再Timeline锁序；结构剪辑保存变更前后镜头。",
+        "不修改已完成成品，不自动采用待确认方案，不购买媒体。"
+      ],
+      "dependencies": [
+        "stable-shot-identity",
+        "storyboard-position-anchors",
+        "publishing-versions"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "历史可核对镜头文字，尚不支持整条时间轴恢复；媒体文件由原资产系统保管，快照只记录引用。",
+        "正文单元格改写继续使用原字段版本；独立音频/字幕及旧兼容素材采用不统一自动建剪辑快照，下一次正式剪辑会记录其当前基线。",
+        "生产MySQL真实并发未本轮实测；本地失败回滚、权限、冲突、撤销与无变化写入通过隔离测试。"
+      ],
+      "history": [
+        {
+          "date": "2026-11-07",
+          "kind": "feature",
+          "summary": "本地接通自动剪辑修订与原历史入口；6项仓储、2项纯快照和67项剪辑回归通过。未改变真实时间轴、未提交部署。"
+        }
+      ]
+    },
+    {
+      "id": "book-workflow-versions",
+      "name": "文字与分镜的目的驱动版本",
+      "status": "partial",
+      "userValue": "同一本书独立维护文字和分镜，按用途、受众和平台改编，预览确认后形成可追溯的新版本。",
+      "entryPoints": [
+        "client/src/features/publishingAlbum/ChapterWorkspace.tsx",
+        "client/src/features/publishingDraft/TextDraftVersions.tsx",
+        "server/routers/bookWorkflow.ts"
+      ],
+      "owners": [
+        "shared/bookWorkflow.ts",
+        "server/services/bookWorkflow.ts",
+        "server/services/manuscriptSnapshot.ts",
+        "server/repositories/bookWorkflow.ts",
+        "client/src/features/publishingDraft/FilmVersionDraft.tsx",
+        "client/src/features/publishingDraft/newVersionRequest.ts"
+      ],
+      "evidence": [
+        "server/services/bookWorkflow.test.ts",
+        "client/src/features/publishingAlbum/BookWorkflowControls.test.tsx",
+        "docs/qa/2026-11-09-book-video-workflow.md",
+        "server/services/bookVideoCreation.test.ts",
+        "client/src/features/publishingAlbum/ChapterWorkspace.test.tsx",
+        "client/src/features/publishingDraft/TextDraftVersions.test.tsx",
+        "docs/qa/2026-11-09-mobile-workflow-release.md"
+      ],
+      "invariants": [
+        "文字/分镜分别编号；自动保存只更新草稿，正式保存/采用/恢复或用户明确把当前分镜做成视频时才建立必要的来源版本。",
+        "记录时间、用途、受众、平台、发起/编辑/确认人、AI标记和来源；身份由服务端账号确定。",
+        "互转按创作意图改编；原稿、媒体、历史保留，采用前校验源和目标指纹。",
+        "恢复另建新版本并保留当前脏稿；普通故事保存不能伪造或抹除版本。"
+      ],
+      "dependencies": [
+        "story-chapters",
+        "book-scene-shot-modules",
+        "text-compute-provider-routing"
+      ],
+      "replaces": [
+        "book-storyboard-preparation"
+      ],
+      "knownGaps": [
+        "未执行真实模型转写、生产MySQL或触屏真机验收。",
+        "同一故事body上限4MiB、最多200个稿件版本/100次转换；达到上限拒绝写入并保留旧内容。",
+        "超过10万字不转换；旧排版独有媒体须先放入正文模块。",
+        "尚无书稿章节时，影片入口提示先建立文字书稿；真实模型改编质量和付费媒体渲染未在本轮验收。"
+      ],
+      "history": [
+        {
+          "date": "2026-11-09",
+          "kind": "feature",
+          "summary": "按用户确认替换原地分组流程，新增两类稿件和目的驱动互转；接口/交互/草稿保护测试及本地构建通过，未部署。"
+        },
+        {
+          "date": "2026-11-09",
+          "kind": "decision",
+          "summary": "用户实看认为按钮过多且难理解，要求一步一步调整；按截图删除书页三个新增按钮及展开表单，不新增替代按钮，不改已有稿件/历史与视频面板。"
+        },
+        {
+          "date": "2026-11-09",
+          "kind": "feature",
+          "summary": "按用户确认将书页收敛为版本/生成新版本，与聊天共用影片或文字选择和新想法输入；结合现有书稿与聊天形成新版本，分镜可反向生成文字，确认分镜衔接视频需求与素材表。中英文入口和主仓3000实点通过，保留原稿、来源与独立编号；本地未提交部署。"
+        },
+        {
+          "date": "2026-11-09",
+          "kind": "fix",
+          "summary": "已有分镜点击把书做成视频直接导入，文字稿仍先改编分镜；导入前固定当前分镜版本、作者及用途，不改写原稿。转换失败隐藏原始Zod JSON，保留失败记录和原稿。真实1217分镜V2/章9修订144原文保持。"
+        },
+        {
+          "date": "2026-11-09",
+          "kind": "verification",
+          "summary": "代码cfa6fe12已push main并生产部署，版本6b247713-cfad-4f08-831f-3cb9bdaa4536；174项产物哈希一致，真实域名手机页/编辑页/健康200，麦克风策略允许self，配置/依赖/迁移元数据不变。登录态生产UI、手机新图片和系统分享未新增验收；既有功能状态及缺口不因部署升级。"
+        }
+      ]
+    },
+    {
+      "id": "video-workflow-versions",
+      "name": "视频作品快照与来源追溯",
+      "status": "working",
+      "userValue": "书稿修改后规划新视频，旧视频的镜头、剪辑、素材、字幕、音轨及导出记录可独立追溯。",
+      "entryPoints": [
+        "client/src/features/creationEditor/VideoWorkflowControls.tsx",
+        "server/routers/videoWorkflow.ts",
+        "client/src/features/bookVideo/BookVideoChat.tsx"
+      ],
+      "owners": [
+        "shared/videoWorkflow.ts",
+        "server/services/videoWorkflow.ts",
+        "server/services/bookVideoCreation.ts",
+        "server/services/videoExport.ts",
+        "server/services/directBookStoryboard.ts",
+        "server/services/publishingVideoStoryboardPersistence.ts"
+      ],
+      "evidence": [
+        "server/services/videoWorkflow.test.ts",
+        "server/services/bookVideoCreation.test.ts",
+        "client/src/features/creationEditor/VideoWorkflowControls.test.tsx",
+        "client/src/features/bookVideo/BookVideoChat.test.tsx",
+        "docs/qa/2026-11-09-book-video-workflow.md",
+        "client/src/features/publishingDraft/PublishingDraftWorkspace.test.tsx",
+        "docs/qa/2026-11-09-mobile-workflow-release.md"
+      ],
+      "invariants": [
+        "文字稿先转换并采用分镜；用户明确将当前分镜做成视频时直接固定必要来源版本并导入表格，AI改编仍走预览确认。",
+        "视频独立编号并固定来源分镜/文字版本、用途、时间和作者；旧作品来源缺失如实展示。",
+        "书稿更新只提示；采用新方案前保留上一版剪辑快照，费用确认和算力释放不变。",
+        "导出指定不可变快照并保存成功/失败记录，旧快照不随当前剪辑改变；同一导出请求幂等。",
+        "旧成品组合/视频方案/自动修订历史继续可查看，不替换原有成品模型编号。"
+      ],
+      "dependencies": [
+        "book-workflow-versions",
+        "publishing-versions",
+        "publishing-video-storyboard"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "整版视频恢复到编辑器尚未提供；本轮支持快照查看和指定版本导出。",
+        "媒体引用随版本保存，源媒体文件若被外部删除仍会明确导出失败；不复制媒体二进制。",
+        "最多100个视频快照并共享4MiB故事容量；真实模型/生产MySQL/真机未验收。",
+        "整书台词音频作为已有素材引用保留，尚不自动逐镜对齐；字幕按分镜时段分配，不声称语音级同步，配乐沿用素材实际时长。"
+      ],
+      "history": [
+        {
+          "date": "2026-11-09",
+          "kind": "feature",
+          "summary": "新增视频快照和导出回执；冻结来源、音轨、字幕及旧音频URL，测试覆盖旧稿保留、并发拒绝、账号隔离、失败回滚与幂等。"
+        },
+        {
+          "date": "2026-11-09",
+          "kind": "fix",
+          "summary": "当前分镜直接导入新视频，服务端验证账号/源指纹并保留来源，复用同请求不重复版本；原子冻结旧视频后建立新镜头身份、时段/字幕，避免旧图片/剪辑覆盖新稿，重置配乐复用标记使当前配乐仍入轨。主仓3000实际最终视频V6来自分镜V2，7镜60秒、13段台词/字幕、4图及音乐14；原稿未变、旧视频与素材保留，无付费调用。定向5文件75项及类型/构建通过。"
+        },
+        {
+          "date": "2026-11-09",
+          "kind": "verification",
+          "summary": "发布前整合验收：全量6914项、小程序215项通过；隔离MySQL73项通过/1项跳过，生产41条迁移哈希一致。手机实时听写与手机到电脑文字获用户确认；素材新图片、双手机系统分享及旧转写上游仍保留缺口。分镜直入表格本地7镜60秒及原图/声音引用已验收，付费成片与逐镜朗读对齐未验收。"
+        },
+        {
+          "date": "2026-11-09",
+          "kind": "verification",
+          "summary": "代码cfa6fe12已push main并生产部署，版本6b247713-cfad-4f08-831f-3cb9bdaa4536；174项产物哈希一致，真实域名手机页/编辑页/健康200，麦克风策略允许self，配置/依赖/迁移元数据不变。登录态生产UI、手机新图片和系统分享未新增验收；既有功能状态及缺口不因部署升级。"
         }
       ]
     }
   ],
   "schemaVersion": 1,
-  "updatedAt": "2026-11-06"
+  "updatedAt": "2026-11-10"
 }

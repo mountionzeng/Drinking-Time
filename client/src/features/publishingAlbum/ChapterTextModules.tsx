@@ -114,8 +114,10 @@ export function ChapterTextModules({ footerActions, importedChapterIds, prepareM
         const previousIndex = previousUrl ? latest.findIndex(b => bookImageUrl(b.text) === previousUrl) : -1;
         const anchor = Math.max(...sources.map(source => latest.findIndex(b => b.id === source.id)));
         const at = previousIndex >= 0 ? previousIndex : isHeading(latest[anchor]) ? blockSubtreeEnd(latest, anchor) : anchor + 1;
-        const next = previousIndex >= 0 ? latest.map((b,i) => i === at ? { ...b, text: bookImageText(url) } : b)
-          : [...latest.slice(0, at), newWritingBlock(bookImageText(url), latest[anchor].parentId), ...latest.slice(at)];
+        let next = previousIndex >= 0 ? latest.map((b,i) => i === at ? { ...b, text: bookImageText(url) } : b)
+          : [...latest.slice(0, at), newWritingBlock(bookImageText(url), latest[anchor].format === 'scene' || latest[anchor].format === 'shot' ? latest[anchor].id : latest[anchor].parentId), ...latest.slice(at)];
+        if (previousIndex < 0 && (latest[anchor].format === 'scene' || latest[anchor].format === 'shot'))
+          next = next.map(b => b.id === latest[anchor].id ? {...b, collapsed:false} : b);
         if (blockBody(next).length > 200000) throw new Error('文章已达到长度上限');
         commitLatest.current(next, writingBlockOffset(next, at), false);
         // Wait for the editor's state/save closure to see the inserted block.
@@ -450,17 +452,14 @@ export function ChapterTextModules({ footerActions, importedChapterIds, prepareM
       if (image && latest.blocks.some(block => readBookImage(block.text)?.url === image.url)) { setConversion(null); return; }
       if(latest.disabled || index<0 || parts.some(part=>latest.blocks.find(b=>b.id===part.id)?.text!==part.text))throw new Error('原模块已变化，结果仍保留，请重新选择插入位置');
       const current=latest.blocks[index], at=isHeading(current)?blockSubtreeEnd(latest.blocks,index):index+1;
-      const added=newWritingBlock(text,current.parentId),next=[...latest.blocks.slice(0,at),added,...latest.blocks.slice(at)];
+      const container=current.format==='scene'||current.format==='shot';
+      const added=newWritingBlock(text,container?current.id:current.parentId),next=[...latest.blocks.slice(0,at),added,...latest.blocks.slice(at)].map(b=>container&&b.id===current.id?{...b,collapsed:false}:b);
       if(blockBody(next).length>200000)throw new Error('文章过长，无法插入');
       commitLatest.current(next,writingBlockOffset(next,at),false);setActiveId(added.id);setConversion(null);
     }}/>}
-    {contextSource && !comparison && <div className="flex flex-wrap items-center gap-3"><BookVideoStartButton storyId={contextSource.storyId} disabled={disabled} />{footerActions}<BookMusicInsert key={formatScope} storyId={contextSource.storyId} disabled={disabled} prepare={prepareMedia} onInsert={text => {
-      const index=blocks.findIndex(block=>block.id===activeId), selected=blocks[index];
-      const current=selected && importedChapterIds?.includes(selected.id) ? {...selected,collapsed:false} : selected;
-      const at=index<0?blocks.length:isHeading(current)&&current.collapsed?blockSubtreeEnd(blocks,index):index+1;
-      const parent=current?isHeading(current)&&!current.collapsed?current.id:current.parentId:null;
-      const audio=newWritingBlock(text,parent), next=[...blocks.slice(0,at),audio,...blocks.slice(at)];
-      commit(next,writingBlockOffset(next,at),false);setActiveId(audio.id);
+    {contextSource && !comparison && <div className="flex flex-wrap items-center gap-3"><BookVideoStartButton storyId={contextSource.storyId} disabled={disabled} />{footerActions}<BookMusicInsert key={formatScope} storyId={contextSource.storyId} disabled={disabled} wholeBook={{ chapterId: Number(contextSource.chapterId), kind: blocks.some(block => block.format === "shot") ? "storyboard" : "text" }} prepare={prepareMedia} onInsert={text => {
+      const audio=newWritingBlock(text), next=[audio,...blocks];
+      commit(next,0,false);setActiveId(audio.id);
     }}/></div>}
     {cacheError && <p role="alert" className="text-xs text-destructive">{_ui("本机无法保存模块格式，请暂时不要关闭页面。")}</p>}
   </section>;

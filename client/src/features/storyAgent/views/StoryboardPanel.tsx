@@ -71,6 +71,7 @@ export function currentStoryboardImages(
 }
 
 export default function StoryboardPanel({
+  presentation = "editing",
   defaultViewMode = "full",
   embeddedEditorMode = false,
   headerAction,
@@ -82,6 +83,7 @@ export default function StoryboardPanel({
   videoClipboardLabel = null,
   boardTimeline,
 }: {
+  presentation?: "manuscript" | "editing";
   defaultViewMode?: "full" | "simple";
   embeddedEditorMode?: boolean;
   boardTimeline?: StoryboardBoardTimeline;
@@ -230,6 +232,7 @@ export default function StoryboardPanel({
 
   return (
     <StoryboardReviewBoard
+      presentation={presentation}
       storyId={activeStoryId}
       materialState={materialState}
       images={generatedImages}

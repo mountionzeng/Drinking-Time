@@ -1,3 +1,5 @@
+import { NEW_VERSION_EVENT, type NewVersionRequest } from "./newVersionRequest";
+import { FilmVersionDraft } from "./FilmVersionDraft";
 import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { useEffect, useRef, useState } from "react";
 import { Loader2, Plus } from "lucide-react";
@@ -53,6 +55,8 @@ export function TextDraftVersions({
   const utils = trpc.useUtils();
   const [open, setOpen] = useState(false);
   const [directionOpen, setDirectionOpen] = useState(false);
+  const [presentation, setPresentation] = useState<"film" | "text" | null>(null);
+  const [newThoughts, setNewThoughts] = useState("");
   const [articleOptions, setArticleOptions] = useState<ArticleGenerationOptions>(DEFAULT_ARTICLE_OPTIONS);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [edited, setEdited] = useState<TextDraftContent | null>(null);
@@ -103,6 +107,7 @@ export function TextDraftVersions({
   const currentWriting = writingSource?.storyId === storyId &&
     writingSource.accountId === spine.accountId && writingSource.epoch === spine.storyScopeEpoch
     ? writingSource : null;
+  const convertingToText = currentWriting?.snapshot.manuscriptKind === "storyboard";
   const hasExistingText = versions.length > 0 || Boolean(
     (currentWriting?.snapshot.draft ?? visibleDraft?.body)?.trim()
   );
@@ -145,6 +150,23 @@ export function TextDraftVersions({
     return () =>
       window.removeEventListener("dt:open-text-version-history", openHistory);
   }, [latest, versions]);
+
+  function openGeneration(request?: NewVersionRequest) {
+    if (busy || blocked) return;
+    setPresentation(request?.presentation ?? null);
+    setNewThoughts(request?.instruction ?? "");
+    setDirectionOpen(true);
+  }
+  useEffect(() => {
+    const listener = (event: Event) => {
+      const detail = (event as CustomEvent<NewVersionRequest>).detail;
+      if (detail?.storyId !== storyId || (detail.accountId !== undefined && detail.accountId !== storySpineStore.getState().accountId)) return;
+      openGeneration(detail);
+    };
+    window.addEventListener(NEW_VERSION_EVENT, listener);
+    return () => window.removeEventListener(NEW_VERSION_EVENT, listener);
+  }, [storyId, blocked, busy]);
+  useEffect(() => { setDirectionOpen(false); setPresentation(null); setNewThoughts(""); }, [storyId, spine.accountId]);
 
   function selectVersion(version: TextDraftVersion) {
     if (
@@ -230,7 +252,7 @@ export function TextDraftVersions({
         writingSnapshot?.draft === basis?.body
           ? writingSnapshot?.selection
           : undefined;
-      const instruction = articleGenerationInstruction(articleOptions, input);
+      const instruction = articleGenerationInstruction(articleOptions, [input, newThoughts].filter(Boolean).join("\n"));
       const result = await generate.mutateAsync({
         storyId: id,
         operationToken: crypto.randomUUID(),
@@ -377,7 +399,7 @@ export function TextDraftVersions({
         <button
           type="button"
           className={`${compactButtonClass} text-[var(--nayin-accent)]`}
-          onClick={() => setDirectionOpen(true)}
+          onClick={() => openGeneration()}
           disabled={blocked || busy || query.isError}
         >
           {busy ? (
@@ -402,17 +424,25 @@ export function TextDraftVersions({
           {_ui("文字历史读取失败，点击重试")}</button>
       )}
       <Dialog open={directionOpen} onOpenChange={setDirectionOpen}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>
               {hasExistingText ? _ui("生成新版本") : _ui("生成文章")}
             </DialogTitle>
             <DialogDescription>
-              {hasExistingText
-                ? _ui("为当前故事生成新的文字版本，旧版本会保留。")
-                : _ui("把当前故事的内容整理成第一篇文章。")}
-              {_ui("生成依据：当前书稿（如有）和本故事的聊天内容。")}</DialogDescription>
+              {_ui("根据当前书稿、聊天和新的想法生成，旧版本会保留。")}</DialogDescription>
           </DialogHeader>
+          <label className="grid gap-1 text-sm">{_ui("这次有什么新想法？（选填）")}
+            <textarea aria-label={_ui("新的想法")} className="rounded-md border bg-background p-3" rows={3} maxLength={2000} value={newThoughts} onChange={event => setNewThoughts(event.target.value)} placeholder={_ui("想表达什么、给谁看、准备发在哪里……")} />
+          </label>
+          <fieldset className="space-y-2"><legend className="mb-2 text-sm">{_ui("这次想做成影片，还是直接用文字呈现？")}</legend>
+            <div className="flex gap-4">{([["film", "做成影片"], ["text", "文字呈现"]] as const).map(([value, label]) => <label key={value} className="flex items-center gap-2 text-sm"><input type="radio" name="version-presentation" value={value} checked={presentation === value} onChange={() => setPresentation(value)} />{_ui(label)}</label>)}</div>
+          </fieldset>
+          {presentation === "film" && storyId && storyId > 0 && <FilmVersionDraft key={`${spine.accountId}:${storyId}`} storyId={storyId} request={[input, newThoughts].filter(Boolean).join("\n")} blocked={blocked} onDone={() => setDirectionOpen(false)} />}
+          {presentation === "film" && (!storyId || storyId <= 0) && <p className="text-sm text-muted-foreground">{_ui("先把聊天生成文字稿，再继续制作影片。")}</p>}
+          {presentation === "text" && convertingToText && storyId && <FilmVersionDraft key={`text:${spine.accountId}:${storyId}`} target="text" storyId={storyId} request={[input, newThoughts].filter(Boolean).join("\n")} blocked={blocked} onDone={() => setDirectionOpen(false)} />}
+          {presentation === "text" && !convertingToText && <>
+          <details><summary className="cursor-pointer text-sm text-muted-foreground">{_ui("文字要求（选填）")}</summary>
           <div className="grid gap-4">
             <label className="grid gap-1 text-sm">{_ui("内容性质")}<select aria-label={_ui("内容性质")} className="min-h-10 rounded-md border bg-background px-3" value={articleOptions.nature}
                 onChange={event => setArticleOptions(previous => ({ ...previous, nature: event.target.value as ArticleGenerationOptions["nature"] }))}>
@@ -435,6 +465,7 @@ export function TextDraftVersions({
                 value={articleOptions.requirements} onChange={event => setArticleOptions(previous => ({ ...previous, requirements: event.target.value }))} />
             </label>
           </div>
+          </details>
           <div className="flex justify-end gap-2">
             <button
               type="button"
@@ -445,6 +476,7 @@ export function TextDraftVersions({
               {busy ? _ui("正在生成…") : hasExistingText ? _ui("生成新版本") : _ui("生成文章")}
             </button>
           </div>
+          </>}
         </DialogContent>
       </Dialog>
       <Dialog

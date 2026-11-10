@@ -240,7 +240,8 @@ export async function generateDailyLetterViaAttempt(
     });
 
     refreshed.dailyReference.workSources = refreshed.source === "local-template" ? [] :
-      authoredWorks.map(({ storyId, title, savedOn }) => ({ storyId, title, savedOn }));
+      authoredWorks.map(({ storyId, title, savedOn, savedAt }) => ({ storyId, title, savedOn,
+        ...(savedAt ? { savedAt } : {}) }));
 
     const committed = await commitAttempt({
       attemptId: begun.attempt.id,

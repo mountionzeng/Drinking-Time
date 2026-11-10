@@ -1,5 +1,7 @@
 import { and, asc, desc, eq } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
+import { manuscriptRows } from "./bookWorkflow";
+import type { ManuscriptKind } from "../../shared/bookWorkflow";
 import {
   chapterExports,
   chapterImports,
@@ -54,11 +56,13 @@ async function persistLocal<T>(run: () => T, undo: () => void): Promise<T> {
 
 export async function listChapters(
   storyId: number,
-  userId: number
+  userId: number,
+  kind?: ManuscriptKind | "all"
 ): Promise<StoryChapter[]> {
   const db = await getDb();
+  const select = (rows: StoryChapter[]) => kind === "all" ? rows.filter(row => !row.blocks.manuscriptArchived) : manuscriptRows(rows, kind);
   if (db)
-    return db
+    return select(await db
       .select()
       .from(storyChapters)
       .where(
@@ -67,11 +71,11 @@ export async function listChapters(
           eq(storyChapters.userId, userId)
         )
       )
-      .orderBy(asc(storyChapters.position), asc(storyChapters.id));
-  return memoryState.storyChapters
+      .orderBy(asc(storyChapters.position), asc(storyChapters.id)));
+  return select(memoryState.storyChapters
     .filter(row => row.storyId === storyId && row.userId === userId)
     .sort((a, b) => a.position - b.position || a.id - b.id)
-    .map(row => structuredClone(row));
+    .map(row => structuredClone(row)));
 }
 
 export async function getChapter(
@@ -98,7 +102,7 @@ export async function insertChapter(input: {
   userId: number;
   content: ChapterContent;
 }): Promise<StoryChapter> {
-  const existing = await listChapters(input.storyId, input.userId);
+  const existing = await listChapters(input.storyId, input.userId, input.content.blocks.manuscriptKind);
   if (existing.length >= CHAPTER_MAX_PER_STORY)
     throw new TRPCError({ code: "BAD_REQUEST", message: "这个故事的章节已满" });
   const position = existing.length
@@ -188,7 +192,7 @@ export async function saveChapterContent(input: {
   reason: string;
   candidateId?: number;
 }): Promise<StoryChapter> {
-  const nextBlocks = (row: StoryChapter) => input.content.blocks ?? row.blocks;
+  const nextBlocks = (row: StoryChapter) => ({ ...(input.content.blocks ?? row.blocks), manuscriptKind: row.blocks.manuscriptKind, manuscriptArchived: row.blocks.manuscriptArchived });
   const db = await getDb();
   if (db) {
     return db.transaction(async tx => {
@@ -202,7 +206,7 @@ export async function saveChapterContent(input: {
           )
         )
         .for("update");
-      if (!row) throw gone();
+      if (!row || row.blocks.manuscriptArchived) throw gone();
       if (row.version !== input.expectedVersion) throw conflict();
       if (input.candidateId) {
         const [candidate] = await tx
@@ -246,7 +250,7 @@ export async function saveChapterContent(input: {
     const row = memoryState.storyChapters.find(
       item => item.id === input.id && item.userId === input.userId
     );
-    if (!row) throw gone();
+    if (!row || row.blocks.manuscriptArchived) throw gone();
     if (row.version !== input.expectedVersion) throw conflict();
     const candidate = input.candidateId
       ? memoryState.chapterReturnCandidates.find(
@@ -376,9 +380,10 @@ export async function deleteChapter(id: number, userId: number): Promise<void> {
 export async function reorderChapters(
   storyId: number,
   userId: number,
-  order: number[]
+  order: number[],
+  kind?: ManuscriptKind
 ): Promise<void> {
-  const rows = await listChapters(storyId, userId);
+  const rows = await listChapters(storyId, userId, kind);
   const ids = new Set(rows.map(row => row.id));
   if (
     order.length !== ids.size ||

@@ -2,6 +2,16 @@ import { describe, expect, it } from "vitest";
 
 import { mergeStaleStoryBody, prepareStoryBody } from "./storySync";
 
+it("does not accept forged manuscript/video version history from generic browser saves", () => {
+  const bookWorkflow = { schemaVersion: 1, versions: [{ author: { userId: 1 } }] };
+  const videoWorkflow = { schemaVersion: 1, versions: [{ id: "saved-video" }] };
+  const server = { _revision: 2, shots: [], bookWorkflow, videoWorkflow };
+  const incoming = { shots: [], bookWorkflow: { versions: [] }, videoWorkflow: { versions: [] } };
+  expect(prepareStoryBody(incoming, 3, server)).toMatchObject({ bookWorkflow, videoWorkflow });
+  expect(mergeStaleStoryBody(server, incoming, 3)).toMatchObject({ bookWorkflow, videoWorkflow });
+  expect(prepareStoryBody(incoming, 1, { shots: [] }).bookWorkflow).toBeUndefined();
+});
+
 it("preserves server text history during a stale browser save without accepting forged history", () => {
   const textDraftHistory = { revision: 2, versions: [{ id: "paid-generation", status: "ready" }] };
   const server = { _revision: 3, shots: [], textDraftHistory };

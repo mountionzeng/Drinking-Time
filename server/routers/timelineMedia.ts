@@ -1,3 +1,4 @@
+import { wholeBookSoundSchema } from "../../shared/bookSound";
 import { getMediaTaskStatus, mediaTaskAsyncSubmitEnabled, runSyncMediaInBackground } from "../services/mediaTaskSwitch";
 import { listChapters, listChapterVersions } from "../repositories/chapters";
 import { readBookAudio } from "../../shared/bookAudioBlock";
@@ -574,7 +575,7 @@ export const timelineMediaRouter = router({
         kind: generatedAudioKind,
         targetFrame: frame,
         scope: z.enum(["shot", "from-shot", "story", "book"]).default("shot"),
-        bookTarget: z.object({chapterId:z.number().int().positive(),moduleId:z.string().min(1).max(100),moduleIds:z.array(z.string().min(1).max(100)).min(2).max(50).optional()}).optional(),
+        bookTarget: z.object({wholeBook:wholeBookSoundSchema.optional(),chapterId:z.number().int().positive(),moduleId:z.string().min(1).max(100),moduleIds:z.array(z.string().min(1).max(100)).min(2).max(50).optional()}).optional(),
         intent: z.string().trim().max(800).optional(),
       })
     )
@@ -727,7 +728,7 @@ export const timelineMediaRouter = router({
           track.clips.some(clip => clip.assetId === input.assetId)
         );
         if (used) return { status: "error" as const, message: "这份声音正在时间线上使用，请先删除时间线片段" };
-        const chapters = await listChapters(input.storyId, ctx.user.id);
+        const chapters = await listChapters(input.storyId, ctx.user.id, "all");
         for (const chapter of chapters) {
           const versions = await listChapterVersions(chapter.id, ctx.user.id);
           if ([chapter, ...versions].some(row => row.blocks.body.split('\n').some(line => {

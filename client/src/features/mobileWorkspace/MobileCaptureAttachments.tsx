@@ -2,11 +2,35 @@ import React, { useEffect, useRef, useState } from "react";
 import { Paperclip, Mic, Square, X } from "lucide-react";
 import { CAPTURE_STATUS_LABELS } from "@shared/materialCapture";
 import type { useMaterialCapture } from "./useMaterialCapture";
-import { CaptureShareSetup } from "./CaptureShareSetup";
 export type CaptureController = ReturnType<typeof useMaterialCapture>;
+const captureFileAccept = "image/jpeg,image/png,image/webp,audio/*,.m4a,.mp3,.wav,.ogg,.webm";
 
-export function MobileCaptureButton({capture}:{capture:CaptureController}) {
-  return <button type="button" className="size-11 shrink-0 rounded-full text-primary" aria-label="添加素材" title="添加素材" disabled={!capture.ready || capture.busy} onClick={() => capture.activate()}><Paperclip className="mx-auto size-5" /></button>;
+export function MobileCaptureButton({capture,disabled=false}:{capture:CaptureController;disabled?:boolean}) {
+  const input = useRef<HTMLInputElement>(null);
+  const blocked = disabled || !capture.ready || capture.busy || capture.locked || capture.recording;
+  return <>
+    <input ref={input} type="file" aria-label="选择图片或录音文件" accept={captureFileAccept} multiple hidden disabled={blocked}
+      onChange={event => {
+        const files = Array.from(event.target.files || []);
+        event.target.value = "";
+        if (!blocked && files.length) capture.addFiles(files);
+      }} />
+    <button type="button" className="flex size-11 shrink-0 items-center justify-center rounded-full text-primary disabled:opacity-40" aria-label="添加素材" title="添加图片或录音" disabled={blocked} onClick={() => {
+      if (blocked) return;
+      // Keep the native picker in the tap gesture, including on iOS Safari.
+      capture.activate();
+      input.current?.click();
+    }}><Paperclip aria-hidden className="size-5" /></button>
+  </>;
+}
+export function MobileCaptureRecordButton({capture,disabled=false}:{capture:CaptureController;disabled?:boolean}) {
+  const label = capture.recording ? "结束录音" : "录一段";
+  return <button type="button" aria-label={label} title={label} aria-pressed={capture.recording}
+    className={`flex size-11 shrink-0 items-center justify-center rounded-full text-primary disabled:opacity-40 ${capture.recording ? "bg-primary/10" : ""}`}
+    disabled={!capture.recording && (disabled || !capture.ready || capture.busy || capture.locked)}
+    onClick={() => void (capture.recording ? capture.stopRecording() : capture.startRecording())}>
+    {capture.recording ? <Square aria-hidden className="size-4"/> : <Mic aria-hidden className="size-5"/>}
+  </button>;
 }
 function Attachment({file,onRemove,disabled}:{file:File;onRemove:()=>void;disabled:boolean}) {
   const [url,setUrl] = useState("");
@@ -18,21 +42,13 @@ function Attachment({file,onRemove,disabled}:{file:File;onRemove:()=>void;disabl
   </div>;
 }
 export function MobileCaptureAttachments({capture}:{capture:CaptureController}) {
-  const input = useRef<HTMLInputElement>(null), [setup,setSetup] = useState(false);
   if(!capture.active && !capture.error) return null;
+  if(!capture.files.length && !capture.error && !capture.locked && !capture.recording) return null;
   return <div className="mx-auto max-w-2xl pb-2 text-xs">
     {capture.active && <>
-      <div className="flex items-center justify-between gap-2"><span>发送后整理为新故事，原件保留</span><button type="button" className="min-h-9 px-2 text-muted-foreground" onClick={capture.cancel} disabled={capture.busy || capture.locked || capture.recording}>返回聊天</button></div>
       {!!capture.files.length && <div className="flex gap-2 overflow-x-auto py-2">{capture.files.map((file,index) => <Attachment key={`${index}:${file.name}`} file={file} disabled={capture.busy || capture.locked || capture.recording} onRemove={() => capture.removeFile(index)} />)}</div>}
-      <div className="flex flex-wrap items-center gap-3">
-        <input ref={input} type="file" accept="image/jpeg,image/png,image/webp,audio/*,.m4a,.mp3,.wav,.ogg,.webm" multiple hidden onChange={event => {capture.addFiles(Array.from(event.target.files || []));event.target.value="";}} />
-        <button type="button" className="min-h-9 text-primary" disabled={capture.busy || capture.locked || capture.recording} onClick={() => input.current?.click()}>图片／录音文件</button>
-        <button type="button" className="inline-flex min-h-9 items-center gap-1 text-primary" disabled={capture.busy} onClick={() => void (capture.recording ? capture.stopRecording() : capture.startRecording())}>{capture.recording ? <Square className="size-3"/> : <Mic className="size-3"/>}{capture.recording ? "结束录音" : "录一段"}</button>
-        <button type="button" className="ml-auto min-h-9 text-muted-foreground" onClick={() => setSetup(value => !value)}>从其他 App 发送</button>
-      </div>
-      {capture.locked && <p role="status">素材已发起提交。再次发送会确认同一批素材，不会重复创建。</p>}
-      {capture.recording && <p role="status">正在录音，最长10分钟。结束后可移除附件。</p>}
-      {setup && <CaptureShareSetup userId={capture.userId} />}
+      {capture.locked && <p role="status">{capture.busy ? "正在整理素材…" : "素材待确认，可再次发送"}</p>}
+      {capture.recording && <p role="status">正在录音…</p>}
     </>}
     {capture.error && <p role="alert" className="py-1 text-destructive">{capture.error}</p>}
   </div>;

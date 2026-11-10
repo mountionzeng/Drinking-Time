@@ -2,7 +2,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, expect, it, vi } from "vitest";
 import { UiLanguageContext } from "@/features/uiLanguage/UiLanguage";
-import { DailyLetterBody } from "./DailyLetterBody";
+import { DailyLetterBody, DailyLetterDate } from "./DailyLetterBody";
 const mocks = vi.hoisted(() => ({ query: vi.fn() }));
 vi.mock("@/lib/trpc", () => ({ trpc: { emotionAnalysis: { translatedDailyLetter: { useQuery: mocks.query } } } }));
 const source = "今天，慢慢来。";
@@ -12,6 +12,18 @@ function render(language: "zh" | "en") {
   </UiLanguageContext.Provider>);
 }
 beforeEach(() => { mocks.query.mockReset(); });
+it("labels both calendars and clarifies the archived lunar reference without a model request", () => {
+  const source = "今天是中国记者日，也是九月最后一天，慢慢来。";
+  const html = renderToStaticMarkup(<>
+    <DailyLetterDate date="2026-11-08" />
+    <DailyLetterBody summary={source} date="2026-11-08" />
+  </>);
+  expect(html).toContain("公历 2026-11-08");
+  expect(html).toContain("农历 九月三十");
+  expect(html).toContain("也是农历九月最后一天");
+  expect(source).toContain("也是九月最后一天");
+  expect(mocks.query).not.toHaveBeenCalled();
+});
 it("keeps Chinese unchanged without requesting a translation", () => {
   expect(render("zh")).toContain(source);
   expect(mocks.query).not.toHaveBeenCalled();

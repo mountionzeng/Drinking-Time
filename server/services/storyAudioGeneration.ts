@@ -387,7 +387,7 @@ async function currentContext(input: {
   if (input.scope === "book") {
     const story = await loadOwnedStory(input);
     if (!story) throw new Error("故事不存在");
-    const chapters = await listChapters(input.storyId, input.userId);
+    const chapters = await listChapters(input.storyId, input.userId, "all");
     const body = chapters.map(chapter => chapter.blocks.body).join("\n").replace(/!\[[^\]]*\]\([^\n]*\)/g, "").trim();
     if (!body) throw new Error("请先保存书中的文字，再生成音乐");
     return { stableShotId: "book", shotNo: 0, endShotNo: 0, startFrame: 0, durationFrames: 900,

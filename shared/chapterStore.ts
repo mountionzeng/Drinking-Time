@@ -16,6 +16,9 @@ export const CHAPTER_MAX_PER_STORY = 100;
 
 /** One nonblank body line per blockId. Layout stores bindings; it never stores another text copy. */
 export type StoredChapterBlocks = {
+  manuscriptKind?: "text" | "storyboard";
+  /** Replaced draft rows remain addressable by history, but cannot be edited. */
+  manuscriptArchived?: boolean;
   /** Immutable import provenance; normal saves preserve this receipt separately from prose. */
   wechatImport?: {
     storyId: string; revisionId: string; version: number; importedAt: string;

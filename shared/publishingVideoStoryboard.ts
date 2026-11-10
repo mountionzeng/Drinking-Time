@@ -52,6 +52,7 @@ export type PublishingVideoScriptSegment = {
 
 export type PublishingVideoStoryboardShot = {
   draftShotId: string;
+  sourceModuleIds?: string[];
   /** Non-owning reference to an existing same-story illustration. */
   referenceImageId?: number;
   /** Book-act reference pictures; none is implicitly adopted as a first frame. */
@@ -364,6 +365,7 @@ function normalizeShot(value: unknown): PublishingVideoStoryboardShot | null {
   const stableShotId = stringValue(record.stableShotId).trim();
   return {
     draftShotId,
+    ...(Array.isArray(record.sourceModuleIds) ? {sourceModuleIds:stringArray(record.sourceModuleIds)} : {}),
     ...(Array.isArray(record.referenceImageIds) ? {
       referenceImageIds: [...new Set(record.referenceImageIds.filter(
         (id): id is number => typeof id === "number" && Number.isSafeInteger(id) && id > 0

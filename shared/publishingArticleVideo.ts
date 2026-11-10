@@ -17,6 +17,8 @@ export const publishingArticleLayoutSchema = z.object({
   /** Server-resolved book acts. Pictures guide the act, never become separate shots. */
   bookScenes: z.array(z.object({
     id: z.string().min(1),
+    sourceKind: z.literal('shot').optional(),
+    sourceModuleIds: z.array(z.string().min(1)).max(20000).optional(),
     text: z.string().min(1).max(100_000),
     dialogueText: z.string().max(100_000).optional(),
     referenceImageIds: z.array(z.number().int().positive()).max(100),
@@ -42,6 +44,8 @@ export type PublishingArticleLayout = z.infer<
 >;
 export type PublishingArticleVideoRow = {
   id: string;
+  sourceModuleIds?: string[];
+  sourceKind?: 'shot';
   text: string;
   voiceText: string;
   dialogueText?: string;
@@ -59,6 +63,8 @@ export function publishingArticleVideoRows(
   if (layout.bookScenes?.length) {
     return layout.bookScenes.map(scene => ({
       id: scene.id, text: scene.text, voiceText: scene.text,
+      ...(scene.sourceModuleIds ? {sourceModuleIds:scene.sourceModuleIds} : {}),
+      ...(scene.sourceKind ? {sourceKind:scene.sourceKind} : {}),
       ...(scene.dialogueText !== undefined ? {dialogueText:scene.dialogueText} : {}),
       referenceImageIds: [...new Set(scene.referenceImageIds)],
     }));
@@ -179,6 +185,7 @@ export function buildPublishingArticleVideoPreview(input: {
       };
       return {
         draftShotId: row.id,
+        ...(row.sourceModuleIds ? {sourceModuleIds:[...row.sourceModuleIds]} : {}),
         beat:
           index === 0
             ? "开场"

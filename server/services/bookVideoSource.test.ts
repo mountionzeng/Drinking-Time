@@ -1,5 +1,7 @@
 import { beforeEach, expect, it, vi } from "vitest";
 import { bookAudioText } from "../../shared/bookAudioBlock";
+import { blockBody, writingStyleOf, moveWritingBlock, type WritingBlock } from '../../client/src/features/publishingAlbum/chapterBlockTree';
+import { publishingArticleVideoRows, buildPublishingArticleVideoPreview, publishingArticleLayoutSchema } from '../../shared/publishingArticleVideo';
 const mocks = vi.hoisted(() => ({
   chapters: vi.fn(),
   images: vi.fn(),
@@ -12,6 +14,58 @@ vi.mock("./storyAudioAssets", () => ({
 }));
 import { readBookVideoSource } from "./bookVideoSource";
 const scope = { storyId: 4, userId: 7 };
+const module = (id:string,text:string,format:WritingBlock['format']='text',parentId:string|null=null):WritingBlock => ({id,text,format,parentId,collapsed:false});
+it('maps explicit shots before legacy act titles; retains multiple images and exact dialogue across scene moves',async()=>{
+ const rows=[module('s1','第 1 幕 · 我的场','scene'),module('a','静默近景','shot','s1'),module('desc','只显示，不朗读','text','a'),
+  module('s2','第二场','scene'),module('b','自写镜头名','shot','s2'),
+  module('i1','![图片](/api/images/1.png)','text','b'),module('i2','![图片](/api/images/2.png)','text','b'),
+  {...module('d','小雨：你好\n小风：再见','text','b'),videoRole:'dialogue' as const},module('music',bookAudioText(4,9,'雨声'),'text','b'),
+  module('c','同场另一个镜头','shot','s2'),module('repeat','![图片](/api/images/1.png)','text','c')];
+ const save=(blocks:WritingBlock[])=>mocks.chapters.mockResolvedValue([{...chapter(blockBody(blocks)),blocks:{body:blockBody(blocks),blockIds:[],writingStyle:writingStyleOf(blocks)}}]);
+ mocks.images.mockResolvedValue([1,2].map(id=>({id,imageUrl:`/api/images/${id}.png`,availability:'available',status:'selected'})));
+ mocks.audio.mockResolvedValue([{id:9,status:'ready',durationFrames:300,mediaKind:'music'}]);
+ save(rows);const source=(await readBookVideoSource(scope))!;
+ expect(source.layout.bookScenes?.map(s=>[s.id,s.referenceImageIds,s.dialogueText])).toEqual([
+  ['book-shot-1-a',[],''],['book-shot-1-b',[1,2],'小雨：你好\n小风：再见'],['book-shot-1-c',[1],'']]);
+ const videoRows=publishingArticleVideoRows(publishingArticleLayoutSchema.parse(source.layout));
+ expect(videoRows.every(row=>row.sourceKind==='shot')).toBe(true);
+ const preview=buildPublishingArticleVideoPreview({rows:videoRows,requirements:new Map(),now:1});
+ expect(preview.shots.map(s=>s.voiceText)).toEqual(['','小雨：你好\n小风：再见','']);
+ expect(preview.shots).toHaveLength(3);
+ expect(source.musicAssets.map(a=>a.assetId)).toEqual([9]);
+ const moved=moveWritingBlock(rows,'b','s1','inside');save(moved);
+ const after=(await readBookVideoSource(scope))!;
+ expect(after.sourceHash).not.toBe(source.sourceHash);
+ expect(after.layout.bookScenes?.[1]).toMatchObject({id:'book-shot-1-b',referenceImageIds:[1,2],dialogueText:'小雨：你好\n小风：再见'});
+ expect(after.layout.bookScenes?.[1].text).toContain('第 1 幕 · 我的场');
+ expect(after.layout.bookScenes?.[1].text).not.toContain('第二场');
+ save(moved.map(row=>({...row,collapsed:true})));
+ expect((await readBookVideoSource(scope))?.sourceHash).toBe(after.sourceHash);
+});
+it('rejects incomplete explicit ownership before planning instead of silently guessing or dropping media',async()=>{
+ for(const rows of [[module('s','场','scene')], [module('s','场','scene'),module('a','镜','shot','s'),module('i','![图片](/api/images/1.png)')],
+  [module('s','场','scene'),module('a','镜','shot','s'),module('b','错误嵌套','shot','a')]]) {
+  mocks.chapters.mockResolvedValue([{...chapter(blockBody(rows)),blocks:{body:blockBody(rows),blockIds:[],writingStyle:writingStyleOf(rows)}}]);
+  await expect(readBookVideoSource(scope)).rejects.toThrow(/镜头/);
+ }
+});
+it('supports untitled and image-only shots with stable IDs and generated display labels',async()=>{
+ const rows=[module('s','','scene'),module('a','','shot','s')];
+ mocks.chapters.mockResolvedValue([{...chapter(blockBody(rows)),blocks:{body:blockBody(rows),blockIds:[],writingStyle:writingStyleOf(rows)}}]);
+ const source=(await readBookVideoSource(scope))!;
+ expect(publishingArticleLayoutSchema.parse(source.layout).bookScenes?.[0]).toMatchObject({id:'book-shot-1-a',text:'一场一镜',dialogueText:''});
+});
+it('does not silently omit old layout-only pictures when adopting explicit shot modules',async()=>{
+ const rows=[module('s','场','scene'),module('a','镜','shot','s')];
+ mocks.chapters.mockResolvedValue([{...chapter(blockBody(rows),{pages:[{modules:[{kind:'image',imageUrl:'/api/images/legacy.png'}]}]}),
+  blocks:{body:blockBody(rows),blockIds:[],writingStyle:writingStyleOf(rows)}}]);
+ await expect(readBookVideoSource(scope)).rejects.toThrow('旧排版');
+});
+it('keeps a standalone shot independent of unrelated scene context',async()=>{
+ const rows=[module('s','只属于这个场景','scene'),module('a','场内镜头','shot','s'),module('b','独立镜头','shot')];
+ mocks.chapters.mockResolvedValue([{...chapter(blockBody(rows)),blocks:{body:blockBody(rows),blockIds:[],writingStyle:writingStyleOf(rows)}}]);
+ expect((await readBookVideoSource(scope))?.layout.bookScenes?.[1].text).toBe('独立镜头');
+});
 it('carries explicit multiline dialogue without changing source text and binds role changes to source hash',async()=>{
  const body='  第 1 幕\n推近镜头\n小雨：你好\n再见\n第 2 幕\n关门';
  const row=(id:string,lineCount=1,dialogue=false)=>({id,lineCount,format:'text',parentId:null,collapsed:false,...(dialogue?{videoRole:'dialogue'}:{})});
@@ -47,6 +101,14 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.images.mockResolvedValue([]);
   mocks.audio.mockResolvedValue([]);
+});
+it('keeps a trailing image module with its preceding act in source provenance', async () => {
+  const rows = [module('a','第1幕'),module('prose','旅行者推开木门'),module('image','![图片](/api/images/1.png)'),module('b','第2幕'),module('next','他走进雨中')];
+  mocks.images.mockResolvedValue([{id:1,imageUrl:'/api/images/1.png'}]);
+  mocks.chapters.mockResolvedValue([{...chapter(blockBody(rows)),blocks:{body:blockBody(rows),blockIds:[],writingStyle:writingStyleOf(rows)}}]);
+  const source = (await readBookVideoSource(scope))!;
+  expect(source.layout.bookScenes?.map(scene=>scene.sourceModuleIds)).toEqual([['1:a','1:prose','1:image'],['1:b','1:next']]);
+  expect(source.layout.bookScenes?.map(scene=>scene.referenceImageIds)).toEqual([[1],[]]);
 });
 function chapter(body: string, layout: unknown = null) {
   return {

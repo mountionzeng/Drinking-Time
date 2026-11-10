@@ -1,8 +1,10 @@
 import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
+import { VideoWorkflowControls } from "./VideoWorkflowControls";
 import { confirmedBookVideoVersions } from "@shared/bookVideoCreation";
 import { useRef, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { useCreationEditor } from "./CreationEditorContext";
+import { readVideoEditHistory } from "@shared/videoEditHistory";
 
 /** Existing server-owned video references; viewing never changes the timeline. */
 export function VideoVersionHistory({ storyId, disabled = false }: { storyId: number; disabled?: boolean }) {
@@ -17,6 +19,7 @@ export function VideoVersionHistory({ storyId, disabled = false }: { storyId: nu
   const mutation = trpc.publishingDraft.updateFinishedProduct.useMutation();
   const { materialState } = useCreationEditor();
   const material = materialState?.storyId === storyId ? materialState : null;
+  const revisions = readVideoEditHistory(material?.timeline.extensions?.videoEditHistory);
   const takes = new Map([
     ...(material?.reusableVideoTakes ?? []),
     ...(material?.unassignedVideoTakes ?? []),
@@ -61,13 +64,27 @@ export function VideoVersionHistory({ storyId, disabled = false }: { storyId: nu
   }
 
   return <div className={open ? "min-w-0 flex-1" : ""}>
+    <span className="mr-3 text-xs text-muted-foreground">{_ui("当前视频 · 剪辑修订")}{" "}{material?.timeline.version ?? 0}</span>
     <button type="button" className="rounded-md border px-3 py-1.5 text-sm" disabled={disabled} aria-expanded={open} onClick={() => setOpen(!open)}>{_ui("历史版本")}</button>
     {open && <section aria-label={_ui("视频历史版本")} className="mt-2 max-h-80 space-y-3 overflow-auto rounded-lg border p-3 text-sm">
+      <VideoWorkflowControls key={storyId} storyId={storyId} disabled={disabled} />
+      <details><summary className="cursor-pointer text-xs text-muted-foreground">旧版成品、方案与自动修订记录</summary>
+      {revisions.length > 0 && <div className="space-y-2" aria-label={_ui("自动剪辑修订")}>
+        <p className="text-xs text-muted-foreground">{_ui("剪辑调整自动留存最近 30 次修订。可查看当时的镜头文字，暂不支持整版恢复。")}</p>
+        {[...revisions].reverse().map(revision => <details key={revision.version} className="rounded border p-2">
+          <summary className="cursor-pointer">{_ui("剪辑修订")}{" "}{revision.version} · {new Date(revision.savedAt).toLocaleString()}</summary>
+          <div className="mt-2 space-y-2">{revision.shots.map((shot, index) => <div key={String(shot.stableShotId ?? shot.shotIdentity ?? index)} className="border-t pt-2 text-xs leading-5">
+            <strong>{String(shot.cueCode ?? shot.shotNo ?? index + 1)} · {String(shot.subject ?? "")}</strong>
+            <p>{String(shot.action ?? "")}</p><p>{String(shot.dialogue ?? "")}</p>
+          </div>)}</div>
+        </details>)}
+      </div>}
       <p className="text-xs text-muted-foreground">{_ui("每次确认的视频方案都会保留。查看旧版不会改变当前时间轴。")}</p>
       {bookPlans.isLoading && <p>{_ui("正在读取已确认方案…")}</p>}
       {bookPlans.error && <p role="alert">{_ui("视频方案版本暂未读到，请重新打开历史版本。")}</p>}
       {[...confirmedPlans].reverse().map(({record,version}) => <details key={record.id} className="rounded border p-2">
-        <summary className="cursor-pointer">{_ui("视频 V")}{version} {_ui("· 已确认方案 ·")}{" "}{record.preview?.shots.length ?? 0} {_ui("个镜头")}</summary>
+        <summary className="cursor-pointer">{_ui("视频方案 V")}{version} {_ui("· 已确认方案 ·")}{" "}{record.preview?.shots.length ?? 0} {_ui("个镜头")}</summary>
+        <p className="text-xs">{record.author?.name || "未记录编辑者"} · {record.confirmedAt ? new Date(record.confirmedAt).toLocaleString() : "未记录确认时间"}{record.manuscriptSource ? ` · 来源分镜版 V${record.manuscriptSource.number}` : ""}</p>
         <p className="mt-2 text-xs">{record.request}</p>
         <p className="mt-1 text-xs text-muted-foreground">{record.brief?.duration} · {record.brief?.tone}</p>
         <div className="mt-2 space-y-2">{record.preview?.shots.map((shot,index) => <div key={shot.draftShotId} className="border-t pt-2">
@@ -97,6 +114,7 @@ export function VideoVersionHistory({ storyId, disabled = false }: { storyId: nu
         </details>)}
       </>}
       {error && <p role="alert" className="text-destructive">{error}</p>}
+      </details>
     </section>}
   </div>;
 }

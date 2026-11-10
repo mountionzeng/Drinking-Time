@@ -1,3 +1,5 @@
+import type { ManuscriptKind } from "@shared/bookWorkflow";
+import { requestNewVersion } from "@/features/publishingDraft/newVersionRequest";
 import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { registerBookPreparation } from "@/features/bookVideo/bookPreparation";
 import { sameWritingStyle } from "@shared/bookWritingStyle";
@@ -80,7 +82,8 @@ export function ChapterWorkspace({
   const _ui = useDesktopUiText();
   const [displayMode, setDisplayMode] = useState(mode);
   const writing = useRef<ChapterWritingHandle | null>(null);
-  const state = useChapters(props.storyId, latest => displayMode !== 'text' || writing.current?.releaseCleanDraft(latest) === true);
+  const [manuscriptKind, setManuscriptKind] = useState<ManuscriptKind>();
+  const state = useChapters(props.storyId, latest => displayMode !== 'text' || writing.current?.releaseCleanDraft(latest) === true, manuscriptKind);
   const { active } = state;
   const [writingDraft, setWritingDraft] = useState<ChapterWritingDraft | null>(null);
   const localDraftConflict = active && writingDraft && (writingDraft.title !== active.title || writingDraft.body !== active.blocks.body || !sameWritingStyle(writingDraft.writingStyle,active.blocks.writingStyle)) && writingDraft.baseVersion !== active.version;
@@ -93,6 +96,15 @@ export function ChapterWorkspace({
     ...(displayMode === "images" && latestLayout.current ? { layout: latestLayout.current.layout } : {}),
   } : null;
   const utils = trpc.useUtils();
+  const workflow = trpc.bookWorkflow.get.useQuery({ storyId: props.storyId }, { enabled: historyOpen });
+  useEffect(() => {
+    const select = (event: Event) => {
+      const detail = (event as CustomEvent).detail;
+      if (detail?.storyId === props.storyId && detail.accountId === props.accountId && (detail.kind === "text" || detail.kind === "storyboard")) setManuscriptKind(detail.kind);
+    };
+    window.addEventListener("dt:select-manuscript", select);
+    return () => window.removeEventListener("dt:select-manuscript", select);
+  }, [props.storyId, props.accountId]);
   const create = trpc.chapters.create.useMutation();
   const exportPackage = trpc.chapters.exportPackage.useMutation();
   const restore = trpc.chapters.restoreVersion.useMutation();
@@ -173,6 +185,10 @@ export function ChapterWorkspace({
     if(displayMode === "text") await writing.current?.prepare(); else await prepare.current?.();
     if(state.error) throw new Error(state.error);
     await state.flush();
+  }, async chapters => {
+    const saved=chapters.find(chapter => chapter.id === active?.id);
+    if(saved && active && saved.version > active.version) await state.acceptLatest(saved.version);
+    await state.reloadList();
   }));
   async function run(action: () => Promise<void>, flush = true) {
     if (lock.current) return;
@@ -376,14 +392,14 @@ export function ChapterWorkspace({
       setComparison(null); setGeneratedOpen(false); setHistoryOpen(false);
     }, false);
   }
-  const editorControls = (changeNote?: ReactNode) => (
+  const editorControls = (_changeNote?: ReactNode) => (
     <>
       <nav
         aria-label={_ui("章节栏")}
         className="flex flex-wrap items-start gap-2 border-b border-[var(--panel-border)] pb-3"
       >
         {active && <button className={button} aria-expanded={historyOpen} onClick={() => { setHistoryOpen(!historyOpen); void versions.refetch(); void sharingHistory.refetch(); }}>{_ui("版本")}{newerVersion ? _ui(" · 有更新") : ''}</button>}
-        {changeNote}
+        <button className={button} disabled={busy} onClick={() => requestNewVersion({ storyId: props.storyId, accountId: props.accountId })}>{_ui("生成新版本")}</button>
       </nav>
       {(state.error || state.queryError) && (
         <p role="alert" className="text-sm text-destructive">
@@ -416,6 +432,13 @@ export function ChapterWorkspace({
             <button className={button} onClick={() => setDeliveryPanel('inbox')}>{_ui("查看来稿")}</button>
           </div>}
           {historyOpen && <section aria-label={_ui("版本列表")} className="space-y-3 border-y py-3">
+            {workflow.data && <>
+              <label className="text-sm">{_ui("稿件")} <select aria-label={_ui("查看稿件版本")} className="rounded border bg-transparent p-1" value={manuscriptKind ?? workflow.data.preferredKind} onChange={event => { const kind = event.target.value as ManuscriptKind; void run(async () => setManuscriptKind(kind)); }}>
+                {(["text", "storyboard"] as const).filter(kind => workflow.data.drafts[kind].count > 0).map(kind => <option key={kind} value={kind}>{kind === "text" ? _ui("文字版") : _ui("分镜版")}</option>)}
+              </select></label>
+              <ul className="max-h-40 overflow-y-auto text-xs text-muted-foreground">{[...workflow.data.state.versions].reverse().filter(version => version.kind === (manuscriptKind ?? workflow.data.preferredKind)).map(version => <li className="py-1" key={version.id}>V{version.number} · {version.author.name} · {new Date(version.createdAt).toLocaleString()}<p>{version.summary}</p>{version.source && <p>{_ui("来源：{0} V{1}", [version.source.kind === "text" ? _ui("文字版") : _ui("分镜版"), version.source.number])}</p>}</li>)}</ul>
+            </>}
+
             <p className="text-xs">{_ui("当前版本")}{" "}{active.version} · {active.blocks.attribution?.editorName || _ui("未记录编辑者")}{_ui("。选择版本只打开对比，不会替换正在写的内容。")}</p>
             {newerVersion && <button className={button} disabled={busy} onClick={() => void openLatestComparison()}>{_ui("最新已保存版本")}{" "}{newerVersion} {_ui("· 打开对比")}</button>}
             {props.body.trim() && props.body !== active.blocks.body && <button className={button} onClick={() => {

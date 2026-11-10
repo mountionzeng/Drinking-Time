@@ -1,4 +1,7 @@
 import { readBookVideoSource } from "./bookVideoSource";
+import type { VersionActor } from "../../shared/bookWorkflow";
+import { preserveVideoWhileReplacing, VideoSnapshotConflictError } from "./videoWorkflow";
+import { matchBookVideoShots, inheritBookFrameParameters } from './bookVideoShotContinuity';
 import { createHash, randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import type {
@@ -888,6 +891,7 @@ function formalShotFromPreview(input: {
       referenceFrameImageIds: input.shot.referenceImageIds,
     }) } : {}),
     publishingVideo: {
+      ...(input.shot.sourceModuleIds ? {sourceModuleIds:[...input.shot.sourceModuleIds]} : {}),
       ...(input.shot.referenceImageIds ? { referenceImageIds: [...input.shot.referenceImageIds] } : {}),
       ...(input.shot.referenceImageId
         ? { referenceImageId: input.shot.referenceImageId }
@@ -955,6 +959,9 @@ function mergeUserEnrichment(input: {
   return {
     ...input.generated,
     ...preserved,
+    ...(Array.isArray(storyBodyRecord(input.generated.publishingVideo).referenceImageIds) ? {
+      generationParams: inheritBookFrameParameters(input.current.generationParams,input.baseline.generationParams,input.generated.generationParams),
+    } : {}),
     stableShotId: input.generated.stableShotId,
     shotIdentity: input.generated.shotIdentity,
     shotNo: input.generated.shotNo,
@@ -1030,6 +1037,9 @@ async function confirmPublishingVideoShots(input: {
   versionId: string;
   previewId: string;
   expectedPreviewRevision?: number;
+  preserveVideoActor?: VersionActor;
+  /** Start a fresh video from this manuscript; archive the old table and edit before replacement. */
+  preferSourceContent?: boolean;
   /** 必须与生成时用的规格一致，否则会出现「按 10 秒出镜头、按 30 秒分时长」 */
   narrativeSpec?: NarrativeSpecId;
   creativeIntent?: string;
@@ -1129,8 +1139,9 @@ async function confirmPublishingVideoShots(input: {
         : [];
     });
     const legacyIndex = rawShots.findIndex(isUntouchedLegacyPublishingOpening);
-    const previousConfirmed =
-      aggregate.confirmed?.groupId === activeGroupId
+    const previousConfirmed = input.bookSource
+      ? context.publishing.versions?.find(version => version.videoStoryboard?.confirmed?.groupId === activeGroupId)?.videoStoryboard?.confirmed ?? null
+      : aggregate.confirmed?.groupId === activeGroupId
         ? aggregate.confirmed
         : null;
     const currentManagedByStableId = new Map(
@@ -1145,12 +1156,14 @@ async function confirmPublishingVideoShots(input: {
         return stableShotId ? [[stableShotId, { index, shot }] as const] : [];
       })
     );
-    const previousByDraftShotId = new Map(
-      (previousConfirmed?.shots ?? []).map(shot => [shot.draftShotId, shot])
-    );
+    const previousByDraftShotId = input.bookSource
+      ? matchBookVideoShots(preview.shots, previousConfirmed?.shots ?? [])
+      : new Map((previousConfirmed?.shots ?? []).map(shot => [shot.draftShotId, shot]));
     const reusedManagedIndexes = new Set<number>();
     const stableShotIdByDraftShotId = new Map<string, string>();
     for (const shot of preview.shots) {
+      // A direct import starts a new video from this manuscript, not the old edit's media bindings.
+      if (input.preferSourceContent) continue;
       const previous = previousByDraftShotId.get(shot.draftShotId);
       if (!previous?.stableShotId) continue;
       const current = currentManagedByStableId.get(previous.stableShotId);
@@ -1165,10 +1178,10 @@ async function confirmPublishingVideoShots(input: {
       ...(input.bookSource && preview.shots.every(shot => shot.referenceImageIds !== undefined) ? managedIndexes : []),
       ...(legacyIndex >= 0 ? [legacyIndex] : []),
     ]);
-    const retained = rawShots.filter((_, index) => !removedIndexes.has(index));
+    const retained = input.preferSourceContent ? [] : rawShots.filter((_, index) => !removedIndexes.has(index));
     const replacementIndex =
       managedIndexes[0] ?? (legacyIndex >= 0 ? legacyIndex : rawShots.length);
-    const insertionIndex = rawShots
+    const insertionIndex = input.preferSourceContent ? 0 : rawShots
       .slice(0, replacementIndex)
       .filter((_, index) => !removedIndexes.has(index)).length;
     const usedStableIds = new Set(
@@ -1234,7 +1247,7 @@ async function confirmPublishingVideoShots(input: {
       const current = previous?.stableShotId
         ? currentManagedByStableId.get(previous.stableShotId)?.shot
         : null;
-      if (!previous || !current || !previousConfirmed) return generated;
+      if (input.preferSourceContent || !previous || !current || !previousConfirmed) return generated;
       const provenance = storyBodyRecord(current.publishingVideo);
       const baseline = previousFormalShotBaseline({
         shot: previous,
@@ -1340,12 +1353,15 @@ async function confirmPublishingVideoShots(input: {
       }
     );
     try {
-      const saved = await persistPreparedStoryBody({
+      const saveInput = {
         storyId: input.storyId,
         userId: input.userId,
         expectedRevision: context.storyRevision,
         body: nextBody,
-      });
+      };
+      const saved = input.preserveVideoActor && (rawShots.length || input.preferSourceContent)
+        ? await preserveVideoWhileReplacing({ ...saveInput, before: body, nextBody, actor: input.preserveVideoActor, id: randomUUID(), resetEditing: input.preferSourceContent })
+        : await persistPreparedStoryBody(saveInput);
       return {
         status: "confirmed",
         storyId: input.storyId,
@@ -1356,7 +1372,7 @@ async function confirmPublishingVideoShots(input: {
         reused: false,
       };
     } catch (error) {
-      if (error instanceof StoryBodyRevisionConflictError) continue;
+      if (error instanceof StoryBodyRevisionConflictError || error instanceof VideoSnapshotConflictError) continue;
       throw error;
     }
   }

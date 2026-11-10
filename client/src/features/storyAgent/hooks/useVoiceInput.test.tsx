@@ -17,6 +17,7 @@ vi.mock("@/lib/trpc", () => ({
   },
 }));
 import { useVoiceInput } from "./useVoiceInput";
+import type { LiveRecognition } from "@/features/mobileWorkspace/liveDictation";
 const stop = vi.fn();
 const stream = { getTracks: () => [{ stop }] };
 let recorder: FakeRecorder;
@@ -65,12 +66,13 @@ beforeEach(() => {
   );
 });
 afterEach(() => vi.unstubAllGlobals());
-function setup() {
+function setup(preferLive = false) {
   const onTranscribed = vi.fn();
   const onError = vi.fn();
+  const onPreview = vi.fn();
   let voice!: ReturnType<typeof useVoiceInput>;
   function Harness() {
-    voice = useVoiceInput({ onTranscribed, onError });
+    voice = useVoiceInput({ onTranscribed, onError, onPreview, preferLive });
     return null;
   }
   renderToStaticMarkup(<Harness />);
@@ -79,6 +81,7 @@ function setup() {
     voice,
     onTranscribed,
     onError,
+    onPreview,
     cleanup: () => cleanups.forEach(fn => fn?.()),
   };
 }
@@ -96,6 +99,80 @@ it("stops a late microphone grant after the chat unmounts without recording", as
   expect(stop).toHaveBeenCalled();
   expect(mock.transcribe).not.toHaveBeenCalled();
   expect(chat.onTranscribed).not.toHaveBeenCalled();
+});
+
+function liveBrowser() {
+  let recognition!: LiveRecognition;
+  class Recognition implements LiveRecognition {
+    lang = "";
+    continuous = false;
+    interimResults = false;
+    onstart: LiveRecognition["onstart"] = null;
+    onresult: LiveRecognition["onresult"] = null;
+    onerror: LiveRecognition["onerror"] = null;
+    onend: LiveRecognition["onend"] = null;
+    start = vi.fn(() => this.onstart?.());
+    stop = vi.fn(() => this.onend?.());
+    abort = vi.fn();
+    constructor() { recognition = this; }
+  }
+  vi.stubGlobal("window", { webkitSpeechRecognition: Recognition });
+  return () => recognition;
+}
+
+it("previews desktop dictation immediately and commits final text without calling the old transcription provider", () => {
+  const current = liveBrowser();
+  const chat = setup(true);
+  chat.voice.toggleRecording();
+  const recognition = current();
+  expect(recognition.start).toHaveBeenCalledOnce();
+  expect(recognition.lang).toBe("zh-CN");
+  recognition.onresult?.({ results: [{ isFinal: false, 0: { transcript: "那把旧" } }] });
+  expect(chat.onPreview).toHaveBeenLastCalledWith("那把旧");
+  expect(chat.onTranscribed).not.toHaveBeenCalled();
+  recognition.onresult?.({ results: [{ isFinal: true, 0: { transcript: "那把旧伞" } }] });
+  expect(chat.onTranscribed).toHaveBeenCalledWith("那把旧伞");
+  expect(chat.onPreview).toHaveBeenLastCalledWith("");
+  chat.voice.stopRecording();
+  expect(recognition.stop).toHaveBeenCalledOnce();
+  expect(navigator.mediaDevices.getUserMedia).not.toHaveBeenCalled();
+  expect(mock.transcribe).not.toHaveBeenCalled();
+  chat.cleanup();
+});
+
+it("aborts desktop live dictation on leaving and ignores late results", () => {
+  const current = liveBrowser();
+  const chat = setup(true);
+  chat.voice.toggleRecording();
+  const recognition = current();
+  const lateResult = recognition.onresult;
+  chat.cleanup();
+  lateResult?.({ results: [{ isFinal: true, 0: { transcript: "不能写到另一个故事" } }] });
+  expect(recognition.abort).toHaveBeenCalled();
+  expect(chat.onTranscribed).not.toHaveBeenCalled();
+});
+
+it("does not silently fall back to a paid service when live speech is denied", () => {
+  const current = liveBrowser();
+  const chat = setup(true);
+  chat.voice.toggleRecording();
+  current().onerror?.({ error: "not-allowed" });
+  expect(chat.onError).toHaveBeenCalledWith(expect.stringContaining("允许麦克风"));
+  expect(mock.transcribe).not.toHaveBeenCalled();
+  expect(navigator.mediaDevices.getUserMedia).not.toHaveBeenCalled();
+  chat.cleanup();
+});
+
+it("keeps a short actionable error instead of leaking provider response JSON", async () => {
+  mock.transcribe.mockRejectedValue(new Error('403 Forbidden {"header":{"code":45000030}}'));
+  const chat = setup();
+  chat.voice.toggleRecording();
+  await Promise.resolve();
+  recorder.ondataavailable?.({ data: new Blob(["audio"]) });
+  recorder.state = "inactive";
+  await recorder.onstop?.();
+  expect(chat.onError).toHaveBeenCalledWith("语音转写暂时不可用，请使用键盘听写或稍后重试。");
+  chat.cleanup();
 });
 it("does not append a late transcription to another chat", async () => {
   const response = deferred<{ text: string }>();

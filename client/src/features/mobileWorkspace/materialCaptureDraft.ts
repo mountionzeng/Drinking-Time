@@ -45,6 +45,9 @@ export function captureFileMime(file: File): CaptureInput["files"][number]["mime
   const aliases: Record<string,string> = { "audio/x-m4a":"audio/mp4", "audio/x-wav":"audio/wav", "audio/mp3":"audio/mpeg" };
   const extensions: Record<string,string> = { jpg:"image/jpeg",jpeg:"image/jpeg",png:"image/png",webp:"image/webp",mp3:"audio/mpeg",m4a:"audio/mp4",wav:"audio/wav",webm:"audio/webm",ogg:"audio/ogg" };
   const type = file.type.split(";")[0].toLowerCase();
+  if (type.startsWith("video/") || (!type && /\.(mov|mp4|m4v)$/i.test(file.name))) {
+    throw new Error("这是视频，请从“…”里的“导入本地文件”添加。");
+  }
   const mime = aliases[type] || type || extensions[file.name.split(".").pop()?.toLowerCase() || ""];
   if (!Object.values(extensions).includes(mime)) throw new Error(`暂不支持 ${file.name}，请使用 JPG/PNG/WebP 图片或 MP3/M4A/WAV/WebM/Ogg 录音`);
   return mime as CaptureInput["files"][number]["mime"];

@@ -288,6 +288,13 @@ export function videoTakeErrorMessage(message: string): string {
   return message;
 }
 
+/** A later take replaces the previous status, without guessing whether a failed request was billed. */
+export function latestVideoTakeFailure(takes: ReadonlyArray<Pick<VideoTakeAsset, "id" | "status" | "errorMessage">>): string | null {
+  const latest = takes.reduce<(typeof takes)[number] | null>((current, take) => !current || take.id > current.id ? take : current, null);
+  if (!latest || (latest.status !== "failed" && latest.status !== "timeout")) return null;
+  return videoTakeErrorMessage(latest.errorMessage?.trim() || "视频生成失败，请查看任务状态。");
+}
+
 export function videoTakeFailureLabel(
   message: string | null | undefined
 ): string | null {

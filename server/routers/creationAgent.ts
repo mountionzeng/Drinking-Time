@@ -1925,6 +1925,7 @@ export const creationAgentRouter = router({
       }
       try {
         const timeline = await persistStoryTimeline({
+          recordVideoRevision: true,
           storyId: input.storyId,
           userId: ctx.user.id,
           expectedVersion: input.expectedVersion,

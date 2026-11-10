@@ -48,7 +48,7 @@ export function StoryTitleInput({ title, save, disabled = false }: {
   }, [draft, disabled, saving, composing, error]);
   return <div>
     <input aria-label={_ui('故事名称')} aria-invalid={Boolean(error)} maxLength={255}
-      disabled={disabled} aria-busy={saving} className="w-full border-b bg-transparent py-2 text-xl outline-none"
+      disabled={disabled} aria-busy={saving} className="w-full border-b bg-transparent py-2 text-3xl outline-none"
       value={draft ?? title} onChange={event => edit(event.target.value)} onBlur={() => void commit()}
       onCompositionStart={() => setComposing(true)} onCompositionEnd={() => setComposing(false)}
       onKeyDown={event => {

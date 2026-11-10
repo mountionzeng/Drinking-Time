@@ -2,6 +2,7 @@ import { useUiText } from "@/features/uiLanguage/UiLanguage";
 import React, { useRef, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import type { MemoryFollowupSource } from "./mobileMemoryFollowup";
+import { MobileCaptureMoreActions } from "./MobileCaptureChatView";
 
 type Choice = {
   id: string;
@@ -21,6 +22,10 @@ type Props = {
 const button = "min-h-11 px-2 text-xs text-primary disabled:opacity-40";
 const field =
   "w-full rounded-lg border border-border bg-background p-2 text-sm";
+const storyCreatedAt = new Intl.DateTimeFormat("zh-CN", {
+  timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit",
+  hour: "2-digit", minute: "2-digit", hour12: false,
+});
 
 /** Mount API-backed controls only when requested, keeping the conversation readable. */
 export function MobileCompanionActions(props: Props) {
@@ -64,6 +69,7 @@ export function MobileCompanionActions(props: Props) {
           </button>
         )}
       </div>
+      <MobileCaptureMoreActions disabled={props.disabled || mode !== null} />
       {mode && (
         <ActionEditor
           {...props}
@@ -343,10 +349,14 @@ export function ActionEditor({
                 <option value={0}>{t("选择故事")}</option>
                 {stories.data?.stories.map(s => (
                   <option value={s.id} key={s.id}>
-                    {s.title}
+                    {s.id === props.storyId ? `${t("当前故事")} · ` : ""}{s.title}
+                    {s.createdAt ? ` · ${t("创建于 {0}", [storyCreatedAt.format(new Date(s.createdAt))])}` : ""}
                   </option>
                 ))}
               </select>
+              <span className="mt-1 block text-xs text-muted-foreground">
+                {t("这里选择的是独立故事；同一故事的版本在故事内查看。")}
+              </span>
             </label>
           )}
           {stories.isError && (

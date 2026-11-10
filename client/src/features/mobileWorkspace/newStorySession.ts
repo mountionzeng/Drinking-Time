@@ -1,3 +1,5 @@
+import type { MemoryFollowupSource } from "./mobileMemoryFollowup";
+
 export type NewStorySession = { storyId: number | null; draft: string };
 export const emptyNewStorySession = (): NewStorySession => ({
   storyId: null,
@@ -31,4 +33,14 @@ export function canStartAnotherStory(input: {
   unsynced: boolean;
 }) {
   return !input.busy && !input.draft.trim() && !input.unsynced;
+}
+/** Closing and reopening the panel does not itself change the conversation. */
+export function sourceOnCompanionOpen(
+  active: MemoryFollowupSource | null,
+  page: MemoryFollowupSource | null,
+  previousPage: MemoryFollowupSource | null | undefined
+): MemoryFollowupSource | null {
+  if (!page) return active;
+  if (page.kind === previousPage?.kind && page.id === previousPage?.id && page.storyId === previousPage?.storyId) return active;
+  return page;
 }

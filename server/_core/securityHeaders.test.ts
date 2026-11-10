@@ -7,6 +7,18 @@ import {
 } from "./securityHeaders";
 
 describe("production security headers", () => {
+  it.each([false, true])("allows same-origin microphone permission requests (production=%s)", isProduction => {
+    const headers = buildSecurityHeaders({
+      isProduction,
+      secureRequest: isProduction,
+      cspMediaOrigins: "https://file.302.ai",
+    });
+    expect(headers["Permissions-Policy"]).toBe(
+      "camera=(), geolocation=(), microphone=(self)"
+    );
+    expect(headers["X-Frame-Options"]).toBe("DENY");
+  });
+
   it("prevents sharing pages from leaking referrers, being indexed or cached", () => {
     const headers: Record<string, string> = {};
     createSecurityHeadersMiddleware({ isProduction: false, cspMediaOrigins: "" })({ path: "/s/secret", protocol: "http" } as never, {

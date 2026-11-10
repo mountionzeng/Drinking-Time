@@ -2,7 +2,7 @@ import { z } from 'zod';
 const finite=z.number().finite();
 export const bookWritingStyleSchema=z.array(z.object({
   lineCount:z.number().int().min(1).max(200001).optional(),
-  id:z.string().min(1).max(100),format:z.enum(['text','heading1','heading2','heading3']),
+  id:z.string().min(1).max(100),format:z.enum(['text','heading1','heading2','heading3','scene','shot']),
   videoRole:z.enum(['dialogue']).optional(),
   parentId:z.string().max(100).nullable(),collapsed:z.boolean(),
   columnGroup:z.string().min(1).max(100).optional(),

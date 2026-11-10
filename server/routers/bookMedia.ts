@@ -1,3 +1,4 @@
+import { wholeBookSoundSchema, narrationSegments } from "../../shared/bookSound";
 import { translateBookModule } from "../services/bookModuleTranslation";
 import { generateBookImageComposition, readBookImageComposition, refreshBookImageComposition, listBookImageCompositions } from '../services/bookImageComposition';
 import { writingModuleTexts } from "../../shared/bookWritingStyle";
@@ -41,7 +42,15 @@ export const bookMediaRouter = router({
     const card = await insertMemoryCard(ctx.user.id,{id:randomUUID(),title:input.targetLanguage === "en" ? "英文译文" : "中文译文",content:result.text,kind:"thought",origin:"assistant",sourceStoryId:input.storyId});
     return {...result,cardId:card.id};
   }),
-  quoteNarration: protectedProcedure.input(target.extend({moduleIds:z.array(z.string().min(1).max(100)).min(2).max(50).optional()})).mutation(({ctx,input})=>quoteStoryNarration({storyId:input.storyId,userId:ctx.user.id,subtitleCueId:videoIdentity(input.chapterId,input.moduleId),bookTarget:{chapterId:input.chapterId,moduleId:input.moduleId,...(input.moduleIds ? {moduleIds:input.moduleIds} : {})}})),
+  wholeSoundSource: protectedProcedure.input(target.extend({ wholeBook: wholeBookSoundSchema })).query(async ({ ctx, input }) => {
+    const source = await resolveBookModuleSource({ ...input, userId: ctx.user.id });
+    return { text: source.source, fingerprint: source.fingerprint, segments: narrationSegments(source.source) };
+  }),
+  quoteNarration: protectedProcedure.input(target.extend({
+    wholeBook: wholeBookSoundSchema.optional(),
+    moduleIds:z.array(z.string().min(1).max(100)).min(2).max(50).optional(),
+    voiceGender: z.enum(["female", "male"]).default("female"),
+  })).mutation(({ctx,input})=>quoteStoryNarration({storyId:input.storyId,userId:ctx.user.id,voiceGender:input.voiceGender,subtitleCueId:input.wholeBook ? `whole-book:${input.storyId}:${input.wholeBook.kind}:${input.wholeBook.segment ?? 0}` : videoIdentity(input.chapterId,input.moduleId),bookTarget:{chapterId:input.chapterId,moduleId:input.moduleId,...(input.wholeBook ? { wholeBook: input.wholeBook } : {}),...(input.moduleIds ? {moduleIds:input.moduleIds} : {})}})),
   describe: protectedProcedure.input(target.extend({moduleIds:z.array(z.string().min(1).max(100)).min(2).max(50).optional()})).mutation(async ({ctx,input}) => {
     const source = await resolveBookModuleSource({...input,userId:ctx.user.id});
     const text = await describeBookModule(source);

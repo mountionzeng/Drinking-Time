@@ -16,6 +16,7 @@ type WorkerInput = {
       userId: number;
       amountMinor: number;
       idempotencyKey: string;
+      oncePerAccountPrefixes?: string[];
     }
   | {
       action: "reserve";
@@ -60,6 +61,7 @@ try {
         userId: input.userId,
         amountMinor: input.amountMinor,
         idempotencyKey: input.idempotencyKey,
+        oncePerAccountPrefixes: input.oncePerAccountPrefixes,
       })
     );
   } else if (input.action === "reserve") {
