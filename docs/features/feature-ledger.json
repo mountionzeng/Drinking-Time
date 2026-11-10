@@ -2121,7 +2121,8 @@
         "docs/qa/2026-11-09-storyboard-image-continuity.md",
         "docs/qa/2026-11-09-conversation-art-system.md",
         "docs/qa/2026-11-10-playback-ui.md",
-        "docs/qa/2026-11-10-unused-workflow-cleanup.md"
+        "docs/qa/2026-11-10-unused-workflow-cleanup.md",
+        "docs/qa/2026-11-10-conversation-release.md"
       ],
       "invariants": [
         "预览不得修改正式镜头。",
@@ -2446,6 +2447,11 @@
           "date": "2026-11-10",
           "kind": "refactor",
           "summary": "清理用户已移除约30秒按钮后遗留的无运行消费者planner/类型、旧专属4项测试及3组翻译；逐镜/对话生成测试保留。 本批总计净删202行（含测试/文案），89相关测试/类型通过，Knip相对既有727提示无新增；未删数据/兼容逻辑，未提交发布。详见docs/qa/2026-11-10-unused-workflow-cleanup.md。"
+        },
+        {
+          "date": "2026-11-10",
+          "kind": "fix",
+          "summary": "联合发布补齐声音对齐生产私有Python运行时、CPU依赖、模型及worker；并发限1避免小内存生产同时加载两份模型。原片与素材保留，生产离线烟测和最终发布证据见QA。"
         }
       ]
     },
@@ -9962,7 +9968,8 @@
         "client/src/features/publishingAlbum/BookSendMenu.test.tsx",
         "docs/qa/2026-11-04-book-send-menu.md",
         "docs/qa/2026-11-04-book-editor-release.md",
-        "docs/qa/2026-11-04-book-send-platforms.md"
+        "docs/qa/2026-11-04-book-send-platforms.md",
+        "docs/qa/2026-11-10-conversation-release.md"
       ],
       "invariants": [
         "章节投递要求 CHAPTER_PACKAGE_ENABLED 与 CHAPTER_DELIVERY_ENABLED 同时为 true；两个开关默认关闭。",
@@ -10080,6 +10087,11 @@
           "date": "2026-11-04",
           "kind": "fix",
           "summary": "书稿发送菜单恢复小程序入口；关闭开关时显示暂未启用，启用后先打开准备面板，明确生成链接才创建，保留原收件箱、发回、图片上传和权限门禁。平台菜单/当前稿专项及本机关闭态验证通过；未开启配置或认定跨端验收，状态保持partial。详见book-send-platforms QA。"
+        },
+        {
+          "date": "2026-11-10",
+          "kind": "fix",
+          "summary": "发布集成检查发现MySQL限额计数混用数据库UTC当天与传入时间窗，改为按since/until用同一日期编码比较；账户锁及幂等保持。固定历史日期真实MySQL测试验证20次配额的并发第21次拒绝和回滚。"
         }
       ]
     },
@@ -11814,7 +11826,8 @@
         "client/src/features/storyAgent/shotConversation.test.ts",
         "client/src/features/storyAgent/views/ShotChatInspector.test.tsx",
         "server/services/shotConversationMedia.test.ts",
-        "docs/qa/2026-11-10-shot-conversation-context.md"
+        "docs/qa/2026-11-10-shot-conversation-context.md",
+        "docs/qa/2026-11-10-conversation-release.md"
       ],
       "invariants": [
         "美术决定呈现方式，每镜内容由当前台词和用户最新意图决定；不硬编码单一风格、不机械复制参考构图。",
@@ -11885,6 +11898,11 @@
           "date": "2026-11-10",
           "kind": "fix",
           "summary": "镜头小框统一为对话与素材入口，右侧点镜头自动筛选双方对话/历史/图片，明确镜号无需先点选；新两图结果保存不采用式稳定镜头归属、时间、用户与原话。旧无归属图折叠保留，不伪造历史。157项专项、增量95项、最终40项及类型通过（批次重叠），真实3000点击/选图/查询/刷新通过，无新付费。详见2026-11-10-shot-conversation-context QA。"
+        },
+        {
+          "date": "2026-11-10",
+          "kind": "fix",
+          "summary": "联合发布将美术对话分离为独立useArtSystemChat钩子，保留故事scope/版本/引用归属；新增迟到响应与失败保留测试，架构行数门槛通过。"
         }
       ]
     },
@@ -11919,7 +11937,8 @@
         "docs/qa/2026-11-10-shot-chat-history.md",
         "client/src/features/creationEditor/storyboardSelectionFollow.test.ts",
         "docs/qa/2026-11-10-playback-ui.md",
-        "docs/qa/2026-11-10-unused-workflow-cleanup.md"
+        "docs/qa/2026-11-10-unused-workflow-cleanup.md",
+        "docs/qa/2026-11-10-conversation-release.md"
       ],
       "invariants": [
         "历史按故事与稳定镜头身份筛选，不能按当前镜号推断旧记录归属。",
@@ -11955,6 +11974,11 @@
           "date": "2026-11-10",
           "kind": "refactor",
           "summary": "清理恒false的旧聊天滚动分支和镜头历史组件无效onClear参数；实际小框取消选中、历史和退出到底部保持。 本批总计净删202行（含测试/文案），89相关测试/类型通过，Knip相对既有727提示无新增；未删数据/兼容逻辑，未提交发布。详见docs/qa/2026-11-10-unused-workflow-cleanup.md。"
+        },
+        {
+          "date": "2026-11-10",
+          "kind": "fix",
+          "summary": "联合发布包含镜头对话/历史/选图与刷新恢复，以及两轮冗余清理；情绪检索按用户指示完整保留。"
         }
       ]
     }

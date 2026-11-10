@@ -1,4 +1,4 @@
-import { inArray, and, desc, eq, gt, isNull, lt, ne, or, sql } from "drizzle-orm";
+import { inArray, and, desc, eq, gt, gte, isNull, lt, ne, or } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import {
   chapterDeliveryAssets,
@@ -144,8 +144,8 @@ export async function startChapterDelivery(
         const recent = await tx.select({ id: chapterDeliveries.deliveryId }).from(chapterDeliveries)
           .where(and(
             eq(chapterDeliveries.senderUserId, input.row.senderUserId),
-            sql`UNIX_TIMESTAMP(${chapterDeliveries.createdAt}) >= TIMESTAMPDIFF(SECOND, '1970-01-01 00:00:00', UTC_DATE())`,
-            sql`UNIX_TIMESTAMP(${chapterDeliveries.createdAt}) < TIMESTAMPDIFF(SECOND, '1970-01-01 00:00:00', UTC_DATE()) + 86400`,
+            gte(chapterDeliveries.createdAt, input.dailyLimit.since),
+            lt(chapterDeliveries.createdAt, input.dailyLimit.until),
             ne(chapterDeliveries.status, "expired"),
           )).for("update");
         if (recent.length >= input.dailyLimit.maximum)

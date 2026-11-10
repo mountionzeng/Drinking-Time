@@ -61,7 +61,8 @@ describe("chapter delivery MySQL persistence", () => {
         const sender = await createUser(pool, "sender");
         const first = await createUser(pool, "recipient-a");
         const second = await createUser(pool, "recipient-b");
-        const now = new Date();
+        // The quota must honor the supplied window, not the database's current date/timezone.
+        const now = new Date("2024-01-02T12:00:00.000Z");
         const since = new Date(now);
         since.setUTCHours(0, 0, 0, 0);
         const until = new Date(since.getTime() + 24 * 60 * 60 * 1000);
@@ -80,7 +81,7 @@ describe("chapter delivery MySQL persistence", () => {
         await expect(startChapterDelivery(admittedInput)).resolves.toMatchObject({ repeated: true });
 
         const [countRows] = await pool.execute<mysql.RowDataPacket[]>(
-          "SELECT COUNT(*) AS count FROM chapter_deliveries WHERE senderUserId=? AND status <> 'expired' AND UNIX_TIMESTAMP(createdAt) >= TIMESTAMPDIFF(SECOND, '1970-01-01 00:00:00', UTC_DATE()) AND UNIX_TIMESTAMP(createdAt) < TIMESTAMPDIFF(SECOND, '1970-01-01 00:00:00', UTC_DATE()) + 86400",
+          "SELECT COUNT(*) AS count FROM chapter_deliveries WHERE senderUserId=? AND status <> 'expired'",
           [sender],
         );
         expect(Number(countRows[0].count)).toBe(20);
