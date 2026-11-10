@@ -1,5 +1,5 @@
 /** Persistence operations for computeLedger. Local and MySQL behavior share this boundary. */
-import { eq, and, desc, asc, gt, lte, inArray, or, sql } from "drizzle-orm";
+import { eq, and, desc, asc, gt, lte, lt, inArray, or, sql, type SQL } from "drizzle-orm";
 import { createKeyedSerialLock } from "../utils/keyedSerialLock";
 import {
   creditAccounts,
@@ -784,6 +784,303 @@ export async function readComputeStatementSnapshot(
         entryOperations,
         attentionOperations,
       };
+    },
+    {
+      isolationLevel: "repeatable read",
+      withConsistentSnapshot: true,
+      accessMode: "read only",
+    }
+  );
+}
+
+export type BillingStatementKind = "reserve" | "settle" | "release";
+
+export type BillingStatementCursor = {
+  occurredAt: Date;
+  kind: BillingStatementKind;
+  id: number;
+};
+
+/** 只含展示所需字段。不含用户编号、操作号、请求哈希、原因、正文或供应商数据。 */
+export type BillingStatementSourceRow = {
+  id: number;
+  kind: BillingStatementKind;
+  occurredAt: Date;
+  operationType: string;
+  status: BillingOperation["status"];
+  amountMinor: number;
+};
+
+const STATEMENT_KIND_ORDER: Record<BillingStatementKind, number> = {
+  reserve: 0,
+  settle: 1,
+  release: 2,
+};
+
+const STATEMENT_RESERVE_STATUSES = [
+  "created",
+  "reserved",
+  "submitted",
+  "submission_unknown",
+] as const satisfies readonly BillingOperation["status"][];
+
+const STATEMENT_PAGE_MAX = 50;
+
+function isOlderThanStatementCursor(
+  row: Pick<BillingStatementSourceRow, "occurredAt" | "kind" | "id">,
+  cursor: BillingStatementCursor | null
+): boolean {
+  if (!cursor) return true;
+  const timeDelta = row.occurredAt.getTime() - cursor.occurredAt.getTime();
+  if (timeDelta < 0) return true;
+  if (timeDelta > 0) return false;
+  const kindDelta =
+    STATEMENT_KIND_ORDER[row.kind] - STATEMENT_KIND_ORDER[cursor.kind];
+  if (kindDelta > 0) return true;
+  if (kindDelta < 0) return false;
+  return row.id < cursor.id;
+}
+
+function compareStatementRows(
+  left: BillingStatementSourceRow,
+  right: BillingStatementSourceRow
+): number {
+  const timeDelta = right.occurredAt.getTime() - left.occurredAt.getTime();
+  if (timeDelta !== 0) return timeDelta;
+  const kindDelta =
+    STATEMENT_KIND_ORDER[left.kind] - STATEMENT_KIND_ORDER[right.kind];
+  if (kindDelta !== 0) return kindDelta;
+  return right.id - left.id;
+}
+
+function olderThanStatementCursor(
+  time: Parameters<typeof eq>[0],
+  id: Parameters<typeof eq>[0],
+  kind: BillingStatementKind,
+  cursor: BillingStatementCursor | null
+): SQL | undefined {
+  if (!cursor) return undefined;
+  const olderTime = lt(time, cursor.occurredAt);
+  if (kind === cursor.kind) {
+    return or(
+      olderTime,
+      and(eq(time, cursor.occurredAt), lt(id, cursor.id))
+    );
+  }
+  if (STATEMENT_KIND_ORDER[kind] > STATEMENT_KIND_ORDER[cursor.kind]) {
+    return or(olderTime, eq(time, cursor.occurredAt));
+  }
+  return olderTime;
+}
+
+function statementPage(
+  rows: BillingStatementSourceRow[],
+  limit: number
+): BillingStatementSourceRow[] {
+  return rows.sort(compareStatementRows).slice(0, limit + 1);
+}
+
+function memoryBillingStatementRows(
+  userId: number,
+  cursor: BillingStatementCursor | null
+): BillingStatementSourceRow[] {
+  const ownOperations = memoryState.billingOperations.filter(
+    item => item.userId === userId
+  );
+  const operationById = new Map(
+    ownOperations.map(item => [item.operationId, item])
+  );
+  const reserves: BillingStatementSourceRow[] = ownOperations
+    .filter(item =>
+      (STATEMENT_RESERVE_STATUSES as readonly string[]).includes(item.status)
+    )
+    .map(item => ({
+      id: item.id,
+      kind: "reserve",
+      occurredAt: new Date(item.createdAt),
+      operationType: item.operationType,
+      status: item.status,
+      amountMinor: Number(item.maxCostMinor),
+    }));
+  const releases: BillingStatementSourceRow[] = ownOperations
+    .filter(item => item.status === "released")
+    .map(item => ({
+      id: item.id,
+      kind: "release",
+      occurredAt: new Date(item.updatedAt),
+      operationType: item.operationType,
+      status: "released",
+      amountMinor: Number(item.maxCostMinor),
+    }));
+  const settles: BillingStatementSourceRow[] = memoryState.creditLedgerEntries
+    .filter(item => item.userId === userId && item.entryType === "consumption")
+    .map(item => {
+      const operation = item.operationId
+        ? operationById.get(item.operationId)
+        : undefined;
+      return {
+        id: item.id,
+        kind: "settle" as const,
+        occurredAt: new Date(item.createdAt),
+        operationType: operation?.operationType ?? "consumption",
+        status:
+          operation?.status === "exception"
+            ? ("exception" as const)
+            : ("settled" as const),
+        amountMinor: Number(item.amountMinor),
+      };
+    });
+  return [...reserves, ...settles, ...releases].filter(row =>
+    isOlderThanStatementCursor(row, cursor)
+  );
+}
+
+/**
+ * 只读分页：某个用户自己的预占、结算和释放。
+ *
+ * 游标只表示「从这个位置继续往更早翻」，不能借它读取别的账号。
+ * 查询不选取请求哈希、调整原因、正文、供应商回执或用户编号。
+ * 同一时刻的稳定顺序是 reserve、settle、release，然后 id 降序；内存与 MySQL 一致。
+ * 多取一条用来判断还有没有下一页。
+ */
+export async function listUserBillingStatementSources(input: {
+  userId: number;
+  limit: number;
+  cursor: BillingStatementCursor | null;
+}): Promise<BillingStatementSourceRow[]> {
+  if (
+    !Number.isSafeInteger(input.userId) ||
+    input.userId <= 0 ||
+    !Number.isSafeInteger(input.limit) ||
+    input.limit < 1 ||
+    input.limit > STATEMENT_PAGE_MAX
+  ) {
+    throw new Error("statement page is out of range");
+  }
+  const take = input.limit + 1;
+  const db = await getDb();
+  if (!db) {
+    return statementPage(
+      memoryBillingStatementRows(input.userId, input.cursor),
+      input.limit
+    );
+  }
+
+  return db.transaction(
+    async tx => {
+      const reserveCursor = olderThanStatementCursor(
+        billingOperations.createdAt,
+        billingOperations.id,
+        "reserve",
+        input.cursor
+      );
+      const reserves = await tx
+        .select({
+          id: billingOperations.id,
+          occurredAt: billingOperations.createdAt,
+          operationType: billingOperations.operationType,
+          status: billingOperations.status,
+          amountMinor: billingOperations.maxCostMinor,
+        })
+        .from(billingOperations)
+        .where(
+          and(
+            eq(billingOperations.userId, input.userId),
+            inArray(billingOperations.status, [...STATEMENT_RESERVE_STATUSES]),
+            reserveCursor
+          )
+        )
+        .orderBy(desc(billingOperations.createdAt), desc(billingOperations.id))
+        .limit(take);
+      const releaseCursor = olderThanStatementCursor(
+        billingOperations.updatedAt,
+        billingOperations.id,
+        "release",
+        input.cursor
+      );
+      const releases = await tx
+        .select({
+          id: billingOperations.id,
+          occurredAt: billingOperations.updatedAt,
+          operationType: billingOperations.operationType,
+          amountMinor: billingOperations.maxCostMinor,
+        })
+        .from(billingOperations)
+        .where(
+          and(
+            eq(billingOperations.userId, input.userId),
+            eq(billingOperations.status, "released"),
+            releaseCursor
+          )
+        )
+        .orderBy(desc(billingOperations.updatedAt), desc(billingOperations.id))
+        .limit(take);
+      const settleCursor = olderThanStatementCursor(
+        creditLedgerEntries.createdAt,
+        creditLedgerEntries.id,
+        "settle",
+        input.cursor
+      );
+      const settles = await tx
+        .select({
+          id: creditLedgerEntries.id,
+          occurredAt: creditLedgerEntries.createdAt,
+          amountMinor: creditLedgerEntries.amountMinor,
+          operationType: billingOperations.operationType,
+          operationStatus: billingOperations.status,
+        })
+        .from(creditLedgerEntries)
+        .leftJoin(
+          billingOperations,
+          and(
+            eq(billingOperations.operationId, creditLedgerEntries.operationId),
+            eq(billingOperations.userId, input.userId)
+          )
+        )
+        .where(
+          and(
+            eq(creditLedgerEntries.userId, input.userId),
+            eq(creditLedgerEntries.entryType, "consumption"),
+            settleCursor
+          )
+        )
+        .orderBy(
+          desc(creditLedgerEntries.createdAt),
+          desc(creditLedgerEntries.id)
+        )
+        .limit(take);
+      return statementPage(
+        [
+          ...reserves.map(row => ({
+            id: row.id,
+            kind: "reserve" as const,
+            occurredAt: new Date(row.occurredAt),
+            operationType: row.operationType,
+            status: row.status,
+            amountMinor: Number(row.amountMinor),
+          })),
+          ...releases.map(row => ({
+            id: row.id,
+            kind: "release" as const,
+            occurredAt: new Date(row.occurredAt),
+            operationType: row.operationType,
+            status: "released" as const,
+            amountMinor: Number(row.amountMinor),
+          })),
+          ...settles.map(row => ({
+            id: row.id,
+            kind: "settle" as const,
+            occurredAt: new Date(row.occurredAt),
+            operationType: row.operationType ?? "consumption",
+            status:
+              row.operationStatus === "exception"
+                ? ("exception" as const)
+                : ("settled" as const),
+            amountMinor: Number(row.amountMinor),
+          })),
+        ],
+        input.limit
+      );
     },
     {
       isolationLevel: "repeatable read",

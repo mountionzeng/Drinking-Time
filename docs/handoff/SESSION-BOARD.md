@@ -289,6 +289,7 @@
 
 2026-11-09 chat 01a1bedb 旁白字幕节奏与全片配乐完成并释放本轮文件（未提交/push/部署）：bookVideoCreation/shared、publishingVideoStoryboardPersistence/videoWorkflow、bookVideoAudio共享规划与服务、离线对齐脚本、配置/测试/账本QA。分镜入口自动匹配整书录音、0.9倍保调慢放加停顿、13段字幕同步与全片配乐；真实1217当前视频V8源分镜V2，7镜64.466667秒，派生16/17复用，旧V6声音15/14及原稿原图保留。76项、最终24项/类型/构建77草稿保护/88卡通过，真实3000完整回放至64.467秒，音频边界误差≤0.03秒；无付费调用。Python/Whisper/FFmpeg为本机已配依赖，生产未验收；详见docs/qa/2026-11-09-book-video-audio-pacing.md。其他手机号登录会话改动保留。
 
+2026-11-06 拾光算力只读流水（`4d824576`，分支 `feat/shiguang-compute-statement`，待审，未合并、未部署）：`POST /api/shiguang/compute/statement` 复用余额鉴权，只返回本人预占、结算和释放。触达 `server/db.ts` 只读导出、`server/repositories/computeLedger.ts`、`server/services/computeLedger.ts`、`server/_core/shiguangComputeBridge.ts` 及测试和功能账本。6 项桥测试、类型检查和功能账本通过。未改 `.env`、价格或退款。
 
 - 2026-11-09 素材提交前失败恢复完成并释放（未提交）：useMaterialCapture及新增hook测试，只对尚未上传的新批次解锁读取/暂存失败，未知请求保留原锁定与幂等。32项相关/类型通过；既有6份原件真实3000读取与SHA/Range验证通过。QA见2026-11-09-mobile-import.md；按用户要求不再尝试镜像，不占合并部署窗口。
 
