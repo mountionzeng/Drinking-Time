@@ -232,7 +232,7 @@ export default function ShiguangLandingPage() {
             <span><strong>{english ? "Computer" : "电脑版"}</strong><small>{english ? "Turn what you kept into a personal film." : "制作美丽的私人影像"}</small></span>
             <ArrowIcon />
           </a>
-          <WechatEntry english={english} qrSrc="/shiguang/wechat-trial-qr.png" />
+          <WechatEntry english={english} qrSrc="/shiguang/wechat-trial-qr.png?v=20261112" />
         </div>
       </Dialog.Content>
     </Dialog.Portal>

@@ -8930,7 +8930,8 @@
         "client/src/pages/ShiguangLandingPage.test.tsx",
         "client/src/app/router/AppRouter.test.tsx",
         "docs/qa/2026-10-13-shiguang-public-landing.md",
-        "docs/qa/2026-10-18-account-release.md"
+        "docs/qa/2026-10-18-account-release.md",
+        "docs/qa/2026-11-12-connection-and-miniapp-entry.md"
       ],
       "invariants": [
         "介绍页无需登录即可读取，不得加载、展示或探测任何账号、Story、聊天或私人媒体数据。",
@@ -8943,9 +8944,9 @@
       ],
       "replaces": [],
       "knownGaps": [
-        "按用户要求先本地评审，尚未部署正式站；公网、真机 Safari、微信内置浏览器和 Android Chrome 待上线前验收。",
         "中英文双端示意均为独立本地演示账号的真实操作录屏；英文使用纳音主题，手机展示点开Logo，电脑展示镜头时长调整与文字排版，尚未展示完整影像生成流程。",
-        "英文介绍页已具备英文文案与纳音五行视觉，但产品工作区内的完整英文本地化尚未完成。"
+        "英文介绍页已具备英文文案与纳音五行视觉，但产品工作区内的完整英文本地化尚未完成。",
+        "公开落地页已部署；体验码由用户提供，11月19日前有效。未用真实手机扫码或体验者账号验收；自动浏览器操作受当前URL限制，未绕过。"
       ],
       "history": [
         {
@@ -9027,6 +9028,11 @@
           "date": "2026-10-18",
           "kind": "improvement",
           "summary": "随d65e8fb1部署正式站；95个发布文件hash、77张业务表及32条迁移核对通过，备份/应用回滚预检完成。双端真实登录打开通过，5.00算力和桌面设置菜单可见。英文来信供应商返回提交未知，真实译文仍待核对调用后验收，未自动重试。详见docs/qa/2026-10-18-account-release.md。"
+        },
+        {
+          "date": "2026-11-12",
+          "kind": "fix",
+          "summary": "定位Mac ClashX全域DomainKeyword(.)/Match将本站送到美国节点而TLS断连；仅为本站域名和服务器/32补优先DIRECT例外，显式代理与TUN请求均恢复。按用户新截图原样替换手机微信体验版二维码，有效期中英文改11月19日前，URL加版本防旧缓存；沿用原入口与布局。18项入口回归通过，证据docs/qa/2026-11-12-connection-and-miniapp-entry.md。"
         }
       ]
     },

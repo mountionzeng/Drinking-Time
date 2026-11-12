@@ -30,19 +30,19 @@ export function WechatEntry({
           <div>
             <img
               src={qrSrc}
-              width={358}
-              height={458}
+              width={370}
+              height={450}
               alt={
                 english
-                  ? "拾光家忆 trial mini program code, valid before November 9, 2026"
-                  : "拾光家忆体验版二维码，2026年11月9日前有效，使用微信扫一扫"
+                  ? "拾光家忆 trial mini program code, valid before November 19, 2026"
+                  : "拾光家忆体验版二维码，2026年11月19日前有效，使用微信扫一扫"
               }
             />
           </div>
           <figcaption>
             {english
-              ? "Trial · valid before Nov 9, 2026"
-              : "体验版 · 11 月 9 日前有效"}
+              ? "Trial · valid before Nov 19, 2026"
+              : "体验版 · 11 月 19 日前有效"}
           </figcaption>
         </figure>
       )}
