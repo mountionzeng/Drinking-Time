@@ -9032,7 +9032,7 @@
         {
           "date": "2026-11-12",
           "kind": "fix",
-          "summary": "定位Mac ClashX全域DomainKeyword(.)/Match将本站送到美国节点而TLS断连；仅为本站域名和服务器/32补优先DIRECT例外，显式代理与TUN请求均恢复。按用户新截图原样替换手机微信体验版二维码，有效期中英文改11月19日前，URL加版本防旧缓存；沿用原入口与布局。18项入口回归通过，证据docs/qa/2026-11-12-connection-and-miniapp-entry.md。"
+          "summary": "定位Mac ClashX全域DomainKeyword(.)/Match将本站送到美国节点而TLS断连；仅为本站域名和服务器/32补优先DIRECT例外，显式代理与TUN请求均恢复。按用户新截图原样替换手机微信体验版二维码，有效期中英文改11月19日前，URL加版本防旧缓存；沿用原入口与布局。18项入口回归通过，证据docs/qa/2026-11-12-connection-and-miniapp-entry.md。 11月13日凌晨e74800c7已合main/push并上线；279文件/14脚本哈希、HTTPS/鉴权、Mac普通TUN与浏览器代理均通过，新QR与用户原图一致。类型/99卡/77草稿保护及构建通过；浏览器交互与真机扫码仍未验证。"
         }
       ]
     },
