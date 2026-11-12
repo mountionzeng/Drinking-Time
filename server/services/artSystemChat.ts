@@ -4,7 +4,7 @@ import { normalizeStoryArtDirection, type StoryArtRecipe } from "../../shared/ar
 import { ownedCreationStory, creationFingerprint } from "../repositories/textSourceLineage";
 import { getGeneratedImageById } from "../repositories/images";
 import { prepareStoryBody } from "./storySync";
-import { persistPreparedStoryBody } from "./storyBodyPersistence";
+import { persistPreparedStoryBody, StoryBodyRevisionConflictError } from "./storyBodyPersistence";
 import { runJsonAgent } from "./agentRuntime";
 
 type Input = { storyId: number; userId: number; editorName: string; instruction: string; operationToken: string;
@@ -80,8 +80,29 @@ export async function writeArtSystem(input: Input) {
     ? direction.recipeVersions : [...direction.recipeVersions, direction.recipe];
   const nextDirection = { ...direction, phase: input.action === "confirm" ? "locked" as const : "recipe-review" as const,
     recipe, recipeVersions: [...history, recipe], updatedAt: now };
-  const next = { ...body, artDirection: nextDirection,
-    artSystemReceipts: { ...receipts, [input.operationToken]: { hash: receiptHash, version } } };
-  await persistPreparedStoryBody({ ...input, expectedRevision: revision, body: prepareStoryBody(next, revision + 1, next) });
-  return { direction: nextDirection, version, revision: revision + 1, replayed: false };
+  // Inference may outlive an unrelated chat/autosave. Rebase only this owned
+  // slice, without repeating inference or overwriting another art edit.
+  const originalArt = creationFingerprint(body.artDirection ?? null);
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const latest = await ownedCreationStory(input);
+    const currentDirection = normalizeStoryArtDirection(latest.body.artDirection);
+    const currentReceipts = latest.body.artSystemReceipts && typeof latest.body.artSystemReceipts === "object"
+      ? latest.body.artSystemReceipts as Record<string, { hash: string; version: number }> : {};
+    const completed = currentReceipts[input.operationToken];
+    if (completed) {
+      if (completed.hash !== receiptHash) throw new TRPCError({ code: "CONFLICT", message: "操作标识已被另一项修改使用" });
+      return { direction: currentDirection, version: completed.version, revision: latest.revision, replayed: true };
+    }
+    if (creationFingerprint(latest.body.artDirection ?? null) !== originalArt) throw new TRPCError({ code: "CONFLICT", message: "美术体系已更新，请重新载入后确认当前版本" });
+    const next = { ...latest.body, artDirection: nextDirection,
+      artSystemReceipts: { ...currentReceipts, [input.operationToken]: { hash: receiptHash, version } } };
+    try {
+      await persistPreparedStoryBody({ ...input, expectedRevision: latest.revision,
+        body: prepareStoryBody(next, latest.revision + 1, next) });
+      return { direction: nextDirection, version, revision: latest.revision + 1, replayed: false };
+    } catch (error) {
+      if (!(error instanceof StoryBodyRevisionConflictError) || attempt === 4) throw error;
+    }
+  }
+  throw new Error("保存繁忙，请重试；原美术版本保留");
 }

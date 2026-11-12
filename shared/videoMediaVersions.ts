@@ -38,11 +38,16 @@ export type VideoMediaVersionList = {
 };
 
 type Body = {
+  chatCutMigration?: { id: string };
   bookVideoRecords?: BookVideoRecord[];
-  shots?: Array<{ publishingVideo?: { groupId?: string } }>;
+  shots?: Array<{
+    publishingVideo?: { groupId?: string };
+    chatCutMigrationId?: string;
+  }>;
   publishing?: { activeVideoStoryboardGroupId?: string };
   videoWorkflow?: {
     versions?: Array<{
+      number?: number;
       planId?: string;
       createdAt: number;
       author?: { userId?: number; name?: string };
@@ -64,7 +69,11 @@ export function activeVideoPlanId(
           ?.groupId
       : b.publishing?.activeVideoStoryboardGroupId;
   return (
-    b.bookVideoRecords?.find(record => groupOf(record) === groupId)?.id ?? null
+    b.bookVideoRecords?.find(record => groupOf(record) === groupId)?.id ??
+    (shots
+      ? shots.find(shot => shot.chatCutMigrationId)?.chatCutMigrationId
+      : b.chatCutMigration?.id) ??
+    null
   );
 }
 export function videoMediaVersionLabel(
@@ -74,9 +83,14 @@ export function videoMediaVersionLabel(
   const film = confirmedBookVideoVersions(
     asBody(body).bookVideoRecords ?? []
   ).find(item => item.record.id === entry.planId);
+  const migrated = asBody(body).videoWorkflow?.versions?.find(
+    version => version.planId && version.planId === entry.planId
+  );
   return film
     ? `V${String(film.version).padStart(2, "0")}.${entry.number}`
-    : `V—.${entry.number}`;
+    : migrated?.number
+      ? `V${String(migrated.number).padStart(2, "0")}.${entry.number}`
+      : `V—.${entry.number}`;
 }
 export function videoMediaValue(
   kind: VideoMediaKind,
@@ -95,11 +109,13 @@ export function mediaContentKey(
 ): string {
   if (kind === "subtitles")
     return JSON.stringify(
-      (value as TimelineSubtitleState).tracks.map(track =>
-        track.cues
+      (value as TimelineSubtitleState).tracks.map(track => ({
+        name: track.name,
+        placement: track.placement,
+        cues: track.cues
           .map(cue => [cue.text, cue.startFrame, cue.durationFrames])
-          .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))
-      )
+          .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))),
+      }))
     );
   const track = value as AudioTrack;
   return JSON.stringify([
@@ -189,7 +205,10 @@ function capture(
             .map(entry => entry.number)
         ) + 1,
       intent:
-        intent?.trim() || (kind === "subtitles" ? "保存字幕内容与时间" : "保存声音素材与剪辑设置"),
+        intent?.trim() ||
+        (kind === "subtitles"
+          ? "保存字幕内容与时间"
+          : "保存声音素材与剪辑设置"),
     };
     state.entries.push(entry);
     state.current[kind] = entry.id;

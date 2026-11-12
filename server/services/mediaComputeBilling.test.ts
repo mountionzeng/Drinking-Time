@@ -324,6 +324,93 @@ describe("video submission and reconciliation with the real ledger", () => {
       lifetimeSpentMinor: fromYuan(1.4),
     });
   });
+  it("recovers a submitted video on the snapshot route after API302_BASE_URL changes", async () => {
+    ENV.api302BaseUrl = "https://api.302.ai";
+    const request = await videoInput();
+    const fetcher = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      if (init?.method === "POST")
+        return new Response(JSON.stringify({ taskId: "task-snap" }));
+      return new Response(
+        JSON.stringify({
+          status: "SUCCESS",
+          video_url: "https://file.302.ai/test.mp4",
+        })
+      );
+    });
+    vi.stubGlobal("fetch", fetcher);
+    expect(await startShotVideoJob(request, 1)).toMatchObject({ status: "ok" });
+    ENV.api302BaseUrl = "https://api.302ai.cn";
+    ENV.video302SubmitPath = "/mj-turbo/submit/video";
+    ENV.video302PollPath = "/mj-turbo/task/{taskId}/fetch";
+    await reconcileMediaBilling();
+    const pollUrls = fetcher.mock.calls
+      .filter(call => call[1]?.method !== "POST")
+      .map(call => String(call[0]));
+    expect(pollUrls).toContain("https://api.302.ai/302/task/task-snap");
+    expect(pollUrls.some(url => url.includes("api.302ai.cn") || url.includes("mj-turbo"))).toBe(false);
+    expect(await getAccountBalance(1)).toMatchObject({
+      reservedMinor: 0,
+      lifetimeSpentMinor: fromYuan(1.4),
+    });
+  });
+
+  it("recovers an economy video on the submitted host after API302_BASE_URL changes", async () => {
+    ENV.api302BaseUrl = "https://api.302.ai";
+    const request = { ...await videoInput(), durationSec: 5, renderMode: "economy" as const };
+    const fetcher = vi.fn(async (url: unknown, init?: RequestInit) => {
+      if (init?.method === "POST")
+        return new Response('{"task_id":"economy-host"}');
+      expect(String(url)).toBe("https://api.302.ai/vidu/ent/v2/tasks/economy-host/creations");
+      return new Response('{"state":"success","creations":[{"url":"https://file.302.ai/test.mp4"}]}');
+    });
+    vi.stubGlobal("fetch", fetcher);
+    expect(await startShotVideoJob(request, 1)).toMatchObject({ status: "ok" });
+    ENV.api302BaseUrl = "https://api.302ai.cn";
+    ENV.video302SubmitPath = "/mj-turbo/submit/video";
+    ENV.video302PollPath = "/mj-turbo/task/{taskId}/fetch";
+    await reconcileMediaBilling();
+    await reconcileMediaBilling();
+    expect(await getAccountBalance(1)).toMatchObject({
+      reservedMinor: 0,
+      lifetimeSpentMinor: fromYuan(0.54),
+    });
+  });
+
+  it("keeps the video hold when the status query fails", async () => {
+    ENV.api302BaseUrl = "https://api.302.ai";
+    const request = await videoInput();
+    const fetcher = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      if (init?.method === "POST")
+        return new Response(JSON.stringify({ taskId: "task-qfail" }));
+      return new Response("{}", { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetcher);
+    expect(await startShotVideoJob(request, 1)).toMatchObject({ status: "ok" });
+    await reconcileMediaBilling();
+    expect(await getAccountBalance(1)).toMatchObject({
+      reservedMinor: fromYuan(1.4),
+      lifetimeSpentMinor: 0,
+    });
+  });
+
+  it("releases the video hold when the provider confirms failure", async () => {
+    ENV.api302BaseUrl = "https://api.302.ai";
+    const request = await videoInput();
+    const fetcher = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      if (init?.method === "POST")
+        return new Response(JSON.stringify({ taskId: "task-failed" }));
+      return new Response(
+        JSON.stringify({ status: "FAILURE", failReason: "prompt parameter error" })
+      );
+    });
+    vi.stubGlobal("fetch", fetcher);
+    expect(await startShotVideoJob(request, 1)).toMatchObject({ status: "ok" });
+    await reconcileMediaBilling();
+    expect(await getAccountBalance(1)).toMatchObject({
+      reservedMinor: 0,
+      lifetimeSpentMinor: 0,
+    });
+  });
 });
 
 async function startEndInput() {

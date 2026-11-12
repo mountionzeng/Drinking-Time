@@ -39,7 +39,7 @@ const err = (message: string): SpeechBindingError => ({
 });
 
 function subtitleCues(state: TimelineSubtitleState) {
-  return state.tracks[0]?.cues ?? [];
+  return state.tracks.flatMap(track => track.cues);
 }
 
 function findNarrationClip(state: TimelineAudioState, bindingId: string) {
@@ -68,14 +68,12 @@ export function bindSpeech(
   }
   return ok(
     {
-      tracks: [
-        {
-          ...subtitleState.tracks[0],
-          cues: subtitleCues(subtitleState).map(c =>
-            c.id === cue.id ? { ...c, speechBindingId: input.bindingId } : c
-          ),
-        },
-      ],
+      tracks: subtitleState.tracks.map(track => ({
+        ...track,
+        cues: track.cues.map(c =>
+          c.id === cue.id ? { ...c, speechBindingId: input.bindingId } : c
+        ),
+      })),
     },
     {
       tracks: audioState.tracks.map(t =>
@@ -105,16 +103,14 @@ export function unbindSpeech(
   if (!cue && !clip) return ok(subtitleState, audioState, false);
   return ok(
     {
-      tracks: [
-        {
-          ...subtitleState.tracks[0],
-          cues: subtitleCues(subtitleState).map(c =>
-            c.speechBindingId === input.bindingId
-              ? { ...c, speechBindingId: undefined }
-              : c
-          ),
-        },
-      ],
+      tracks: subtitleState.tracks.map(track => ({
+        ...track,
+        cues: track.cues.map(c =>
+          c.speechBindingId === input.bindingId
+            ? { ...c, speechBindingId: undefined }
+            : c
+        ),
+      })),
     },
     {
       tracks: audioState.tracks.map(t => ({
@@ -156,16 +152,14 @@ export function moveBoundSpeech(
   }
   return ok(
     {
-      tracks: [
-        {
-          ...subtitleState.tracks[0],
-          cues: subtitleCues(subtitleState).map(c =>
-            c.id === cue.id
-              ? { ...c, startFrame: nextCueStart, timingEdited: true }
-              : c
-          ),
-        },
-      ],
+      tracks: subtitleState.tracks.map(track => ({
+        ...track,
+        cues: track.cues.map(c =>
+          c.id === cue.id
+            ? { ...c, startFrame: nextCueStart, timingEdited: true }
+            : c
+        ),
+      })),
     },
     {
       tracks: audioState.tracks.map(t =>
@@ -241,7 +235,10 @@ export function adoptNarrationCandidate(
   if (cue.textRevision !== input.expectedTextRevision) {
     return err("字幕文字已经更新，请重新生成旁白");
   }
-  if (!Number.isInteger(input.assetDurationFrames) || input.assetDurationFrames < 1) {
+  if (
+    !Number.isInteger(input.assetDurationFrames) ||
+    input.assetDurationFrames < 1
+  ) {
     return err("旁白音频时长不可用");
   }
   if (cue.speechBindingId && cue.speechBindingId !== input.bindingId) {
@@ -299,22 +296,20 @@ export function adoptNarrationCandidate(
 
   return ok(
     {
-      tracks: [
-        {
-          ...subtitleState.tracks[0],
-          cues: subtitleCues(subtitleState).map(candidate =>
-            candidate.id === cue.id
-              ? {
-                  ...candidate,
-                  speechBindingId: input.bindingId,
-                  ...(candidate.timingEdited
-                    ? {}
-                    : { durationFrames: input.assetDurationFrames }),
-                }
-              : candidate
-          ),
-        },
-      ],
+      tracks: subtitleState.tracks.map(track => ({
+        ...track,
+        cues: track.cues.map(candidate =>
+          candidate.id === cue.id
+            ? {
+                ...candidate,
+                speechBindingId: input.bindingId,
+                ...(candidate.timingEdited
+                  ? {}
+                  : { durationFrames: input.assetDurationFrames }),
+              }
+            : candidate
+        ),
+      })),
     },
     {
       tracks: audioState.tracks.map(track =>

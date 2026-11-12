@@ -2,7 +2,14 @@ import { describe, expect, it } from "vitest";
 import {
   transitionVideoFrameTime,
   transitionVideoWindow,
+  transitionFrameFilter,
 } from "./videoEndpointFrames";
+
+it("keeps native edit frames unscaled and leaves legacy preview sizes explicit", () => {
+  expect(transitionFrameFilter({ preserveDimensions: true, preserveAspect: true })).toBe("null");
+  expect(transitionFrameFilter({ preserveAspect: true })).toContain("scale=1280");
+  expect(transitionFrameFilter({})).toContain("crop=720:720");
+});
 
 function video(overrides: Record<string, unknown> = {}) {
   return {

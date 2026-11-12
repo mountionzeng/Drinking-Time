@@ -11,7 +11,9 @@ const clamp = (n: number, min: number, max: number) =>
 export async function renderExportImageBytes(
   bytes: Buffer,
   transform: TimelineTransform,
-  dimensions: { width: number; height: number }
+  dimensions: { width: number; height: number },
+  fit: "cover" | "contain" = "cover",
+  transparent = false
 ): Promise<Buffer> {
   const png = await sharp(bytes, { limitInputPixels: 40_000_000 })
     .rotate()
@@ -22,7 +24,7 @@ export async function renderExportImageBytes(
   const x = width / 2 + (clamp(transform.panX, -1, 1) * width) / 2;
   const y = height / 2 + (clamp(transform.panY, -1, 1) * height) / 2;
   const angle = clamp(transform.rotationDeg ?? 0, -180, 180);
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${width}" height="${height}"><rect width="100%" height="100%" fill="black"/><g transform="translate(${x} ${y}) rotate(${angle}) scale(${zoom * (transform.flipX ? -1 : 1)} ${zoom * (transform.flipY ? -1 : 1)})"><image x="${-width / 2}" y="${-height / 2}" width="${width}" height="${height}" preserveAspectRatio="xMidYMid slice" xlink:href="data:image/png;base64,${png.toString("base64")}"/></g></svg>`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${width}" height="${height}">${transparent ? "" : '<rect width="100%" height="100%" fill="black"/>'}<g transform="translate(${x} ${y}) rotate(${angle}) scale(${zoom * (transform.flipX ? -1 : 1)} ${zoom * (transform.flipY ? -1 : 1)})"><image x="${-width / 2}" y="${-height / 2}" width="${width}" height="${height}" preserveAspectRatio="xMidYMid ${fit === "contain" ? "meet" : "slice"}" xlink:href="data:image/png;base64,${png.toString("base64")}"/></g></svg>`;
   return sharp(Buffer.from(svg)).png().toBuffer();
 }
 
@@ -33,6 +35,7 @@ export async function renderExportImage(input: {
   transform: TimelineTransform;
   dimensions: { width: number; height: number };
   outputPath: string;
+  transparent?: boolean;
 }) {
   const image = await loadAuthorizedStoryImage(input);
   if (!image)
@@ -53,6 +56,6 @@ export async function renderExportImage(input: {
   const bytes = await fs.readFile(file);
   await fs.writeFile(
     input.outputPath,
-    await renderExportImageBytes(bytes, input.transform, input.dimensions)
+    await renderExportImageBytes(bytes, input.transform, input.dimensions, "cover", input.transparent)
   );
 }

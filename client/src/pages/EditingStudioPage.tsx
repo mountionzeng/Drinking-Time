@@ -1,6 +1,12 @@
+import { useWarehouseFileChat } from "@/features/storyAgent/useWarehouseFileChat";
+import { useVisualUnderstandingChat } from "@/features/storyAgent/useVisualUnderstandingChat";
+import { useFrameRegionReviewChat } from "@/features/storyAgent/useFrameRegionReviewChat";
+import { OPEN_SHOT_WAREHOUSE } from "@/features/creationEditor/warehouseShotMedia";
+import { useWarehouseRenderActivity } from "@/features/creationEditor/useWarehouseRenderActivity";
 import { SHOT_CHAT_FOCUS_EVENT } from "@/features/storyAgent/shotChatFocus";
 import { browserStoryViewStorage, readStoryView, saveStoryView } from "./storyWorkspacePreference";
 import { useImageRevisionChat } from "@/features/storyAgent/useImageRevisionChat";
+import { useColorTransferChat } from "@/features/storyAgent/useColorTransferChat";
 import { parseSoundChat } from "@shared/soundChat";
 import { runVisualProductionChat } from "@/features/storyAgent/visualProductionChatBridge";
 import { useArtPreviewChat } from "@/features/storyAgent/useArtPreviewChat";
@@ -254,6 +260,22 @@ function EditingStudioBody({
     setConfirmedIntent,
   } = useStoryAgentActions();
   const [chatCollapsed, setChatCollapsed] = useState(false);
+  const [warehouseShotId, setWarehouseShotId] = useState<string | null>(null);
+  useEffect(() => { setWarehouseShotId(null); }, [activeStoryId]);
+  useEffect(() => {
+    const open = (event: Event) => {
+      const detail = (event as CustomEvent<{ storyId: number; stableShotId?: string; groupId?: string }>).detail;
+      if (workspace !== "editing" || detail?.storyId !== activeStoryId) return;
+      const id = detail.groupId ?? detail.stableShotId;
+      if (!id) return;
+      setWarehouseShotId(id);
+      onMaterialVisibleChange(true);
+    };
+    window.addEventListener(SHOT_CHAT_FOCUS_EVENT, open);
+    window.addEventListener(OPEN_SHOT_WAREHOUSE, open);
+    return () => { window.removeEventListener(SHOT_CHAT_FOCUS_EVENT, open); window.removeEventListener(OPEN_SHOT_WAREHOUSE, open); };
+  }, [activeStoryId, workspace, onMaterialVisibleChange]);
+
   useEffect(() => {
     const open = (event: Event) => {
       const detail = (event as CustomEvent<{ storyId: number }>).detail;
@@ -264,6 +286,11 @@ function EditingStudioBody({
   }, [activeStoryId]);
   const [createRequest, setCreateRequest] = useState<StudioCreateRequest | null>(null);
   const { user: creationUser } = useAuth();
+  const renderJobs = useWarehouseRenderActivity(creationUser?.id, activeStoryId, job => {
+    if (job.storyId !== activeStoryId) return;
+    setWarehouseShotId(job.shotId ?? null);
+    onMaterialVisibleChange(true);
+  });
   const handoffId = useRef(new URLSearchParams(window.location.search).get("createRequest"));
   const handoffStarted = useRef(false);
   const [incomingCreate, setIncomingCreate] = useState<StudioCreateRequest | null>(null);
@@ -637,6 +664,8 @@ function EditingStudioBody({
           {materialVisible && pendingStoryRequestId === null && (
             activeStoryId !== null ? <MaterialWarehousePanel key={activeStoryId}
               variant="drawer" videoActions={workspace === "editing"} insertIntoLayout={workspace === "images"}
+              focusedShotId={workspace === "editing" ? warehouseShotId : null}
+              renderJobs={renderJobs}
               onClose={() => onMaterialVisibleChange(false)} />
             : <section id="editing-material-warehouse" aria-label={_ui("素材仓库抽屉")} className="flex min-h-32 items-center justify-between gap-3 border-t p-4 text-sm text-muted-foreground">
                 <span>{_ui("先打开一个故事，就能使用它的图片、视频和资产。")}</span>
@@ -757,6 +786,10 @@ export default function EditingStudioPage() {
   const timelineEditMut = trpc.creationAgent.timelineEditCommand.useMutation();
   const runArtPreviewChat = useArtPreviewChat();
   const runImageRevisionChat = useImageRevisionChat();
+  const runColorTransferChat = useColorTransferChat();
+  const runFrameRegionReviewChat = useFrameRegionReviewChat();
+  const runVisualUnderstandingChat = useVisualUnderstandingChat();
+  const runWarehouseFileChat = useWarehouseFileChat();
   const [accountMemoriesOpen, setAccountMemoriesOpen] = useState(false);
   const [materialVisible, setMaterialVisible] = useState(false);
   const [dailyLetterOpen, setDailyLetterOpen] = useState(() =>
@@ -799,8 +832,20 @@ export default function EditingStudioPage() {
         storySpineStore.getState().activeStoryId
       );
       if (storyId == null) return null;
-      const soundIntent = parseSoundChat(instruction);
+      const files = await runWarehouseFileChat(storyId, instruction);
+      if (files) return files;
       const surface = requestedWorkspace ?? (workspace === "publishing" || workspace === "images" ? "book" : "video");
+      if (surface === "video") {
+        const review = await runFrameRegionReviewChat(storyId, instruction, selectionContext);
+        if (review) return review;
+      }
+      const understanding = await runVisualUnderstandingChat(storyId, instruction, selectionContext);
+      if (understanding) return understanding;
+      // 「只调亮度」「按图一的颜色改图二」：本地免费调色（书页、视频页都可以），不进付费改图。
+      const colorGrade = await runColorTransferChat(storyId, instruction, selectionContext);
+      if (colorGrade) return colorGrade;
+      const soundIntent = parseSoundChat(instruction);
+
       // A visual brief may mention subtitles or music as constraints. Route its
       // explicit operation before the broad sound-help fallback.
       if (surface === "video") {
@@ -881,7 +926,7 @@ export default function EditingStudioPage() {
         transitionCandidate: result.proposal,
       };
     },
-    [workspace, activeStoryId, timelineEditMut, utils, runArtPreviewChat, runImageRevisionChat]
+    [workspace, activeStoryId, timelineEditMut, utils, runArtPreviewChat, runImageRevisionChat, runFrameRegionReviewChat, runWarehouseFileChat, runVisualUnderstandingChat, runColorTransferChat]
   );
 
   return (

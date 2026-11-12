@@ -1,6 +1,272 @@
 {
   "features": [
     {
+      "id": "warehouse-general-files",
+      "name": "仓库通用文件保存与本地预览",
+      "status": "working",
+      "userValue": "将文档、表格、压缩包和未知格式从聊天或仓库保存为原件，能读取的内容本地预览，点文件进入聊天引用并随时下载。",
+      "entryPoints": [
+        "client/src/features/storyAgent/views/StoryAgentChat.tsx",
+        "client/src/features/creationEditor/views/MaterialWarehousePanel.tsx",
+        "server/routers/creationAgent.ts"
+      ],
+      "owners": [
+        "shared/warehouseFiles.ts",
+        "server/services/warehouseFiles.ts",
+        "server/services/warehouseFileExtraction.ts",
+        "server/_core/warehouseFileRoute.ts",
+        "client/src/features/creationEditor/views/WarehouseFiles.tsx",
+        "client/src/features/storyAgent/useWarehouseFileChat.ts"
+      ],
+      "evidence": [
+        "server/services/warehouseFiles.test.ts",
+        "server/services/warehouseFileExtraction.test.ts",
+        "server/_core/warehouseFileRoute.test.ts",
+        "client/src/features/storyAgent/useWarehouseFileChat.test.ts",
+        "client/src/features/creationEditor/views/WarehouseFiles.test.tsx",
+        "client/src/features/storyAgent/chatMediaAttachments.test.ts",
+        "docs/qa/2026-11-10-warehouse-files-pointillism.md"
+      ],
+      "invariants": [
+        "文件原件保持字节一致，私有路径按用户隔离，下载校验故事归属与SHA256；以附件下载，不内联执行。",
+        "通用文件不自动放入镜头，不改变原图片/视频导入入口；未知或解析失败的格式保留原件并如实提示。",
+        "本地解析不执行用户代码、宏、XML实体或压缩包路径，不向模型发送提取内容；聊天只读取身份和状态。",
+        "仓库文件清单由专用服务CAS维护，通用/过期故事保存不可清除或伪造，重传相同文件名与SHA复用。",
+        "单文件25MB、每故事200份/512MB，预览有界且不可挤破既有故事容量。"
+      ],
+      "dependencies": [
+        "story-ownership",
+        "shot-media-warehouse"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "外部AI文件分析未接通：自动审批拒绝任意文件自动外发；当前仅本地解析预览与元数据聊天回复。",
+        "PDF无OCR；Office只读文字/存储值，不含图片/宏/公式重算；ZIP只列清单，旧Office与未知格式仅保存。",
+        "浏览器实测MD/ZIP，Office通过合成文件解析测试；生产多实例私有磁盘/备份、移动端和文件删除回收未验收。",
+        "预览有40000字符/卡片3000字符限制；故事容量不足时文件仅保留原件。"
+      ],
+      "history": [
+        {
+          "date": "2026-11-10",
+          "kind": "feature",
+          "summary": "主仓3000真实聊天上传MD/ZIP，文件#1/#2刷新保留、点文件带入对话、本地预览及下载SHA一致；43项组合测试、容量增量4项、类型/构建及草稿保护通过。沿用现有横滑仓库与上传按钮，未启用外部文件分析。"
+        }
+      ]
+    },
+    {
+      "id": "chat-video-frame-references",
+      "name": "对话抽取视频参考帧",
+      "status": "working",
+      "userValue": "在聊天里指定镜头和时间查看原视频参考帧，保存到仓库并点图继续修改，不自动改动剪辑线。",
+      "entryPoints": [
+        "client/src/features/storyAgent/views/StoryAgentChat.tsx",
+        "server/routers/creationAgent.ts"
+      ],
+      "owners": [
+        "shared/chatFrameReference.ts",
+        "server/services/chatFrameReferences.ts",
+        "client/src/features/storyAgent/useFrameReferenceChat.ts",
+        "client/src/features/storyAgent/views/ChatFrameReferences.tsx",
+        "client/src/features/storyAgent/types.ts"
+      ],
+      "evidence": [
+        "shared/chatFrameReference.test.ts",
+        "server/services/chatFrameReferences.test.ts",
+        "client/src/features/storyAgent/useFrameReferenceChat.test.ts",
+        "client/src/features/storyAgent/views/ChatFrameReferences.test.tsx",
+        "client/src/features/storyAgent/selectionReplyCommit.test.ts",
+        "docs/qa/2026-11-10-chat-frame-reference.md",
+        "docs/qa/2026-11-12-product-frame-region-review.md"
+      ],
+      "invariants": [
+        "参考检查只保存仓库资产，不调用生成服务、不写时间线；与旧时间线抽帧一帧落位入口独立。",
+        "服务端按当前故事归属、稳定镜头、裁切/倒放解析真实视频源时间，不信任客户端素材URL。",
+        "源帧保持宽高比；聊天显示镜号和镜内秒数，资产标注Take和源时间，刷新可还原。",
+        "抽出的参考图只有用户明确使用才参与首尾帧配置；历史和仓库保留。",
+        "切账户/故事后晚到的结果不得进入新故事；失败不能转入付费生成。"
+      ],
+      "dependencies": [
+        "extracted-frame-overlay-video",
+        "shot-media-warehouse",
+        "image-asset-history",
+        "stable-shot-identity"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "默认按15%/50%/85%采样，尚未按画面语义识别城市/森林/云。",
+        "中途刷新未自动恢复未完成的聊天请求；已保存图片仍在仓库。",
+        "未验收生产MySQL多实例并发去重；本地同源重试复用资产。",
+        "本轮未提交图片或视频生成，美术效果尚待生成验证。"
+      ],
+      "history": [
+        {
+          "date": "2026-11-10",
+          "summary": "本地3000真实聊天提交、抽取三帧、点选与刷新验收；115项测试通过，未付费生成或改剪辑线。",
+          "kind": "feature"
+        },
+        {
+          "date": "2026-11-12",
+          "kind": "feature",
+          "summary": "原3001支持明确抽3/5帧且包含首末帧，原生尺寸；范围确认后续由chat-keyframe-region-review承接。当前Take1617五帧2086–2090实测，不改剪辑线。"
+        }
+      ]
+    },
+    {
+      "id": "shared-creation-emotion",
+      "name": "作品共享情绪意图",
+      "status": "partial",
+      "userValue": "让文字、美术和音乐理解同一作品情绪，以各自方式表达，保留混合与发展，并追踪旧内容的生成依据。",
+      "entryPoints": [
+        "server/routers/storyAgent.ts",
+        "server/routers/creationEmotion.ts",
+        "client/src/features/publishingDraft/TextDraftVersions.tsx",
+        "server/routers/publishingDraft.ts"
+      ],
+      "owners": [
+        "shared/emotionTaxonomy.ts",
+        "shared/creationEmotion.ts",
+        "server/services/creationEmotion.ts",
+        "server/services/textDraftPrompt.ts",
+        "server/services/textDraftHistory.ts",
+        "server/services/renderGate.ts",
+        "server/services/storyAudioGeneration.ts",
+        "server/services/storySync.ts",
+        "shared/creationEmotionChat.ts",
+        "client/src/features/storyAgent/StoryAgentContext.tsx",
+        "client/src/features/storyAgent/views/StoryAgentChat.tsx",
+        "server/services/bookImageComposition.ts",
+        "server/services/publishingAlbumBackgroundPrompt.ts",
+        "server/services/publishingAlbumBackgroundGeneration.ts"
+      ],
+      "evidence": [
+        "shared/creationEmotion.test.ts",
+        "server/services/creationEmotion.test.ts",
+        "server/services/textDraftHistory.test.ts",
+        "server/services/storyAudioGeneration.test.ts",
+        "server/routers.storyAgent.test.ts",
+        "docs/qa/2026-11-10-creation-emotion.md",
+        "docs/handoff/CREATION-EMOTION.md",
+        "shared/creationEmotionChat.test.ts",
+        "client/src/features/storyAgent/StoryAgentContext.intent.test.tsx",
+        "docs/qa/2026-11-10-creation-emotion-e2e.md",
+        "client/src/features/publishingDraft/TextDraftVersions.emotion.test.tsx",
+        "server/services/bookImageComposition.test.ts",
+        "server/services/publishingAlbumBackgroundGeneration.test.ts",
+        "server/services/publishingAlbumBackgroundPrompt.test.ts",
+        "server/routers.publishingDraft.test.ts",
+        "docs/qa/2026-11-10-creation-emotion-chapters.md"
+      ],
+      "invariants": [
+        "只分析作品意图，不自动导入个人情绪档案；用户原话和当前明确要求优先于检索建议。",
+        "同一公共词库和已保存快照，按媒介转译，不每次对话传整库，不重复调用模型分析三次。",
+        "情绪历史与资产版本独立；新生成保存依据，旧文字/图片/音乐不被自动覆盖或重购。",
+        "作品/章节/稳定镜头分层，服务端所有字段、所有权验证与CAS保护；无设定旧作品行为不变。",
+        "保留文字事实和选区、美术风格/角色/严格原图、音乐时长及现有费用确认。"
+      ],
+      "dependencies": [
+        "story-ownership",
+        "independent-text-versions",
+        "unified-static-image-prompt",
+        "timeline-subtitle-audio-editing"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "真实付费生成与文字/画面/听感人工比较未执行；测试请求差异不等于作品质量通过。",
+        "自然语言提交仅覆盖明确作品/镜头情绪句式，普通自由讨论不自动保存；其他语言、手机独立对话需继续接入。",
+        "章节文字与书页模块/合成图、封面/插图/底纹/画册背景已接入并通过模拟请求测试；章节情绪自然语言设置与本轮浏览器点击生成尚未验收，严格原图和preservePrompt维持原锁定。",
+        "无来源旧媒体标记untracked，不倒推情绪版本；无镜头身份的候选可能无法发现后来新增的本镜覆盖。"
+      ],
+      "history": [
+        {
+          "date": "2026-11-10",
+          "kind": "feature",
+          "summary": "共享情绪单源检索、CAS保存、对话/API入口及文字/分镜主图/配乐三条请求接通；同一场景三情绪测试供应商检查通过。11文件172项与类型检查通过；未购买媒体/改用户作品/部署，范围与剩余入口见handoff。 最终重点23项复查、94卡校验和3000真实故事只读预览通过，get前后revision=0未变。"
+        },
+        {
+          "date": "2026-11-10",
+          "kind": "fix",
+          "summary": "真实浏览器复现镜头情绪含音乐时被声音分流截走，修复前后端共用识别及优先路由，跳过无关剪辑/后台推理，保留队列/定位/新输入。局部情绪历史可单独查询并显示可读镜号。195项、类型及3000书/视频/刷新/音乐报价验收通过；临时1218零计费/零媒体已删除，10测试记忆归档；未提交部署。"
+        },
+        {
+          "date": "2026-11-10",
+          "kind": "feature",
+          "summary": "章节写作快照自动传ID并校验归属；章节模块/文字合成图、封面/插图/底纹/画册背景接入共享情绪。纹理保持阅读用途，背景报价绑定E来源且恢复旧任务，首次新增章节覆盖后旧图来源识别补齐。15文件323项、类型通过；无按钮/付费/作品修改/部署。章节自然语言、手机与真实审美验收仍保留缺口。"
+        }
+      ]
+    },
+    {
+      "id": "shot-media-warehouse",
+      "name": "仓库按镜头汇集媒体版本",
+      "status": "working",
+      "userValue": "按镜头查看图片、首尾参考帧、视频和声音的已保存版本，按生成时间横向浏览；编辑镜头时打开对应素材组，提交生成后立即显示媒体占位与任务状态。",
+      "entryPoints": [
+        "client/src/pages/EditingStudioPage.tsx",
+        "client/src/features/creationEditor/views/MaterialWarehousePanel.tsx",
+        "client/src/features/storyAgent/views/StoryAgentChat.tsx"
+      ],
+      "owners": [
+        "client/src/features/creationEditor/warehouseShotMedia.ts",
+        "client/src/features/creationEditor/views/WarehouseShotGroups.tsx",
+        "client/src/features/creationEditor/warehouseRenderActivity.ts",
+        "client/src/features/creationEditor/useWarehouseRenderActivity.ts",
+        "client/src/features/creationEditor/views/WarehouseRenderCards.tsx",
+        "shared/audioWarehouseShot.ts",
+        "server/routers/timelineMedia.ts"
+      ],
+      "evidence": [
+        "client/src/features/creationEditor/warehouseShotMedia.test.ts",
+        "client/src/features/creationEditor/views/WarehouseShotGroups.test.tsx",
+        "client/src/features/creationEditor/views/MaterialWarehousePanel.test.tsx",
+        "shared/audioWarehouseShot.test.ts",
+        "server/routers.timelineMedia.test.ts",
+        "docs/qa/2026-11-10-shot-media-warehouse.md",
+        "client/src/features/creationEditor/warehouseRenderActivity.test.ts",
+        "client/src/features/creationEditor/views/WarehouseRenderCards.test.tsx",
+        "docs/qa/2026-11-10-warehouse-render-feedback.md"
+      ],
+      "invariants": [
+        "保留横滑浮窗、原图预览/拖放/选择与原始资产，不因浏览分组而采用、复制、改名或解除素材。",
+        "归属依据稳定身份、显式书转视频引用、帧角色/时间线引用或对话候选；不凭旧镜号或文件名猜测。",
+        "按创建时间混排；时间缺失如实置前。全书声音保留全片组，无可信归属的旧图/视频进入未归类。",
+        "音频接口只返回当前用户拥有的声音及净化后的镜头身份。",
+        "只有明确选择镜头、点击仓库链接或提交当前故事的媒体生成才自动打开；播放跟随和后台完成不得反复弹窗。",
+        "生成占位沿用横滑布局，不新增生产按钮；报价、聊天思考、导入与采用不显示为生成。",
+        "生成回执绑定原故事／稳定镜头并按账号隔离；网络中断显示待确认，不自动重试或采用成果。"
+      ],
+      "dependencies": [
+        "stable-shot-identity",
+        "image-asset-history",
+        "shot-context-chat-history",
+        "story-ownership"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "V01等为组内同媒体种类按资产ID排列的展示序号；增删历史关联可能重排，不替代影片及声音子版本，也不改原文件名。",
+        "旧资产缺少稳定身份及显式引用时无法自动准确归镜；无来源旧音频归入全片。",
+        "最近素材通知从已保存资产投影；成功文案说明存入仓库，不新增逐资产持久聊天消息。",
+        "真实故事1217没有视频Take；视频混排/时长通过固定样本测试，未新购媒体做付费验收。",
+        "生成占位是本浏览器新提交任务的前端回执，最多保留50个/24小时；无服务端回执的同步生成刷新后仅能显示待确认，不保证跨设备恢复。",
+        "本轮三类生成反馈以3000隔离模拟回执验证，未付费验收实际供应商时延或音画质量；无资产ID的旧接口完成后沿用原入口呈现成果。"
+      ],
+      "history": [
+        {
+          "date": "2026-11-10",
+          "kind": "feature",
+          "summary": "本地实现镜头分组、混合媒体顺序/命名版本/时长、显式选镜打开及仓库通知。3000故事1217实测01/02/03切组、旧参考图、全片10份音频、同镜回选、刷新及播放不重开；对话同步显式引用。44专项、类型/构建通过，未提交/部署/付费。"
+        },
+        {
+          "date": "2026-11-10",
+          "kind": "fix",
+          "summary": "按用户截图去仓库标题；镜头下拉合入顶部胶囊，工具栏单行41px、媒体紧接下方。保留拖动并隔离浮窗方向键，避免串到时间轴。真实3000菜单01/03、同项回选、9控件同排与浮窗移动验证；现有7项、类型及93卡通过，详见仓库QA追加。"
+        },
+        {
+          "date": "2026-11-10",
+          "kind": "feature",
+          "summary": "按用户要求补齐图片/音乐/视频提交即时占位，复用横滑仓库及双语状态；按账号恢复回执、独立轮询、完成刷新和失败/不确定状态，未增加生产按钮。27专项、类型、含77草稿回归的构建通过；3000真实仓库入口及模拟并发/输入/切故事/刷新/单查询故障隔离验证，未付费/提交/部署。详见2026-11-10-warehouse-render-feedback QA。"
+        }
+      ]
+    },
+    {
       "id": "story-context-sharing",
       "name": "分享故事上下文，开始独立创作",
       "status": "observing",
@@ -554,7 +820,14 @@
         "client/src/features/writingCompanion/desktopWritingSession.ts",
         "shared/textDraftHistory.ts",
         "server/services/textDraftHistory.ts",
-        "server/services/textDraftPrompt.ts"
+        "server/services/textDraftPrompt.ts",
+        "server/services/legnextImage.ts",
+        "server/services/storyboardImageTask.ts",
+        "server/services/chatImageRevision.ts",
+        "shared/chatImageRevision.ts",
+        "shared/imageRenderCost.ts",
+        "client/src/features/storyAgent/views/ChatImageRevisionGallery.tsx",
+        "client/src/features/storyAgent/views/useShotImageRender.tsx"
       ],
       "evidence": [
         "docs/brainstorms/2026-08-31-selection-scoped-chat-editing-requirements.md",
@@ -583,7 +856,14 @@
         "client/src/features/writingCompanion/writingCompanionText.test.ts",
         "client/src/features/storyAgent/desktopChatQueue.test.ts",
         "docs/qa/2026-10-13-desktop-writing-workflow.md",
-        "server/services/textDraftHistory.test.ts"
+        "server/services/textDraftHistory.test.ts",
+        "docs/qa/2026-11-10-mj-original-frame-refinement.md",
+        "server/services/legnextImage.test.ts",
+        "server/services/storyboardImageTask.test.ts",
+        "client/src/features/storyAgent/views/ChatImageRevisionGallery.test.tsx",
+        "client/src/features/storyAgent/views/storyboardEditableImage.test.ts",
+        "server/services/chatImageRevision.test.ts",
+        "server/services/videoJobs.test.ts"
       ],
       "invariants": [
         "明确选区是下一条修改指令的唯一作用范围，优先级高于模型推断；没有选区时不得猜测修改目标。",
@@ -602,7 +882,8 @@
       "knownGaps": [
         "v1 不支持多选区、跨对象批量修改或可编辑历史聊天消息。",
         "整图GPT Image已真实付费验收；尚未进行真实付费遮罩编辑验收，整图修改不承诺蒙版外像素不变。",
-        "302 MJ Edits在不带透明区域的整图实测原样返回，衍生V1被拒绝；产品不接这条无效路径。MJ选项为参考重绘，不能保证精确局部修改；视觉提示词整理不可用时保留用户原始要求，不切换图片模型。"
+        "302 MJ Edits在不带透明区域的整图实测原样返回，衍生V1被拒绝；产品不接这条无效路径。非对话MJ仍为参考重绘；对话选中原图已接Retexture但真实付费效果待验收，不能保证像素完全一致；视觉提示词整理不可用时保留用户原始要求，不切换图片模型。",
+        "本轮原帧精修已接入真实对话报价；用户已授权三张原帧MJ精修共4.86算力及302读图，尚未提交媒体任务，真实输出及明暗/灰度/构图保持待浏览器控制恢复后验收。原视频运镜/14.5秒时长继承的视频编辑尚未接入，不能用现有首帧生视频冒充。"
       ],
       "history": [
         {
@@ -649,6 +930,16 @@
           "date": "2026-10-12",
           "kind": "improvement",
           "summary": "桌面发布正文选中文字后可直接交给小忆围绕该段对话；选区是唯一改写范围，选区外逐字保留，用户确认后才替换本地编辑缓冲，Story/版本/正文变化或选区漂移会阻止应用。选区模式的开场提示不调用模型，省去一轮等待；生成速度仍取决于对话模型。相关定向测试与类型检查通过。"
+        },
+        {
+          "date": "2026-11-10",
+          "kind": "fix",
+          "summary": "MJ对话改原图改接Legnext Retexture，默认保留未点名的明暗/灰度/对比/构图，跳过扩写；本镜原视频抽帧可直接编辑，新旧对比在聚焦聊天中可见。原帧确认只存参考，不覆盖视频，未审阅禁止新视频购买。186项与类型通过，3000真实选中#2046到1.62算力报价；真实付费结果及原视频运镜继承仍未验收。详见docs/qa/2026-11-10-mj-original-frame-refinement.md"
+        },
+        {
+          "date": "2026-11-11",
+          "kind": "fix",
+          "summary": "严格原图精修的最终MJ提示词接入视觉偏好与当次修改/保留约束，路由集成测试核验当前指令优先且不继承旧场景扩写。三张媒体授权已给、未消费；实际端口精修受浏览器控制禁用阻塞。"
         }
       ]
     },
@@ -1040,7 +1331,8 @@
         "server/services/storyConversation.mobile.test.ts",
         "server/services/promptLineageMigration.test.ts",
         "server/integration/storyConversation.mysql.test.ts",
-        "docs/qa/2026-11-01-conversation-exploration.md"
+        "docs/qa/2026-11-01-conversation-exploration.md",
+        "docs/qa/2026-11-10-shot03-live-rerender.md"
       ],
       "invariants": [
         "已确认修订不可原地覆盖。",
@@ -1078,6 +1370,11 @@
           "date": "2026-11-01",
           "kind": "fix",
           "summary": "浏览器实测旧稿投影导致mobile聊天记录被清空：迁移护栏增加原生消息/逻辑轮，本地沿既有会话锁串行并保留窄读快路径，MySQL事务中锁定后复查。三条路由级回归先失败后通过，5项真实临时MySQL集成通过，空故事后补镜头兼容测试保持通过。修复仅在主仓本地，未部署。"
+        },
+        {
+          "date": "2026-11-10",
+          "kind": "fix",
+          "summary": "第03镜3000真实对话重渲染：显式抽帧首帧通过归属校验，新增镜头谱系只追加保留历史，修复提交回执尚未返回时刷新误报失败。27专项及58关联测试、类型通过；只购买授权的一条Vidu视频Take1611/V02/8秒/1.50算力，原Take1610及剪辑修订18保持。实测可播放但点彩效果未验收；MJ改帧确认再原视频编辑尚待实现。详见docs/qa/2026-11-10-shot03-live-rerender.md。"
         }
       ]
     },
@@ -2122,7 +2419,8 @@
         "docs/qa/2026-11-09-conversation-art-system.md",
         "docs/qa/2026-11-10-playback-ui.md",
         "docs/qa/2026-11-10-unused-workflow-cleanup.md",
-        "docs/qa/2026-11-10-conversation-release.md"
+        "docs/qa/2026-11-10-conversation-release.md",
+        "docs/qa/2026-11-10-shot03-live-rerender.md"
       ],
       "invariants": [
         "预览不得修改正式镜头。",
@@ -2457,6 +2755,11 @@
           "date": "2026-11-10",
           "kind": "fix",
           "summary": "联合网页发布50de687f已上线，版本9c3613ce-f740-418b-bdbb-4c59552052be；7116全量/215小程序/73真实MySQL及生产276产物、support worker、HTTPS健康与登录保护通过。声音私有运行时离线自检通过；真实付费素材质量和用户作品听感缺口保留。详见docs/qa/2026-11-10-conversation-release.md。"
+        },
+        {
+          "date": "2026-11-10",
+          "kind": "fix",
+          "summary": "第03镜3000真实对话重渲染：显式抽帧首帧通过归属校验，新增镜头谱系只追加保留历史，修复提交回执尚未返回时刷新误报失败。27专项及58关联测试、类型通过；只购买授权的一条Vidu视频Take1611/V02/8秒/1.50算力，原Take1610及剪辑修订18保持。实测可播放但点彩效果未验收；MJ改帧确认再原视频编辑尚待实现。详见docs/qa/2026-11-10-shot03-live-rerender.md。"
         }
       ]
     },
@@ -2737,7 +3040,11 @@
         "shared/bookVideoAudio.test.ts",
         "server/services/bookVideoAudio.test.ts",
         "docs/qa/2026-11-09-book-video-audio-pacing.md",
-        "docs/qa/2026-11-09-video-media-versions.md"
+        "docs/qa/2026-11-09-video-media-versions.md",
+        "docs/qa/2026-11-10-compact-timeline-layout.md",
+        "shared/timelineSubtitleMultitrack.test.ts",
+        "server/services/chatCutProjectMigration.test.ts",
+        "docs/qa/2026-11-10-chatcut-launch-migration.md"
       ],
       "invariants": [
         "所有字幕与音频结构时间使用 30fps 非负整数帧；总时长取视觉、字幕、音频三者的最大结束帧。",
@@ -2777,7 +3084,7 @@
         "302 ElevenLabs 当前接口未提供已验证的幂等提交键或任务查询凭据；若进程恰好在供应商成功回包与 provider URL 持久化之间崩溃，该操作会冻结为 submission_unknown，必须人工对账，系统不会冒险自动重提。",
         "legacy 读取按 U10 数据门禁保留：2026-09-05 复核显示 37 个故事中有 3 个只能靠 ChatCut adapter 才有字幕/声音（0 个已迁移到正式 Timeline），因此本轮不删除任何旧读取。",
         "镜头 voiceAudio* 在本地真实数据中为 0 条，但只统计了本地环境；删除该读取前需要再看生产/MySQL 侧数据。",
-        "多语言字幕、逐字卡拉OK、自动 ducking 与响度标准化均不在本轮范围。",
+        "已支持导入的多语言独立字幕轨、位置、编辑/绑定/预览/导出；自动翻译、新建任意语言轨UI、逐字卡拉OK、自动ducking与响度标准化仍未实现。",
         "孤立音频资产的用户级 GC 尚未定义保留策略。",
         "当前开发机 FFmpeg 不含 libass；≤64 个字幕区间走有界 PNG 兼容路径，更长字幕导出需要安装支持 libass 的 FFmpeg。",
         "真实指针拖拽与中文输入法组合态仍以导出的纯函数锁定；字幕键盘移动/裁剪已在 main:3000 人工验证，全局看板快捷键不再抢走媒体轨按键。",
@@ -2926,6 +3233,16 @@
           "date": "2026-11-09",
           "kind": "feature",
           "summary": "新增 video-media-subversions 独立子版本能力；保留原影片完整快照和剪辑入口。音乐/字幕/旁白改动在原CAS内自动记录，实际历史恢复、资产保留及本地实点验证通过；详见对应功能卡及QA。"
+        },
+        {
+          "date": "2026-11-10",
+          "kind": "refactor",
+          "summary": "分镜稿与剪辑预览统一紧凑轨道：字幕44px、音频48px、左栏176px，版本同行、工具并排、素材名可见；保留字幕/声音历史及编辑回调，修正横向滚动时播放头遮挡。100项、类型、构建及主仓3000双视图实测通过；详见紧凑时间线QA，未提交/部署。"
+        },
+        {
+          "date": "2026-11-10",
+          "kind": "feature",
+          "summary": "ChatCut迁移补齐多轨字幕读写/绑定/双语预览与导出，位置变更记录子版本；PNG字幕仅解码一次，修复真实68秒导出超时。故事1217两字幕轨31/27条、四声音轨5片段实际导入，原增益/源裁剪/fade保留；174专项与77草稿、类型/构建通过，9:16成片全解码及4帧核查。来源黑场32.87–68秒保留，未付费；详见迁移QA。"
         }
       ]
     },
@@ -3048,7 +3365,6 @@
         "server/services/colorHarmony.integration.test.ts",
         "docs/qa/2026-10-11-color-harmony.md",
         "server/services/publishingVideoStoryboard.test.ts",
-        "server/services/publishingCoverStoryboardPrompt.test.ts",
         "shared/shotImageRender.test.ts",
         "server/routers.storyAgent.test.ts",
         "docs/qa/2026-11-04-reference-fidelity.md",
@@ -3595,7 +3911,11 @@
         "client/src/features/storyAgent/views/storyboardReviewModel.ts",
         "server/services/startEndShotVideoWorkflow.ts",
         "server/services/videoTransition302.ts",
-        "client/src/features/storyAgent/views/storyboardPreflightTimeout.ts"
+        "client/src/features/storyAgent/views/storyboardPreflightTimeout.ts",
+        "shared/shotSplitChat.ts",
+        "client/src/features/storyAgent/useShotSplitChat.tsx",
+        "server/services/storyVisualObjectEditing.ts",
+        "server/services/videoPromptDirector.ts"
       ],
       "evidence": [
         "client/src/features/storyAgent/views/storyboardStartEndTuning.test.ts",
@@ -3603,7 +3923,12 @@
         "server/services/videoTransition302.hardcut.test.ts",
         "client/src/features/storyAgent/views/storyboardPreflightTimeout.test.ts",
         "docs/qa/2026-11-03-video-button-wait.md",
-        "docs/qa/2026-11-10-system-unused-code-cleanup.md"
+        "docs/qa/2026-11-10-system-unused-code-cleanup.md",
+        "docs/qa/2026-11-11-chat-i2v-loop.md",
+        "shared/shotSplitChat.test.ts",
+        "client/src/features/storyAgent/useShotSplitChat.test.tsx",
+        "server/services/storyVisualObjectUndo.test.ts",
+        "server/services/videoPromptDirector.test.ts"
       ],
       "invariants": [
         "同时具备首帧和尾帧的镜头才走 Vidu 首尾帧，否则回落单图链路。",
@@ -3646,6 +3971,11 @@
           "date": "2026-11-10",
           "kind": "refactor",
           "summary": "删除无入口的跨故事视频投影包装和闲置状态辅助函数；getStoryVideoAssets、现用视频路由、媒体版本及底层历史仓储保持。 引用核对/验证和保留缺口见全系统冗余清理QA；未提交、未部署。"
+        },
+        {
+          "date": "2026-11-11",
+          "kind": "fix",
+          "summary": "对话可用三张原帧提出两段A→B、B→C方案，4/5秒720p，先合并估算导演与视频费用。确认拆镜只保存可撤销拆分和首尾帧，不购买；原视频切片总长度及音乐字幕保留，生成与采用仍各走现有流程。新增越权/过期范围/撤销重放测试，3001网页提案/取消通过；真实两段付费生成待验收，冻结供应商与工作流文件未改。"
         }
       ]
     },
@@ -3731,7 +4061,8 @@
         "server/services/videoExport.integration.test.ts",
         "server/services/videoExportImage.test.ts",
         "docs/qa/2026-10-19-video-export-check.md",
-        "docs/qa/2026-11-10-system-unused-code-cleanup.md"
+        "docs/qa/2026-11-10-system-unused-code-cleanup.md",
+        "docs/qa/2026-11-10-compact-timeline-layout.md"
       ],
       "invariants": [
         "只接受同一 Story 中已持久化的时间线抽帧 imageId，服务端必须重新读取图片、时间和归属，不能相信客户端 URL、价格或时间。",
@@ -4003,6 +4334,11 @@
           "date": "2026-11-10",
           "kind": "refactor",
           "summary": "移除无调用的旧抽帧字符串包装、视觉层旧别名及NLE转导出；真实参考帧提取、图层解析、预览与导出保持。 引用核对/验证和保留缺口见全系统冗余清理QA；未提交、未部署。"
+        },
+        {
+          "date": "2026-11-10",
+          "kind": "refactor",
+          "summary": "双视图画面轨紧凑化，V轨标识及名称菜单替代常驻排列按钮；主轨65px、附加轨45px，统一滚动留白并隔离播放头堆叠，保留帧级编辑、抽帧、图层拖动/插入/删除约束。100项、类型、构建及3000播放/菜单实测通过；详见紧凑时间线QA，未提交/部署。"
         }
       ]
     },
@@ -11467,13 +11803,16 @@
         "shared/videoEditHistory.ts",
         "server/persistence/videoEditHistory.ts",
         "server/persistence/storyVisualPersistence.ts",
-        "server/repositories/timelines.ts"
+        "server/repositories/timelines.ts",
+        "server/services/visualClipEditing.ts"
       ],
       "evidence": [
         "server/persistence/videoEditHistory.test.ts",
         "server/repositories/videoEditHistory.test.ts",
         "server/services/visualClipEditing.test.ts",
-        "docs/qa/2026-11-07-unified-video-storyboard.md"
+        "docs/qa/2026-11-07-unified-video-storyboard.md",
+        "docs/qa/2026-11-11-chat-i2v-loop.md",
+        "server/routers.creationAgentAdoptPrimary.test.ts"
       ],
       "invariants": [
         "正式视觉剪辑与兼容时间轴保存启用；快照与时间轴同一CAS事务提交，失败、冲突和相同内容不建修订。",
@@ -11497,6 +11836,11 @@
           "date": "2026-11-07",
           "kind": "feature",
           "summary": "本地接通自动剪辑修订与原历史入口；6项仓储、2项纯快照和67项剪辑回归通过。未改变真实时间轴、未提交部署。"
+        },
+        {
+          "date": "2026-11-11",
+          "kind": "fix",
+          "summary": "聊天、仓库、剪辑台采用Take统一更新已存在的primary视频，复用编辑锁防止同时采用使选中Take与主视频错配。导入视频读取ffprobe实测长度。3001副本真实聊天1617→1616、刷新仍1616，再恢复1617；画面项、字幕与四类音轨一致，保留两条新剪辑修订及旧资产。"
         }
       ]
     },
@@ -11516,7 +11860,14 @@
         "server/services/manuscriptSnapshot.ts",
         "server/repositories/bookWorkflow.ts",
         "client/src/features/publishingDraft/FilmVersionDraft.tsx",
-        "client/src/features/publishingDraft/newVersionRequest.ts"
+        "client/src/features/publishingDraft/newVersionRequest.ts",
+        "server/services/videoBook.ts",
+        "server/services/videoBookEvidence.ts",
+        "client/src/features/publishingDraft/VideoTextDraft.tsx",
+        "scripts/transcribe-video-book.py",
+        "server/services/videoBookLocalText.ts",
+        "scripts/read-video-text.swift",
+        "client/src/features/publishingAlbum/VideoBookHistory.tsx"
       ],
       "evidence": [
         "server/services/bookWorkflow.test.ts",
@@ -11525,7 +11876,12 @@
         "server/services/bookVideoCreation.test.ts",
         "client/src/features/publishingAlbum/ChapterWorkspace.test.tsx",
         "client/src/features/publishingDraft/TextDraftVersions.test.tsx",
-        "docs/qa/2026-11-09-mobile-workflow-release.md"
+        "docs/qa/2026-11-09-mobile-workflow-release.md",
+        "server/services/videoBook.test.ts",
+        "docs/qa/2026-11-12-video-to-book.md",
+        "server/services/videoBookLocalText.test.ts",
+        "client/src/features/publishingDraft/VideoTextDraft.test.tsx",
+        "client/src/features/publishingAlbum/VideoBookHistory.test.tsx"
       ],
       "invariants": [
         "文字/分镜分别编号；自动保存只更新草稿，正式保存/采用/恢复或用户明确把当前分镜做成视频时才建立必要的来源版本。",
@@ -11545,7 +11901,8 @@
         "未执行真实模型转写、生产MySQL或触屏真机验收。",
         "同一故事body上限4MiB、最多200个稿件版本/100次转换；达到上限拒绝写入并保留旧内容。",
         "超过10万字不转换；旧排版独有媒体须先放入正文模块。",
-        "尚无书稿章节时，影片入口提示先建立文字书稿；真实模型改编质量和付费媒体渲染未在本轮验收。"
+        "尚无书稿章节时，影片入口提示先建立文字书稿；真实模型改编质量和付费媒体渲染未在本轮验收。",
+        "视频转书本地原片字幕路径已在3001生成、校对、采用V1并刷新验证；艺术字体OCR仍需校对，不代表完整旁白或约500字创作改编。付费改编operation255超时费用未知、旧预占1.56092算力待核对，禁止自动重购；Linux OCR/生产环境未验收。"
       ],
       "history": [
         {
@@ -11572,6 +11929,16 @@
           "date": "2026-11-09",
           "kind": "verification",
           "summary": "代码cfa6fe12已push main并生产部署，版本6b247713-cfad-4f08-831f-3cb9bdaa4536；174项产物哈希一致，真实域名手机页/编辑页/健康200，麦克风策略允许self，配置/依赖/迁移元数据不变。登录态生产UI、手机新图片和系统分享未新增验收；既有功能状态及缺口不因部署升级。"
+        },
+        {
+          "date": "2026-11-12",
+          "kind": "verification",
+          "summary": "按用户要求删除聊天下方重复生成按钮，保留书页入口；自由输入与可选示例、视频抽帧/音轨转写、可追溯预览接通。42项/类型/冻结哈希通过，3001刷新及未知费用阻止重购实测。真实单次模型120秒超时无文字，operation255待核对；报价单位错误已告知用户并修正，原书稿/剪辑哈希未变，未采用/提交/部署。详见2026-11-12-video-to-book QA。"
+        },
+        {
+          "date": "2026-11-12",
+          "kind": "verification",
+          "summary": "续修版本不可见：新增0算力本地原片文字路径、可编辑预览与采用后安全载入、正式版本全文及失败记录分开显示；修复来源快照序列化匹配。3001故事1219实测21段字幕校对并采用文字V1，刷新后两页正文和来源V3可见；剪辑/账务不变，旧operation255仍未知。52独立相关测试/类型/diff/冻结哈希通过，未提交部署，细节见QA续测。"
         }
       ]
     },
@@ -11583,7 +11950,9 @@
       "entryPoints": [
         "client/src/features/creationEditor/VideoWorkflowControls.tsx",
         "server/routers/videoWorkflow.ts",
-        "client/src/features/bookVideo/BookVideoChat.tsx"
+        "client/src/features/bookVideo/BookVideoChat.tsx",
+        "scripts/migrate-chatcut-project.ts",
+        "server/routers/storyAgent.ts"
       ],
       "owners": [
         "shared/videoWorkflow.ts",
@@ -11594,7 +11963,13 @@
         "server/services/publishingVideoStoryboardPersistence.ts",
         "shared/bookVideoAudio.ts",
         "server/services/bookVideoAudio.ts",
-        "scripts/align-book-narration.py"
+        "scripts/align-book-narration.py",
+        "server/services/chatCutProjectMigration.ts",
+        "scripts/migrate-chatcut-project.ts",
+        "server/services/chatCutRelink.ts",
+        "server/services/chatCutXml.ts",
+        "server/services/compositeTimelineImages.ts",
+        "server/services/videoExportImage.ts"
       ],
       "evidence": [
         "server/services/videoWorkflow.test.ts",
@@ -11607,7 +11982,14 @@
         "shared/bookVideoAudio.test.ts",
         "server/services/bookVideoAudio.test.ts",
         "docs/qa/2026-11-09-book-video-audio-pacing.md",
-        "docs/qa/2026-11-09-video-media-versions.md"
+        "docs/qa/2026-11-09-video-media-versions.md",
+        "server/services/chatCutProjectMigration.test.ts",
+        "server/services/videoExport.test.ts",
+        "docs/qa/2026-11-10-chatcut-launch-migration.md",
+        "server/services/chatCutRelink.test.ts",
+        "server/services/chatCutXml.test.ts",
+        "server/services/compositeTimelineImages.test.ts",
+        "docs/qa/2026-11-12-chatcut-shiguang-migration.md"
       ],
       "invariants": [
         "文字稿先转换并采用分镜；用户明确将当前分镜做成视频时直接固定必要来源版本并导入表格，AI改编仍走预览确认。",
@@ -11626,7 +12008,9 @@
         "整版视频恢复到编辑器尚未提供；本轮支持快照查看和指定版本导出。",
         "媒体引用随版本保存，源媒体文件若被外部删除仍会明确导出失败；不复制媒体二进制。",
         "最多100个视频快照并共享4MiB故事容量；真实模型/生产MySQL/真机未验收。",
-        "本地自动对齐需要已安装Python/openai-whisper/torch、缓存Whisper模型和FFmpeg；生产未部署或验证。当前绑定单份且原文指纹完全匹配的整书台词；长文分段录音、无来源上传录音及AI改编后不同台词不自动套用。无可靠语音/静音边界时明确失败并保留当前视频。"
+        "本地自动对齐需要已安装Python/openai-whisper/torch、缓存Whisper模型和FFmpeg；生产未部署或验证。当前绑定单份且原文指纹完全匹配的整书台词；长文分段录音、无来源上传录音及AI改编后不同台词不自动套用。无可靠语音/静音边界时明确失败并保留当前视频。",
+        "ChatCut本地迁移CLI仅接受已核对的30fps/1080×1920单画面轨包；不是任意工程的通用导入器。当前剪辑素材已归档，不包含媒体池未使用资产及丢失的制作脚本。",
+        "新 completeChatCutImport 关联入口支持已核对的30fps、两画面轨（原视频+透明文字图片）及五音轨包；不支持任意变速/变换/复杂曲线。文字PNG保留独立图层，不转换为逐字可编辑字幕。"
       ],
       "history": [
         {
@@ -11658,6 +12042,21 @@
           "date": "2026-11-09",
           "kind": "feature",
           "summary": "新增 video-media-subversions 独立子版本能力；保留原影片完整快照和剪辑入口。音乐/字幕/旁白改动在原CAS内自动记录，实际历史恢复、资产保留及本地实点验证通过；详见对应功能卡及QA。"
+        },
+        {
+          "date": "2026-11-10",
+          "kind": "feature",
+          "summary": "主仓独占备份后通过原资产服务与Story/Timeline CAS迁入ChatCut已有剪辑，保存迁移前V1/后V2及作者、意图、时间、来源；原书稿/美术/旧素材保留。素材哈希、时序与界面核对，owner/CAS/重复执行测试通过。实际1217修订16、3视频与58字幕和5音频片段；导出优先冻结画布，真实1080×1920/30fps/68秒可解码，无模型费用。"
+        },
+        {
+          "date": "2026-11-12",
+          "kind": "feature",
+          "summary": "用户完整ChatCut工程以独立故事1219恢复为V1：67素材、21视频+21透明文字图+五音轨34声音片段，76段时序/淡入淡出与原页面逐帧一致（4952帧）。素材归属/CAS/指纹幂等及原Launch1217保护通过；Chrome3001跨镜播放、alpha文字预览和刷新保存已实测。长片完整导出验收中发现两处固定120秒超时，已按片长设置有界预算；最终导出结果见本日QA。"
+        },
+        {
+          "date": "2026-11-12",
+          "kind": "fix",
+          "summary": "拾光Ai 产品片独立故事1219恢复并完整导出验收：67媒体、76剪辑、21透明文字层及五音轨；修复concat色彩元数据触发滤镜重建丢字，保留原颜色。56测试、类型、21层逐一图像对照、全片解码及刷新持久化通过，Launch1217未改。未提交/部署/付费；PNG不可逐字编辑、旧中断导出状态回收缺口见QA。"
         }
       ]
     },
@@ -11807,7 +12206,24 @@
         "client/src/features/storyAgent/shotConversation.ts",
         "client/src/features/storyAgent/views/ShotChatInspector.tsx",
         "client/src/features/storyAgent/views/StoryAgentChat.tsx",
-        "server/services/shotConversationMedia.ts"
+        "server/services/shotConversationMedia.ts",
+        "server/services/legnextImage.ts",
+        "shared/imageRenderCost.ts",
+        "client/src/features/storyAgent/views/useShotImageRender.tsx",
+        "server/services/imagePromptDirector.ts",
+        "server/services/renderGate.ts",
+        "server/services/shotContentTargets.ts",
+        "shared/shotContentEdit.ts",
+        "client/src/features/storyAgent/useShotContentChat.tsx",
+        "client/src/features/storyAgent/views/ChatVideoTasks.tsx",
+        "server/services/chatColorTransfer.ts",
+        "server/services/mj302Edit.ts",
+        "server/services/fluxKontextEdit.ts",
+        "server/services/frameColorMatch.ts",
+        "server/services/imageEditDimensions.ts",
+        "shared/renderProfiles.ts",
+        "server/services/render/submitRender.ts",
+        "server/services/shotLock.ts"
       ],
       "evidence": [
         "docs/qa/2026-11-09-conversation-art-system.md",
@@ -11837,7 +12253,30 @@
         "client/src/features/storyAgent/views/ShotChatInspector.test.tsx",
         "server/services/shotConversationMedia.test.ts",
         "docs/qa/2026-11-10-shot-conversation-context.md",
-        "docs/qa/2026-11-10-conversation-release.md"
+        "docs/qa/2026-11-10-conversation-release.md",
+        "docs/qa/2026-11-10-warehouse-files-pointillism.md",
+        "docs/qa/2026-11-10-shot03-live-rerender.md",
+        "docs/qa/2026-11-10-mj-original-frame-refinement.md",
+        "server/services/legnextImage.test.ts",
+        "client/src/features/storyAgent/views/storyboardEditableImage.test.ts",
+        "server/services/videoJobs.test.ts",
+        "docs/qa/2026-11-11-chat-i2v-loop.md",
+        "client/src/features/storyAgent/useShotContentChat.test.tsx",
+        "client/src/features/storyAgent/views/ChatVideoTasks.test.tsx",
+        "server/services/shotContentTargets.test.ts",
+        "server/services/chatColorTransfer.test.ts",
+        "shared/shotContentEdit.test.ts",
+        "docs/qa/2026-11-11-mj-live-acceptance.md",
+        "server/services/mj302Edit.test.ts",
+        "docs/qa/2026-11-11-two-mj-suppliers.md",
+        "server/services/visualEditUnderstanding.test.ts",
+        "docs/qa/2026-11-11-cheaper-original-image-edit.md",
+        "server/services/fluxKontextEdit.test.ts",
+        "docs/qa/2026-11-12-frame-selection-and-reference.md",
+        "server/services/frameColorMatch.test.ts",
+        "server/services/imageEditDimensions.test.ts",
+        "docs/qa/2026-11-12-joint-release.md",
+        "server/services/render/renderProfiles.contract.test.ts"
       ],
       "invariants": [
         "美术决定呈现方式，每镜内容由当前台词和用户最新意图决定；不硬编码单一风格、不机械复制参考构图。",
@@ -11849,7 +12288,9 @@
         "音乐未分析音频时仅使用已有说明与时长，不编造BPM或宣称已听过。",
         "视频制作的费用与放入确认用原对话文字，只有明确放入才采用；不增加操作按钮。",
         "等待制作确认时其他文字可入队；受理后对话恢复，异步候选从服务端任务回显，图片替换采用明确文字决定且不把其他发言当同意。",
-        "视频对话上传图片后明确要求修改时生成两张候选，文字确认费用后才提交；候选只在明确选择时加入原稳定镜头，失败不自动重试。"
+        "视频对话上传图片后明确要求修改时生成两张候选，文字确认费用后才提交；候选只在明确选择时加入原稳定镜头，失败不自动重试。",
+        "按2026-11-10用户要求，原视频抽帧的MJ精修只改当次点名内容；先比较原图/新版并明确确认，原片及音轨不自动替换。报价单次对应Retexture任务，保留实际输出，不因少于四张而补购。",
+        "对话原图修改锁定所属底图的实际显示宽高；同比例输出仅等比还原原尺寸，异比例/未核验结果保留但禁止替换，不能裁切、拉伸或填边凑尺寸。即时和刷新恢复同样校验；采用时再读实际尺寸。"
       ],
       "dependencies": [
         "image-asset-history",
@@ -11866,7 +12307,14 @@
         "本轮使用模拟供应商验证GPT受理→恢复→预览→保留/替换，真实3000只测已有图片及取消报价，未验收新的付费出图效果。图像取回由打开的对话驱动；关闭页面后，下次打开继续查询原任务。",
         "两张图入口已完成实现和原图/原话真实报价，真实生成及文字采用尚待本次 5.72 算力确认；刷新生成中的通用 GPT 图生图无服务端回执，只能提示去仓库核对，不自动重购。",
         "对话候选点击选中已接入，已关联图片可设帧；未关联候选尚缺仅关联而不设为当前主图的操作，故不能直接设帧；任意自由意图的完整路由和真实设帧端到端仍待验证。",
-        "旧图片和旧对话缺少镜头身份时无法完整自动归档；新结果已保存关联，旧无归属图保留在折叠区。单镜音乐分段编辑尚未接入，已保护单镜请求不会误改全片；不宣称任意自由意图已全部执行。"
+        "旧图片和旧对话缺少镜头身份时无法完整自动归档；新结果已保存关联，旧无归属图保留在折叠区。单镜音乐分段编辑尚未接入，已保护单镜请求不会误改全片；不宣称任意自由意图已全部执行。",
+        "本轮原帧精修已接入真实对话报价；三张原帧真实MJ输出及明暗/灰度/构图保持待本次费用授权后验收。原视频运镜/14.5秒时长继承的视频编辑尚未接入，不能用现有首帧生视频冒充。",
+        "按内容找图当前使用本地位置/颜色启发式，必须看缩略图确认，不能冒充已由视觉模型语义辨认；批量取消和结果恢复已测，真实新付费整条闭环尚未本轮验收。",
+        "2026-11-11真实3001：Legnext Retexture官方最小参数仍被远端Invalid_Prompt_Parameter拒绝，图片消耗0；本地读图/编译/上传已实测，未取得MJ新图，不能宣称美术或视频升级验收通过。当时用户只用MJ；后续已批准便宜FLUX一次，GPT备用未执行。",
+        "2026-11-11两家MJ实测：已补接302独立Edits和供应商报价/回执恢复，用户确认0.834482算力后，真实3001请求仍HTTP404无任务号。Legnext此前Invalid_Prompt_Parameter。无新图，需供应商核实可用编辑通道；不自动换Imagine或GPT。",
+        "2026-11-11已批准FLUX单张0.54算力并真实提交一次，但供应商回执unknown、免费日志无记录，无新图；原请求与供应商费用仍需核对，不能自动重购。",
+        "2026-11-11 22:52：真实302 FLUX Kontext Dev单张0.42算力报价获准并返回AI图2053，刷新保留，但保真失败未采用；免费2054/2055是亮度候选。旧Pro请求unknown与Dev本地未入账缺口仍待供应商费用核对。",
+        "2026-11-12用户否决本地整图调色2059：需先确定对象空间位置、森林区域和时间段，再做颜色匹配。新帧参考入口只读检查未执行调色；语义区域/时间边界、区域外像素保持、多帧确认合成仍未完成。"
       ],
       "history": [
         {
@@ -11918,6 +12366,66 @@
           "date": "2026-11-10",
           "kind": "fix",
           "summary": "联合网页发布50de687f已上线，版本9c3613ce-f740-418b-bdbb-4c59552052be；7116全量/215小程序/73真实MySQL及生产276产物、support worker、HTTPS健康与登录保护通过。声音私有运行时离线自检通过；真实付费素材质量和用户作品听感缺口保留。详见docs/qa/2026-11-10-conversation-release.md。"
+        },
+        {
+          "date": "2026-11-10",
+          "kind": "fix",
+          "summary": "真实3000点彩规则保存复现普通聊天自动保存CAS冲突；改为单次推理后仅在美术字段未变时合并最新故事，保留其他编辑并拒绝并发美术覆盖。8项美术测试/类型/构建通过；从产品聊天保存微彩点彩世界V03待确认，未新购图像/视频。详见仓库文件与点彩QA。"
+        },
+        {
+          "date": "2026-11-10",
+          "kind": "fix",
+          "summary": "第03镜3000真实对话重渲染：显式抽帧首帧通过归属校验，新增镜头谱系只追加保留历史，修复提交回执尚未返回时刷新误报失败。27专项及58关联测试、类型通过；只购买授权的一条Vidu视频Take1611/V02/8秒/1.50算力，原Take1610及剪辑修订18保持。实测可播放但点彩效果未验收；MJ改帧确认再原视频编辑尚待实现。详见docs/qa/2026-11-10-shot03-live-rerender.md。"
+        },
+        {
+          "date": "2026-11-10",
+          "kind": "fix",
+          "summary": "MJ对话改原图改接Legnext Retexture，默认保留未点名的明暗/灰度/对比/构图，跳过扩写；本镜原视频抽帧可直接编辑，新旧对比在聚焦聊天中可见。原帧确认只存参考，不覆盖视频，未审阅禁止新视频购买。186项与类型通过，3000真实选中#2046到1.62算力报价；真实付费结果及原视频运镜继承仍未验收。详见docs/qa/2026-11-10-mj-original-frame-refinement.md"
+        },
+        {
+          "date": "2026-11-11",
+          "kind": "fix",
+          "summary": "接续聊天改图视频闭环：免费按内容找本镜帧、显示缩略图和合并报价，确认后逐图执行、按原回执恢复、失败停止。接回已有美术导演的限定修改编译，MJ发送renderGate的最终结果；不再被原话覆盖。原图/界面/文字和未点名维度保留。增加免费亮度对比和持久视频预览。3001副本实测两图报价/取消、视频采用刷新及恢复；真实新付费图像与视频效果尚未验收。"
+        },
+        {
+          "date": "2026-11-11",
+          "kind": "fix",
+          "summary": "3001真实原帧改图验收：恢复隔离测试视觉/上传配置；302实际读图和限定英文编译通过，收紧颜色修改不得重构形状的约束。MJ Retexture的V6.1及官方最小无flags请求均被供应商Invalid_Prompt_Parameter拒绝、consume=0，无新图或视频。不再固定扩散模型版本；失败卡显示具体原因；精确镜号+图片ID直接报价并取消实测通过。用户拒绝GPT备用通道。"
+        },
+        {
+          "date": "2026-11-11",
+          "kind": "fix",
+          "summary": "原话明确使用302 MJ时走官方原图Edits，保留Legnext默认；单次POST、持久供应商恢复、独立报价和安全终态。133专项通过，真实3001报价/确认/读图/提交到HTTP404失败；原图50/Take10/剪辑23保留，本轮读图0.07742算力，未新购其他模型或升级视频。"
+        },
+        {
+          "date": "2026-11-11",
+          "kind": "fix",
+          "summary": "同图同要求仅切MJ供应商时复用持久读图/英文美术编译，保留新原话、独立报价指纹及复用来源；语言/偏好/美术/图版或修改内容变化不复用。302的404明确显示编辑地址不可用。71相关测试/类型通过，3001真实1.62/0.68算力报价无重复读图并取消，无新增媒体或费用。MJ上游通道仍阻塞，未声称出图或视频验收。"
+        },
+        {
+          "date": "2026-11-11",
+          "kind": "fix",
+          "summary": "用户先允许换模型、继而要求更便宜：接入302 FLUX Kontext Pro官方原图编辑0.54算力／张，精确原话分流、前后端一致报价、持久回执与免费恢复；原图同要求切模型复用已有读图和美术编译。7文件182项与类型通过，真实3001第03镜#2046报价已显示免重复读图，尚未确认或提交。50图／10Take／修订23／账本186保留，无新费用。GPT2原2.86方案未提交；FLUX真实出图与美术效果待验收，不升级视频。"
+        },
+        {
+          "date": "2026-11-11",
+          "kind": "verification",
+          "summary": "用户确认0.54算力后，真实3001对话提交FLUX原图编辑一次（f181e6bb-23a1-4818-8e17-781846d01bca），受理unknown无任务号、无新图。免费302日志为空，同端点无图无prompt诊断HTTP500空响应；不能证明原请求未受理或供应商费用0，未重购。50图/10Take/修订23/账本186保持，图像效果与视频升级未完成。"
+        },
+        {
+          "date": "2026-11-12",
+          "kind": "fix",
+          "summary": "Dev同步结果URL持久恢复、未知旧任务显式新报价、廉价路由与安全错误完成，206项及真实单张回执通过，但2053保真不合格。接续选帧/点击图的配色试验产生免费2059并被用户否决；撤掉该入口直接整图套色，新增仅核验两图尺寸/结构的只读入口。原片/音轨/字幕/剪辑不变，不能宣称AI局部改图或视频升级已打通。"
+        },
+        {
+          "date": "2026-11-12",
+          "kind": "fix",
+          "summary": "原尺寸抽帧3001再次实测复用#2060（21.100s/960×960/Take1617/修订23）；补持久源尺寸、即时/恢复输出检查、同比例还原、异比例保留但拒绝采用、中英文轻量说明及取消等待竞态。尺寸回归通过不等于森林局部改色或多帧视频已验收；本次未购买新媒体。"
+        },
+        {
+          "date": "2026-11-12",
+          "kind": "fix",
+          "summary": "联合发布：合并最新Retexture与渲染档位/快照，编辑与扩散不匹配拒绝；未知付费任务不按年龄自动释放，读图开始前持久标记并兼容旧分析记录，状态冲突后不重复购买。既有供应商拒绝和美术验收缺口保留。"
         }
       ]
     },
@@ -12001,8 +12509,316 @@
           "summary": "联合网页发布50de687f已上线，版本9c3613ce-f740-418b-bdbb-4c59552052be；7116全量/215小程序/73真实MySQL及生产276产物、support worker、HTTPS健康与登录保护通过。声音私有运行时离线自检通过；真实付费素材质量和用户作品听感缺口保留。详见docs/qa/2026-11-10-conversation-release.md。"
         }
       ]
+    },
+    {
+      "id": "visual-understanding-edit-preferences",
+      "name": "看图理解与可纠正的美术偏好",
+      "status": "partial",
+      "userValue": "在原对话读取所选图片，记录本次修改与保留内容，并用作品、镜头或个人明确偏好约束后续精修。",
+      "entryPoints": [
+        "client/src/features/storyAgent/views/StoryAgentChat.tsx",
+        "client/src/features/storyAgent/views/useShotImageRender.tsx"
+      ],
+      "owners": [
+        "shared/visualEditUnderstanding.ts",
+        "server/services/visualEditUnderstanding.ts",
+        "server/routers/visualEditUnderstanding.ts",
+        "client/src/features/storyAgent/useVisualUnderstandingChat.ts",
+        "server/services/storySync.ts",
+        "server/routers/storyAgent.ts",
+        "server/services/imagePromptDirector.ts",
+        "server/services/renderGate.ts",
+        "server/services/chatLlmQuote.ts"
+      ],
+      "evidence": [
+        "shared/visualEditUnderstanding.test.ts",
+        "server/services/visualEditUnderstanding.test.ts",
+        "client/src/features/storyAgent/views/useShotImageRender.test.tsx",
+        "docs/qa/2026-11-11-visual-understanding.md",
+        "server/routers.storyAgent.test.ts",
+        "docs/qa/2026-11-11-chat-i2v-loop.md",
+        "server/_core/inferenceOrchestrator.test.ts",
+        "docs/qa/2026-11-11-two-mj-suppliers.md",
+        "docs/qa/2026-11-11-cheaper-original-image-edit.md",
+        "server/services/fluxKontextEdit.test.ts"
+      ],
+      "invariants": [
+        "实际图片通过所属账号、故事、稳定镜头身份核验；失败不能声称看过，也不进入付费精修。",
+        "客观观察、当前修改项、保留项及长期偏好分开；用户本次原话最高优先，偏好仅影响本次已请求的修改。",
+        "显式记住/更新才写个人记忆偏好，未采用候选、生成成功和沉默不是偏好证据，自动捕获白名单不改变。",
+        "复用已有个人记忆纠正与忘记机制；作用范围分个人/作品/镜头，忘记偏好不删除作品。",
+        "观察与保留记录绑定原图版本、指令、作者与时间；通用自动保存不能覆盖或伪造，来源改变失效。"
+      ],
+      "dependencies": [
+        "story-ownership",
+        "personal-memory-daily-letter",
+        "selection-scoped-chat-editing",
+        "shot-context-chat-history"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "302读图与Legnext精修的真实新输出尚未本轮验收；3001免费报价及取消已经浏览器验收。新调用按实际报价单独确认，既有三图授权不转作新任务预算。",
+        "这是显式偏好记忆与上下文适配，不是模型权重训练；不从拒绝推断未明说的原因。",
+        "本轮优先接通桌面对话和MJ原图精修；手机、其他生成入口、生产MySQL多进程与真实媒体艺术效果未验收。",
+        "结构化看图摘要只保留最近100条，完整原话仍在对话；并发看图合并目前仅同一进程。",
+        "2026-11-11已批准FLUX单张0.54算力并真实提交一次，但供应商回执unknown、免费日志无记录，无新图；原请求与供应商费用仍需核对，不能自动重购。"
+      ],
+      "history": [
+        {
+          "date": "2026-11-11",
+          "kind": "feature",
+          "summary": "完成服务/对话入口/原图精修前置理解、分范围显式偏好与忘记、版次绑定和保存保护。123相关测试及类型通过；真实3000保存作品偏好并刷新读回，视觉调用如实报超时，尚未完成真实看图/三张MJ精修。"
+        },
+        {
+          "date": "2026-11-11",
+          "kind": "fix",
+          "summary": "在已有明确三图授权下加入302定向读取候选；修复严格原图精修的renderGate丢弃视觉偏好prompt，最终MJ提示词保留相关偏好且当前指令最高优先。6文件143项、类型通过；浏览器工具仍报告Local browser use is disabled in Work settings，未完成真实302读图/三张MJ提交。主仓3000环境健康，持久图片任务为空、原图仍2045/2046/2047，4.86算力授权未消费。详见docs/qa/2026-11-11-visual-understanding.md。"
+        },
+        {
+          "date": "2026-11-11",
+          "kind": "fix",
+          "summary": "日常中文表达经原imagePromptDirector限定修改模式编译英文美术增量；同一次已报价读图携带确认美术体系、显式偏好及修改/保留要求。按原图版本+用户要求+偏好/美术体系版本复用，不增加隐形改写请求，单次失败不自动重试，未编译或含歧义不购买图片。端到端模拟验证导演输出真正到达MJ；3001浏览器已恢复且免费报价验收通过，未新调用302或MJ。"
+        },
+        {
+          "date": "2026-11-11",
+          "kind": "fix",
+          "summary": "同图同要求仅切MJ供应商时复用持久读图/英文美术编译，保留新原话、独立报价指纹及复用来源；语言/偏好/美术/图版或修改内容变化不复用。302的404明确显示编辑地址不可用。71相关测试/类型通过，3001真实1.62/0.68算力报价无重复读图并取消，无新增媒体或费用。MJ上游通道仍阻塞，未声称出图或视频验收。"
+        },
+        {
+          "date": "2026-11-11",
+          "kind": "fix",
+          "summary": "用户先允许换模型、继而要求更便宜：接入302 FLUX Kontext Pro官方原图编辑0.54算力／张，精确原话分流、前后端一致报价、持久回执与免费恢复；原图同要求切模型复用已有读图和美术编译。7文件182项与类型通过，真实3001第03镜#2046报价已显示免重复读图，尚未确认或提交。50图／10Take／修订23／账本186保留，无新费用。GPT2原2.86方案未提交；FLUX真实出图与美术效果待验收，不升级视频。"
+        },
+        {
+          "date": "2026-11-11",
+          "kind": "verification",
+          "summary": "用户确认0.54算力后，真实3001对话提交FLUX原图编辑一次（f181e6bb-23a1-4818-8e17-781846d01bca），受理unknown无任务号、无新图。免费302日志为空，同端点无图无prompt诊断HTTP500空响应；不能证明原请求未受理或供应商费用0，未重购。50图/10Take/修订23/账本186保持，图像效果与视频升级未完成。"
+        },
+        {
+          "date": "2026-11-12",
+          "kind": "verification",
+          "summary": "真实3001抽帧#2060+配色参考#2055→文字报价确认→#2062单张960×960候选→刷新保留。实际0.52394算力，剪辑23/Take1617/音字幕保持；145项与类型通过。发现旧风格夹入仅配色提示词，用户现要求共同调整按物体判断配色与面积比例的流程，未追加改图。"
+        },
+        {
+          "date": "2026-11-12",
+          "kind": "verification",
+          "summary": "对象配色合同/固定编译、选中候选+显式参考及镜头消息归属已补，判断摘要随任务显示；157项回归、20项归属及类型通过。3001按用户要求仅生成#2063，底图2062/参考2055/960×960，实际0.50686算力，刷新保留且剪辑/音字幕不变。读图判断绿55/黄30/蓝15，但输出仍大面积蓝，艺术执行未通过，未采用/重购；区域约束及输出颜色验证仍有缺口。"
+        },
+        {
+          "date": "2026-11-12",
+          "kind": "verification",
+          "summary": "对象配色路线改为结构化语义轮廓和局部Lab执行，不发送自由美术重绘提示词。读图前保留任务归属，成功识别后保存结果；未知费用不重复调用。3001首测超时无图，实际效果未通过；86项相关测试/类型通过。"
+        }
+      ]
+    },
+    {
+      "id": "paused-frame-chat-reference",
+      "name": "当前停留帧的轻量聊天引用",
+      "status": "working",
+      "userValue": "暂停预览后直接说这一帧怎么改，系统定位当前画面，聊天只附小图片标记，复用已有美术修改流程。",
+      "entryPoints": [
+        "client/src/features/storyAgent/views/StoryAgentChat.tsx",
+        "client/src/features/creationEditor/views/EditingNleWorkspace.tsx"
+      ],
+      "owners": [
+        "client/src/features/storyAgent/usePausedFrameChat.tsx",
+        "client/src/features/storyAgent/views/PausedFrameBadge.tsx",
+        "client/src/features/storyAgent/views/ChatFrameReferences.tsx",
+        "client/src/features/storyAgent/useShotContentChat.tsx",
+        "client/src/features/storyAgent/spine/storySpine.ts",
+        "client/src/features/creationEditor/frameNavigation.ts",
+        "shared/chatFrameReference.ts",
+        "server/services/chatFrameReferences.ts",
+        "server/services/pausedFrameReference.ts",
+        "server/services/videoExportImage.ts",
+        "server/services/frameColorMatch.ts",
+        "server/services/videoEndpointFrames.ts",
+        "server/services/imageEditDimensions.ts",
+        "server/services/storyboardImageTask.ts",
+        "server/services/chatImageRevision.ts",
+        "server/services/framePaletteEdit.ts",
+        "server/services/objectPaletteGrade.ts"
+      ],
+      "evidence": [
+        "docs/qa/2026-11-11-paused-frame-chat.md",
+        "client/src/features/storyAgent/usePausedFrameChat.test.tsx",
+        "client/src/features/creationEditor/frameNavigation.test.ts",
+        "server/services/pausedFrameReference.test.ts",
+        "client/src/features/storyAgent/views/ChatFrameReferences.test.tsx",
+        "client/src/features/storyAgent/useShotContentChat.test.tsx",
+        "docs/qa/2026-11-12-frame-selection-and-reference.md",
+        "server/services/frameColorMatch.test.ts",
+        "server/services/videoEndpointFrames.test.ts",
+        "server/services/imageEditDimensions.test.ts",
+        "server/services/storyboardImageTask.test.ts",
+        "server/services/chatImageRevision.test.ts",
+        "client/src/features/storyAgent/views/ChatImageRevisionGallery.test.tsx",
+        "server/services/framePaletteEdit.test.ts",
+        "server/services/objectPaletteGrade.test.ts"
+      ],
+      "invariants": [
+        "真实暂停位置由播放时钟提供，普通聊天不附图。视频/视觉时间线普通左右键逐帧移动，上键引用、下键取消；输入框与菜单让开，修饰键原指令保留。",
+        "暂停时轻提示，文字/语音引用画面时附一个小图片图标，点开才预览，普通聊天不自动附图，不新增一排按钮。",
+        "引用时冻结帧、镜头和版本，后续移动播放头不得换图；显式图片或镜头优先，可更新或取消引用。",
+        "服务端按所属账号故事、当前可见源及变速/倒放/叠层定位时间；新改图引用取原素材原尺寸，剪辑画布和裁切/旋转/缩放分离，旧预览引用兼容。空白失败不猜，不截取编辑器按钮，不把字幕或画布黑边混入新的改图素材。",
+        "图片和来源记录存仓库及对话，刷新可回看；抽帧不调用生成模型。",
+        "复用既有读图与美术编译，付费先报价，候选明确采用前不替换，未点名维度保持。",
+        "上键立即聚焦输入但保留当前镜头对话；预览与发送复用同一次抽帧。点击图片只建立轻量 @图片 引用，不自动替换素材。",
+        "对话原图修改锁定所属底图的实际显示宽高；同比例输出仅等比还原原尺寸，异比例/未核验结果保留但禁止替换，不能裁切、拉伸或填边凑尺寸。即时和刷新恢复同样校验；采用时再读实际尺寸。"
+      ],
+      "dependencies": [
+        "chat-video-frame-references",
+        "selection-scoped-chat-editing",
+        "visual-understanding-edit-preferences",
+        "conversation-art-system-production"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "CSS心跳动画无确定暂停相位，明确提示先关闭；未保存的临时剪辑预览不引用。",
+        "文字和快捷键已真实3001验收；语音冻结共用入口有自动化覆盖，但实际录音/ASR本轮未验证。",
+        "当前只在3001工作树副本可用，未同步主仓3000、未提交发布。",
+        "原素材帧保留未裁切像素；用户在剪辑画布上的裁切、旋转、缩放不烧入改图底图，回放/采用仍需沿用原剪辑参数。",
+        "2026-11-12：对象配色读图及受限编译已接通并实测#2063，但渲染仍大面积蓝，未落实读图提出的绿55/黄30/蓝15；仅提示词不保证区域保真，生成后对象颜色验证与多帧视频仍未验收。",
+        "2026-11-12续修：对象配色改用AI语义轮廓＋本地Lab局部调色；86项回归/类型通过，但3001首测读图120秒超时、0.33254算力上限费用待核对。用户批准另一次0.26552算力后页面复测仍读图失败，本次预占释放/本地结算0，无新图；具体上游失败原因未持久化，实际范围和效果仍未验收。",
+        "2026-11-12替代供应商：Next/Gemini2.5Flash单次真实页面调用15秒返回、结算0.16912算力，但读图结构校验失败，无新图；该次原响应未保存，后续已补有界留存与字段诊断。局部改图及美术效果仍未通过。页面点击发送有未提交现象，Enter完成本次操作，点击交互仍需复查。"
+      ],
+      "history": [
+        {
+          "date": "2026-11-11",
+          "kind": "decision",
+          "summary": "用户允许择机加入，无需立即实现。登记为当前美术修改闭环之后的聊天入口增强；本轮仅核查复用点并保存需求，无运行代码/业务数据/付费改动。"
+        },
+        {
+          "date": "2026-11-11",
+          "kind": "feature",
+          "summary": "实现暂停帧冻结、仓库非当前参考图、聊天小图标及精确单图报价；用户追加普通方向键恢复与上抽下取消，已接入并页面实测。187相关/架构测试、类型通过；22秒引用移动播放头后保持、刷新可打开、报价取消零购买。保留动态预览与真实语音/付费效果边界。"
+        },
+        {
+          "date": "2026-11-12",
+          "kind": "fix",
+          "summary": "真实复现并修复上键丢镜头范围/不聚焦及重复抽帧。3001左右逐帧、上键直接输入、引用冻结/取消、点击2055显示@图片通过；源码帧2060为960×960，替代旧720×1280带画布黑边的改图输入。森林配色失败候选2059未采用，新入口已改只读位置/尺寸核对，不自动整图调色。12文件163项、类型通过，剪辑23/音轨/Take/账本均未变。"
+        },
+        {
+          "date": "2026-11-12",
+          "kind": "fix",
+          "summary": "原尺寸抽帧3001再次实测复用#2060（21.100s/960×960/Take1617/修订23）；补持久源尺寸、即时/恢复输出检查、同比例还原、异比例保留但拒绝采用、中英文轻量说明及取消等待竞态。尺寸回归通过不等于森林局部改色或多帧视频已验收；本次未购买新媒体。"
+        },
+        {
+          "date": "2026-11-12",
+          "kind": "verification",
+          "summary": "真实3001抽帧#2060+配色参考#2055→文字报价确认→#2062单张960×960候选→刷新保留。实际0.52394算力，剪辑23/Take1617/音字幕保持；145项与类型通过。发现旧风格夹入仅配色提示词，用户现要求共同调整按物体判断配色与面积比例的流程，未追加改图。"
+        },
+        {
+          "date": "2026-11-12",
+          "kind": "verification",
+          "summary": "对象配色合同/固定编译、选中候选+显式参考及镜头消息归属已补，判断摘要随任务显示；157项回归、20项归属及类型通过。3001按用户要求仅生成#2063，底图2062/参考2055/960×960，实际0.50686算力，刷新保留且剪辑/音字幕不变。读图判断绿55/黄30/蓝15，但输出仍大面积蓝，艺术执行未通过，未采用/重购；区域约束及输出颜色验证仍有缺口。"
+        },
+        {
+          "date": "2026-11-12",
+          "kind": "verification",
+          "summary": "增加语义轮廓局部调色、保护区逐像素保留、L与显著改色校验；本地候选恢复不走外部供应商，读图未知响应禁止自动重购。3001实测一次读图超时，无图片或时间线改动；新报价待确认。86项回归/类型通过，效果仍有缺口。"
+        },
+        {
+          "date": "2026-11-12",
+          "kind": "verification",
+          "summary": "按用户0.26552算力授权从3001聊天确认一次，request0d1b5500读图失败，无候选；operation253预占释放/本地结算0，旧operation252仍费用未知。图片/剪辑/视频/音频与前置快照完全一致、冻结哈希保持。保存失败页面与账本证据，记录上游诊断缺口；没有新购重试、改运行代码或把真实效果标为通过。"
+        },
+        {
+          "date": "2026-11-12",
+          "kind": "verification",
+          "summary": "接通显式读图供应商/模型报价及端点指纹，Next独立凭据和模型隔离，不允许默认低价冒充已配置费用；失败诊断与无效响应有界保存，诊断/最终状态CAS冲突不丢未知费用保护。144项、类型、98卡通过。3001用户弹窗批准0.53172后仅Next/Gemini2.5Flash一笔，实际0.16912，返回结构不合格、无候选；付费前后图片/剪辑/视频/音频未变，冻结哈希保留。不重复购买、不把真实效果标通过。"
+        },
+        {
+          "date": "2026-11-12",
+          "kind": "fix",
+          "summary": "按用户截图将“可以直接说：把这一帧……”移入聊天输入框placeholder，移除输入框上方重复提示；保留中英文、当前故事/手动引用/取消状态及显式图片与专用输入优先级。3001实测提示位置、输入这一帧出现引用图标、取消恢复普通提示；14项现有测试及类型检查通过。未发送聊天、未调用模型或改剪辑；只在3001工作树生效。"
+        }
+      ]
+    },
+    {
+      "id": "chat-keyframe-region-review",
+      "name": "原对话多帧范围确认与局部配色候选",
+      "status": "partial",
+      "userValue": "在现有剪辑聊天里抽3/5帧，按物体预览并修订范围，明确确认后查看局部配色候选，原素材和剪辑线保留。",
+      "entryPoints": [
+        "client/src/pages/EditingStudioPage.tsx",
+        "client/src/features/storyAgent/views/StoryAgentChat.tsx",
+        "server/routers/frameRegionReview.ts"
+      ],
+      "owners": [
+        "shared/frameRegionReview.ts",
+        "server/services/frameRegionReview.ts",
+        "server/services/localFrameRegions.ts",
+        "scripts/frame-regions/worker.py",
+        "scripts/frame-regions/scene_palette.py",
+        "scripts/frame-regions/edge_transfer.py",
+        "client/src/features/storyAgent/useFrameRegionReviewChat.ts",
+        "client/src/features/storyAgent/views/ChatFrameRegionReview.tsx",
+        "client/src/features/storyAgent/frameReviewRecovery.ts",
+        "client/src/features/storyAgent/views/FrameReviewRecovery.tsx",
+        "scripts/frame-regions/cloud_regions.py",
+        "scripts/frame-regions/tree_regions.py"
+      ],
+      "evidence": [
+        "shared/frameRegionReview.test.ts",
+        "server/services/frameRegionReview.test.ts",
+        "server/services/storySync.frame-review.test.ts",
+        "client/src/features/storyAgent/views/ChatFrameRegionReview.test.tsx",
+        "client/src/features/storyAgent/frameReviewRecovery.test.ts",
+        "scripts/frame-regions/test_worker.py",
+        "docs/qa/2026-11-12-product-frame-region-review.md",
+        "scripts/frame-regions/test_cloud_regions.py",
+        "docs/qa/2026-11-12-cloud-region-refinement.md",
+        "scripts/frame-regions/test_tree_regions.py",
+        "docs/qa/2026-11-12-selected-image-tree-color.md",
+        "docs/qa/2026-11-12-joint-release.md"
+      ],
+      "invariants": [
+        "范围预览不改原图；明确确认最新范围后才出本地森林配色候选，局部确认不批准其他对象。",
+        "图片和蒙版绑定Story、稳定镜头、原图SHA和时间线修订；旧确认、越权和源变化拒绝。",
+        "候选保持原尺寸，保护区和范围外像素不变；不自动采用、改视频或动音乐字幕。",
+        "无静默付费回退；形态生成和视频生成仍需原报价确认，候选不齐不得认定全部图片已确认。",
+        "对话等待时可继续输入；已保存结果可恢复；取消结果不得复活。"
+      ],
+      "dependencies": [
+        "chat-video-frame-references",
+        "paused-frame-chat-reference",
+        "image-asset-history",
+        "stable-shot-identity",
+        "story-ownership"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "用户已认可本例树识别；云使用局部语义与SAM2自动细化，远处/贴边小云仍待用户验收；未训练用户专属模型。",
+        "用户截图2062已在3001原聊天局部树冠改绿为候选2092，范围外零变化且未采用；部分小树/软边仍可能漏选，美术效果待用户确认。风格化回退目前限定冷色树冠到画内已有绿色。",
+        "飞机/云形态候选、继承原运动和时长的多帧新视频链路尚未接通，不能宣称整流程上线可用。",
+        "通用刷新曾回到另一最近故事，重新选择可读服务端记录，原故事自动恢复需继续排查。",
+        "本机模型需独立部署并补依赖；冷启动/多实例队列、持久运行中任务恢复未生产验收。"
+      ],
+      "history": [
+        {
+          "date": "2026-11-12",
+          "kind": "feature",
+          "summary": "现有3001原聊天实测五帧、范围修订、只确认森林、原候选并排；2091为960x960未采用，57494像素变化且范围外/保护区0变化，视频声音不变，无新费用。71项TS、6项Python及类型通过；形态/整镜视频未完成。"
+        },
+        {
+          "date": "2026-11-12",
+          "kind": "fix",
+          "summary": "按用户反馈保留树识别；云增加局部语义取点与SAM2轮廓精修，背景/飞机保护，修改云不再丢森林已确认范围和候选。离线真实帧5点抽查改善，15项TS/11项Python及类型通过，原页面复测进行中。"
+        },
+        {
+          "date": "2026-11-12",
+          "kind": "fix",
+          "summary": "云R7已在3001复测完成，森林2091与飞机保留。按最新截图修复仓库选图被忽略/错底图：2062→R8树冠范围→R9候选2092在原聊天实测，960x960、275864像素变化、范围外/保护区0；完整对象取色与可编辑树冠分离、SHA绑定，旧图/剪辑24/Take/声音全部保留，无付费。60项TS、14项Python及类型通过；候选未采用、美术和完整视频仍待验收。"
+        },
+        {
+          "date": "2026-11-12",
+          "kind": "fix",
+          "summary": "联合发布补齐Linux应用私有Python/模型路径及运行脚本；保留本地范围确认、保护区和原图不变约束。模型权重不入Git，线上依赖/自检记录见发布QA，未以部署替代形态与视频验收。"
+        }
+      ]
     }
   ],
   "schemaVersion": 1,
-  "updatedAt": "2026-11-10"
+  "updatedAt": "2026-11-12"
 }

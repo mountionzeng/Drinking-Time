@@ -1,3 +1,4 @@
+import { hasUnreviewedFrameRefinement } from "../../shared/chatImageRevision";
 import { shotVideoPriceProfile, type ShotVideoRenderMode } from "../../shared/shotDirector";
 import { bookMediaTargetIsCurrent } from "./bookMediaTarget";
 import { VIDEO_TASK_POLL_WINDOW_MS } from "../../shared/mediaTask";
@@ -31,8 +32,10 @@ import {
 } from "../db";
 import { ENV } from "../_core/env";
 import { getStoryImageAssets, materializeImageInput } from "./imageAssets";
+import { buildRenderSnapshot, type RenderProfileSnapshot } from "./render/snapshot";
 import {
   getShotVideoProviderStatus,
+  shotVideoRenderProfileId,
   refreshShotVideoTask,
   submitShotVideo,
 } from "./videoGen";
@@ -390,6 +393,8 @@ function snapshot(input: {
   taskId?: string | null;
   promptDirector: VideoSubmissionPromptDirectorResult;
   artSystem?: { version: number; name: string; confirmedImageId?: number; rules: string };
+  /** Frozen at submission; poll/recovery read this, never the current VIDEO_302_* config. */
+  renderProfile?: RenderProfileSnapshot;
 }) {
   const providerStatus = getShotVideoProviderStatus(input.renderMode);
   const characterReferenceImageUrl =
@@ -419,6 +424,7 @@ function snapshot(input: {
     pollPath: providerStatus.pollPath || undefined,
     imageField: providerStatus.imageField,
     motion: input.motion,
+    ...(input.renderProfile ? { renderProfile: input.renderProfile } : {}),
     ...(input.artSystem ? { artSystem: input.artSystem } : {}),
     rerenderRequestId: input.rerenderRequestId,
     promptDirector: {
@@ -492,6 +498,8 @@ export async function startShotVideoJob(
   | { status: "ok"; take: VideoTake }
   | { status: "error"; error: string; take?: VideoTake }
 > {
+  const story = await getStoryById(input.storyId, userId);
+  if (!story) return { status: "error", error: "故事不存在或无权操作" };
   const assets = await getStoryImageAssets(input.storyId, userId);
   const asset = assets.find(candidate => candidate.id === input.imageId);
   const canonicalShotNo = canonicalizeShotNo(input.shotNo);
@@ -501,6 +509,8 @@ export async function startShotVideoJob(
     (canonicalShotNo
       ? normalizeShotIdentity(`legacy-${canonicalShotNo}`)
       : null);
+  if (!input.bookTarget && stableShotId && hasUnreviewedFrameRefinement((story.body as Record<string, unknown>)?.storyboardImageTasks, stableShotId))
+    return { status: "error", error: "请先在对话中查看原图与新版，回复采用哪张或保留原图，再生成视频。本次未提交。" };
   const isOwnedBookImage = Boolean(input.bookTarget && await bookMediaTargetIsCurrent({ storyId: input.storyId, userId, imageId: input.imageId, ...input.bookTarget }));
   if (input.bookTarget && !isOwnedBookImage) return { status: "error", error: "书内图片已变化，请重新选择" };
   const isOwnedShotImage =
@@ -510,6 +520,20 @@ export async function startShotVideoJob(
     (asset.shotIdentity
       ? asset.shotIdentity === stableShotId
       : asset.canonicalShotNo === canonicalShotNo);
+  // An explicit first-frame role is a non-owning reference, including raw
+  // extracted frames. Read the saved exact-shot role, never a client claim.
+  const body = story.body as { shots?: Array<Record<string, unknown>> } | null;
+  const configuredShot = Array.isArray(body?.shots) ? body.shots.find(shot =>
+    shot && typeof shot === "object" &&
+    (normalizeShotIdentity(shot.stableShotId) ?? normalizeShotIdentity(shot.shotIdentity)) === stableShotId
+  ) : undefined;
+  let firstFrameId: unknown;
+  try {
+    const params = typeof configuredShot?.generationParams === "string"
+      ? JSON.parse(configuredShot.generationParams) : configuredShot?.generationParams;
+    firstFrameId = params?.storyboardFrameRoles?.firstImageId ?? params?.firstFrameImageId;
+  } catch { /* Malformed legacy parameters do not authorize a reference. */ }
+  const isConfiguredFirstFrame = Boolean(asset && stableShotId && firstFrameId === asset.id);
   // A selected article illustration remains owned by the article. Only the
   // authoritative current image of this exact shot may bypass shot ownership.
   const isReferencedShotImage =
@@ -524,7 +548,7 @@ export async function startShotVideoJob(
     !asset ||
     asset.availability === "missing" ||
     asset.status === "rejected" ||
-    (!isOwnedBookImage && !isOwnedShotImage && !isReferencedShotImage)
+    (!isOwnedBookImage && !isOwnedShotImage && !isReferencedShotImage && !isConfiguredFirstFrame)
   ) {
     return { status: "error", error: "首帧图不存在或不属于当前镜头" };
   }
@@ -550,8 +574,6 @@ export async function startShotVideoJob(
 
   let durationSec = input.durationSec ?? 5;
   const aspectRatio = input.aspectRatio ?? SHOT_VIDEO_ASPECT_RATIO;
-  const story = await getStoryById(input.storyId, userId);
-  if (!story) return { status: "error", error: "故事不存在或无权操作" };
   const context = isOwnedBookImage ? {} : storyVideoContext(story.body, stableShotId, input.shotNo);
   const artBody = story.body && typeof story.body === "object" && !Array.isArray(story.body) ? story.body as Record<string, unknown> : {};
   const artRecipe = activeArtSystemRecipe(artBody);
@@ -744,6 +766,15 @@ export async function startShotVideoJob(
         : promptDirector.prompt;
     const videoPrompt = withArtSystemVideoPrompt(directedVideoPrompt, artBody, isMjVideo ? 500 : input.renderMode === "economy" ? 2000 : 5000);
 
+    const renderProfile = buildRenderSnapshot(shotVideoRenderProfileId(input.renderMode), {
+      endpoint: providerStatus.submitPath,
+      pollPath: providerStatus.pollPath || undefined,
+      baseUrl: providerStatus.baseUrl,
+      model: providerStatus.model || undefined,
+      params: { durationSec, motion, aspectRatio },
+      quoteInput: { durationSec, motion },
+      promptChars: videoPrompt.length,
+    });
     const take = await createVideoTake({
       storyId: input.storyId,
       userId,
@@ -770,6 +801,7 @@ export async function startShotVideoJob(
         motion,
         rerenderRequestId: input.rerenderRequestId,
         promptDirector,
+        renderProfile,
         ...(artRecipe?.system ? { artSystem: { version: artRecipe.version, name: artRecipe.system.name, confirmedImageId: artRecipe.system.confirmedImageId, rules: artBrief } } : {}),
       }),
       idempotencyKey,
@@ -806,6 +838,9 @@ export async function startShotVideoJob(
         status: unknownSubmission ? "unfollowable" : "failed",
         errorMessage,
         taskId: submitted.taskId ?? null,
+        ...(submitted.providerError
+          ? { parameterSnapshot: { ...parameterSnapshotRecord(take.parameterSnapshot), providerError: submitted.providerError } }
+          : {}),
       });
       return { status: "error", error: errorMessage, take: failed ?? take };
     }
@@ -871,6 +906,7 @@ export async function startShotVideoJob(
         motion,
         taskId: submitted.taskId,
         promptDirector,
+        renderProfile,
         ...(artRecipe?.system ? { artSystem: { version: artRecipe.version, name: artRecipe.system.name, confirmedImageId: artRecipe.system.confirmedImageId, rules: artBrief } } : {}),
       }),
     });
@@ -907,6 +943,11 @@ export async function refreshVideoTakeStatus(
     return refreshStartEndShotVideoTake(take, userId);
   }
   if (!take.taskId) {
+    // The take is persisted before submitting to the provider. A concurrent
+    // warehouse refresh must not terminate the chat watcher during submission.
+    if (take.status === "submitted" && Date.now() - new Date(take.createdAt).getTime() < 5 * 60_000) {
+      return { status: "ok", take };
+    }
     if (take.status === "available") return { status: "ok", take };
     const updated = await updateVideoTake(take.id, userId, {
       status: "unfollowable",
@@ -917,7 +958,11 @@ export async function refreshVideoTakeStatus(
 
   const refreshed = isRunwayExpandTake(take)
     ? await refreshRunwayVideoExpandTask(take.taskId)
-    : await refreshShotVideoTask(take.taskId, { renderMode: parameterSnapshotRecord(take.parameterSnapshot).renderMode === "economy" ? "economy" : "existing" });
+    : await refreshShotVideoTask(take.taskId, {
+        renderMode: parameterSnapshotRecord(take.parameterSnapshot).renderMode === "economy" ? "economy" : "existing",
+        // Poll the vendor/route this take was submitted to, not today's config.
+        snapshot: parameterSnapshotRecord(take.parameterSnapshot),
+      });
   if (refreshed.status === "available") {
     await finishVideoBilling(take, { videoUrl: refreshed.videoUrl });
     const mjCandidateVideoUrls =
@@ -1053,9 +1098,13 @@ export async function refreshVideoTakeStatus(
     take,
     decision === "failed" ? { failed: true } : { unknown: true }
   );
+  const providerError = "providerError" in refreshed ? refreshed.providerError : undefined;
   const updated = await updateVideoTake(take.id, userId, {
     status: statusForRefresh(refreshed.status),
     errorMessage: explainVideoProviderError(refreshed.message),
+    ...(providerError
+      ? { parameterSnapshot: { ...parameterSnapshotRecord(take.parameterSnapshot), providerError } }
+      : {}),
   });
   return { status: "ok", take: updated ?? take };
 }

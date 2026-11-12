@@ -1,3 +1,4 @@
+import { analyzeCreationEmotion } from "../../shared/creationEmotion";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const persistenceMocks = vi.hoisted(() => ({
@@ -137,6 +138,7 @@ describe("publishing album background generation", () => {
 
     expect(result.status).toBe("error");
     expect(deps.resumeMidjourney).toHaveBeenCalledTimes(1);
+    expect(compilePublishingAlbumBackgroundPrompt).not.toHaveBeenCalled();
     expect(deps.resumeMidjourney).toHaveBeenCalledWith("paid-task-7", expect.any(Object));
     expect(deps.generate).not.toHaveBeenCalled();
     expect(persistenceMocks.claimPublishingAlbumBackground).not.toHaveBeenCalled();
@@ -201,4 +203,19 @@ describe("publishing album background generation", () => {
     expect(deps.generate).not.toHaveBeenCalled();
     expect(persistenceMocks.claimPublishingAlbumBackground).not.toHaveBeenCalled();
   });
+});
+
+function emotionState(raw = "温暖怀念", revision = 1) {
+  return { schemaVersion: 1 as const, revision, history: [{ revision, scope: { kind: "story" as const }, intent: { raw, mediumDirections: {} }, reading: analyzeCreationEmotion(raw), createdAt: "2026-11-10T00:00:00.000Z", userId: 3 }] };
+}
+
+it("binds the quote to emotion revisions even if the compiler produces identical prose", async () => {
+  const deps = dependencies(stateWithGeneration());
+  deps.getStory.mockResolvedValue({ id: 7, userId: 3, body: { creationEmotion: emotionState() } } as any);
+  const input = { storyId: 7, userId: 3, versionId: "v1", pageId: "page-1", dependencies: deps };
+  const quote = await quotePublishingAlbumBackground(input);
+  expect(compilePublishingAlbumBackgroundPrompt).toHaveBeenLastCalledWith(expect.objectContaining({creationEmotion: {schemaVersion: 1, layers: emotionState().history}}));
+  deps.getStory.mockResolvedValue({ id: 7, userId: 3, body: { creationEmotion: emotionState("压抑不安", 2) } } as any);
+  await expect(generatePublishingAlbumBackground({ ...input, confirmation: quote })).rejects.toThrow("报价已过期或与当前页面不匹配");
+  expect(deps.generate).not.toHaveBeenCalled(); expect(persistenceMocks.claimPublishingAlbumBackground).not.toHaveBeenCalled();
 });

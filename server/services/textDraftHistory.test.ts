@@ -60,6 +60,23 @@ beforeEach(() => {
 });
 
 describe("independent text versions with real Story CAS persistence", () => {
+  it("passes shared emotional intent into the real text model request and keeps old drafts", async () => {
+    const { saveCreationEmotion, getCreationEmotionUsage } = await import("./creationEmotion");
+    const request = await setup();
+    request.messages = [{id:"cup-scene",role:"user",content:"白瓷小茶杯放在桌面，细腻彩色像素。"}];
+    for (const [index, raw] of ["温暖怀念", "压抑不安", "释然平静"].entries()) {
+      await saveCreationEmotion({ ...request, expectedRevision: index, scope: { kind: "story" }, intent: { raw } });
+      await service.generateTextDraft({ ...request, expectedRevision: (await service.getTextDraftHistory(request)).revision, operationToken: `emotion-${index}-version` });
+      const call = JSON.stringify(model.mock.calls.at(-1));
+      expect(call).toContain(raw); expect(call).toContain("白瓷小茶杯放在桌面");
+      expect(call).toContain("事实、立场");
+    }
+    const history = await service.getTextDraftHistory(request);
+    expect(history.versions).toHaveLength(3);
+    expect(history.versions.map(v => v.creationEmotion?.layers[0].intent?.raw)).toEqual(["温暖怀念", "压抑不安", "释然平静"]);
+    expect((await getCreationEmotionUsage(request)).map(x => x.status)).toEqual(["older-setting", "older-setting", "current"]);
+  });
+
   it('normalizes model Markdown into LaTeX before persistence without changing selection-external text', async () => {
     const input = await setup();
     const basis = { title: '人工标题', body: '**旧前文**。原句。$x^2$后文', tags: [] };
@@ -755,4 +772,34 @@ it("reuses automatic chat memories across independent stories without consuming 
   expect(secondResult.versions[0].adoption).toBeUndefined();
   expect((await service.getTextDraftHistory(source)).versions).toEqual([]);
   expect(await listMemoryCards(source.userId, 0, 100, false)).toHaveLength(1);
+});
+
+it("uses only the owned chapter override and preserves it across replay and reload", async () => {
+  const { insertChapter } = await import("../repositories/chapters");
+  const { saveCreationEmotion } = await import("./creationEmotion");
+  const request = await setup();
+  const content = { title: "回家", layout: null, blocks: { body: "白瓷茶杯在桌面", blockIds: [], containsAiText: false, settings: null, coverKey: null, bodyTextureKey: null, images: {}, illustrations: [] } };
+  const chapter = await insertChapter({ ...request, content });
+  await saveCreationEmotion({ ...request, expectedRevision: 0, scope: { kind: "story" }, intent: { raw: "温暖怀念" } });
+  await saveCreationEmotion({ ...request, expectedRevision: 1, scope: { kind: "chapter", id: String(chapter.id) }, intent: { raw: "有一点失落，但并不绝望，最后慢慢释怀" } });
+  const input = { ...request, emotionChapterId: String(chapter.id), instruction: "措辞保持克制", basis: { title: "回家", body: content.blocks.body, tags: [] } };
+  const first = await service.generateTextDraft(input);
+  const sent = JSON.stringify(model.mock.calls.at(-1));
+  expect(sent).toContain("温暖怀念"); expect(sent).toContain("并不绝望"); expect(sent).toContain("措辞保持克制"); expect(sent).toContain(content.blocks.body);
+  expect(first.versions[0].creationEmotion?.layers.map(x => x.scope.kind)).toEqual(["story", "chapter"]);
+  await saveCreationEmotion({ ...request, expectedRevision: 2, scope: { kind: "chapter", id: String(chapter.id) }, intent: { raw: "压抑不安" } });
+  expect((await service.generateTextDraft(input)).versions[0].creationEmotion).toEqual(first.versions[0].creationEmotion);
+  expect(model).toHaveBeenCalledTimes(1);
+  const global = await service.generateTextDraft({ ...request, operationToken: "global-after-chapter", expectedRevision: first.revision });
+  expect(global.versions.at(-1)?.creationEmotion?.layers).toHaveLength(1);
+  const other = await setup(request.userId);
+  const foreign = await insertChapter({ ...other, content });
+  const anotherOwner = await setup(request.userId + 1);
+  const privateChapter = await insertChapter({ ...anotherOwner, content });
+  model.mockClear();
+  for (const id of [String(foreign.id), String(privateChapter.id), "99999999", "not-a-chapter"]) {
+    await expect(service.generateTextDraft({ ...request, operationToken: `invalid-${id}`, expectedRevision: global.revision, emotionChapterId: id })).rejects.toThrow("章节不存在");
+  }
+  expect(model).not.toHaveBeenCalled();
+  expect((await service.getTextDraftHistory(request)).versions).toHaveLength(2);
 });

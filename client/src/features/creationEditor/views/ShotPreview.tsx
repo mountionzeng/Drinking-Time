@@ -90,6 +90,7 @@ export default function ShotPreview({
   sourceClip?: ChatCutTimelineClip | null;
   timelineVideoSource?: TimelineVideoSource | null;
   timelineImageSource?: {
+    opacity?: number;
     imageUrl: string;
     transform?: TimelineTransform;
   } | null;
@@ -802,6 +803,7 @@ export default function ShotPreview({
   return (
     <section
       className="flex h-full min-h-0 min-w-0 flex-1 flex-col bg-[color:var(--panel-header)]"
+      data-frame-navigation="true"
       aria-label="Preview"
       tabIndex={-1}
       onPointerDownCapture={event => {
@@ -909,6 +911,15 @@ export default function ShotPreview({
             data-testid="editing-project-canvas"
             data-project-size={formatLabel}
           >
+            {subtitleLines.filter(line => line.placement).map(line => {
+              const placement = line.placement!;
+              return <p key={line.id} data-testid="editing-preview-positioned-subtitle"
+                className="pointer-events-none absolute z-40 m-0 whitespace-pre-line text-center font-normal text-white"
+                style={{ left: `${placement.left * 100}%`, top: `${placement.top * 100}%`, width: `${placement.width * 100}%`,
+                  fontFamily: "Roboto, 'Noto Sans SC', sans-serif", fontSize: (canvasSize.height || 180) * placement.fontSize, lineHeight: 1.3 }}>
+                {line.text}
+              </p>;
+            })}
             {videoUrl ? (
               <div
                 className="relative h-full w-full"
@@ -1041,7 +1052,7 @@ export default function ShotPreview({
                         );
                       }
                     }}
-                    className="h-full w-full object-cover"
+                    className="h-full w-full object-contain"
                     style={
                       videoTransform
                         ? timelineTransformStyle(videoTransform)
@@ -1055,9 +1066,7 @@ export default function ShotPreview({
                     src={overlayImageUrl}
                     alt={_ui("{0} 当前图片帧", [shot ? shotLabel(shot) : _ui("当前镜头")])}
                     className="pointer-events-none absolute inset-0 z-10 h-full w-full object-cover"
-                    style={timelineTransformStyle(
-                      timelineImageSource?.transform
-                    )}
+                    style={{ ...timelineTransformStyle(timelineImageSource?.transform), opacity: timelineImageSource?.opacity ?? 1 }}
                     data-testid="editing-preview-frame-overlay"
                     onLoad={event =>
                       setPreviewImageSize({
@@ -1095,7 +1104,7 @@ export default function ShotPreview({
                     : _ui("静态首帧占位 · 尚未采用视频")}
                 </span>
               </>
-            ) : (
+            ) : format && !shot ? null : (
               <div className="flex h-full min-h-[220px] w-full min-w-[220px] flex-col items-center justify-center gap-2 px-6 text-center text-neutral-400">
                 <Video className="h-7 w-7" />
                 <span className="text-xs">{shot ? _ui("画面尚未就绪，可先播放分镜与字幕") : _ui("从左侧选择镜头")}</span>
@@ -1316,9 +1325,9 @@ export default function ShotPreview({
           aria-live="polite"
           data-testid="editing-preview-subtitle-rail"
         >
-          {subtitleLines.length > 0 ? (
+          {subtitleLines.some(line => !line.placement) ? (
             <div className="flex max-w-[92%] flex-col items-center gap-0.5">
-              {subtitleLines.map(line => (
+              {subtitleLines.filter(line => !line.placement).map(line => (
                 <p
                   key={line.id}
                   className={`m-0 line-clamp-2 whitespace-pre-line text-[13px] font-medium leading-5 ${

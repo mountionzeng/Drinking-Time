@@ -232,3 +232,26 @@ describe("aggregate visual edit undo", () => {
     await expect(undoVisualEditForStory({ storyId: story.id, userId: 1, operation: operationC })).resolves.toMatchObject({ status: "ok" });
   });
 });
+
+it("splits start/end frame plans atomically, retains timing and supports undo/replay",async()=>{
+ resetMemoryStateForTesting();clearVisualEditUndoForTesting();clearVisualEditSessionsForTesting();
+ const {createGeneratedImage}=await import("../repositories/images");
+ const story=await createStory({userId:1,title:"two frame pairs",body:{shots:[{stableShotId:"s3",shotNo:3,action:"preserve original motion"}]}});
+ const images=await Promise.all([1,2,3].map(i=>createGeneratedImage({storyId:story.id,userId:1,shotIdentity:"s3",imageUrl:`/${i}.png`,isCurrent:false})));
+ await updateStoryTimeline({storyId:story.id,userId:1,expectedVersion:0,items:[{stableShotId:"s3",included:true,position:0,plannedDurationMs:8000,durationFrames:240,timelineStartFrame:30,visualLayer:0,transform}]});
+ const operation={editorSessionEpoch:"split-test",operationId:"two-pairs"};
+ const input={storyId:story.id,userId:1,stableShotId:"s3",cutFrame:150,operation,startEndPlan:{imageIds:images.map(i=>i.id) as [number,number,number],durationSec:4 as const,expectedStartFrame:30,expectedEndFrame:270}};
+ const result=await splitStoryVisualShot(input);expect(result.status).toBe("ok");
+ const shots=((await getStoryById(story.id,1))!.body as any).shots;
+ expect(shots).toHaveLength(2);
+ expect(JSON.parse(shots[0].generationParams)).toMatchObject({firstFrameImageId:images[0].id,lastFrameImageId:images[1].id,durationSec:4,resolution:"720p"});
+ expect(JSON.parse(shots[1].generationParams)).toMatchObject({firstFrameImageId:images[1].id,lastFrameImageId:images[2].id});
+ expect(shots[0].action).toBe("preserve original motion");
+ const timelineItems = (await getStoryTimeline(story.id,1))!.items as Array<{durationFrames: number}>;
+ expect(timelineItems.reduce((n,i)=>n+i.durationFrames,0)).toBe(240);
+ expect(await splitStoryVisualShot(input)).toMatchObject({status:"ok"});
+ await undoVisualEditForStory({storyId:story.id,userId:1,operation});
+ expect(((await getStoryById(story.id,1))!.body as any).shots).toHaveLength(1);
+ expect(await splitStoryVisualShot({...input,operation:{...operation,operationId:"stale"},startEndPlan:{...input.startEndPlan,expectedEndFrame:300}})).toMatchObject({status:"error"});
+ expect(await splitStoryVisualShot({...input,userId:2,operation:{...operation,operationId:"wrong-owner"}})).toMatchObject({status:"error"});
+});

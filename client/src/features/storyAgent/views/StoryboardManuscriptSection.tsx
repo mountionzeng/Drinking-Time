@@ -1,7 +1,8 @@
 import type { ComponentProps } from "react";
 import { toast } from "sonner";
 import { useUiText } from "@/features/uiLanguage/UiLanguage";
-import { StoryboardEditRow } from "@/features/creationEditor/views/StoryboardEditRow";
+import { StoryboardEditRow, STORYBOARD_TRACK_HEADER_WIDTH } from "@/features/creationEditor/views/StoryboardEditRow";
+import { StoryboardTimelineRulerRow } from "./StoryboardTimelineRuler";
 import type { CreationEditorShot } from "@/features/creationEditor/types";
 import { latestVideoTakeFailure } from "@/features/creationEditor/videoAssetViewModel";
 import type { StoryShotEditableField } from "@shared/shotDirector";
@@ -45,7 +46,8 @@ export function StoryboardManuscriptSection(props: Props) {
   const { visible, timeline, viewport, entries, timings } = props;
   return <div hidden={!visible} className="min-h-0 flex-1 overflow-auto custom-scrollbar">
     {visible && timeline && <div className="overflow-x-auto border-b" aria-label={t("分镜稿剪辑栏")}>
-      <div className="grid" style={{ gridTemplateColumns: `76px ${viewport.contentWidth}px` }}>
+      <div className="grid" style={{ gridTemplateColumns: `${STORYBOARD_TRACK_HEADER_WIDTH}px ${viewport.contentWidth}px` }}>
+        <StoryboardTimelineRulerRow viewport={viewport} columnSpan={1} />
         <StoryboardEditRow timeline={timeline} viewport={viewport} shots={props.shots} selectedShotNo={props.selectedShotNo}
           onSelectShot={props.selectMatrixShot} columnSpan={1} shotActions={props.shotActions}
           onShotTimingPreviewChange={props.updateShotTimingPreview} />

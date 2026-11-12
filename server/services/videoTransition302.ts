@@ -23,6 +23,8 @@ const VIDU_UPLOAD_FINISH_PATH =
   "/vidu/tools/v2/files/uploads/{resourceId}/finish";
 const VIDU_SUBMIT_PATH = "/vidu/ent/v2/start-end2video";
 const VIDU_FETCH_PATH = "/vidu/ent/v2/tasks/{taskId}/creations";
+/** Known 302 origin for historical Vidu polls with no stored host. Not the current API302_BASE_URL. */
+export const DEFAULT_302_BASE_URL = "https://api.302.ai";
 
 export type ViduQ2Resolution = "540p" | "720p" | "1080p";
 
@@ -466,14 +468,17 @@ export async function submitViduTransition(
 
 export async function refreshViduTransition(
   taskId: string,
-  options: { fetcher?: Fetcher; timeoutMs?: number } = {}
+  options: { fetcher?: Fetcher; timeoutMs?: number; baseUrl?: string; pollPath?: string } = {}
 ): Promise<ViduTransitionRefreshResult> {
   requireApiKey();
   const fetcher = guardComputeFetch(
     (options.fetcher ?? globalThis.fetch) as Fetcher
   );
-  const url = endpoint(
-    VIDU_FETCH_PATH.replace("{taskId}", encodeURIComponent(taskId))
+  const baseUrl = (options.baseUrl?.trim() || DEFAULT_302_BASE_URL).replace(/\/+$/, "");
+  const pollPath = (options.pollPath?.trim() || VIDU_FETCH_PATH).replace(/\/+$/, "") || VIDU_FETCH_PATH;
+  const url = new URL(
+    pollPath.replace("{taskId}", encodeURIComponent(taskId)).replace(/^\/+/, ""),
+    `${baseUrl}/`
   );
   const deadline = requestDeadline(options.timeoutMs ?? 20_000);
   let response: Response;

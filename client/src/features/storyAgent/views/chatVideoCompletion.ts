@@ -16,10 +16,12 @@ export async function completeChatVideo(input: {
       if (!input.current()) return "视频已保留在原故事仓库，未放入镜头。";
       if (!accepted) return `视频 Take ${take.id} 已保存在仓库，尚未放入第 ${input.label} 镜。`;
       await input.adopt(take);
-      return `视频 Take ${take.id} 已放入第 ${input.label} 镜和对应剪辑位置，旧版本保留。`;
+      return `视频 Take ${take.id} 已放入第 ${input.label} 镜和对应剪辑位置，所有版本已保存在仓库。`;
     }
-    if (take?.id === input.takeId && ["failed", "timeout", "unfollowable", "unusable", "cancelled"].includes(take.status))
+    if (take?.id === input.takeId && ["failed", "unusable", "cancelled"].includes(take.status))
       return `视频 Take ${take.id} 未生成成功，任务记录已保留，没有重复提交。`;
+    if (take?.id === input.takeId && ["timeout", "unfollowable"].includes(take.status))
+      return `视频 Take ${take.id} 暂时无法确认结果，任务记录已保留；请在仓库核对，没有重复提交。`;
     await wait();
   }
   return `视频 Take ${input.takeId} 仍在原任务中，完成后可从仓库查看；没有重复生成或自动放入镜头。`;

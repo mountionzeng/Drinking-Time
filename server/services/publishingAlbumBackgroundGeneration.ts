@@ -1,3 +1,5 @@
+import { storyEmotion } from "./creationEmotion";
+import { emotionBasis } from "../../shared/creationEmotion";
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 
 import type { GeneratedImage } from "../../drizzle/schema";
@@ -132,7 +134,9 @@ async function resolveGenerationInput(input: {
   ) throw new Error("当前版本采用的封面不属于这个故事或已经不可用");
   const story = await input.dependencies.getStory(input.storyId, input.userId);
   if (!story) throw new Error("故事不存在或无权访问");
+  const creationEmotion = storyEmotion(story.body);
   const compiled = await compilePublishingAlbumBackgroundPrompt({
+    creationEmotion,
     pageText: page.text,
     pageOrdinal: page.ordinal,
     pageCount: version.album.pages.length,
@@ -141,6 +145,7 @@ async function resolveGenerationInput(input: {
     storyId: input.storyId,
   });
   const inputSnapshot = {
+    ...(creationEmotion ? { emotionBasis: emotionBasis(creationEmotion) } : {}),
     pageTextHash: publishingAlbumBackgroundHash(page.text),
     pageRevision: page.revision,
     coverAssetId: cover.id,

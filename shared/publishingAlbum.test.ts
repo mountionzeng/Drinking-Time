@@ -147,3 +147,14 @@ describe("normalizePublishingAlbumAggregate", () => {
     expect(normalizePublishingAlbumAggregate(fixture, NOW)).not.toBeNull();
   });
 });
+
+it("retains emotion provenance when a background task is reloaded and tolerates legacy absence", () => {
+  const album = albumFixture();
+  const generation = { operationToken: "emotion-op", requestHash: "hash", versionId: "v1", pageId: album.pages[0].pageId, status: "pending", provider: "gpt-image", taskId: "accepted-task",
+    inputSnapshot: { emotionBasis: "story@1,chapter%3A2@3", pageTextHash: "text", pageRevision: 1, coverAssetId: 9, coverSourceCoreRevision: 1, artDirectionHash: "art", artReference: null, promptCompilerVersion: 1, prompt: "original compiled prompt", aspectRatio: "3:4" },
+    feedback: "", claimedAt: NOW, updatedAt: NOW, expiresAt: NOW+60000 };
+  const input = {...album, pages: [{...album.pages[0], backgroundGeneration: generation}]};
+  expect(normalizePublishingAlbumAggregate(input,NOW)?.pages[0].backgroundGeneration?.inputSnapshot.emotionBasis).toBe("story@1,chapter%3A2@3");
+  const {emotionBasis: _basis,...legacy}=generation.inputSnapshot;
+  expect(normalizePublishingAlbumAggregate({...input,pages:[{...input.pages[0],backgroundGeneration:{...generation,inputSnapshot:legacy}}]},NOW)?.pages[0].backgroundGeneration?.inputSnapshot.emotionBasis).toBeUndefined();
+});

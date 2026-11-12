@@ -245,7 +245,7 @@ export function compileStorySoundContextFromSources(input: {
       )
       .map(item => item.text.replace(/\s+/g, ""))
   );
-  for (const cue of subtitleState.tracks[0]?.cues ?? []) {
+  for (const cue of subtitleState.tracks.flatMap(track => track.cues)) {
     const value = clean(cue.text);
     if (!value) continue;
     const matchingDialogue = evidence.find(

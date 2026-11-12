@@ -41,3 +41,12 @@ it("rejects unauthorized image ids before reading any image file", async () => {
     })
   ).rejects.toThrow("不属于当前故事");
 });
+
+
+it("keeps alpha when explicitly rendering a composited image", async () => {
+  const source = await sharp({ create: { width: 20, height: 20, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } }).png().toBuffer();
+  const output = await renderExportImageBytes(source, DEFAULT_TIMELINE_TRANSFORM, { width: 20, height: 20 }, "cover", true);
+  const { data, info } = await sharp(output).raw().toBuffer({ resolveWithObject: true });
+  expect(info.channels).toBe(4);
+  expect(data[3]).toBe(0);
+});

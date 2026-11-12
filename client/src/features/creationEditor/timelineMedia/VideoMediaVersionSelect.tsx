@@ -45,7 +45,7 @@ export function VideoMediaVersionSelect({
       value={current ?? ""}
       disabled={binding.pending}
       onChange={event => void binding.onRestore(kind, event.target.value)}
-      className="mt-0.5 h-6 w-full min-w-0 rounded-sm border border-border bg-background px-0.5 text-[9px] font-normal text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40"
+      className="h-5 w-[66px] shrink-0 rounded-sm border border-border bg-background px-0.5 text-[10px] font-normal text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40"
     >
       {!current ? (
         <option value="" disabled>

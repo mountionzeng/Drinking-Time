@@ -69,6 +69,7 @@ export type PublishingAlbumBackgroundGeneration = {
   provider: "midjourney" | "gpt-image" | "flux-schnell";
   taskId: string | null;
   inputSnapshot: {
+    emotionBasis?: string;
     pageTextHash: string;
     pageRevision: number;
     coverAssetId: number;
@@ -300,6 +301,7 @@ function normalizeGeneration(value: unknown, pageId: string, now: number): Publi
       : "midjourney",
     taskId: cleanString(obj.taskId, 500) || null,
     inputSnapshot: {
+      ...(cleanString(snapshot.emotionBasis, 1000) ? { emotionBasis: cleanString(snapshot.emotionBasis, 1000) } : {}),
       pageTextHash: cleanString(snapshot.pageTextHash, 160),
       pageRevision: finiteInteger(snapshot.pageRevision),
       coverAssetId,

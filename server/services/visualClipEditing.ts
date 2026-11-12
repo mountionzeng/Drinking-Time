@@ -1864,6 +1864,29 @@ export async function updateVideoEditForStory(input: {
 }
 
 /**
+ * 对话里「采用视频 Take N」：镜头若已有主视频（ChatCut 导入等），把主视频换成这条 Take，
+ * 时长取采用片段的实际长度；播放速度、静音、画面变换沿用原主视频。没有主视频或已是这条时不写。
+ */
+export async function promoteAdoptedTakeToPrimary(input: {
+  storyId: number; userId: number; stableShotId: string; takeId: number; sourceEndSec: number;
+  lockHeld?: boolean;
+}): Promise<VisualClipEditResult> {
+  return withVisualEditDocument(
+    { storyId: input.storyId, userId: input.userId, lockHeld: input.lockHeld, failureMessage: "主视频更新失败",
+      normalizeLegacy: () => ({ kind: "sources", sourceStableShotIds: [input.stableShotId] }) },
+    document => {
+      const item = document.items.find(candidate => candidate.stableShotId === input.stableShotId);
+      const primary = item?.primaryVideoEdit;
+      if (!item || !primary || primary.takeId === input.takeId) return { status: "ok", document, changed: false };
+      const edited = applyTimelineVideoEdit(document.items, { stableShotId: input.stableShotId, takeId: input.takeId, clipId: null,
+        sourceStartSec: 0, sourceEndSec: input.sourceEndSec, effects: primary.effects, transform: item.transform });
+      if (edited.status === "error") return { status: "error", message: edited.message };
+      return { status: "ok", document: { ...document, items: edited.items } };
+    }
+  );
+}
+
+/**
  * 把「播放头停在第几毫秒」解析成「那一刻可见的是哪个镜头」。
  *
  * 用户说「把这里改一下」时，「这里」指的就是他正在看的那一帧。解析走

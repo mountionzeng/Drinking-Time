@@ -5,7 +5,9 @@ import {
   SHORT_COOLDOWN_MS,
   classifyProviderFailure,
   getImageProviderStatus,
+  imageProviderHealthSnapshot,
   isCircuitOpen,
+  isProviderCircuitOpen,
   providerCooldownRejection,
   providerRetryAt,
   recordFailure,
@@ -18,6 +20,41 @@ describe("image provider health", () => {
   afterEach(() => {
     resetCircuitBreaker();
     vi.useRealTimers();
+  });
+
+  it("treats 4xx parameter errors as request errors, not provider faults", () => {
+    expect(classifyProviderFailure("302 Midjourney submit HTTP 400")).toBe("parameter");
+    expect(classifyProviderFailure("MJ 供应商拒绝请求（HTTP 422 · Invalid_Prompt_Parameter）")).toBe("parameter");
+    expect(classifyProviderFailure("failed to create task (reason: Invalid_Prompt_Parameter)")).toBe("parameter");
+    expect(classifyProviderFailure("生成服务拒绝了请求参数（HTTP 400）。")).toBe("parameter");
+    expect(classifyProviderFailure("302 Midjourney submit HTTP 429")).toBe("overload");
+    expect(classifyProviderFailure("302 GPT-image 暂时不可用（HTTP 503）。")).toBe("fault");
+    for (let i = 0; i < 10; i++) {
+      expect(recordProviderFailure("midjourney", "302 Midjourney submit HTTP 400", "mj")).toBe("parameter");
+    }
+    expect(isCircuitOpen("midjourney")).toBe(false);
+    expect(isCircuitOpen("midjourney", "mj")).toBe(false);
+    expect(getImageProviderStatus().lastFailure).toBeNull();
+  });
+
+  it("scopes faults to provider + model", () => {
+    for (let i = 0; i < 3; i++) recordProviderFailure("gpt-image", "HTTP 500", "gpt-image-2");
+    expect(isCircuitOpen("gpt-image", "gpt-image-2")).toBe(true);
+    expect(isCircuitOpen("gpt-image", "flux-kontext-pro")).toBe(false);
+    // Provider-only status is conservative (some model is cooling) …
+    expect(isCircuitOpen("gpt-image")).toBe(true);
+    // … but the provider-level key itself is not open.
+    expect(isProviderCircuitOpen("gpt-image")).toBe(false);
+    expect(providerCooldownRejection("gpt-image", "gpt-image-2").errorCode).toBe("cooling_down");
+    recordSuccess("gpt-image", "flux-kontext-pro");
+    expect(isCircuitOpen("gpt-image", "gpt-image-2")).toBe(true);
+    expect(imageProviderHealthSnapshot().open.map(item => item.key)).toEqual(["gpt-image:gpt-image-2"]);
+  });
+
+  it("a provider-level fault (legacy caller without model) still blocks every model", () => {
+    for (let i = 0; i < 3; i++) recordFailure("midjourney");
+    expect(isCircuitOpen("midjourney", "mj")).toBe(true);
+    expect(isCircuitOpen("midjourney", "mj-turbo")).toBe(true);
   });
 
   it("classifies failures", () => {

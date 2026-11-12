@@ -189,138 +189,49 @@ describe("generateImage", () => {
     ENV.falApiKey = originalEnv.falApiKey;
   });
 
-  it("returns ok with imageUrl on success", async () => {
-    const fetcher = makeFetcher([
-      {
-        ok: true,
-        status: 200,
-        json: { images: [{ url: "https://fal.ai/result.png" }] },
-      },
-      { ok: true, status: 200, arrayBuffer: new ArrayBuffer(16) },
-    ]);
-
-    const result = await generateImage("a cat", { fetcher });
-
-    expect(result.status).toBe("ok");
-    // 新契约：imageUrl 一律是同源稳定路由；远程备份成功时 imageKey 记远程 key
-    expect(result.imageUrl).toMatch(/^\/api\/images\/.+\.png$/);
-    // 备份改为发射后不管：imageKey = 本地生成的确定性 storageKey，不再等远程返回
-    expect(result.imageKey).toMatch(/^generated\/.+\.png$/);
-    expect(fetcher).toHaveBeenCalledTimes(2);
+  // fal 档位（image.fal-flux-pro-ultra）已停用：不再出图，也不再改道（渲染架构第 2 步）。
+  it("fal 档位已停用：显式报错、不请求任何供应商", async () => {
+    const fetcher = vi.fn();
+    const result = await generateImage("a cat", { fetcher, aspectRatio: "16:9", seed: 42 });
+    expect(result.status).toBe("error");
+    expect(result.message).toContain("已停用");
+    expect(result.message).toContain("没有自动改用其他供应商");
+    expect(fetcher).not.toHaveBeenCalled();
   });
 
-  it("returns error on fal.ai HTTP 500", async () => {
+  it("opens circuit breaker after 3 consecutive GPT-image failures", async () => {
+    ENV.api302Key = "test-302-key";
     const fetcher = makeFetcher([{ ok: false, status: 500 }]);
 
-    const result = await generateImage("a cat", { fetcher });
-
-    expect(result.status).toBe("error");
-    expect(result.message).toContain("500");
-  });
-
-  it("returns error when fal.ai returns no images", async () => {
-    const fetcher = makeFetcher([
-      { ok: true, status: 200, json: { images: [] } },
-    ]);
-
-    const result = await generateImage("a cat", { fetcher });
-
-    expect(result.status).toBe("error");
-    expect(result.message).toContain("no images");
-  });
-
-  it("returns error on timeout", async () => {
-    const fetcher = vi
-      .fn()
-      .mockImplementation(
-        () =>
-          new Promise((_, reject) =>
-            setTimeout(() => reject(new Error("timeout")), 50)
-          )
-      );
-
-    const result = await generateImage("a cat", { fetcher });
-
-    expect(result.status).toBe("error");
-    expect(result.message).toBe("timeout");
-  });
-
-  it("opens circuit breaker after 3 consecutive failures", async () => {
-    const fetcher = makeFetcher([{ ok: false, status: 500 }]);
-
-    await generateImage("a", { fetcher });
-    await generateImage("b", { fetcher });
-    await generateImage("c", { fetcher });
-
-    expect(isCircuitOpen()).toBe(true);
+    await generateImage("a", { fetcher, provider: "gpt-image" });
+    await generateImage("b", { fetcher, provider: "gpt-image" });
+    await generateImage("c", { fetcher, provider: "gpt-image" });
 
     const freshFetcher = vi.fn();
-    const result = await generateImage("d", { fetcher: freshFetcher });
+    const result = await generateImage("d", { fetcher: freshFetcher, provider: "gpt-image" });
 
     expect(result.status).toBe("error");
     expect(result.message).toContain("暂时停止提交");
     expect(freshFetcher).not.toHaveBeenCalled();
   });
 
-  it("passes aspectRatio and seed to fal.ai", async () => {
-    const fetcher = makeFetcher([
-      {
-        ok: true,
-        status: 200,
-        json: { images: [{ url: "https://fal.ai/r.png" }] },
-      },
-      { ok: true, status: 200, arrayBuffer: new ArrayBuffer(8) },
-    ]);
-
-    await generateImage("a cat", { fetcher, aspectRatio: "16:9", seed: 42 });
-
-    const body = JSON.parse(fetcher.mock.calls[0][1].body);
-    expect(body.aspect_ratio).toBe("16:9");
-    expect(body.seed).toBe(42);
+  it("GPT-image 没有 302 key 时显式报错，不再改走 fal", async () => {
+    const fetcher = vi.fn();
+    const result = await generateImage("a cat", { fetcher, provider: "gpt-image" });
+    expect(result.status).toBe("error");
+    expect(result.message).toContain("302 API Key");
+    expect(result.message).toContain("没有自动改用其他供应商");
+    expect(fetcher).not.toHaveBeenCalled();
   });
 
-  it("falls back to fal.ai when 302 provider is selected without a key", async () => {
-    const fetcher = makeFetcher([
-      {
-        ok: true,
-        status: 200,
-        json: { images: [{ url: "https://fal.ai/r.png" }] },
-      },
-      { ok: true, status: 200, arrayBuffer: new ArrayBuffer(8) },
-    ]);
-
-    const result = await generateImage("a cat", {
-      fetcher,
-      provider: "gpt-image",
-    });
-
-    expect(result.status).toBe("ok");
-    expect(fetcher.mock.calls[0][0]).toContain("fal-ai/flux-pro");
-  });
-
-  it("redirects fal→302 GPT-image when no fal key but a 302 key exists", async () => {
-    const savedFalKey = ENV.falApiKey;
-    ENV.falApiKey = ""; // 本机没有 fal key
-    ENV.api302Key = "test-302-key"; // 却配了 302 key
-    try {
-      const fetcher = makeFetcher([
-        {
-          ok: true,
-          status: 200,
-          json: { data: [{ url: "https://file.302.ai/r.png" }] },
-        },
-        { ok: true, status: 200, arrayBuffer: new ArrayBuffer(8) },
-      ]);
-      // 不传 provider → 默认 resolve 成 fal；但没 fal key、有 302 key → 应自动改走 302 gpt-image
-      const result = await generateImage("a cat", { fetcher });
-      expect(result.status).toBe("ok");
-      expect(fetcher.mock.calls[0][0]).toContain("/v1/images/generations");
-      expect(fetcher.mock.calls[0][1].headers.Authorization).toBe(
-        "Bearer test-302-key"
-      );
-    } finally {
-      ENV.falApiKey = savedFalKey;
-    }
+  it("没有 fal key 但有 302 key 时，fal 请求显式报错，不再悄悄改走 GPT-image", async () => {
+    ENV.falApiKey = "";
+    ENV.api302Key = "test-302-key";
+    const fetcher = vi.fn();
+    const result = await generateImage("a cat", { fetcher });
+    expect(result.status).toBe("error");
+    expect(result.message).toContain("可选档位");
+    expect(fetcher).not.toHaveBeenCalled();
   });
 
   it("uses 302 GPT-image and stores base64 image bytes", async () => {
@@ -1016,6 +927,7 @@ describe("generateImage", () => {
 
     expect(result.status).toBe("error");
     expect(result.message).toBe("blocked");
+    expect(result.providerConfirmedFailure).toBe(true);
   });
 
   it("marks a transport failure before the Midjourney receipt as submission-uncertain", async () => {
@@ -1838,7 +1750,7 @@ describe("editImage", () => {
     });
   });
 
-  it("302 图生图端点失败且没有 Forge 回退时返回中文错误、不抛出", async () => {
+  it("302 图生图端点失败时返回中文错误、不抛出（Forge 兜底已下线）", async () => {
     const fetcher = makeFetcher([{ ok: false, status: 502 }]);
 
     const result = await editImage(
@@ -1849,21 +1761,16 @@ describe("editImage", () => {
 
     expect(result.status).toBe("error");
     expect(result.message).toContain("302 图生图暂时不可用");
-    expect(result.message).toContain("Forge 回退也不可用");
+    expect(result.message).not.toContain("Forge");
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
-  it("302 图生图不可用时回退 Forge 原图编辑链路", async () => {
+  it("302 图生图不可用时不再改走 Forge，即使配置了 Forge", async () => {
     ENV.forgeApiUrl = "https://forge.example";
     ENV.forgeApiKey = "test-forge-key";
-    const b64 = Buffer.from("forge-edited").toString("base64");
     const fetcher = makeFetcher([
       { ok: false, status: 503 },
-      {
-        ok: true,
-        status: 200,
-        json: { image: { b64Json: b64, mimeType: "image/png" } },
-      },
+      { ok: true, status: 200, json: { image: { b64Json: "eA==", mimeType: "image/png" } } },
     ]);
 
     const result = await editImage(
@@ -1872,17 +1779,10 @@ describe("editImage", () => {
       { fetcher }
     );
 
-    expect(result.status).toBe("ok");
-    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(result.status).toBe("error");
+    expect(fetcher).toHaveBeenCalledTimes(1);
     expect(fetcher.mock.calls[0][0]).toContain("/v1/images/edits");
-    expect(fetcher.mock.calls[1][0]).toContain(
-      "images.v1.ImageService/GenerateImage"
-    );
-    const forgeBody = JSON.parse(fetcher.mock.calls[1][1].body);
-    expect(forgeBody.original_images[0]).toMatchObject({
-      b64Json: "aW1hZ2U=",
-      mimeType: "image/png",
-    });
+    expect(fetcher.mock.calls.some(call => String(call[0]).includes("ImageService/GenerateImage"))).toBe(false);
   });
 
   it("explicit MJ with missing credentials never falls back to a different provider", async () => {
@@ -2072,6 +1972,53 @@ describe("editImage", () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
     const submitBody = JSON.parse(fetcher.mock.calls[0][1].body);
     expect(submitBody.base64Array).toHaveLength(1);
+  });
+
+  it("MJ 图生图失败后不再自动改交纯文生图（只提交一次付费任务）", async () => {
+    const fetcher = makeFetcher([
+      {
+        ok: false,
+        status: 400,
+        json: { code: 400, description: "invalid prompt parameter (reason: Invalid_Prompt_Parameter)" },
+      },
+    ]);
+
+    const result = await editImage(
+      "data:image/png;base64,aW1hZ2U=",
+      "把照片重绘成故事画风",
+      { fetcher, provider: "midjourney", mjPollIntervalMs: 1, mjTimeoutMs: TEST_MJ_TIMEOUT_MS }
+    );
+
+    expect(result.status).toBe("error");
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(result.message).toContain("未自动改用纯文生图");
+    expect(result.message).toContain("Invalid_Prompt_Parameter");
+    expect(result.providerError).toMatchObject({ provider: "302-midjourney", httpStatus: 400, code: "Invalid_Prompt_Parameter" });
+    // A parameter rejection must not pause MJ for everyone else.
+    expect(isCircuitOpen("midjourney", "mj")).toBe(false);
+  });
+
+  it("参数类 4xx 连续出现也不会让 MJ 进入熔断", async () => {
+    for (let i = 0; i < 4; i++) {
+      const fetcher = makeFetcher([{ ok: false, status: 400, json: { description: "bad request" } }]);
+      await generateImage("a cat", { fetcher, provider: "midjourney", mjPollIntervalMs: 1, mjTimeoutMs: TEST_MJ_TIMEOUT_MS });
+    }
+    expect(isCircuitOpen("midjourney")).toBe(false);
+    expect(isCircuitOpen("midjourney", "mj")).toBe(false);
+  });
+
+  it("MJ 5xx 只冷却 MJ 的那条通道，不影响 GPT-image", async () => {
+    for (let i = 0; i < 3; i++) {
+      const fetcher = makeFetcher([{ ok: false, status: 502, json: {} }]);
+      await generateImage("a cat", { fetcher, provider: "midjourney", mjPollIntervalMs: 1, mjTimeoutMs: TEST_MJ_TIMEOUT_MS });
+    }
+    expect(isCircuitOpen("midjourney", "mj")).toBe(true);
+    expect(isCircuitOpen("midjourney", "mj-turbo")).toBe(false);
+    expect(isCircuitOpen("gpt-image", ENV.image302GptModel)).toBe(false);
+    const blocked = makeFetcher([{ ok: true, status: 200, json: {} }]);
+    const result = await generateImage("a cat", { fetcher: blocked, provider: "midjourney" });
+    expect(result.errorCode).toBe("cooling_down");
+    expect(blocked).not.toHaveBeenCalled();
   });
 });
 

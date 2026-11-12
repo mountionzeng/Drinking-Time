@@ -17,6 +17,7 @@ import {
   subtitleCueEndFrame,
   type SubtitleCandidate,
   type SubtitleCue,
+  type SubtitleTrack,
   type SubtitleMergeDirection,
 } from "@shared/timelineSubtitleModel";
 import { storyboardEditPlayheadPx } from "../storyboardEditRow";
@@ -28,6 +29,7 @@ const DRAG_THRESHOLD_PX = 4;
 
 export type SubtitleTrackBinding = {
   versions?: VideoMediaVersionBinding;
+  tracks?: readonly SubtitleTrack[];
   cues: readonly SubtitleCue[];
   selectedCueId: string | null;
   onSelectCue: (cueId: string | null) => void;
@@ -92,12 +94,12 @@ export function subtitleSaveStatus(saved: boolean | void): string {
   return saved === false ? "字幕保存失败，请按提示重试" : "字幕已保存";
 }
 
-export function SubtitleRowHeader({ actions, versions }: { actions?: React.ReactNode; versions?: VideoMediaVersionBinding }) {
+export function SubtitleRowHeader({ actions, versions, label, trackNumber = 1 }: { actions?: React.ReactNode; versions?: VideoMediaVersionBinding; label?: string; trackNumber?: number }) {
   const _ui = useDesktopUiText();
   return (
     <div
       role="rowheader"
-      className="sticky left-0 z-20 flex flex-col justify-center border-b border-r px-2 py-2 text-[9px] font-semibold text-muted-foreground"
+      className="sticky left-0 z-20 flex h-11 min-w-0 flex-col justify-center gap-0.5 border-b border-r px-2 py-1 text-[10px] font-medium text-muted-foreground"
       style={{
         borderColor: "color-mix(in srgb, var(--panel-border) 62%, transparent)",
         background: "var(--background)",
@@ -105,12 +107,13 @@ export function SubtitleRowHeader({ actions, versions }: { actions?: React.React
       data-testid="storyboard-subtitle-row-header"
     >
       <div className="flex items-center justify-between gap-1">
-        <span className="shrink-0 whitespace-nowrap">{_ui("字幕")}</span>
+        <span className="flex items-center gap-1.5 whitespace-nowrap"><span className="rounded-sm bg-sky-600/15 px-1 font-mono font-semibold text-sky-700 dark:text-sky-300">C{trackNumber}</span>{label ?? _ui("字幕")}</span>
+        <VideoMediaVersionSelect kind="subtitles" binding={versions} />
+      </div>
+      <div className="flex items-center justify-between gap-1">
+        <span className="text-[9px] font-normal text-muted-foreground/70">{_ui("点块改字")}</span>
         {actions}
       </div>
-      <VideoMediaVersionSelect kind="subtitles" binding={versions} />
-      <span className="mt-0.5 text-[7px] font-normal text-muted-foreground/70">
-        {_ui("点块改字")}</span>
     </div>
   );
 }
@@ -423,7 +426,7 @@ export function SubtitleTrackRow({
 
   return (
     <div
-      className="relative h-12 min-w-0 overflow-hidden border-b border-r bg-muted/10"
+      className="relative isolate h-11 min-w-0 overflow-hidden border-b border-r bg-muted/10"
       style={{
         borderColor: "color-mix(in srgb, var(--panel-border) 62%, transparent)",
       }}
@@ -477,6 +480,7 @@ export function SubtitleTrackRow({
             role="button"
             tabIndex={cue.id === rovingId ? 0 : -1}
             aria-label={_ui("字幕 {0}：{1}", [index + 1, cue.text])}
+            title={cue.text}
             aria-selected={selected}
             data-timeline-media-keyboard="true"
             data-testid={`storyboard-subtitle-cue-${cue.id}`}

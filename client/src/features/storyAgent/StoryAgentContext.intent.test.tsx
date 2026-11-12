@@ -5,6 +5,10 @@ import type { StoryIntent } from './intentTypes';
 
 vi.stubGlobal('React', React);
 
+const routingMocks = vi.hoisted(() => ({
+  chat: vi.fn(async () => ({ reply: "作品情绪 E1 已保存", card: null, read: null, configured: true, modelLabel: "local-emotion-retrieval", toolCalls: [], suggestImage: false })),
+  recognize: vi.fn(),
+}));
 const makeMutation = vi.hoisted(() => () => ({
   mutateAsync: vi.fn(),
   isPending: false,
@@ -28,12 +32,12 @@ vi.mock('@/lib/trpc', () => ({
       shot: { list: { invalidate: vi.fn() } },
     }),
     storyAgent: {
-      chat: { useMutation: makeMutation },
+      chat: { useMutation: () => ({ ...makeMutation(), mutateAsync: routingMocks.chat }) },
       uploadPhoto: { useMutation: makeMutation },
       recordSignal: { useMutation: makeMutation },
       classify: { useMutation: makeMutation },
       generateForMobile: { useMutation: makeMutation },
-      recognizeIntent: { useMutation: makeMutation },
+      recognizeIntent: { useMutation: () => ({ ...makeMutation(), mutateAsync: routingMocks.recognize }) },
       storyUpsert: { useMutation: makeMutation },
       storyAutoRename: { useMutation: makeMutation },
       storyRename: { useMutation: makeMutation },
@@ -441,4 +445,32 @@ describe('StoryAgentContext intent state', () => {
       ),
     ).toBe(false);
   });
+});
+
+
+it('sends explicit shot emotion through the real context action without editing or background recognition', async () => {
+  const { StoryAgentProvider, useStoryAgent } = await import('./StoryAgentContext');
+  const spine = await import('./spine/storySpine');
+  const { storySpineStore } = spine;
+  storySpineStore.getState().bindAccountScope(71);
+  storySpineStore.getState().setActiveStoryId(1218);
+  storySpineStore.getState().setRemoteStoryId(1218);
+  storySpineStore.getState().setIsReplying(false);
+  const subscription = vi.spyOn(spine, 'useStorySpine').mockImplementation(
+    ((selector: (state: ReturnType<typeof storySpineStore.getState>) => unknown) => selector(storySpineStore.getState())) as typeof spine.useStorySpine,
+  );
+  const edit = vi.fn(async () => ({ handled: true as const, reply: 'ordinary music command' }));
+  let send: ReturnType<typeof useStoryAgent>['sendMessage'] | undefined;
+  function Capture() { send = useStoryAgent().sendMessage; return null; }
+  try {
+    renderToStaticMarkup(<StoryAgentProvider userId={71} projectId={null} editingCommandRunner={edit}><Capture /></StoryAgentProvider>);
+    routingMocks.chat.mockClear(); routingMocks.recognize.mockClear();
+    const message = '把第01镜情绪改为：压抑不安，但音乐轻快反衬';
+    expect(await send!(message, undefined, undefined, {workspaceContext:'video'})).toBe(true);
+    expect(routingMocks.chat).toHaveBeenCalledWith(expect.objectContaining({storyId:1218,message}));
+    expect(edit).not.toHaveBeenCalled();
+    expect(routingMocks.recognize).not.toHaveBeenCalled();
+    await send!('音乐小一点', undefined, undefined, {workspaceContext:'video'});
+    expect(edit).toHaveBeenCalledTimes(1);
+  } finally { subscription.mockRestore(); }
 });

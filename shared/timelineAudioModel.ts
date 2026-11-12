@@ -66,6 +66,8 @@ export type AudioClip = {
 };
 
 export type AudioTrack = {
+  /** Imported editor lane identity; does not change the mixing semantics. */
+  sourceTrack?: { index: number; label: string };
   kind: AudioTrackKind;
   muted: boolean;
   /** Track-level default gain, multiplied with clip gain. */
@@ -196,6 +198,11 @@ export function normalizeAudioState(value: unknown): TimelineAudioState {
     const kind = record.kind as AudioTrackKind;
     const track = byKind.get(kind);
     if (!track) continue;
+    const sourceTrack = record.sourceTrack as { index?: unknown; label?: unknown } | undefined;
+    if (sourceTrack && Number.isInteger(sourceTrack.index) && Number(sourceTrack.index) > 0 &&
+        typeof sourceTrack.label === "string" && sourceTrack.label.trim()) {
+      track.sourceTrack = { index: Number(sourceTrack.index), label: sourceTrack.label.trim().slice(0, 100) };
+    }
     track.muted = record.muted === true;
     track.defaultGain =
       typeof record.defaultGain === "number"

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildExportPlan } from "./videoExport";
+import { buildExportPlan, resolveVideoExportAspectRatio } from "./videoExport";
 import type { StoryMaterialState } from "../../shared/storyMaterial";
 
 function material(overrides: {
@@ -633,4 +633,36 @@ describe("static images in export", () => {
     });
     expect(buildExportPlan(state).parts[0].kind).toBe("missing");
   });
+});
+
+describe("imported project export canvas", () => {
+  const squareMedia = () => material({ shots: [{ currentVideo: video(11, { aspectRatio: "1:1" }) }], items: [] });
+  it("exports a portrait project around square media and retains explicit overrides", () => {
+    const state = squareMedia();
+    state.timeline.extensions = { chatCutMigration: { canvas: { width: 1080, height: 1920 } } };
+    expect(resolveVideoExportAspectRatio(state)).toBe("9:16");
+    expect(resolveVideoExportAspectRatio(state, "16:9")).toBe("16:9");
+  });
+  it("preserves legacy media inference and rejects invalid canvas values", () => {
+    const state = squareMedia();
+    expect(resolveVideoExportAspectRatio(state)).toBe("1:1");
+    state.timeline.extensions = { chatCutMigration: { canvas: { width: NaN, height: 0 } } };
+    expect(resolveVideoExportAspectRatio(state)).toBe("1:1");
+  });
+});
+
+
+it("composites a transparent text image over the source video and respects hidden layers", () => {
+  const source = material({ shots: [{ stableShotId: "a", shotNo: 1, currentVideo: video(11) }], items: [{
+    stableShotId: "a", included: true, position: 0, plannedDurationMs: 1000, durationFrames: 30,
+    timelineStartFrame: 0, transform, imageClips: [{ id: "text", imageId: 9, imageUrl: "/text.png", label: "text",
+      offsetFrames: 0, timelineStartFrame: 0, durationFrames: 30, visualLayer: 1,
+      composition: { opacity: 1, fadeInFrames: 6, fadeOutFrames: 6 } }]
+  }] });
+  const plan = buildExportPlan(source);
+  expect(plan.parts[0].kind).toBe("source");
+  expect(plan.totalFrames).toBe(30);
+  expect(plan.compositeImages).toMatchObject([{ imageId: 9, startFrame: 0, endFrame: 30, composition: { fadeInFrames: 6, fadeOutFrames: 6 } }]);
+  source.timeline.visualLayerState = { count: 2, hidden: [1] };
+  expect(buildExportPlan(source).compositeImages).toEqual([]);
 });

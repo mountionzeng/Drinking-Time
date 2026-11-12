@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { ensureShotIdentities } from "../../shared/shotIdentity";
 import {
   fingerprintCompiledPromptInputs,
@@ -436,6 +437,28 @@ function buildMigrationSeed(body: LegacyRecord): MigrationSeed {
   };
 }
 
+/** Only add identities absent from the aggregate; never reset edited history. */
+function missingShotSeed(seed: MigrationSeed, existingIds: Array<string | null>): MigrationSeed {
+  const existing = new Set(existingIds);
+  const stableShotIds = seed.stableShotIds.filter(id => !existing.has(id) &&
+    seed.facts.some(fact => fact.stableShotId === id));
+  const added = new Set(stableShotIds);
+  return { stableShotIds, facts: seed.facts.filter(fact => fact.stableShotId && added.has(fact.stableShotId)), messages: [] };
+}
+
+function sharedCompilationInputs(aggregate: Pick<StoryPromptAggregate, "nodes" | "revisions">): CompilationSeedInput[] {
+  return aggregate.nodes.flatMap(node => {
+    if (node.stableShotId || node.modality !== "shared") return [];
+    const revision = aggregate.revisions.find(item => item.id === node.currentRevisionId);
+    return revision ? [{ nodeId: node.id, revisionId: revision.id, dimension: node.dimension,
+      content: revision.content, weight: revision.weight }] : [];
+  });
+}
+
+function addedShotsOperationKey(seed: MigrationSeed): string {
+  return `prompt-lineage-add-shots-${createHash("sha256").update(JSON.stringify([...seed.stableShotIds].sort())).digest("hex")}`;
+}
+
 function factSignature(fact: PromptFact): string {
   return [
     fact.stableShotId ?? "",
@@ -588,7 +611,9 @@ export async function migrateLegacyPromptLineage(
   input: MigrationInput,
 ): Promise<{ migrated: boolean; version: number }> {
   const body = asRecord(input.body);
-  const seed = buildMigrationSeed(body);
+  let seed = buildMigrationSeed(body);
+  let existingShared: CompilationSeedInput[] = [];
+  let operationKey = "prompt-lineage-migration-v1";
   if (store.hasStoryState(input)) {
     const existing = store.getStoryAggregate(input);
     if (existing.state.migrationStatus === "migrated") {
@@ -596,9 +621,13 @@ export async function migrateLegacyPromptLineage(
         return { migrated: false, version: existing.state.version };
       }
       if (hasPostMigrationChanges(existing)) {
-        return { migrated: false, version: existing.state.version };
+        seed = missingShotSeed(seed, existing.nodes.map(node => node.stableShotId));
+        if (!seed.stableShotIds.length) return { migrated: false, version: existing.state.version };
+        existingShared = sharedCompilationInputs(existing);
+        operationKey = addedShotsOperationKey(seed);
+      } else {
+        await store.clearStory(input);
       }
-      await store.clearStory(input);
     }
   }
   const expectedVersion = store.hasStoryState(input)
@@ -610,7 +639,7 @@ export async function migrateLegacyPromptLineage(
       storyId: input.storyId,
       userId: input.userId,
       expectedVersion,
-      operationKey: "prompt-lineage-migration-v1",
+      operationKey,
     },
     tx => {
       tx.setMigrationStatus("migrating");
@@ -620,7 +649,7 @@ export async function migrateLegacyPromptLineage(
         input.source === "initial" ? "system" : "migration",
       );
 
-      const storyShared = revisionsByShot.get("__story__")?.get("shared") ?? [];
+      const storyShared = revisionsByShot.get("__story__")?.get("shared") ?? existingShared;
       for (const stableShotId of seed.stableShotIds) {
         const byModality = revisionsByShot.get(stableShotId) ?? new Map();
         const shotShared = byModality.get("shared") ?? [];
@@ -681,17 +710,13 @@ export async function migrateStoryPromptLineage(
     // Share the conversation lock so a migration snapshot cannot overwrite a
     // concurrently reserved, completed, or appended turn from another screen.
     return withPersistentLocalConversationLock(async () => {
-      const current = await loadStoryPromptAggregate(input);
-      if (current?.state.migrationStatus === "migrated" &&
-        (hasPostMigrationChanges(current) || !migrationSeedChanged(current, seed))) {
-        return { migrated: false, version: current.state.version };
-      }
       const store = await createPersistentLocalPromptLineageStore();
       return migrateLegacyPromptLineage(store, input);
     });
   }
   const current = await maybeResetStaleMigration(input, seed);
-  if (current?.state.migrationStatus === "migrated") {
+  if (current?.state.migrationStatus === "migrated" &&
+    !missingShotSeed(seed, current.nodes.map(node => node.stableShotId)).stableShotIds.length) {
     return { migrated: false, version: current.state.version };
   }
 
@@ -731,8 +756,24 @@ export async function migrateStoryPromptLineage(
     if (!promptState) {
       throw new Error("无法建立故事提示词状态");
     }
+    let activeSeed = seed;
+    let existingShared: CompilationSeedInput[] = [];
+    let operationKey = "prompt-lineage-migration-v1";
     if (promptState.migrationStatus === "migrated") {
-      return { migrated: false, version: promptState.version };
+      // Re-read under the state lock so concurrent readers add each shot once.
+      const nodes = await tx.select().from(promptNodes).where(and(
+        eq(promptNodes.storyId, input.storyId), eq(promptNodes.userId, input.userId)));
+      activeSeed = missingShotSeed(seed, nodes.map(node => node.stableShotId));
+      if (!activeSeed.stableShotIds.length) return { migrated: false, version: promptState.version };
+      const revisions = await tx.select().from(promptRevisions).where(and(
+        eq(promptRevisions.storyId, input.storyId), eq(promptRevisions.userId, input.userId)));
+      existingShared = nodes.flatMap(node => {
+        if (node.stableShotId || node.modality !== "shared") return [];
+        const revision = revisions.find(item => item.id === node.currentRevisionId);
+        return revision ? [{ nodeId: node.id, revisionId: revision.id, dimension: node.dimension,
+          content: revision.content, weight: revision.weight }] : [];
+      });
+      operationKey = addedShotsOperationKey(activeSeed);
     }
 
     const timestamp = new Date();
@@ -740,7 +781,7 @@ export async function migrateStoryPromptLineage(
       string,
       Map<PromptModality, CompilationSeedInput[]>
     >();
-    for (const [sortOrder, fact] of Array.from(seed.facts.entries())) {
+    for (const [sortOrder, fact] of Array.from(activeSeed.facts.entries())) {
       const weight = promptDimensionWeight(fact.dimension);
       const [nodeInsert] = await tx.insert(promptNodes).values({
         storyId: input.storyId,
@@ -791,8 +832,8 @@ export async function migrateStoryPromptLineage(
       revisionsByShot.set(shotKey, byModality);
     }
 
-    const storyShared = revisionsByShot.get("__story__")?.get("shared") ?? [];
-    for (const stableShotId of seed.stableShotIds) {
+    const storyShared = revisionsByShot.get("__story__")?.get("shared") ?? existingShared;
+    for (const stableShotId of activeSeed.stableShotIds) {
       const byModality = revisionsByShot.get(stableShotId) ?? new Map();
       const shotShared = byModality.get("shared") ?? [];
       for (const modality of ["dialogue", "image", "video"] as const) {
@@ -839,13 +880,13 @@ export async function migrateStoryPromptLineage(
       }
     }
 
-    if (seed.messages.length > 0) {
+    if (activeSeed.messages.length > 0) {
       const [conversationInsert] = await tx.insert(storyConversations).values({
         storyId: input.storyId,
         userId: input.userId,
       });
       await tx.insert(storyConversationMessages).values(
-        seed.messages.map(message => ({
+        activeSeed.messages.map(message => ({
           conversationId: conversationInsert.insertId,
           storyId: input.storyId,
           userId: input.userId,
@@ -869,11 +910,11 @@ export async function migrateStoryPromptLineage(
     await tx.insert(promptOperationReceipts).values({
       storyId: input.storyId,
       userId: input.userId,
-      operationKey: "prompt-lineage-migration-v1",
+      operationKey,
       committedVersion: nextVersion,
       result: {
-        nodeCount: seed.facts.length,
-        messageCount: seed.messages.length,
+        nodeCount: activeSeed.facts.length,
+        messageCount: activeSeed.messages.length,
       },
     });
     return { migrated: true, version: nextVersion };

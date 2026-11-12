@@ -96,6 +96,7 @@ describe("phone OTP login", () => {
       email: null,
       role: "user",
     });
+    expect((await getUserById(id))!.openId.length).toBeLessThanOrEqual(64);
     expect(memoryState.users).toHaveLength(2);
     expect(memoryState.creditLedgerEntries).toHaveLength(0);
     expect(memoryState.stories).toHaveLength(0);

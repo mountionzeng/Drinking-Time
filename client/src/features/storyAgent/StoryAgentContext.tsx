@@ -1,3 +1,9 @@
+import type { GenerationProfileArg, StoryboardImageRerenderResult, StoryboardImageRerenderRunner } from "./types";
+export type { GenerationProfileArg, StoryboardImageRerenderResult, StoryboardImageRerenderRunner } from "./types";
+import { parseVisualUnderstandingChat } from "@shared/visualEditUnderstanding";
+import { warehouseFileChatIds } from "@shared/warehouseFiles";
+import { isFrameReferenceChat } from "@shared/chatFrameReference";
+import { parseCreationEmotionChat } from "@shared/creationEmotionChat";
 import { resolveConversationShot, shotConversationSelection, hasConversationShotReference } from "./shotConversation";
 import { parseArtSystemChat } from "@shared/artSystemChat";
 import { parseArtPreviewChat } from "@shared/artPreview";
@@ -159,29 +165,6 @@ export type { StoryListItem };
 
 /** 意图确认关传给 generateScript 的确认意图（影响剧本取向）。 */
 export type ScriptIntentArg = StoryIntent;
-
-export type GenerationProfileArg = {
-  scriptStyle?: {
-    id?: string;
-    label?: string;
-    logline?: string;
-    arc?: string;
-    treatment?: string;
-  } | null;
-  artStyle?: {
-    id?: string;
-    source?: "preset" | "library";
-    title?: string;
-    description?: string | null;
-    libraryVersionId?: number | null;
-    recipe?: Partial<import("@shared/artDirection").ArtRecipeDNA> | null;
-    items?: Array<{
-      dimension?: string;
-      content?: string;
-      negativeContent?: string | null;
-    }>;
-  } | null;
-};
 
 export type StoryChatIntentArg = Pick<
   StoryIntent,
@@ -441,17 +424,6 @@ export function resolvePersistedStoryId(
 ): number | null {
   return storyIds.find(storyId => storyId != null && storyId > 0) ?? null;
 }
-
-export type StoryboardImageRerenderResult = {
-  status: "success" | "cancelled" | "error";
-  message: string;
-  imageId?: number;
-  imageUrl?: string;
-};
-
-export type StoryboardImageRerenderRunner = (
-  request: NonNullable<ChatMessage["imageRerenderAction"]>
-) => Promise<StoryboardImageRerenderResult>;
 
 interface StoryAgentContextValue {
   messages: ChatMessage[];
@@ -975,6 +947,8 @@ export function archiveMessagesFrom(
       promptCandidate: message.promptCandidate,
       imageRerenderAction: message.imageRerenderAction,
       imageRevision: message.imageRevision,
+      frameReferences: message.frameReferences,
+      frameReview: message.frameReview,
       editingTransitionCandidate: message.editingTransitionCandidate,
       pendingCard: spawnedCard
         ? {
@@ -1051,6 +1025,8 @@ export function StoryAgentProvider({
   ) => Promise<{
     handled: boolean;
     reply: string;
+    frameReferences?: ChatMessage["frameReferences"];
+    frameReview?: ChatMessage["frameReview"];
     transitionCandidate?: Omit<
       EditingTransitionCandidateReference,
       "status" | "error"
@@ -1636,6 +1612,8 @@ export function StoryAgentProvider({
         spawnedCardId: message.spawnedCardId,
         imageRerenderAction: message.imageRerenderAction,
         imageRevision: message.imageRevision,
+        frameReferences: message.frameReferences,
+      frameReview: message.frameReview,
       })),
       cards,
       scripts,
@@ -1822,8 +1800,10 @@ export function StoryAgentProvider({
       };
       const trimmed = text.trim();
       if ((!trimmed && !photoBase64) || isReplying) return false;
-      const requestStoryId = activeStoryId;
-      const shouldRecognizeIntent =
+      const emotionCommand = !warehouseFileChatIds(trimmed).length && !photoBase64 && parseCreationEmotionChat(trimmed);
+      let requestStoryId = activeStoryId;
+      const shouldRecognizeIntent = !parseVisualUnderstandingChat(trimmed) && !warehouseFileChatIds(trimmed).length &&
+        !emotionCommand &&
         !options?.writingContext &&
         interactionMode === "story" &&
         shouldTriggerIntentRecognition({
@@ -1892,7 +1872,7 @@ export function StoryAgentProvider({
         const nextMessages = [...messages, userMsg];
         setMessages(nextMessages);
 
-        const artCommand = !photoBase64 && !parseArtPreviewChat(trimmed) && parseArtSystemChat(trimmed, Boolean(artDirection.recipe?.system) && !activeSelection);
+        const artCommand = !parseVisualUnderstandingChat(trimmed) && !warehouseFileChatIds(trimmed).length && !isFrameReferenceChat(trimmed) && !emotionCommand && !photoBase64 && !parseArtPreviewChat(trimmed) && parseArtSystemChat(trimmed, Boolean(artDirection.recipe?.system) && !activeSelection);
         if (artCommand) {
           return sendArtSystemChat({ command: artCommand, instruction: trimmed,
             storyId: resolvePersistedStoryId(activeStoryId, remoteStoryId),
@@ -1904,12 +1884,13 @@ export function StoryAgentProvider({
         const selectedVideoForEditing =
           activeSelection?.sourceType === "animatic-video" ||
           activeSelection?.sourceType === "timeline-range";
-        const selectedVisualForProduction = options?.workspaceContext === "video" &&
+        const selectedVisualForProduction = (options?.workspaceContext === "video" || Boolean(parseVisualUnderstandingChat(trimmed))) &&
           activeSelection &&
           selectionBelongsToStory(activeSelection, requestStoryId) &&
           !activeSelection.selection && ["shot", "storyboard-image", "animatic-video"].includes(activeSelection.sourceType);
         if (
           editingCommandRunner &&
+          !emotionCommand &&
           !options?.writingContext &&
           trimmed &&
           !photoBase64 &&
@@ -1941,6 +1922,8 @@ export function StoryAgentProvider({
                   id: newId("msg"),
                   role: "assistant",
                   content: outcome.reply,
+                  frameReferences: outcome.frameReferences,
+                  frameReview: outcome.frameReview,
                   timestamp: Date.now(),
                   editingTransitionCandidate: outcome.transitionCandidate
                     ? { ...outcome.transitionCandidate, status: "pending" }
@@ -2037,6 +2020,10 @@ export function StoryAgentProvider({
         }
 
         if (!isCurrent()) return false;
+        if (emotionCommand && !(requestStoryId && requestStoryId > 0)) {
+          requestStoryId = await ensureActiveStoryPersisted();
+          if (!isCurrent()) return false;
+        }
         const result = (await chatMut.mutateAsync({
           writingContext: options?.writingContext,
           storyId: requestStoryId && requestStoryId > 0 ? requestStoryId : undefined,
@@ -2324,6 +2311,7 @@ export function StoryAgentProvider({
     },
     [
       projectId,
+      ensureActiveStoryPersisted,
       appendConversationTurnMut,
       sendArtSystemChat,
       storyAutoRenameMut,
@@ -3538,6 +3526,8 @@ export function StoryAgentProvider({
               id: newId("msg"),
               role: "assistant",
               content: outcome.reply,
+              frameReferences: outcome.frameReferences,
+                  frameReview: outcome.frameReview,
               timestamp: Date.now(),
               editingTransitionCandidate: outcome.transitionCandidate
                 ? { ...outcome.transitionCandidate, status: "pending" }

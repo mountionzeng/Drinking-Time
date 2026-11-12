@@ -1,3 +1,4 @@
+import { readVideoWorkflow } from "../../shared/videoWorkflow";
 import { randomUUID } from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
@@ -11,6 +12,7 @@ import {
   type ManuscriptContent,
   type ManuscriptKind,
   type ManuscriptReference,
+  type ManuscriptSource,
   type VersionActor,
 } from "../../shared/bookWorkflow";
 import {
@@ -51,7 +53,7 @@ function appendVersion(
     intent: CreationIntent;
     actor: VersionActor;
     summary: string;
-    source?: ManuscriptReference;
+    source?: ManuscriptSource;
     aiAssisted?: boolean;
   }
 ) {
@@ -90,6 +92,11 @@ export async function getBookWorkflow(input: Owner) {
   const state = readBookWorkflow(
     (story.body as Record<string, unknown>)?.bookWorkflow
   );
+  const videoVersions=readVideoWorkflow((story.body as Record<string,unknown>)?.videoWorkflow).versions;
+  for(const draft of state.conversions) if(draft.source.kind==="video") {
+    const version=videoVersions.find(v=>v.id===(draft.source.kind==="video"?draft.source.videoVersionId:undefined)||v.id===draft.source.id);
+    if(version)draft.source.number=version.number;
+  }
   const rows = await listChapters(input.storyId, input.userId, "all");
   const drafts = Object.fromEntries(
     (["text", "storyboard"] as const).map(kind => {
@@ -544,7 +551,9 @@ export async function editConversionDraft(
 export async function adoptManuscriptConversion(
   input: ActorInput & { id: string; revision: number }
 ) {
-  return mutateBookWorkflow(input, ({ state, rows }) => {
+  const before = (await getBookWorkflow(input)).state.conversions.find(d => d.id === input.id);
+  return mutateBookWorkflow({ ...input, ...(before?.source.kind === "video" && before.status !== "adopted"
+    ? { expectedTimelineVersion: before.source.timelineVersion } : {}) }, ({ state, rows }) => {
     const draft = state.conversions.find(d => d.id === input.id);
     if (draft?.status === "adopted")
       return { result: state.versions.find(v => v.id === draft.adoptedId)! };
@@ -555,8 +564,8 @@ export async function adoptManuscriptConversion(
     )
       throw conflict();
     if (
-      manuscriptFingerprint(manuscriptRows(rows, draft.source.kind)) !==
-        draft.sourceFingerprint ||
+      (draft.source.kind !== "video" && manuscriptFingerprint(manuscriptRows(rows, draft.source.kind)) !==
+        draft.sourceFingerprint) ||
       manuscriptFingerprint(manuscriptRows(rows, draft.target)) !==
         draft.targetFingerprint
     )
@@ -565,7 +574,8 @@ export async function adoptManuscriptConversion(
       );
     const old = manuscriptRows(rows, draft.target),
       current = currentManuscript(state, draft.target);
-    if (old.length && current?.fingerprint !== draft.targetFingerprint)
+    const hasPreviousContent = draft.source.kind!=="video" || old.some(c=>c.blocks.body.trim() || Object.keys(c.blocks.images??{}).length || (c.blocks.illustrations?.length??0)>0 || c.blocks.coverKey || c.blocks.bodyTextureKey || c.layout?.pages.some(p=>p.modules.length));
+    if (old.length && hasPreviousContent && current?.fingerprint !== draft.targetFingerprint)
       appendVersion(state, {
         id: randomUUID(),
         kind: draft.target,

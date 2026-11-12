@@ -1,3 +1,4 @@
+import { compileCreationEmotion, type CreationEmotionSnapshot } from "../../shared/creationEmotion";
 import { PUBLISHING_PLATFORM_REGISTRY } from "../../shared/publishingDraft";
 import type {
   TextDraftRequest,
@@ -33,7 +34,8 @@ export function compileTextDraftPrompt(
   originalSamples: OriginalWritingEvidence[] = [],
   referenceContext = "",
   memoryCards?: MemoryCardSnapshot[],
-  conversationSnapshot: TextDraftMessage[] = input.messages
+  conversationSnapshot: TextDraftMessage[] = input.messages,
+  creationEmotion?: CreationEmotionSnapshot
 ) {
   // Keep continuing requirements outside the draft (audience, exclusions, etc.).
   // Delta turns are sent once, separately, so current corrections take priority.
@@ -89,6 +91,7 @@ export function compileTextDraftPrompt(
       conversationContext,
       conversationDelta: memoryCards ? [] : delta,
       instruction: input.instruction,
+      ...(creationEmotion ? { creationEmotion: compileCreationEmotion(creationEmotion, "text") } : {}),
       evidence,
       originalSamples,
       techniques: WRITING_TECHNIQUES,

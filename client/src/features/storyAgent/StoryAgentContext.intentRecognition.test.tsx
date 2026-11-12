@@ -9,6 +9,11 @@ import StoryAgentChat from "./views/StoryAgentChat";
 vi.stubGlobal("React", React);
 vi.mock("./views/ChatAssistantAvatar", () => ({ default: () => <span aria-hidden="true" /> }));
 vi.mock("./useCreationFlowChat", () => ({ useCreationFlowChat: () => ({ busy: false, submit: async () => false }) }));
+vi.mock("./useShotContentChat", () => ({ useShotContentChat: () => ({ handle: async () => false, panel: null, dismiss: vi.fn() }) }));
+vi.mock("./useShotSplitChat", () => ({ useShotSplitChat: () => ({ handle: async () => false, panel: null, dismiss: vi.fn() }) }));
+
+vi.mock("./usePausedFrameChat", () => ({ usePausedFrameChat: () => ({ begin: vi.fn(), change: vi.fn(), handle: async () => false, panel: null, placeholder: undefined, hasManualFrame: false }) }));
+vi.mock("./views/FrameReviewRecovery", () => ({ FrameReviewRecovery: () => null }));
 
 // This suite tests intent bubbles; the independent version panel owns its RPC context.
 vi.mock("@/features/publishingDraft/TextDraftVersions", () => ({

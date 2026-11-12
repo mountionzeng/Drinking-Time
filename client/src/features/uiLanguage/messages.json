@@ -1,4 +1,96 @@
 {
+  "第 {0} 章 · 第 {1} 段": {
+    "en": "Chapter {0} · Paragraph {1}",
+    "fr": "Chapitre {0} · Paragraphe {1}"
+  },
+  "尺寸不符：{0}，应为 {1}；保留结果，不可替换": {
+    "en": "Size mismatch: {0}; expected {1}. Result retained. Cannot replace.",
+    "fr": "Dimensions différentes : {0}, attendu {1}. Résultat conservé, remplacement impossible."
+  },
+  "尺寸待核对，暂不可替换": {
+    "en": "Dimensions unverified. Cannot replace yet.",
+    "fr": "Dimensions à vérifier. Remplacement indisponible."
+  },
+  "{0} · 已等比还原原图尺寸": {
+    "en": "{0} · Proportionally restored to original dimensions",
+    "fr": "{0} · Redimensionné proportionnellement aux dimensions d’origine"
+  },
+  "{0} · 原图尺寸已锁定": {
+    "en": "{0} · Original dimensions locked",
+    "fr": "{0} · Dimensions d’origine verrouillées"
+  },
+  "302 MJ 原图编辑地址不可用（HTTP 404）。本次未收到任务号；原图保留，未自动重试。": {
+    "en": "The 302 MJ original-image editing endpoint is unavailable (HTTP 404). No task receipt was received; the original is retained and no automatic retry was made.",
+    "fr": "Le point d’accès de retouche 302 MJ est indisponible (HTTP 404). Aucun identifiant de tâche reçu ; original conservé, sans nouvelle tentative automatique."
+  },
+  "供应商确认本次图片生成失败：MJ 拒绝了精修参数，未生成图片。原图保留，没有自动重试。": {
+    "en": "MJ rejected the refinement parameters. No image was generated. The original is retained; no automatic retry was made.",
+    "fr": "MJ a rejeté les paramètres de retouche. Aucune image générée. Original conservé, sans nouvelle tentative automatique."
+  },
+  "供应商确认本次图片生成失败，请联系支持核对费用。": {
+    "en": "The provider confirmed that image generation failed. Contact support to verify the charge.",
+    "fr": "Le fournisseur a confirmé l’échec. Contactez l’assistance pour vérifier les frais."
+  },
+  "新版已保存在仓库。回复“图片 #编号替换参考帧”确认；视频和剪辑线保持不变。": {
+    "en": "Saved to Warehouse. Reply “image #ID replace original” to approve this reference; the video and timeline stay unchanged.",
+    "fr": "Enregistré dans les médias. Répondez « image #ID replace original » pour valider cette référence ; la vidéo et la timeline restent inchangées."
+  },
+  "原图精修：请对比明暗、灰度、构图和物体位置；确认前不替换原素材，也不自动生成视频。": {
+    "en": "Image refinement: compare lighting, tonal values, composition and object positions. Nothing is replaced and no video is generated automatically before approval.",
+    "fr": "Retouche : comparez lumière, valeurs, composition et positions. Aucun remplacement ni vidéo automatique avant validation."
+  },
+  "新素材": {
+    "en": "New media",
+    "fr": "Nouveau média"
+  },
+  "生成任务 / Renders": {
+    "en": "Renders",
+    "fr": "Générations"
+  },
+  "生成中 / Generating": {
+    "en": "Generating",
+    "fr": "Génération en cours"
+  },
+  "状态待确认 / Checking": {
+    "en": "Awaiting status",
+    "fr": "État à confirmer"
+  },
+  "生成失败 / Failed": {
+    "en": "Generation failed",
+    "fr": "Échec de génération"
+  },
+  "已生成 / Ready": {
+    "en": "Ready",
+    "fr": "Prêt"
+  },
+  "画面 Video": {
+    "en": "Video",
+    "fr": "Vidéo"
+  },
+  "在上方插入图层 / Add above": {
+    "en": "Add track above",
+    "fr": "Ajouter une piste au-dessus"
+  },
+  "在下方插入图层 / Add below": {
+    "en": "Add track below",
+    "fr": "Ajouter une piste au-dessous"
+  },
+  "整层上移 / Move up": {
+    "en": "Move track up",
+    "fr": "Monter la piste"
+  },
+  "整层下移 / Move down": {
+    "en": "Move track down",
+    "fr": "Descendre la piste"
+  },
+  "删除图层 / Delete track": {
+    "en": "Delete track",
+    "fr": "Supprimer la piste"
+  },
+  "生成新音乐 / New music": {
+    "en": "Generate new music",
+    "fr": "Générer une nouvelle musique"
+  },
   "点击图片，再说出你的想法。": {
     "en": "Select an image, then say what you have in mind.",
     "fr": "Sélectionnez une image, puis dites ce que vous imaginez."
@@ -6157,7 +6249,7 @@
   },
   "当前视频": {
     "en": "Current video",
-    "fr": "当前视频"
+    "fr": "Vidéo actuelle"
   },
   "s，拖动入点/出点框选一段；可以先发给聊聊判断，也可以保存到时间轴。": {
     "en": "s. Drag the in/out points to select a segment. Send it to chat for advice, or save it to the timeline.",
@@ -12004,8 +12096,8 @@
     "fr": "结束讨论"
   },
   "正在整理…": {
-    "en": "Organizing…",
-    "fr": "正在整理…"
+    "en": "Drafting…",
+    "fr": "Rédaction…"
   },
   "确认方向，整理素材表": {
     "en": "Confirm direction and prepare asset table",
@@ -12497,11 +12589,11 @@
   },
   "首帧": {
     "en": "First frame",
-    "fr": "首帧"
+    "fr": "Première image"
   },
   "尾帧": {
     "en": "Last frame",
-    "fr": "尾帧"
+    "fr": "Dernière image"
   },
   "中间参考": {
     "en": "Intermediate reference",
@@ -12525,7 +12617,7 @@
   },
   "环境声": {
     "en": "Ambience",
-    "fr": "环境声"
+    "fr": "Ambiance"
   },
   "音效": {
     "en": "Sound effects",
@@ -13602,5 +13694,217 @@
   "旧流程未保存这些图片的镜头归属，原图仍在这里。": {
     "en": "The earlier workflow did not record a shot for these images. The originals are still available.",
     "fr": "L’ancien processus n’a pas enregistré le plan de ces images. Les originaux restent disponibles."
+  },
+  "镜头 / Shots": {
+    "en": "Shots",
+    "fr": "Plans"
+  },
+  "按镜头归类 / By shot": {
+    "en": "By shot",
+    "fr": "Par plan"
+  },
+  "镜头素材组 / Shot group": {
+    "en": "Shot group",
+    "fr": "Groupe de plans"
+  },
+  "按生成顺序": {
+    "en": "Creation order",
+    "fr": "Ordre de création"
+  },
+  "全片": {
+    "en": "Whole film",
+    "fr": "Film entier"
+  },
+  "未归类": {
+    "en": "Unassigned",
+    "fr": "Non classé"
+  },
+  "参考帧": {
+    "en": "Reference frame",
+    "fr": "Image de référence"
+  },
+  "尚未就绪": {
+    "en": "Not ready",
+    "fr": "Pas encore prêt"
+  },
+  "部分素材暂未读到，正在重试。": {
+    "en": "Some media could not be loaded. Retrying.",
+    "fr": "Certains médias ne sont pas disponibles. Nouvelle tentative."
+  },
+  "这个镜头还没有素材。生成后会自动保存在这里。": {
+    "en": "No media for this shot yet. Generated media will appear here.",
+    "fr": "Aucun média pour ce plan. Les créations apparaîtront ici."
+  },
+  "素材完成通知": {
+    "en": "Media completion notice",
+    "fr": "Notification de création"
+  },
+  "仓库 / Warehouse": {
+    "en": "Warehouse",
+    "fr": "Bibliothèque"
+  },
+  "图片已完成并保存到仓库。点击图片，再说出你的想法。": {
+    "en": "Images are ready and saved in Warehouse. Click one and describe your changes.",
+    "fr": "Les images sont prêtes dans la bibliothèque. Cliquez sur une image et décrivez vos modifications."
+  },
+  "最近素材：{0}，已保存到": {
+    "en": "Latest media: {0}, saved in",
+    "fr": "Dernier média : {0}, enregistré dans"
+  },
+  "仓库工具栏 / Warehouse toolbar": {
+    "en": "Warehouse toolbar",
+    "fr": "Barre d’outils des médias"
+  },
+  "文字 / 文件": {
+    "en": "Text / Files",
+    "fr": "Texte / Fichiers"
+  },
+  "添加图片、视频或文件 / Add files": {
+    "en": "Add images, videos or files",
+    "fr": "Ajouter des fichiers"
+  },
+  "个文件待发送": {
+    "en": "files ready to send",
+    "fr": "fichiers prêts à envoyer"
+  },
+  "请先保存当前剪辑调整，再引用这一帧 / Save current edits before referencing this frame": {
+    "en": "Save current edits before referencing this frame.",
+    "fr": "Enregistrez les modifications avant de référencer cette image."
+  },
+  "告诉我想把视频写成什么样，也可以选一个例子再修改。": {
+    "en": "Describe how you want to turn the video into text, or start with an optional example.",
+    "fr": "Décrivez le texte souhaité à partir de la vidéo, ou adaptez un exemple."
+  },
+  "你想生成什么样的文字？": {
+    "en": "What would you like to write?",
+    "fr": "Quel texte souhaitez-vous créer ?"
+  },
+  "参考写法（可选）": {
+    "en": "Examples (optional)",
+    "fr": "Exemples (facultatif)"
+  },
+  "参考写法": {
+    "en": "Examples",
+    "fr": "Exemples"
+  },
+  "选一个例子，也可以完全自己写": {
+    "en": "Choose an example, or write your own request",
+    "fr": "Choisissez un exemple ou écrivez votre demande"
+  },
+  "产品介绍 / Product introduction": {
+    "en": "Product introduction",
+    "fr": "Présentation du produit"
+  },
+  "旁白稿 / Narration script": {
+    "en": "Narration script",
+    "fr": "Script de narration"
+  },
+  "朋友圈短文 / Social post": {
+    "en": "Social post",
+    "fr": "Publication sociale"
+  },
+  "请把视频整理成一篇温暖、简洁的产品介绍，分章、节呈现，保留片中事实，不添加没有出现的功能。": {
+    "en": "Turn this video into a warm, concise product introduction with chapters and sections. Keep the facts and do not add features that are not shown.",
+    "fr": "Transformez cette vidéo en une présentation chaleureuse et concise du produit, structurée en chapitres et sections. Conservez les faits sans ajouter de fonctionnalités non présentées."
+  },
+  "请忠实整理成原视频的旁白稿，保持内容和顺序，修正明显的转写错字，不扩写。": {
+    "en": "Faithfully transcribe the narration, preserving its content and order. Correct obvious transcription errors without expanding it.",
+    "fr": "Transcrivez fidèlement la narration en conservant son contenu et son ordre. Corrigez les erreurs évidentes sans développer le texte."
+  },
+  "请把视频改写成适合发朋友圈的简短文字，自然、有温度，保留主要内容，不夸大。": {
+    "en": "Write a short, natural, warm social post based on the video. Keep the main points without exaggeration.",
+    "fr": "Rédigez une courte publication naturelle et chaleureuse à partir de la vidéo. Conservez les points essentiels sans exagérer."
+  },
+  "素材来源": {
+    "en": "Source",
+    "fr": "Source"
+  },
+  "当前书稿与聊天": {
+    "en": "Current book and chat",
+    "fr": "Livre actuel et conversation"
+  },
+  "读取当前视频的声音和画面，按你的要求整理文字；原视频和旧书稿保留。": {
+    "en": "Use the current video’s audio and frames to write your text. The video and previous book versions are preserved.",
+    "fr": "Rédigez le texte demandé à partir du son et des images de la vidéo. La vidéo et les versions précédentes du livre sont conservées."
+  },
+  "正在读取视频并整理文字，你可以继续聊天，结果会保存在版本中。": {
+    "en": "Reading the video and drafting text. You can continue chatting; the result is saved in versions.",
+    "fr": "Lecture de la vidéo et rédaction en cours. Vous pouvez continuer la conversation ; le résultat sera enregistré dans les versions."
+  },
+  "张视频抽帧和本地音轨转写": {
+    "en": "sampled frames and locally transcribed audio",
+    "fr": "images extraites et transcription audio locale"
+  },
+  "采用文字新版本 / Use text version": {
+    "en": "Use text version",
+    "fr": "Utiliser cette version du texte"
+  },
+  "确认生成 / Confirm generation": {
+    "en": "Confirm generation",
+    "fr": "Confirmer la génération"
+  },
+  "生成文字 / Generate text": {
+    "en": "Generate text",
+    "fr": "Générer le texte"
+  },
+  "视频来源读取失败，请关闭后重试；未提交生成。": {
+    "en": "Could not read the video source. Close and retry; nothing was generated.",
+    "fr": "Impossible de lire la source vidéo. Fermez puis réessayez ; aucune génération soumise."
+  },
+  "正在读取视频来源…": {
+    "en": "Reading the video source…",
+    "fr": "Lecture de la source vidéo…"
+  },
+  "视频转文字响应中断，结果和费用待核对；未产生新文字，请勿重复提交。": {
+    "en": "Video-to-text was interrupted. The result and cost are pending reconciliation; no text was created. Do not resubmit.",
+    "fr": "La génération a été interrompue. Le résultat et le coût restent à vérifier ; aucun texte créé. Ne renvoyez pas la demande."
+  },
+  "原片文字 / Original wording": {
+    "en": "Original wording",
+    "fr": "Texte original"
+  },
+  "优先按原视频字幕恢复文字稿，没有字幕时读取旁白，保持原有内容和顺序，不改写、不扩写。": {
+    "en": "Recover the original subtitles, or transcribe narration if no subtitles exist. Preserve the content and order without rewriting or expanding it.",
+    "fr": "Reprenez les sous-titres, ou transcrivez la narration en leur absence, sans réécriture ni ajout."
+  },
+  "原片文字（0 算力）": {
+    "en": "Original wording (0 compute)",
+    "fr": "Texte original (0 crédit)"
+  },
+  "优先读取字幕，没有字幕时转写旁白；0 算力。预览中可直接校对，采用后保存为文字版本。": {
+    "en": "Read subtitles first; transcribe narration when subtitles are absent. 0 compute. Proofread the preview, then adopt it as a text version.",
+    "fr": "Lecture des sous-titres en priorité, sinon transcription de la narration. 0 crédit. Relisez l’aperçu avant de l’adopter comme version texte."
+  },
+  "本地原文读取": {
+    "en": "Local text extraction",
+    "fr": "Extraction locale du texte"
+  },
+  "作品文字版本与生成记录": {
+    "en": "Text versions and generation history",
+    "fr": "Versions du texte et historique de génération"
+  },
+  "文字预览 · 待采用": {
+    "en": "Text preview · Awaiting adoption",
+    "fr": "Aperçu du texte · En attente d’adoption"
+  },
+  "正在从视频整理文字…": {
+    "en": "Extracting text from the video…",
+    "fr": "Extraction du texte de la vidéo…"
+  },
+  "未生成文字 · 上次结果和费用待核对": {
+    "en": "No text created · Previous result and cost pending reconciliation",
+    "fr": "Aucun texte créé · Résultat et coût précédents à vérifier"
+  },
+  "文字生成未完成": {
+    "en": "Text generation incomplete",
+    "fr": "Génération du texte incomplète"
+  },
+  "查看文字预览 / View text preview": {
+    "en": "View text preview",
+    "fr": "Voir l’aperçu du texte"
+  },
+  "章节草稿修订": {
+    "en": "Chapter draft revision",
+    "fr": "Révision du brouillon du chapitre"
   }
 }

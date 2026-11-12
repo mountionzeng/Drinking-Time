@@ -1,3 +1,4 @@
+import { analyzeCreationEmotion } from "../../shared/creationEmotion";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("../db", () => ({
@@ -66,4 +67,16 @@ describe("publishing album background prompt", () => {
       "ink", "painting", "paper", "handwritten", "quiet", "minimal",
     ]));
   });
+});
+
+function emotionState(raw = "温暖怀念", revision = 1) {
+  return { schemaVersion: 1 as const, revision, history: [{ revision, scope: { kind: "story" as const }, intent: { raw, mediumDirections: {} }, reading: analyzeCreationEmotion(raw), createdAt: "2026-11-10T00:00:00.000Z", userId: 3 }] };
+}
+
+it.each(["温暖怀念", "压抑不安", "释然平静"])("compiles %s with page facts and adopted style intact", async raw => {
+  const compiled = await compilePublishingAlbumBackgroundPrompt({ pageText: "小茶杯放在桌面，彩色细腻像素世界", pageOrdinal: 1, pageCount: 2,
+    coverPrompt: "【艺术谱系】极简彩色像素。\n【手作完成度】细腻颗粒。", feedback: "主体位置保持不变", creationEmotion: { schemaVersion: 1, layers: emotionState(raw).history } });
+  expect(compiled.prompt).toContain(raw); expect(compiled.prompt).toContain("小茶杯放在桌面"); expect(compiled.prompt).toContain("极简彩色像素");
+  expect(compiled.prompt).toContain("主体位置保持不变"); expect(compiled.prompt).toContain("禁止");
+  expect(compiled.prompt).toContain("【作品情绪依据 story@1】");
 });

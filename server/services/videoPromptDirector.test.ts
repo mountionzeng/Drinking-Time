@@ -341,3 +341,9 @@ describe("directVideoPrompt", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 });
+
+it("enforces the quoted input ceiling without calling a model or truncating user constraints",async()=>{
+ const fetch=vi.fn();vi.stubGlobal("fetch",fetch);
+ await expect(directVideoPrompt({imageInput:"data:,",fallbackPrompt:"keep",draftPrompt:"keep",shotNo:1,currentShot:{action:"critical instruction ".repeat(3000)}})).rejects.toThrow("报价范围");
+ expect(fetch).not.toHaveBeenCalled();
+});

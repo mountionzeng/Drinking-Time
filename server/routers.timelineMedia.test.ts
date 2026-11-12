@@ -97,6 +97,20 @@ beforeEach(() => {
 });
 
 describe("timelineMedia router", () => {
+  it("lists owned ready audio with stable shot origin, without leaking raw provenance", async () => {
+    const storyId = await seedStory(719);
+    const caller = appRouter.createCaller(context(719));
+    const asset = await createStoryAudioAssetRow({
+      storyId, userId:719, storageKey:"g".repeat(32), displayName:"cup.wav",
+      sourceKind:"local-upload",status:"ready",durationFrames:45,
+      provenance:{stableShotId:"shot-a",provider:"private-provider"},
+    });
+    const result = await caller.timelineMedia.audioAssetLibrary({storyId});
+    expect(result).toMatchObject([{id:asset.id,stableShotId:"shot-a",durationFrames:45}]);
+    expect(result[0]).not.toHaveProperty("provenance");
+    expect(JSON.stringify(result)).not.toContain("private-provider");
+    await expect(appRouter.createCaller(context(720)).timelineMedia.audioAssetLibrary({storyId})).resolves.toEqual([]);
+  });
   it("quotes generated audio from the owned shot at the playhead", async () => {
     const caller = appRouter.createCaller(context(700));
     const storyId = await seedStory(700);

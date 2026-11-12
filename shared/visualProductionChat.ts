@@ -58,3 +58,64 @@ export function appendVisualProductionBrief(previous: string | null | undefined,
   if (before === next || before.endsWith(`【最新对话要求】\n${next}`)) return before;
   return `${before}\n\n【最新对话要求】\n${next}`;
 }
+
+// ── 对话里的视频要求同步到结构化字段 ──
+// 首尾帧视频（以及单图视频）只要「画面动作 / 运镜 / 开始画面 …」里有值，就以这些字段为准、忽略 videoPrompt。
+// 所以对话里写的视频要求要同时写进「画面动作」（最高优先级），并清掉导入 ChatCut 时留下的素材说明。
+
+export const MOTION_FIELDS = ["action", "cameraMove", "videoStart", "videoEnd", "transitionIn", "transitionOut"] as const;
+export type MotionField = (typeof MOTION_FIELDS)[number];
+export const MOTION_FIELD_LABEL: Record<MotionField, string> = {
+  action: "画面动作", cameraMove: "运镜", videoStart: "开始画面", videoEnd: "结束画面", transitionIn: "承接上一镜", transitionOut: "进入下一镜",
+};
+
+/** 只认得出的 ChatCut 导入说明（素材文件名、源入点/出点、XML 清单），其他内容一律当作用户写的，不动。 */
+export function isChatCutResidue(value: string | null | undefined): boolean {
+  const text = (value ?? "").trim();
+  if (!text) return false;
+  return /^使用素材\s*\S+\.(?:mp4|mov|webm|m4v)$/i.test(text) ||
+    /^源[入出]点\s*\d+(?:\.\d+)?\s*s$/i.test(text) ||
+    /^按\s*ChatCut\s*XML\s*清单$/i.test(text);
+}
+
+/** 从对话里取出视频要求本身；只有命令（「第 3 镜生成视频」）没有内容时返回 null，不覆盖已有动作。 */
+export function motionBriefText(instruction: string): string | null {
+  const value = instruction.trim();
+  const colon = value.search(/[：:]/);
+  const body = (colon >= 0 && colon < 30 && /视频要求|镜头动作|运动要求|视频|生成|渲染|video|motion/i.test(value.slice(0, colon))
+    ? value.slice(colon + 1).trim() : value).replace(/[，,。；;]?\s*(?:先保存|只保存|先不生成|暂不生成|不生成视频|不要生成|别生成)[^。！!]*[。！!]?/g, "").trim();
+  const residue = body
+    .replace(/(?:请|帮我|麻烦)?(?:修改|调整|更新|保存|改成|改为|设为)?/g, "")
+    .replace(/第\s*\d{1,6}\s*镜|镜头\s*\d{1,6}|shot\s*\d{1,6}/gi, "")
+    .replace(/(?:重新)?(?:生成|渲染|制作)(?:视频|影片)?|视频要求|镜头动作|的?视频|generate|render|video/gi, "")
+    .replace(/[\s，。,.!！?？;；:：、]/g, "");
+  return residue.length >= 6 ? body.slice(0, 2000) : null;
+}
+
+export type MotionFieldSync = { updates: Partial<Record<MotionField, string>>; cleared: Array<{ field: MotionField; value: string }>; kept: Array<{ field: MotionField; value: string }> };
+
+/**
+ * 有结构化字段时才需要同步（没有字段时 videoPrompt 本来就生效，保持原样）。
+ * 画面动作写成这次的要求；其他字段只清掉 ChatCut 残留，用户自己写的保留并列出来。
+ */
+export function syncMotionFields(fields: Partial<Record<MotionField, string | null | undefined>>, brief: string): MotionFieldSync | null {
+  const present = MOTION_FIELDS.filter(field => (fields[field] ?? "").trim());
+  if (!present.length) return null;
+  const updates: MotionFieldSync["updates"] = { action: brief };
+  const cleared: MotionFieldSync["cleared"] = [];
+  const kept: MotionFieldSync["kept"] = [];
+  for (const field of present) {
+    const value = (fields[field] ?? "").trim();
+    if (field === "action") { if (isChatCutResidue(value)) cleared.push({ field, value }); continue; }
+    if (isChatCutResidue(value)) { updates[field] = ""; cleared.push({ field, value }); }
+    else kept.push({ field, value });
+  }
+  return { updates, cleared, kept };
+}
+
+export function motionSyncReply(sync: MotionFieldSync): string {
+  const parts = ["已同步写入「画面动作」（首尾帧视频以它为准）"];
+  if (sync.cleared.length) parts.push(`清掉了 ChatCut 导入残留：${sync.cleared.map(item => `${MOTION_FIELD_LABEL[item.field]}「${item.value}」`).join("、")}`);
+  if (sync.kept.length) parts.push(`保留了你原有的：${sync.kept.map(item => `${MOTION_FIELD_LABEL[item.field]}「${item.value.slice(0, 40)}」`).join("、")}（与画面动作冲突时以画面动作为准）`);
+  return `${parts.join("；")}。`;
+}

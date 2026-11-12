@@ -1,6 +1,8 @@
+import { isFrameNavigationKey, isFrameNavigationTarget } from "../frameNavigation";
 import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { GripVertical, Loader2, Magnet } from "lucide-react";
 import {
+  Fragment,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -10,6 +12,9 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { toast } from "sonner";
+
+/** Shared by manuscript and editing grids, including viewport measurements. */
+export const STORYBOARD_TRACK_HEADER_WIDTH = 176;
 
 import { timelineImageClipStartFrame } from "@shared/storyMaterial";
 import { imageClipId, shotClipId, videoClipId } from "@shared/visualClipModel";
@@ -1384,7 +1389,7 @@ function StoryboardEditTrack({
 
   return (
     <div
-      className="relative min-w-0 border-b border-r py-2"
+      className="relative min-w-0 border-b border-r py-1"
       style={{
         borderColor: "color-mix(in srgb, var(--panel-border) 62%, transparent)",
         background: "var(--background)",
@@ -1407,7 +1412,7 @@ function StoryboardEditTrack({
         aria-valuetext={formatStoryboardTimestamp(timeline.playheadMs)}
         data-testid="storyboard-edit-track"
         data-storyboard-visual-layer={0}
-        className="relative h-18 w-full cursor-text touch-none rounded-sm border border-border/70 bg-muted/30 outline-none focus-visible:ring-2 focus-visible:ring-primary/35"
+        className="relative isolate h-14 w-full cursor-text touch-none rounded-sm border border-border/70 bg-muted/30 outline-none focus-visible:ring-2 focus-visible:ring-primary/35"
         onPointerDown={startRangeDrag}
         onPointerMove={moveRangeDrag}
         onPointerUp={endRangeDrag}
@@ -3340,6 +3345,7 @@ export function StoryboardEditRow({
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target instanceof HTMLElement ? event.target : null;
+      if (isFrameNavigationKey(event) && isFrameNavigationTarget(target)) return;
       const allowed = storyboardEditShouldHandleKey({
         key: event.key,
         defaultPrevented: event.defaultPrevented,
@@ -3467,29 +3473,24 @@ export function StoryboardEditRow({
         </div>
       </div>
       {/* 固定语义顺序：视觉层 → 主画面 → 字幕 → 五类声音。 */}
-      {timeline.subtitle ? (
-        <>
+      {timeline.subtitle ? (timeline.subtitle.tracks ?? [{ id: "subtitle", cues: [...timeline.subtitle.cues] }]).map((track, index) => (
+        <Fragment key={track.id}>
           <SubtitleRowHeader
-            versions={timeline.subtitle.versions}
-            actions={
-              timeline.addMedia ? (
-                <AddTimelineMediaMenu {...timeline.addMedia} />
-              ) : undefined
-            }
+            label={track.name}
+            trackNumber={index + 1}
+            versions={index === 0 ? timeline.subtitle!.versions : undefined}
+            actions={index === 0 && timeline.addMedia ? <AddTimelineMediaMenu {...timeline.addMedia} /> : undefined}
           />
-          <div
-            role="cell"
-            style={{ gridColumn: `span ${Math.max(1, columnSpan)}` }}
-          >
+          <div role="cell" style={{ gridColumn: `span ${Math.max(1, columnSpan)}` }}>
             <SubtitleTrackRow
-              binding={timeline.subtitle}
+              binding={{ ...timeline.subtitle!, cues: track.cues }}
               viewport={viewport}
               playheadMs={timeline.playheadMs}
               disabled={timeline.writePending === true}
             />
           </div>
-        </>
-      ) : null}
+        </Fragment>
+      )) : null}
       {timeline.audio ? (
         <AudioTrackSection
           versions={timeline.audio.versions}
@@ -3573,7 +3574,7 @@ export function StoryboardEditRow({
           >
             <TimelineMediaInspector
               subtitleState={{
-                tracks: [
+                tracks: timeline.subtitle.tracks ? [...timeline.subtitle.tracks] : [
                   { id: "subtitle-main", cues: [...timeline.subtitle.cues] },
                 ],
               }}

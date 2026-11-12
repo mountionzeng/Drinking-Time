@@ -1,3 +1,5 @@
+import { compileCreationEmotion, type CreationEmotionSnapshot } from "../../shared/creationEmotion";
+import { storyEmotion } from "./creationEmotion";
 import { resolveBookModuleSource, describeBookModule, type BookModuleTarget } from "./bookModuleSource";
 import { listChapters } from "../repositories/chapters";
 import { formatComputeQuote } from "../../shared/computeMoney";
@@ -73,6 +75,9 @@ function maxCostMinor(
 type StoryRecord = Record<string, unknown>;
 
 export type StorySceneAudioContext = {
+  creationEmotion?: CreationEmotionSnapshot;
+  emotionTargets?: string[];
+  emotionSequence?: Array<{ startFrame: number; durationFrames: number; emotion: CreationEmotionSnapshot }>;
   stableShotId: string;
   shotNo: number;
   endShotNo: number;
@@ -118,6 +123,9 @@ export type StorySceneAudioQuote = {
 };
 
 type SceneAudioProvenance = {
+  creationEmotion?: CreationEmotionSnapshot;
+  emotionSequence?: StorySceneAudioContext["emotionSequence"];
+  emotionTargets?: string[];
   kind: "story-scene-audio";
   operationId: string;
   storyId: number;
@@ -247,7 +255,17 @@ export function resolveStorySceneAudioContext(input: {
   const lastRow = selectedRows.at(-1) ?? resolution.row;
   const firstShot = selectedShots[0] ?? {};
   const lastShot = selectedShots.at(-1) ?? firstShot;
+  const creationEmotion = storyEmotion(body);
+  const emotionSequence = selectedRows.flatMap(row => {
+    const resolved = storyEmotion(body, { shotId: row.item.stableShotId });
+    const local = resolved?.layers.filter(layer => layer.scope.kind === "shot") ?? [];
+    return local.length ? [{ startFrame: row.startFrame - firstRow.startFrame, durationFrames: row.durationFrames,
+      emotion: { schemaVersion: 1 as const, layers: local } }] : [];
+  });
   return {
+    ...(creationEmotion ? { creationEmotion } : {}),
+    ...(emotionSequence.length ? { emotionSequence } : {}),
+    ...(creationEmotion || emotionSequence.length ? { emotionTargets: selectedRows.map(row => row.item.stableShotId) } : {}),
     stableShotId: firstRow.item.stableShotId,
     shotNo: positiveInteger(
       firstShot.shotNo,
@@ -311,6 +329,9 @@ export function composeStorySceneAudioPrompt(input: {
     `Scene: ${input.context.sceneSummary}.`,
     `On-screen action: ${input.context.actionSummary}.`,
     `Sound direction: ${input.context.soundSummary}.`,
+    ...(input.kind === "music" ? [compileCreationEmotion(input.context.creationEmotion, "music"),
+      ...(input.context.emotionSequence ?? []).map(step =>
+        `仅在 ${(step.startFrame / STORY_TIMELINE_FPS).toFixed(1)}–${((step.startFrame + step.durationFrames) / STORY_TIMELINE_FPS).toFixed(1)} 秒使用本镜变化：${compileCreationEmotion(step.emotion, "music")}`)] : []),
   ].join(" ");
   if (input.kind === "music") {
     return `Instrumental cinematic underscore only; no vocals and no spoken words. ${facts} Support the selected story range without overpowering narration. Use a clean beginning and a natural ending suitable for editing.`;
@@ -390,7 +411,7 @@ async function currentContext(input: {
     const chapters = await listChapters(input.storyId, input.userId, "all");
     const body = chapters.map(chapter => chapter.blocks.body).join("\n").replace(/!\[[^\]]*\]\([^\n]*\)/g, "").trim();
     if (!body) throw new Error("请先保存书中的文字，再生成音乐");
-    return { stableShotId: "book", shotNo: 0, endShotNo: 0, startFrame: 0, durationFrames: 900,
+    return { ...(storyEmotion(story.body) ? { creationEmotion: storyEmotion(story.body) } : {}), stableShotId: "book", shotNo: 0, endShotNo: 0, startFrame: 0, durationFrames: 900,
       emotionSummary: "Follow the mood of the manuscript", sceneSummary: body.slice(0, 1800),
       actionSummary: "Background music for reading", soundSummary: "Instrumental music, no speech" };
   }
@@ -402,12 +423,13 @@ async function currentContext(input: {
     }),
   ]);
   if (!story || !timeline) throw new Error("故事或时间线不存在，无法生成声音");
-  return resolveStorySceneAudioContext({
+  const context = resolveStorySceneAudioContext({
     timelineItems: timeline.items,
     storyBody: story.body,
     targetFrame: input.targetFrame,
     scope: input.scope,
   });
+  return context;
 }
 
 type SceneAudioPlacement = {
@@ -482,12 +504,17 @@ export async function quoteStorySceneAudio(input: {
     emotionSummary:source.parts ? "Follow the mood of the selected modules" : "Follow the mood of the selected module",sceneSummary:source.parts ? await describeBookModule(source) : (await describeBookModule(source)).slice(0,1800),
     actionSummary:source.parts ? "Background music inspired only by the selected modules" : "Background music inspired only by this module",soundSummary:"Instrumental music, no speech"
   } : await currentContext({ ...input, scope });
+  if (source) {
+    const emotionStory = await loadOwnedStory(input);
+    const creationEmotion = storyEmotion(emotionStory?.body, { chapterId: String(input.bookTarget!.chapterId) });
+    if (creationEmotion) context.creationEmotion = creationEmotion;
+  }
   const prompt = composeStorySceneAudioPrompt({
     kind: input.kind,
     context,
     intent,
   });
-  if (source?.parts && prompt.length > 10_000) throw new Error("所选素材过长，请减少模块后再生成音乐");
+  if (prompt.length > 10_000) throw new Error("所选素材过长，请减少模块后再生成音乐");
   const { provider, model } = providerFor(input.kind);
   if (!model || !/^[\w.+-]+$/i.test(model)) {
     throw new Error("302 声音模型尚未配置或配置无效");
@@ -608,7 +635,10 @@ export async function generateStorySceneAudio(input: {
       if (claims.bookTarget) {
         const source = await resolveBookModuleSource({...claims.bookTarget,storyId:input.storyId,userId:input.userId});
         if (source.fingerprint !== claims.bookTarget.fingerprint) throw new Error("原模块已修改，请重新确认音乐生成");
-        context = claims.context;
+        const emotionStory = await loadOwnedStory(input);
+        const creationEmotion = storyEmotion(emotionStory?.body, { chapterId: String(claims.bookTarget.chapterId) });
+        const { creationEmotion: _oldEmotion, ...facts } = claims.context;
+        context = { ...facts, ...(creationEmotion ? { creationEmotion } : {}) };
       } else context = await currentContext({
         storyId: input.storyId,
         userId: input.userId,
@@ -655,6 +685,9 @@ export async function generateStorySceneAudio(input: {
   );
   const provenance: SceneAudioProvenance = {
     kind: "story-scene-audio",
+    ...(context.creationEmotion ? { creationEmotion: context.creationEmotion } : {}),
+    ...(context.emotionSequence ? { emotionSequence: context.emotionSequence } : {}),
+    ...(context.emotionTargets ? { emotionTargets: context.emotionTargets } : {}),
     operationId: input.operation.operationId,
     storyId: input.storyId,
     stableShotId: context.stableShotId,

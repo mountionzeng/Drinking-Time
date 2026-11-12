@@ -37,10 +37,10 @@ export function FloatingWarehouse({ expanded, compact = false, children }: { exp
         maxWidth: 'calc(100vw - 24px)', maxHeight: 'min(540px, calc(100dvh - 100px))', resize: 'both',
         ...(position ? {left:position.left,top:position.top} : {right:16,top:84}) };
   const content = <section ref={panel} id="editing-material-warehouse" aria-label={_ui("素材仓库悬浮窗")}
-    data-testid="material-warehouse-drawer" style={style}
+    data-testid="material-warehouse-drawer" data-timeline-media-keyboard="true" style={style}
     className="fixed z-40 flex flex-col overflow-hidden rounded-xl border border-border bg-background shadow-2xl"
     onPointerDown={event => {
-      if (expanded || event.button !== 0 || !(event.target as Element).closest('[data-warehouse-handle]')) return;
+      if (expanded || event.button !== 0 || !(event.target as Element).closest('[data-warehouse-handle]') || (event.target as Element).closest('button, select, input, textarea, a, [role="combobox"]')) return;
       const rect = event.currentTarget.getBoundingClientRect();
       drag.current={id:event.pointerId,x:event.clientX,y:event.clientY,left:rect.left,top:rect.top};
       event.currentTarget.setPointerCapture(event.pointerId);
@@ -57,10 +57,10 @@ export function FloatingWarehouse({ expanded, compact = false, children }: { exp
     onPointerCancel={()=>{drag.current=null;}}
     onLostPointerCapture={()=>{drag.current=null;}}
     onKeyDown={event => {
-      if(expanded || !(event.target as Element).closest('[data-warehouse-handle]')) return;
+      if(expanded || !(event.target as Element).closest('[data-warehouse-handle]') || (event.target as Element).closest('button, select, input, textarea, a, [role="combobox"]')) return;
       const step={ArrowLeft:[-20,0],ArrowRight:[20,0],ArrowUp:[0,-20],ArrowDown:[0,20]}[event.key];
       const rect=panel.current?.getBoundingClientRect();
-      if(step && rect){ event.preventDefault(); move(rect.left+step[0],rect.top+step[1]); }
+      if(step && rect){ event.preventDefault(); event.stopPropagation(); move(rect.left+step[0],rect.top+step[1]); }
     }}>
     {children}
   </section>;

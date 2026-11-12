@@ -1,7 +1,8 @@
+import { analyzeCreationEmotion } from "../../shared/creationEmotion";
 import { beforeEach, expect, it, vi } from 'vitest';
 import type { BookModuleImageTask } from '../../shared/bookModuleImageTask';
-const fixture = vi.hoisted(()=>({ tasks:[] as BookModuleImageTask[], images:[] as any[], owner:true, body:'![图片](/api/images/a.png)\n原图风格', tail:Promise.resolve() as Promise<unknown>, edit:vi.fn(), generate:vi.fn(), resume:vi.fn(), reserve:vi.fn(), settle:vi.fn() }));
-vi.mock('../repositories/stories',()=>({getStoryById:async()=>fixture.owner?{body:{bookModuleImageTasks:structuredClone(fixture.tasks)}}:null}));
+const fixture = vi.hoisted(()=>({ emotion: undefined as ReturnType<typeof emotionState> | undefined, tasks:[] as BookModuleImageTask[], images:[] as any[], owner:true, body:'![图片](/api/images/a.png)\n原图风格', tail:Promise.resolve() as Promise<unknown>, edit:vi.fn(), generate:vi.fn(), resume:vi.fn(), reserve:vi.fn(), settle:vi.fn() }));
+vi.mock('../repositories/stories',()=>({getStoryById:async()=>fixture.owner?{body:{creationEmotion:fixture.emotion,bookModuleImageTasks:structuredClone(fixture.tasks)}}:null}));
 vi.mock('../repositories/images',()=>({getStoryGeneratedImages:async()=>fixture.images}));
 vi.mock('../repositories/chapters',()=>({getChapter:async()=>({storyId:1,blocks:{body:fixture.body,writingStyle:[{id:'i'},{id:'t'}]}})}));
 vi.mock('../repositories/bookModuleImageTasks',()=>({
@@ -25,7 +26,7 @@ const sources=[{id:'i',text:'![图片](/api/images/a.png)'},{id:'t',text:'原图
 const target={userId:2,storyId:1,chapterId:3,moduleIds:['i','t']};
 const input=()=>({...target,sources,instruction:'整合两块',previousTaskId:null,estimatedCny:compositionQuote(sources,['整合两块'],false)});
 beforeEach(()=>{
-  vi.clearAllMocks(); fixture.tasks=[]; fixture.images=[]; fixture.owner=true;fixture.body='![图片](/api/images/a.png)\n原图风格';fixture.tail=Promise.resolve();
+  vi.clearAllMocks(); fixture.emotion=undefined; fixture.tasks=[]; fixture.images=[]; fixture.owner=true;fixture.body='![图片](/api/images/a.png)\n原图风格';fixture.tail=Promise.resolve();
   fixture.reserve.mockResolvedValue({billed:true,replayed:false});fixture.settle.mockResolvedValue({});
   fixture.edit.mockImplementation(async(_url,_prompt,options)=>{await options.onProviderTaskAccepted('receipt'); return {status:'error',providerTaskId:'receipt',message:'排队中'};});
   fixture.resume.mockResolvedValue({status:'ok',imageUrl:'/new.png',imageKey:'new'});
@@ -83,4 +84,25 @@ it('rejects a too-long brief before reservation rather than truncating the user 
   const selected=[sources[0],{id:'t',text:long}];
   await expect(generateBookImageComposition({...input(),sources:selected,estimatedCny:compositionQuote(selected,['整合两块'],false)})).rejects.toThrow('不会截断');
   expect(fixture.reserve).not.toHaveBeenCalled();
+});
+
+function emotionState(raw = "温暖怀念", revision = 1) {
+  return { schemaVersion: 1 as const, revision, history: [{ revision, scope: { kind: "story" as const }, intent: { raw, mediumDirections: {} }, reading: analyzeCreationEmotion(raw), createdAt: "2026-11-10T00:00:00.000Z", userId: 3 }] };
+}
+
+it("adds chapter intent to new text compositions but never restyles a strict reference", async () => {
+  fixture.emotion=emotionState();
+  fixture.emotion.history.push({ ...emotionState("释然平静",2).history[0], scope: {kind:"chapter",id:"3"} } as any); fixture.emotion.revision=2;
+  fixture.body="白瓷茶杯\n细腻彩色像素";
+  const textSources=[{id:"i",text:"白瓷茶杯"},{id:"t",text:"细腻彩色像素"}];
+  fixture.generate.mockResolvedValue({status:"ok",imageUrl:"/generated.png"});
+  const task=await generateBookImageComposition({...input(),sources:textSources,estimatedCny:compositionQuote(textSources,["整合两块"],false)});
+  expect(task.status,task.error).toBe("succeeded");
+  const prompt=fixture.generate.mock.calls[0][0];
+  expect(prompt).toContain("温暖怀念");expect(prompt).toContain("释然平静");expect(prompt).toContain("白瓷茶杯");expect(prompt).toContain("细腻彩色像素");
+  expect(task.composition?.compiledPrompt).toBe(prompt);
+  fixture.tasks=[];fixture.body='![图片](/api/images/a.png)\n原图风格';
+  await generateBookImageComposition(input());
+  expect(fixture.edit.mock.calls[0][1]).toContain("原图优先");
+  expect(fixture.edit.mock.calls[0][1]).not.toContain("作品情绪依据");
 });

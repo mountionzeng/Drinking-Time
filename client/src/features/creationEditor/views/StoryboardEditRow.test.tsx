@@ -17,6 +17,14 @@ import { emptyAudioState } from "@shared/timelineAudioModel";
 
 vi.stubGlobal("React", React);
 
+// SSR does not mount portal content. Inspect the expanded track menu here;
+// opening/closing the real Radix popover is also checked in the browser.
+vi.mock("@/components/ui/popover", () => ({
+  Popover: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  PopoverTrigger: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  PopoverContent: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+}));
+
 function boardTimeline(
   overrides: Partial<StoryboardBoardTimeline> = {}
 ): StoryboardBoardTimeline {
@@ -552,7 +560,7 @@ describe("StoryboardEditRow", () => {
     const html = renderRow(boardTimeline({ playheadMs: 3_500 }));
     expect(html).not.toContain('data-testid="storyboard-edit-split"');
     expect(html).not.toContain('data-testid="storyboard-edit-extract"');
-    expect(html).toContain(">视觉 · 剪辑<");
+    expect(html).toContain('data-testid="storyboard-visual-header-1"');
   });
 
   it("adds an aligned audio waveform row below the edit track", () => {
@@ -641,7 +649,7 @@ describe("StoryboardEditRow", () => {
     expect(movableFrame).toContain("h-7");
     expect(html).toContain('src="/frame-99.webp"');
     expect(html).toContain("left:16px");
-    expect(html.indexOf("视觉层 2")).toBeLessThan(html.indexOf("视觉 · 剪辑"));
+    expect(html.indexOf('data-testid="storyboard-visual-header-2"')).toBeLessThan(html.indexOf('data-testid="storyboard-visual-header-1"'));
   });
 
   it("raises the playhead image above nearby one-frame thumbnails", () => {
@@ -867,13 +875,13 @@ describe("StoryboardEditRow", () => {
     expect(html).toContain('data-testid="storyboard-visual-layer-track-5"');
     expect(html.indexOf("视觉层 5")).toBeLessThan(html.indexOf("视觉层 4"));
     expect(html.indexOf("视觉层 4")).toBeLessThan(html.indexOf("视觉层 2"));
-    expect(html.indexOf("视觉层 2")).toBeLessThan(html.indexOf("视觉 · 剪辑"));
+    expect(html.indexOf('data-testid="storyboard-visual-header-2"')).toBeLessThan(html.indexOf('data-testid="storyboard-visual-header-1"'));
     expect(html.match(/data-testid="storyboard-top-playhead"/g)).toHaveLength(
       1
     );
   });
 
-  it("renders persistent controls for hiding, inserting, deleting and moving every layer", () => {
+  it("keeps visibility on the header and all insert, delete and move commands in the track menu", () => {
     const html = renderRow(
       boardTimeline({
         visualLayerState: { count: 3, explicitCount: 3, hidden: [1] },

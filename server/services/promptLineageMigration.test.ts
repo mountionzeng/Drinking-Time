@@ -312,6 +312,38 @@ describe("migrateLegacyPromptLineage", () => {
     ).toBeTruthy();
   });
 
+  it("adds imported shot identities without resetting previous revisions or conversations", async () => {
+    const store = createPromptLineageMemoryStore();
+    const owner = { storyId: 32, userId: 7 };
+    await migrateLegacyPromptLineage(store, { ...owner, body: {
+      visualPreference: "pointillism", shots: [{ shotNo: 1, stableShotId: "old-shot", subject: "Original" }],
+    } });
+    const initial = store.getStoryAggregate(owner);
+    await store.transact({ ...owner, expectedVersion: initial.state.version, operationKey: "user-edit" }, tx => {
+      tx.appendMessage({ role: "user", content: "Keep my edit", clientMessageId: "keep-me" });
+    });
+    const before = store.getStoryAggregate(owner);
+    const input = { ...owner, body: { visualPreference: "unconfirmed replacement", shots: [
+      { shotNo: 1, stableShotId: "new-shot", subject: "Paper plane", videoPrompt: "Fly through colored clouds" },
+    ] } };
+    const result = await migrateLegacyPromptLineage(store, input);
+    expect(result.migrated).toBe(true);
+    const after = store.getStoryAggregate(owner);
+    expect(after.nodes).toEqual(expect.arrayContaining(before.nodes));
+    expect(after.revisions).toEqual(expect.arrayContaining(before.revisions));
+    expect(after.messages).toEqual(before.messages);
+    expect(after.compilations).toEqual(expect.arrayContaining(before.compilations));
+    const head = after.compilationHeads.find(h => h.stableShotId === "new-shot" && h.modality === "video");
+    expect(head).toBeDefined();
+    const text = after.compilations.find(c => c.id === head?.currentCompilationId)?.finalText;
+    expect(text).toContain("Fly through colored clouds");
+    expect(text).toContain("pointillism");
+    expect(text).not.toContain("unconfirmed replacement");
+    expect((await migrateLegacyPromptLineage(store, input)).migrated).toBe(false);
+    expect(store.getStoryAggregate(owner)).toEqual(after);
+    await expect(migrateLegacyPromptLineage(store, { ...input, userId: 99 })).rejects.toThrow();
+  });
+
   it("derives deterministic unique identities for legacy duplicate shot numbers", async () => {
     const store = createPromptLineageMemoryStore();
     await migrateLegacyPromptLineage(store, {

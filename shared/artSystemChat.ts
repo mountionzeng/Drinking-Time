@@ -1,8 +1,13 @@
+import { parseColorTransferIntent } from "./colorTransferIntent";
+import { parseLuminanceGradeIntent } from "./luminanceGradeIntent";
+
 export type ArtSystemCommand = { action: "draft" | "confirm" | "copy"; imageId?: number; sourceStoryId?: number; recipeVersion?: number };
 
 /** Route explicit whole-work art requests before any shot/media generation. */
 export function parseArtSystemChat(text: string, continuing = false): ArtSystemCommand | null {
   const value = text.trim();
+  // 「按图一的颜色改图二」「只调亮度」是本地免费调色，不是整部作品的美术体系讨论。
+  if (parseColorTransferIntent(value) || parseLuminanceGradeIntent(value)) return null;
   const subject = /美术体系|视觉体系|美术系统|风格体系|美术基准|风格基准|art system|visual system|style guide/i.test(value);
   const opening = value.split(/[：:。！？\n]/)[0];
   const recipeVersion = Number(value.match(/\bV\s*0*(\d+)/i)?.[1]) || undefined;

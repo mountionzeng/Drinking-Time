@@ -83,6 +83,7 @@ type StorySpineData = {
    * 聊天上下文能带上它，剪辑指令才有确定的时间锚点。
    */
   playheadMs: number;
+  pausedPreviewFrame: import("@shared/chatFrameReference").PausedFrameSnapshot | null;
   hydratedFor: number | null;
   accountId: number | null;
   sessionId: string;
@@ -161,6 +162,7 @@ type StorySpineActions = {
   setReturningGreeting: StorySpineSetter<string | null>;
   setActiveSelection: StorySpineSetter<SelectionState | null>;
   setPlayheadMs: StorySpineSetter<number>;
+  setPausedPreviewFrame: StorySpineSetter<import("@shared/chatFrameReference").PausedFrameSnapshot | null>;
   setHydratedFor: StorySpineSetter<number | null>;
   setLastSnapshotHash: StorySpineSetter<string>;
   setLastArchiveSaveHash: StorySpineSetter<string>;
@@ -221,6 +223,7 @@ function initialData(): StorySpineData {
     returningGreeting: null,
     activeSelection: null,
     playheadMs: 0,
+    pausedPreviewFrame: null,
     hydratedFor: null,
     accountId: null,
     sessionId: sessionId(),
@@ -313,6 +316,7 @@ export const useStorySpine = create<StorySpineState>()(set => {
     setReturningGreeting: setField("returningGreeting"),
     setActiveSelection: setField("activeSelection"),
     setPlayheadMs: setField("playheadMs"),
+    setPausedPreviewFrame: setField("pausedPreviewFrame"),
     setHydratedFor: setField("hydratedFor"),
     setLastSnapshotHash: setField("lastSnapshotHash"),
     setLastArchiveSaveHash: setField("lastArchiveSaveHash"),

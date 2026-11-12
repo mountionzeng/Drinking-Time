@@ -1,3 +1,4 @@
+import { storyEmotion } from "../services/creationEmotion";
 import { STORY_VISUAL_NARRATIVE_DIRECTION } from "../services/storyVisualNarrative";
 import { randomUUID } from "node:crypto";
 import { imageAdoptionCaptureIfEnabled } from "../services/personalMemoryAdoption";
@@ -2152,6 +2153,8 @@ export const publishingDraftRouter = router({
           const textureColor = outputKind === "body-texture" && referenceAsset
             ? await readImageAverageColor(referenceAsset.imageUrl) : "";
           prompt = await engineerImagePrompt({
+            creationEmotion: storyEmotion(story.body),
+            emotionArtForm: outputKind === "body-texture" ? "texture" : undefined,
             prompt: input.selectedText ? [
               '根据下列选中文字绘制一张正文插图，只表达这段文字中的场景，不引入整篇故事的其他内容。',
               input.selectedText,

@@ -80,10 +80,10 @@ function staleBindingIdsFromTextChange(
   after: TimelineSubtitleState
 ): string[] {
   const beforeById = new Map<string, SubtitleCue>(
-    (before.tracks[0]?.cues ?? []).map(cue => [cue.id, cue])
+    (before.tracks.flatMap(track => track.cues)).map(cue => [cue.id, cue])
   );
   const ids: string[] = [];
-  for (const cue of after.tracks[0]?.cues ?? []) {
+  for (const cue of after.tracks.flatMap(track => track.cues)) {
     if (!cue.speechBindingId) continue;
     const prior = beforeById.get(cue.id);
     if (!prior || cue.textRevision > prior.textRevision) {

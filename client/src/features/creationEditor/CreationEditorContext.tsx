@@ -1,3 +1,5 @@
+import { askMediaChatConfirmation } from "@/features/storyAgent/mediaChatSession";
+import { formatComputeQuote } from "@shared/computeMoney";
 import {
   createContext,
   useCallback,
@@ -475,6 +477,7 @@ type CreationEditorContextValue = {
     stableShotId: string;
     takeId: number;
     plannedDurationSec: number;
+    replacePrimary?: boolean;
   }) => Promise<void>;
   reuseVideoTake: (input: {
     sourceTakeId: number;
@@ -502,6 +505,7 @@ type CreationEditorContextValue = {
   splitTimelineVideoClip: (input: {
     stableShotId: string;
     cutFrame: number;
+    startEndPlan?: import("@shared/shotSplitChat").ShotSplitPlan;
     operation?: VisualEditOperationRef;
     overlayId?: string;
     videoUrl?: string;
@@ -1072,6 +1076,7 @@ export function normalizeStoryImages(
         shotIdentity,
         imageUrl,
         prompt: stringValue(obj.prompt) || null,
+        referenceOnly: obj.referenceOnly === true || stringValue(obj.imageKey).startsWith("generated/frame-references/"),
         status,
         isCurrent:
           typeof obj.isCurrent === "boolean" ? obj.isCurrent : undefined,
@@ -3154,6 +3159,10 @@ export function CreationEditorProvider({
     if (result.status !== "ok") {
       throw new Error(result.error || "素材导入失败");
     }
+    if (result.kind === "file") {
+      await utils.creationAgent.warehouseFiles.invalidate({storyId:activeId});
+      return {kind:"file",file:result.file};
+    }
     // 图片导入不应该等待视频列表，反之亦然。之前把三类 refetch 和三次
     // invalidate 全绑进一个 Promise.all，任何一条慢请求都会让“提帧中…”永不结束。
     await waitForMaterialListRefresh(
@@ -3379,10 +3388,13 @@ export function CreationEditorProvider({
     subtitle?: string;
   }): Promise<ShotDirectorResult> => {
     if (activeId == null) throw new Error("故事尚未加载，无法分析镜头衔接");
-    return analyzeShotVideoDirectionMut.mutateAsync({
-      storyId: activeId,
-      ...input,
-    });
+    const storyId = activeId;
+    const quote = await utils.storyAgent.quoteChatLlm.fetch({steps:[{step:"video-director",count:1}]});
+    const message = `镜头导演读图与提示词整理预计最多 ${formatComputeQuote(quote.totalCny)}，本步不生成视频。回复“确认”继续或“取消”。`;
+    const question = askMediaChatConfirmation({storyId,kind:"cost",text:message});
+    const accepted = question ? await question : window.confirm(message);
+    if (!accepted || activeStoryIdRef.current !== storyId) throw new Error("已取消，尚未调用导演模型");
+    return analyzeShotVideoDirectionMut.mutateAsync({storyId,...input,costConfirmation:{accepted:true,estimatedCny:quote.totalCny}});
   };
 
   const conformVideoTakes = async (input: {
@@ -3488,8 +3500,7 @@ export function CreationEditorProvider({
 
   const adoptVideoTakeForShot = async (input: {
     stableShotId: string;
-    takeId: number;
-    plannedDurationSec: number;
+    takeId: number; plannedDurationSec: number; replacePrimary?: boolean;
   }) => {
     if (activeId == null) throw new Error("故事尚未加载，无法采用视频");
     const result = await adoptVideoTakeMut.mutateAsync({
@@ -3718,6 +3729,7 @@ export function CreationEditorProvider({
   const splitTimelineVideoClip = async (input: {
     stableShotId: string;
     cutFrame: number;
+    startEndPlan?: import("@shared/shotSplitChat").ShotSplitPlan;
     operation?: VisualEditOperationRef;
     overlayId?: string;
     videoUrl?: string;
@@ -3736,6 +3748,7 @@ export function CreationEditorProvider({
         operation,
         stableShotId: input.stableShotId,
         cutFrame: input.cutFrame,
+        startEndPlan: input.startEndPlan,
       })
     );
     if (result.status !== "ok") {

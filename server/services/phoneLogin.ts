@@ -129,7 +129,9 @@ export async function verifyPhoneLoginCode(
   }
   // Stable opaque openId + unique identity prevent parallel registrations creating two users.
   // No email/WeChat matching, merging or signup credit grants.
-  const openId = `phone:${privateSubject(phone)}`;
+  // Keep the full SHA-256 digest within users.openId VARCHAR(64).
+  // Existing linked identities above retain their original user ID.
+  const openId = `phone:${createHash("sha256").update(phone).digest("base64url")}`;
   await upsertUser({
     openId,
     loginMethod: "phone",

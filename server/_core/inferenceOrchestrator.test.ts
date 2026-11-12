@@ -855,3 +855,9 @@ describe("runInference — claude-messages protocol", () => {
     expect(outcome.result.choices[0].message.content).toBe("ok");
   });
 });
+
+it.each([400,401,429,503])("honors an explicit one-attempt limit after HTTP %s", async status => {
+  const {impl,calls} = recordingFetch(() => jsonResponse(status,{error:{message:"failed"}}));
+  await expect(runInference(baseRequest({fetchImpl:impl,replaySafe:true,maxAttempts:1,responseFormat:{type:"json_object"}}))).rejects.toThrow();
+  expect(calls).toHaveLength(1);
+});

@@ -1,3 +1,4 @@
+import { analyzeCreationEmotion } from "../shared/creationEmotion";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { TrpcContext } from "./_core/context";
 import { InferenceError } from "./_core/inferenceOrchestrator";
@@ -2333,6 +2334,7 @@ describe("publishingDraft router", () => {
     { outputKind: "illustration" as const, customArt: false },
     { outputKind: "body-texture" as const, customArt: false },
   ])("uses an owned reference: $outputKind, custom art $customArt", async ({ outputKind, customArt }) => {
+    dbMocks.getStoryById.mockResolvedValue({ id: 7, userId: 3, body: { creationEmotion: emotionState("压抑不安") } });
     const sourceRound = {
       id: "round-source",
       platform: "xiaohongshu" as const,
@@ -2424,6 +2426,12 @@ describe("publishingDraft router", () => {
     const revisedPrompt = imagePromptCompilerMocks.invokeImagePromptCompiler.mock.calls[0]?.[0]?.at(
       -1
     )?.content;
+    expect(revisedPrompt).toContain("压抑不安");
+    expect(revisedPrompt).toContain("【作品情绪依据 story@1】");
+    if (outputKind === "body-texture") {
+      expect(revisedPrompt).toContain("情绪仅转为浅色层次");
+      expect(revisedPrompt).not.toContain("用空间压缩、遮挡关系");
+    }
     expect(revisedPrompt).toMatch(/人物更小[\s\S]*禁止可读文字/);
     expect(revisedPrompt).toContain("【用户持续要求】像一张风景画");
     if (outputKind === "illustration") {
@@ -3252,3 +3260,7 @@ describe("publishingDraft router", () => {
     expect(dbMocks.assignStoryImageToShot).not.toHaveBeenCalled();
   });
 });
+
+function emotionState(raw = "温暖怀念", revision = 1) {
+  return { schemaVersion: 1 as const, revision, history: [{ revision, scope: { kind: "story" as const }, intent: { raw, mediumDirections: {} }, reading: analyzeCreationEmotion(raw), createdAt: "2026-11-10T00:00:00.000Z", userId: 3 }] };
+}

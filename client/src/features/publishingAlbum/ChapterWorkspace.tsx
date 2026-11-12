@@ -1,3 +1,4 @@
+import { VideoBookHistory } from "./VideoBookHistory";
 import type { ManuscriptKind } from "@shared/bookWorkflow";
 import { requestNewVersion } from "@/features/publishingDraft/newVersionRequest";
 import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
@@ -96,7 +97,7 @@ export function ChapterWorkspace({
     ...(displayMode === "images" && latestLayout.current ? { layout: latestLayout.current.layout } : {}),
   } : null;
   const utils = trpc.useUtils();
-  const workflow = trpc.bookWorkflow.get.useQuery({ storyId: props.storyId }, { enabled: historyOpen });
+  const workflow = trpc.bookWorkflow.get.useQuery({ storyId: props.storyId }, { enabled: historyOpen, refetchInterval:q=>q.state.data?.state.conversions.some(d=>d.status==="generating" && Date.now()-d.createdAt<15*60_000)?2500:false });
   useEffect(() => {
     const select = (event: Event) => {
       const detail = (event as CustomEvent).detail;
@@ -436,10 +437,10 @@ export function ChapterWorkspace({
               <label className="text-sm">{_ui("稿件")} <select aria-label={_ui("查看稿件版本")} className="rounded border bg-transparent p-1" value={manuscriptKind ?? workflow.data.preferredKind} onChange={event => { const kind = event.target.value as ManuscriptKind; void run(async () => setManuscriptKind(kind)); }}>
                 {(["text", "storyboard"] as const).filter(kind => workflow.data.drafts[kind].count > 0).map(kind => <option key={kind} value={kind}>{kind === "text" ? _ui("文字版") : _ui("分镜版")}</option>)}
               </select></label>
-              <ul className="max-h-40 overflow-y-auto text-xs text-muted-foreground">{[...workflow.data.state.versions].reverse().filter(version => version.kind === (manuscriptKind ?? workflow.data.preferredKind)).map(version => <li className="py-1" key={version.id}>V{version.number} · {version.author.name} · {new Date(version.createdAt).toLocaleString()}<p>{version.summary}</p>{version.source && <p>{_ui("来源：{0} V{1}", [version.source.kind === "text" ? _ui("文字版") : _ui("分镜版"), version.source.number])}</p>}</li>)}</ul>
+              <VideoBookHistory state={workflow.data.state} kind={manuscriptKind ?? workflow.data.preferredKind} storyId={props.storyId} accountId={props.accountId} />
             </>}
 
-            <p className="text-xs">{_ui("当前版本")}{" "}{active.version} · {active.blocks.attribution?.editorName || _ui("未记录编辑者")}{_ui("。选择版本只打开对比，不会替换正在写的内容。")}</p>
+            <p className="text-xs">{_ui("章节草稿修订")}{" "}{active.version} · {active.blocks.attribution?.editorName || _ui("未记录编辑者")}{_ui("。选择版本只打开对比，不会替换正在写的内容。")}</p>
             {newerVersion && <button className={button} disabled={busy} onClick={() => void openLatestComparison()}>{_ui("最新已保存版本")}{" "}{newerVersion} {_ui("· 打开对比")}</button>}
             {props.body.trim() && props.body !== active.blocks.body && <button className={button} onClick={() => {
               setGeneratedOpen(true); setHistoryComparison(null); setComparison(null); setHistoryOpen(false);

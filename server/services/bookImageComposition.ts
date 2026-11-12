@@ -1,3 +1,4 @@
+import { storyEmotion } from "./creationEmotion";
 import { createHash, randomUUID } from 'node:crypto';
 import { compositionSources, compositionReferences, compositionPrompt, compositionQuote, compositionShotNumbers, BOOK_COMPOSITION_MODEL, type CompositionSource } from '../../shared/bookImageComposition';
 import { getStoryGeneratedImages } from '../repositories/images';
@@ -8,6 +9,7 @@ import { getStoryById } from '../repositories/stories';
 import { moduleImageTasks, mutateModuleImageTasks } from '../repositories/bookModuleImageTasks';
 import { getStoryImageAssets } from './imageAssets';
 import { editImage, generateImage, resume302GptImageTask, type ImageGenResult } from './imageGen';
+import { buildRenderSnapshot } from './render/snapshot';
 import { reservePublishingCoverRender, publishingCoverOperationId, finishPublishingCoverBilling } from './publishingCoverBilling';
 import { mediaBillingEnabled } from './mediaComputeBilling';
 import { renderViaGate } from './renderGate';
@@ -36,7 +38,7 @@ export async function readBookImageComposition(target: Target) {
   return moduleImageTasks(story.body).filter(t => matches(t, target)).at(-1) ?? null;
 }
 async function sourcesFor(target: Target, expected: CompositionSource[]) {
-  const { chapter } = await owned(target);
+  const { story, chapter } = await owned(target);
   const texts = writingModuleTexts(chapter.blocks.body, chapter.blocks.writingStyle);
   const blocks = (chapter.blocks.writingStyle ?? []).map((b, i) => ({ id: b.id, text: texts[i] ?? '' }));
   const sources = compositionSources(blocks, target.moduleIds);
@@ -44,7 +46,7 @@ async function sourcesFor(target: Target, expected: CompositionSource[]) {
   const assets = await getStoryImageAssets(target.storyId, target.userId);
   if (compositionReferences(sources).some(url => !assets.some(a => a.imageUrl === url && a.availability !== 'missing')))
     throw new Error('参考图尚未保存到仓库，请先保存文章');
-  return sources;
+  return { sources, creationEmotion: storyEmotion(story.body, { chapterId: String(target.chapterId) }) };
 }
 async function saveResult(target: Target, id: string, result: ImageGenResult) {
   const task = await mutateModuleImageTasks(target, async (tasks, store) => {
@@ -76,7 +78,7 @@ async function settle(task: BookModuleImageTask) {
 export async function generateBookImageComposition(input: Target & {
   sources: CompositionSource[]; instruction: string; previousTaskId: string | null; estimatedCny: number;
 }) {
-  const sources = await sourcesFor(input, input.sources);
+  const { sources, creationEmotion } = await sourcesFor(input, input.sources);
   const prior = await readBookImageComposition(input);
   if (prior && (pending(prior) || prior.id !== input.previousTaskId)) return prior;
   if (!prior && input.previousTaskId) throw new Error('图像方案已变化，请重新打开');
@@ -115,15 +117,25 @@ export async function generateBookImageComposition(input: Target & {
         });
       },
     };
-    const result = await renderViaGate({ prompt, userInstructions: [prompt], referenceImages: references,
+    const renderProfileId = references.length ? 'image.gpt-image-2.5.edit' as const : 'image.gpt-image-2.5.generate' as const;
+    const result = await renderViaGate({ creationEmotion, prompt, userInstructions: [prompt], referenceImages: references,
       strictReferenceFidelity: references.length > 0, longPrompt: true, outputPurpose: 'image-edit',
       referencePolicy: references.length ? 'preserve-composition' : 'none',
     }, async compiled => {
-      await mutateModuleImageTasks(input, tasks => { tasks.find(t => t.id === id)!.composition!.compiledPrompt = compiled; });
+      const renderProfile = buildRenderSnapshot(renderProfileId, {
+        params: { ...options, ...(references.length ? { requireInputImage: true, preferStructuralEdit: true, referenceContextImageUrls: references.slice(1) } : {}) },
+        quoteInput: { composition: { sources, instructions, revision: Boolean(previousImage) } },
+        promptChars: compiled.length,
+      });
+      await mutateModuleImageTasks(input, tasks => {
+        const composition = tasks.find(t => t.id === id)!.composition!;
+        composition.compiledPrompt = compiled;
+        composition.renderProfile = renderProfile;
+      });
       submitted = true;
       return references.length
-        ? editImage(references[0], compiled, { ...options, requireInputImage: true, preferStructuralEdit: true, referenceContextImageUrls: references.slice(1) })
-        : generateImage(compiled, options);
+        ? editImage(references[0], compiled, { ...options, renderProfileId, requireInputImage: true, preferStructuralEdit: true, referenceContextImageUrls: references.slice(1) })
+        : generateImage(compiled, { ...options, renderProfileId });
     });
     return await saveResult(input, id, result);
   } catch (error) {

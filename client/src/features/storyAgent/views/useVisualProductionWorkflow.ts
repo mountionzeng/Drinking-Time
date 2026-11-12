@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { storySpineStore } from "../spine/storySpine";
 import { registerVisualProductionChat } from "../visualProductionChatBridge";
 import { executeVisualProduction, type ProductionShot } from "./visualProductionWorkflow";
+import type { MotionField } from "@shared/visualProductionChat";
 
 type Input = {
   storyId?: number | null;
@@ -9,6 +10,7 @@ type Input = {
   selectedShotNo?: number | null;
   referenceImageIds?: number[];
   save: (shot: ProductionShot, field: "promptDraft" | "videoPrompt", value: string) => Promise<void>;
+  saveFields?: (shot: ProductionShot, fields: Partial<Record<MotionField, string>>) => Promise<void>;
   render: (shot: ProductionShot, kind: "image" | "video", instruction: string, referenceImageIds?: number[]) => Promise<string>;
   adopt: (shot: ProductionShot, asset: { imageId?: number; takeId?: number; timeline: boolean }) => Promise<void>;
 };

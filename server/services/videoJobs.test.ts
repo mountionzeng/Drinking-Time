@@ -120,6 +120,57 @@ describe("videoJobs", () => {
     if (result.status === "ok") expect(result.take.sourceImageId).toBe(image.id);
   });
 
+  it("does not mark a newly submitted take unfollowable before the provider receipt arrives", async () => {
+    const story = await createStory({ userId: 1, title: "Pending receipt", body: {} });
+    const take = await createVideoTake({ userId: 1, projectId: null, storyId: story.id,
+      stableShotId: "shot-1", sourceImageId: null, status: "submitted", taskId: null,
+      provider: "302", model: "viduq2-pro-fast", prompt: "Fly", durationSec: 8,
+      aspectRatio: "1:1", extractionCapability: "unavailable" });
+    const fetch = vi.fn(); vi.stubGlobal("fetch", fetch);
+    const result = await refreshVideoTakeStatus(take.id, 1);
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") expect(result.take.status).toBe("submitted");
+    expect(fetch).not.toHaveBeenCalled();
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date(Date.now() + 6 * 60_000));
+      const stale = await refreshVideoTakeStatus(take.id, 1);
+      if (stale.status === "ok") expect(stale.take.status).toBe("unfollowable");
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("uses an explicitly selected extracted first frame without promoting it to current image", async () => {
+    const story = await createStory({ userId: 1, title: "Frame", body: {} });
+    const frame = await createGeneratedImage({ userId: 1, projectId: null, storyId: story.id,
+      shotNo: "SH03", shotIdentity: "imported-shot-3", imageUrl: "data:image/png;base64,QQ==",
+      imageKey: null, prompt: "Extracted reference", generationType: "initial", isCurrent: false });
+    const shots = [
+      { shotNo: 3, stableShotId: "imported-shot-3", subject: "Flight", videoPrompt: "Fly forward",
+        generationParams: JSON.stringify({ storyboardFrameRoles: { firstImageId: frame.id } }) },
+      { shotNo: 4, stableShotId: "other-shot", subject: "Other" },
+    ];
+    await updateStory(story.id, 1, { body: { shots } });
+    const fetch = vi.fn(async () => ({ ok: true, json: async () => ({ taskId: "extracted-frame-task" }) }));
+    vi.stubGlobal("fetch", fetch);
+    const request = { storyId: story.id, shotNo: 3, stableShotId: "imported-shot-3", imageId: frame.id,
+      prompt: "Fly forward", directorPromptApproved: true };
+    expect((await startShotVideoJob({ ...request, shotNo: 4, stableShotId: "other-shot" }, 1)).status).toBe("error");
+    expect((await startShotVideoJob(request, 2)).status).toBe("error");
+    expect(fetch).not.toHaveBeenCalled();
+    const result = await startShotVideoJob(request, 1);
+    expect(result.status).toBe("ok");
+    expect(fetch).toHaveBeenCalledTimes(1);
+    if (result.status === "ok") expect(result.take.sourceImageId).toBe(frame.id);
+    await updateStory(story.id, 1, { body: { shots: [{ ...shots[0],
+      generationParams: JSON.stringify({ storyboardFrameRoles: { referenceImageIds: [frame.id] } }) }] } });
+    expect((await startShotVideoJob(request, 1)).status).toBe("error");
+    expect(fetch).toHaveBeenCalledTimes(1);
+    await updateStory(story.id, 1, { body: { shots } });
+    await createImageSignal({ userId: 1, storyId: story.id, imageId: frame.id, action: "swipe_left", metadata: null });
+    expect((await startShotVideoJob(request, 1)).status).toBe("error");
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
   async function selectImage(storyId: number, imageId: number) {
     await createImageSignal({
       userId: 1,
@@ -913,7 +964,12 @@ Negative: no floating objects, characters obey physics.
       durationSec: 5,
       aspectRatio: "1:1",
       videoUrl: "/api/videos/contact-sheet.mp4",
-      parameterSnapshot: { resultSelectionRule: "first-valid-url" },
+      parameterSnapshot: {
+        resultSelectionRule: "first-valid-url",
+        submitPath: "/mj/submit/video",
+        pollPath: "/mj/task/{taskId}/fetch",
+        submitUrl: "https://api.302.ai/mj/submit/video",
+      },
       extractionCapability: "available",
     });
     vi.stubGlobal(
@@ -986,4 +1042,11 @@ it("sends confirmed art motion to the provider and retains the art version on th
   expect(sent.prompt).toContain("Ink rises from spout"); expect(sent.prompt).toContain("slow flowing ink");
   if (result.status === "ok") expect(result.take.parameterSnapshot).toMatchObject({ artSystem: { version: 7, name: "Ink world" } });
   await startShotVideoJob(input, 1); expect(fetch).toHaveBeenCalledTimes(1);
+});
+
+it("does not buy a new video while this shot's original-frame edits await review",async()=>{
+ const story=await createStory({userId:1,title:"review first",body:{shots:[{shotNo:3,stableShotId:"s3"}],storyboardImageTasks:[{shotIdentity:"s3",status:"succeeded",meta:{editMode:"retexture",parentImageId:20}}]}});
+ const fetcher=vi.fn();vi.stubGlobal("fetch",fetcher);
+ const result=await startShotVideoJob({storyId:story.id,shotNo:3,stableShotId:"s3",imageId:20,prompt:"render"},1);
+ expect(result).toMatchObject({status:"error",error:expect.stringContaining("查看原图与新版")});expect(fetcher).not.toHaveBeenCalled();
 });

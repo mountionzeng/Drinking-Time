@@ -1,3 +1,4 @@
+import { getVideoBookSource, quoteVideoBook, generateVideoBook, videoBookInput } from "../services/videoBook";
 import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
 import {
@@ -16,6 +17,10 @@ import {
 const owner = z.object({ storyId: z.number().int().positive() });
 const record = owner.extend({ id: z.string().uuid() });
 export const bookWorkflowRouter = router({
+  videoSource: protectedProcedure.input(owner).query(({ctx,input})=>getVideoBookSource({...input,userId:ctx.user.id})),
+  quoteVideoText: protectedProcedure.input(videoBookInput).mutation(({ctx,input})=>quoteVideoBook({...input,userId:ctx.user.id})),
+  generateVideoText: protectedProcedure.input(videoBookInput.extend({id:z.string().uuid(),quoteFingerprint:z.string().length(64)}))
+    .mutation(({ctx,input})=>generateVideoBook({...input,userId:ctx.user.id,actor:{userId:ctx.user.id,name:ctx.user.name||"未设置称呼"}})),
   generateFilm: protectedProcedure.input(record.extend({
     target: z.enum(["text", "storyboard"]).default("storyboard"),
     chapterId: z.number().int().positive().optional(), request: z.string().trim().max(4000),

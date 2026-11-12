@@ -208,6 +208,8 @@ describe("timelineMediaExport", () => {
     expect(ffmpeg.filterComplex).toContain(
       "overlay=0:0:enable='gte(t,1.000000)*lt(t,2.000000)'"
     );
+    expect(ffmpeg.args).not.toContain("-loop");
+    expect(ffmpeg.filterComplex).toContain("eof_action=repeat");
     expect(ffmpeg.args).not.toContain("-an");
   });
 
@@ -519,4 +521,40 @@ describe("export audio input resolution", () => {
     expect([...timedPaths.keys()]).toEqual([-20]);
     expect(timedDiagnostics.join(" ")).toMatch(/下载时间上限/);
   });
+});
+
+it("exports two positioned language lanes in one interval in both renderers", () => {
+  const cue = subtitlePlan().cues[0];
+  const plan = {
+    endFrame: 60,
+    cues: [
+      {
+        ...cue,
+        id: "en",
+        text: "Hello world",
+        placement: { left: 0.05, top: 0.8, width: 0.9, fontSize: 0.03 },
+      },
+      {
+        ...cue,
+        id: "zh",
+        text: "你好世界",
+        placement: { left: 0.05, top: 0.86, width: 0.9, fontSize: 0.03 },
+      },
+    ],
+  };
+  const intervals = buildSubtitleOverlayIntervals(plan);
+  expect(intervals).toHaveLength(1);
+  expect(intervals[0].positioned).toHaveLength(2);
+  const svg = buildSubtitleOverlaySvg(intervals[0], {
+    width: 1080,
+    height: 1920,
+  });
+  expect(svg).toContain("Hello world");
+  expect(svg).toContain("你好世界");
+  expect(svg).toContain('y="1593.6"');
+  expect(svg).toContain('y="1708.8"');
+  const ass = buildSubtitleAssDocument(plan, { width: 1080, height: 1920 });
+  expect(ass).toContain("Hello world");
+  expect(ass).toContain("你好世界");
+  expect(ass.match(/Dialogue:/g)).toHaveLength(2);
 });

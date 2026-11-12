@@ -963,6 +963,9 @@ const createPendingWrite = (): PendingWrite => {
  * 失败语义与过去一致：某一批写盘失败，只有这一批的调用方拿到异常，不会卡死
  *   后面排队的写入。
  */
+/** Pumps currently writing; graceful shutdown waits for them (see flushLocalPersistence). */
+const activeWritePumps = new Set<Promise<void>>();
+
 function createWriteCoalescer(
   write: () => Promise<void>
 ): (onFailureBeforeNextBatch?: () => void) => Promise<void> {
@@ -995,7 +998,11 @@ function createWriteCoalescer(
     if (onFailureBeforeNextBatch)
       pending.failureCleanups.push(onFailureBeforeNextBatch);
     const joined = pending.promise;
-    if (!running) void pump();
+    if (!running) {
+      const pumping = pump();
+      activeWritePumps.add(pumping);
+      void pumping.finally(() => activeWritePumps.delete(pumping));
+    }
     return joined;
   };
 }
@@ -1027,6 +1034,20 @@ export function enqueueLocalPersistenceWrite<T>(
     () => undefined
   );
   return result;
+}
+
+/**
+ * Resolve once every scheduled local JSON write (main state, edit snapshots)
+ * has landed or failed. Used by graceful shutdown so a restart never leaves a
+ * half-written `.tmp` behind. Never rejects; callers bound it with a timeout.
+ */
+export async function flushLocalPersistence(): Promise<void> {
+  for (let round = 0; round < 20; round++) {
+    const pumps = Array.from(activeWritePumps);
+    const tail = localPersistenceWriteTail;
+    await Promise.allSettled([...pumps, tail]);
+    if (activeWritePumps.size === 0 && tail === localPersistenceWriteTail) return;
+  }
 }
 
 export function frozenMemoryStateSnapshot(state: MemoryState): MemoryState {

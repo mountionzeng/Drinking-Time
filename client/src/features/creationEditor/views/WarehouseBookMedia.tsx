@@ -1,3 +1,4 @@
+import { WarehouseFiles } from "./WarehouseFiles";
 import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
@@ -11,9 +12,11 @@ import { isPersistedStoryId } from "@shared/persistedStoryId";
 export function WarehouseBookMedia({
   storyId,
   kind,
+  leading,
 }: {
   storyId: number;
   kind: "music" | "text";
+  leading?: import("react").ReactNode;
 }) {
   const _ui = useDesktopUiText();
   const [offset, setOffset] = useState(0);
@@ -45,6 +48,7 @@ export function WarehouseBookMedia({
       )}
       {kind === "music" ? (
         <div className="flex gap-3 overflow-x-auto">
+          {leading}
           {music.data
             ?.filter(a => a.mediaKind === audioKind)
             .map(a => (
@@ -67,13 +71,14 @@ export function WarehouseBookMedia({
                   {_ui("插入书中")}</button>
               </article>
             ))}
-          {music.data && !music.data.some(a => a.mediaKind === audioKind) && (
+          {music.data && !music.data.some(a => a.mediaKind === audioKind) && !leading && (
             <p className="text-xs text-muted-foreground">
               {_ui("生成或导入的音乐会保存在这里。")}</p>
           )}
         </div>
       ) : (
         <>
+          <WarehouseFiles storyId={storyId}/>
           <div className="flex gap-3 overflow-x-auto">
             {text.data?.cards.map(c => (
               <article key={c.id} className="w-64 shrink-0 rounded border p-2">

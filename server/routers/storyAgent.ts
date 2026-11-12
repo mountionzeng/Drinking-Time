@@ -1,10 +1,28 @@
+import { generate302FluxEdit, generate302FluxDevEdit } from "../services/fluxKontextEdit";
+import { generate302MjEdit } from "../services/mj302Edit";
+import { estimateMjOriginalEditCost, mjEditSupplier, fluxKontextEditModel, isFluxKontextEdit, estimateFluxKontextEditCost } from "../../shared/imageRenderCost";
+import { visualEditUnderstandingRouter } from "./visualEditUnderstanding";
+import { visualEditPrompt, preparedReferenceEditPrompt } from "../services/visualEditUnderstanding";
+import { creationEmotionRouter } from "./creationEmotion";
+import { handleCreationEmotionChat, storyEmotion } from "../services/creationEmotion";
 import { jsonRecord } from "../repositories/storyValues";
+import { chatCutRelinkSchema, completeChatCutRelink } from "../services/chatCutRelink";
 import { recordShotConversationMedia } from "../services/shotConversationMedia";
 import { readChatImageRevisions, decideChatImageRevision } from "../services/chatImageRevision";
+import { attachLuminanceCandidates, gradeStoryImageLuminance, transferStoryImageColor } from "../services/chatColorTransfer";
+import { framePaletteInput, quoteFramePaletteEdit, renderFramePaletteEdit } from "../services/framePaletteEdit";
+import { inspectFrameColorMatch } from "../services/frameColorMatch";
+import { proposeShotContentEdit } from "../services/shotContentTargets";
+import { quoteChatLlmSteps } from "../services/chatLlmQuote";
+import { gradeVideoLuminance } from "../services/videoLuminanceGrade";
+import { gradeVideoRegion } from "../services/videoRegionalGrade";
+import { COLOR_TRANSFER_MAX_TARGETS } from "@shared/colorTransferIntent";
 import { detachGeneratedImageFromShot } from "../repositories/images";
 import { artPreviewGenerationInput } from "../services/artPreview";
 import { pendingStoryboardImageTasks, recoverStoryboardImageTask, runStoryboardImageTask, type StoryboardImageRender } from "../services/storyboardImageTask";
-import { generateLegnextImage } from "../services/legnextImage";
+import { legnextRetexturePrompt } from "../services/legnextImage";
+import { submitRender } from "../services/render/submitRender";
+import { buildRenderSnapshot } from "../services/render/snapshot";
 import { storyTagsSchema } from "../../shared/storyTags";
 import { getStoryTags, setStoryTags } from "../services/storyTags";
 import { generateBilledStoryboardVoice } from "../services/storyboardVoiceBilling";
@@ -261,6 +279,8 @@ import { layoutModuleContextSchema } from "../../shared/layoutModuleContext";
 import { layoutMemoryContextSchema } from "../../shared/layoutOperationMemory";
 
 export const storyAgentRouter = router({
+  creationEmotion: creationEmotionRouter,
+  visualUnderstanding: visualEditUnderstandingRouter,
   /** Conversational chat with the story agent */
   chat: protectedProcedure
     .input(
@@ -370,6 +390,10 @@ export const storyAgentRouter = router({
       await assertOptionalProjectOwner(input.projectId, ctx.user.id);
       const story = input.storyId ? await getStoryById(input.storyId, ctx.user.id) : null;
       if (input.storyId && !story) throw new TRPCError({ code: "NOT_FOUND", message: "故事不存在或无权访问" });
+      if (story) {
+        const emotionReply = await handleCreationEmotionChat({ storyId: story.id, userId: ctx.user.id, message: input.message });
+        if (emotionReply) return emotionReply;
+      }
       if (input.writingContext) {
         if (!story) throw new TRPCError({ code: "BAD_REQUEST", message: "请先保存当前故事" });
         if (input.writingContext.module && input.writingContext.module.storyId !== input.storyId)
@@ -821,6 +845,9 @@ export const storyAgentRouter = router({
    * ChatCut XML → 独立聊聊故事。主剪辑轨转换为线性镜头时间轴，
    * 多轨、音频、入出点、变换与变速保存在故事导入清单里，供后续重关联。
    */
+  completeChatCutImport: protectedProcedure.input(chatCutRelinkSchema)
+    .mutation(({ ctx, input }) => completeChatCutRelink({ ...input, userId: ctx.user.id })),
+
   importChatCutXml: protectedProcedure
     .input(
       z.object({
@@ -1834,6 +1861,7 @@ export const storyAgentRouter = router({
           .object({
             accepted: z.literal(true),
             estimatedCny: z.number().nonnegative(),
+            continueAfterUnknownRequestId: z.string().uuid().optional(),
           })
           .optional(),
         storyId: z.number(),
@@ -1898,6 +1926,8 @@ export const storyAgentRouter = router({
       }
       if (input.conversationRevision && (!input.referenceRevision || !input.shotImageRequestId || input.shotNo == null || input.moduleTarget))
         throw new TRPCError({ code: "BAD_REQUEST", message: "对话改图需要完整的原图和镜头信息" });
+      const fluxEdit = Boolean(input.conversationRevision && input.referenceRevision && input.imageProvider === "gpt-image" && isFluxKontextEdit(input.explicitInstruction));
+      const retexture = Boolean(input.conversationRevision && input.referenceRevision && input.imageProvider === "midjourney");
       const execute = async (moduleImage?: ModuleImageHooks, storyboardImage?: StoryboardImageRender) => {
       try {
         const story = await getStoryById(input.storyId, ctx.user.id);
@@ -1926,6 +1956,7 @@ export const storyAgentRouter = router({
           !input.renderReferences || input.renderReferences.imageIds.length !== 1 ||
           Object.keys(input.renderReferences.assets).length > 0 || input.remixEdit || input.draftImageId
         )) throw new Error("改图需要选中一张原图");
+        let referenceOnly = false;
         if (input.renderReferences) {
           if (!story || story.userId !== ctx.user.id) throw new Error("故事不存在或无权访问");
           if (!input.explicitInstruction?.trim()) throw new Error("请先填写图片要求");
@@ -1938,6 +1969,13 @@ export const storyAgentRouter = router({
           if (selectedImages.some(image => !image || image.storyId !== input.storyId || image.userId !== ctx.user.id)) {
             throw new Error("参考图片已删除或不属于当前故事");
           }
+          if (input.conversationRevision && selectedImages.some(image => image!.shotIdentity
+            ? image!.shotIdentity !== shotIdentityForStoryShot(story, input.shotNo)
+            : canonicalizeShotNo(image!.shotNo) !== canonicalizeShotNo(input.shotNo)))
+            throw new Error("原图不属于所选镜头，本次未提交");
+          referenceOnly = retexture && Boolean(selectedImages[0]?.imageKey?.startsWith("generated/frame-references/") ||
+            (Array.isArray(jsonRecord(story.body).storyboardImageTasks) ? jsonRecord(story.body).storyboardImageTasks as import("../services/storyboardImageTask").Task[] : [])
+              .some(task => task.meta?.referenceOnly && task.result?.status === "ok" && task.result.candidates.some(candidate => candidate.imageId === selectedImages[0]?.id)));
           const inheritVisual = input.renderReferences.imagePurpose === "scene-style" && !input.referenceRevision;
           input = { ...input, referenceImageUrl: inheritVisual ? undefined : selectedImages[0]?.imageUrl,
             referenceContextImageUrls: inheritVisual ? undefined : selectedImages.slice(1).map(image => image!.imageUrl),
@@ -1997,9 +2035,9 @@ export const storyAgentRouter = router({
         }
         if (input.explicitInstruction || input.editMaskImageUrl || input.gptImageModel) {
           const estimate =
-            input.editMaskImageUrl || input.imageProvider === "gpt-image"
+            fluxEdit ? estimateFluxKontextEditCost(fluxKontextEditModel(input.explicitInstruction)!) : input.editMaskImageUrl || input.imageProvider === "gpt-image"
               ? estimateStoryboardMaskedEditCost()
-              : estimateStoryboardImageCost();
+              : retexture ? estimateMjOriginalEditCost(input.explicitInstruction) : estimateStoryboardImageCost();
           if (!input.costConfirmation?.accepted) {
             return {
               status: "error" as const,
@@ -2358,7 +2396,7 @@ export const storyAgentRouter = router({
           lockedAssets?.petRef ??
           (input.renderReferences ? Object.values(lockedAssets?.dimensions ?? {})[0]?.providerReferenceUrl : undefined);
         const strictReferenceFidelity = Boolean(referenceImage) &&
-          requestsStrictReferenceFidelity(input.explicitInstruction ?? "");
+          (input.conversationRevision && input.referenceRevision || requestsStrictReferenceFidelity(input.explicitInstruction ?? ""));
         if (confirmedFramePrompt && referenceImage && referencePlan.referencePurpose === "scene-style") {
           prompt += "\n【已确定画面的连续性】所附图片是本片已经确定的视觉依据：沿用对应物体的造型、材质、线条与色调。本镜的内容、构图和动作仍按本镜要求；未在本镜出现的物体不搬过来，不把参考图直接当成本镜首帧。";
         }
@@ -2410,7 +2448,7 @@ export const storyAgentRouter = router({
         if (strictReferenceFidelity) {
           // The user's preservation request is authoritative; vision rewriting
           // previously invented steam, lighting and a new interface composition.
-          prompt = input.explicitInstruction!.trim();
+          prompt = await visualEditPrompt({ storyId: input.storyId, userId: ctx.user.id, stableShotId: shotIdentityForStoryShot(story, input.shotNo) ?? undefined, imageId: input.renderReferences?.imageIds[0], instruction: input.explicitInstruction!.trim() });
         } else if (input.remixEdit) {
           // 多图重组时，客户端已经把「图1＝…图2＝…」的清单和用户原话拼成 prompt，
           // 图号和实际发送顺序严格对齐。这里不能再走 directImagePrompt：它只看
@@ -2482,11 +2520,15 @@ export const storyAgentRouter = router({
             provider: input.imageProvider ?? "midjourney",
           });
         }
+        const referenceEditPrompt = input.conversationRevision && input.referenceRevision ? await preparedReferenceEditPrompt({ storyId: input.storyId, userId: ctx.user.id,
+          stableShotId: shotIdentityForStoryShot(story, input.shotNo) ?? undefined, imageId: input.renderReferences!.imageIds[0], instruction: input.explicitInstruction! }) : undefined;
         const gateContext = {
+          referenceEditPrompt,
+          creationEmotion: storyEmotion(story.body, { chapterId: input.moduleTarget ? String(input.moduleTarget.chapterId) : undefined, shotId: shotIdentity ?? undefined }),
           prompt,
           strictReferenceFidelity,
           userInstructions: input.explicitInstruction
-            ? [input.explicitInstruction]
+            ? [retexture ? `只修改下面用户明确提出的内容；未明确要求改变时，保留原图的整体明暗、灰度关系、对比度、主色调、构图、画幅、物体形状与相对位置，保留已有界面、Logo和文字。不要加入新的物体、景物、光效或另一个美术风格。色彩更丰富不等于提高曝光、反差或整体饱和度。\n${prompt}` : input.explicitInstruction]
             : undefined,
           // gpt-image 没有 MJ 的 3500 字上限；不放开的话，参考图清单加连续性规格
           // 会把用户要求挤过 1800 字预算，后半段被整段切掉。
@@ -2638,16 +2680,45 @@ export const storyAgentRouter = router({
                 : "none"
             }`
           );
+          if (storyboardImage && fluxEdit) {
+            return storyboardImage((accepted, ready) => fluxKontextEditModel(input.explicitInstruction) === "dev"
+              ? generate302FluxDevEdit(referenceImage!, renderedFinalPrompt, ready)
+              : generate302FluxEdit(referenceImage!, renderedFinalPrompt, accepted), {
+              prompt: renderedFinalPrompt, shotNo: canonicalizeShotNo(input.shotNo)!, promptCompilationId,
+              generationType: "inpaint", provider: fluxKontextEditModel(input.explicitInstruction) === "dev" ? "flux-kontext-dev" : "flux-kontext-pro", parentImageId: input.renderReferences!.imageIds[0],
+              conversationRevision: true, instruction: input.explicitInstruction });
+          }
           if (storyboardImage && input.conversationRevision && input.imageProvider === "gpt-image") {
+            const revisionOptions = {
+              provider: "gpt-image" as const, referenceRevision: true, gptImageModel: "gpt-image-2" as const, gptSubmitOnly: true,
+              renderProfileId: "image.gpt-image-2.edit" as const,
+            };
             return storyboardImage(accepted => editMobileImage(referenceImage!, renderedFinalPrompt, {
-              provider: "gpt-image", referenceRevision: true, gptImageModel: "gpt-image-2", gptSubmitOnly: true,
+              ...revisionOptions,
               onProviderTaskAccepted: accepted,
             }), { prompt: renderedFinalPrompt, shotNo: canonicalizeShotNo(input.shotNo)!, promptCompilationId,
               generationType: "inpaint", provider: "gpt-image", parentImageId: input.renderReferences!.imageIds[0],
+              conversationRevision: true, instruction: input.explicitInstruction,
+              renderProfile: buildRenderSnapshot("image.gpt-image-2.edit", { params: revisionOptions, promptChars: renderedFinalPrompt.length }) });
+          }
+          if (storyboardImage && retexture) {
+            // Use the existing art gate's compiled result; do not bypass it with raw chat text.
+            const retexturePrompt = renderedFinalPrompt;
+            if (mjEditSupplier(input.explicitInstruction) === "302") {
+              return storyboardImage(accepted => generate302MjEdit(referenceImage!, retexturePrompt, accepted), {
+                prompt: legnextRetexturePrompt(retexturePrompt), shotNo: canonicalizeShotNo(input.shotNo)!, promptCompilationId,
+                generationType: "inpaint", editMode: "retexture", provider: "302-mj-edit", referenceOnly,
+                parentImageId: input.renderReferences!.imageIds[0], conversationRevision: true, instruction: input.explicitInstruction,
+              });
+            }
+            const retextureOptions = { referenceImageUrl: referenceImage, editMode: "retexture" as const, inlinePoll: false };
+            return storyboardImage(accepted => submitRender("image.legnext-retexture", { prompt: legnextRetexturePrompt(retexturePrompt), onAccepted: accepted, options: retextureOptions }), { prompt: legnextRetexturePrompt(retexturePrompt), shotNo: canonicalizeShotNo(input.shotNo)!, promptCompilationId,
+              renderProfile: buildRenderSnapshot("image.legnext-retexture", { params: retextureOptions, promptChars: legnextRetexturePrompt(retexturePrompt).length }),
+              generationType: "inpaint", editMode: "retexture", referenceOnly, parentImageId: input.renderReferences!.imageIds[0],
               conversationRevision: true, instruction: input.explicitInstruction });
           }
           if (storyboardImage) {
-            return storyboardImage(accepted => generateLegnextImage(renderedFinalPrompt, accepted, {
+            const legnextOptions = {
               ...injection, referenceImageUrl: referenceImage,
               referenceContextImageUrls: Array.from(new Set([
                 ...(input.referenceContextImageUrls ?? []),
@@ -2656,10 +2727,13 @@ export const storyAgentRouter = router({
                 ...(lockedAssets?.petRef ? [lockedAssets.petRef] : []),
               ])).filter(url => url !== referenceImage).slice(0, 3),
               imageWeight, aspectRatio: "16:9", inlinePoll: false,
-            }), { prompt: renderedFinalPrompt, shotNo: canonicalizeShotNo(input.shotNo)!, promptCompilationId, generationType: referencePlan.usesStoryboardFrames ? "inpaint" : "initial", ...(input.previewBatchId ? { detached: true } : {}), ...(input.conversationRevision ? { conversationRevision: true, parentImageId: input.renderReferences!.imageIds[0], instruction: input.explicitInstruction } : {}) });
+            };
+            return storyboardImage(accepted => submitRender("image.legnext-v7-fast", { prompt: renderedFinalPrompt, onAccepted: accepted, options: legnextOptions }),
+              { prompt: renderedFinalPrompt, shotNo: canonicalizeShotNo(input.shotNo)!, promptCompilationId, generationType: referencePlan.usesStoryboardFrames ? "inpaint" : "initial", ...(input.previewBatchId ? { detached: true } : {}), ...(input.conversationRevision ? { conversationRevision: true, parentImageId: input.renderReferences!.imageIds[0], instruction: input.explicitInstruction } : {}),
+                renderProfile: buildRenderSnapshot("image.legnext-v7-fast", { params: legnextOptions, promptChars: renderedFinalPrompt.length }) });
           }
           if (moduleImage && (input.imageProvider ?? "midjourney") === "midjourney") {
-            return generateLegnextImage(renderedFinalPrompt, moduleImage.onMidjourneyTaskAccepted, { inlinePoll: !moduleImage.asyncSubmit });
+            return submitRender("image.legnext-v7-fast", { prompt: renderedFinalPrompt, onAccepted: moduleImage.onMidjourneyTaskAccepted, options: { inlinePoll: !moduleImage.asyncSubmit } });
           }
           return referenceImage
             ? editMobileImage(referenceImage, renderedFinalPrompt, {
@@ -2704,17 +2778,18 @@ export const storyAgentRouter = router({
               });
         });
         if (result.status === "error" || !result.imageUrl) {
+          const providerResultUrl = result.providerResultUrl;
           const providerTaskId = result.providerTaskId?.trim() || "";
           const submissionUncertain =
             result.submissionUncertain === true && !providerTaskId;
-          const error = providerTaskId
+          const error = providerResultUrl ? "图片已生成，正在取回并保存到仓库；不会重复购买。" : providerTaskId
             ? (providerTaskId.startsWith("legnext:") ? legnextPendingMessage(result.message) : `图片任务已被 302 受理（任务号 ${providerTaskId}），但结果回传失败（${result.message ?? "暂时无法取得图片"}）。请勿重复提交，稍后恢复或查询该任务。`)
             : submissionUncertain
               ? `图片提交过程中连接中断，未拿到供应商任务号，无法确认上游是否已受理（${result.message ?? "网络连接异常"}）。请先检查候选或服务商后台，再决定是否重试，避免重复付费。`
               : (result.message ?? "图片生成返回空结果");
           // Definite failure (no accepted task, not uncertain): refund every
           // prompt-preparation AI charge of this request, each exactly once.
-          if (!providerTaskId && !submissionUncertain) moduleImage?.onDefiniteFailure?.();
+          if (!providerTaskId && !providerResultUrl && !submissionUncertain) moduleImage?.onDefiniteFailure?.();
           // Table mode, non-module request: hand the accepted receipt to the background worker
           // (query only) so the paid result is fetched into the warehouse instead of being lost.
           const backgroundTask =
@@ -2727,7 +2802,7 @@ export const storyAgentRouter = router({
                 }).catch(error => { console.warn("[generateForMobile] background task registration failed", error instanceof Error ? error.message : error); return null; })
               : null;
           const promptRefund =
-            !providerTaskId && !submissionUncertain
+            !providerTaskId && !providerResultUrl && !submissionUncertain
               ? await refundImagePromptCharges({
                   userId: ctx.user.id,
                   billings: promptBillings,
@@ -2740,13 +2815,16 @@ export const storyAgentRouter = router({
             error: backgroundTask ? "图片任务已受理，正在后台生成，完成后自动保存到仓库，请勿重复提交。" : error,
             ...(backgroundTask ? { pending: true, imageTaskId: backgroundTask.id } : {}),
             ...(providerTaskId ? { providerTaskId } : {}),
+            ...(providerResultUrl ? { providerResultUrl, recoveryPending:true } : {}),
             ...(submissionUncertain ? { submissionUncertain: true } : {}),
-            ...(!providerTaskId && !submissionUncertain && result.errorCode
+            ...(!providerTaskId && !providerResultUrl && !submissionUncertain && result.errorCode
               ? { errorCode: result.errorCode }
               : {}),
-            ...(!providerTaskId && !submissionUncertain && result.retryAt
+            ...(!providerTaskId && !providerResultUrl && !submissionUncertain && result.retryAt
               ? { retryAt: result.retryAt }
               : {}),
+            // Original provider code/message (sanitized) so the task record keeps it.
+            ...(result.providerError ? { providerError: result.providerError } : {}),
           };
         }
         // 写入 generatedImages 表（shotNo 转为字符串，统一表结构）。
@@ -2851,7 +2929,7 @@ export const storyAgentRouter = router({
         if (!story) throw new TRPCError({ code: "NOT_FOUND", message: "故事不存在" });
         const identity = shotIdentityForStoryShot(story, input.shotNo);
         if (!identity) throw new TRPCError({ code: "BAD_REQUEST", message: "镜头已变化，请重新打开分镜表" });
-        return runStoryboardImageTask({ requireNewIntent: input.conversationRevision, storyId: input.storyId, userId: ctx.user.id, shotIdentity: input.previewBatchId ? `preview:${input.previewBatchId}:${identity}` : identity, requestId: input.shotImageRequestId }, async render => {
+        return runStoryboardImageTask({ continueAfterUnknownRequestId: input.costConfirmation?.accepted ? input.costConfirmation.continueAfterUnknownRequestId : undefined, requireNewIntent: input.conversationRevision, storyId: input.storyId, userId: ctx.user.id, shotIdentity: input.previewBatchId ? `preview:${input.previewBatchId}:${identity}` : identity, requestId: input.shotImageRequestId }, async render => {
           const result = await execute(undefined, render);
           return result.status === "ok" ? { ...result, candidates: "candidates" in result ? result.candidates : [{ imageId: result.imageId, imageUrl: result.imageUrl }] } : result;
         });
@@ -3049,6 +3127,83 @@ export const storyAgentRouter = router({
   decideChatImageRevision: protectedProcedure
     .input(z.object({ storyId: z.number().int().positive(), requestId: z.string().min(1).max(100), kind: z.enum(["keep", "replace"]), imageId: z.number().int().positive().optional() }))
     .mutation(({ ctx, input }) => decideChatImageRevision({ ...input, userId: ctx.user.id })),
+
+  framePaletteQuote: protectedProcedure.input(framePaletteInput)
+    .query(({ctx,input})=>quoteFramePaletteEdit({...input,userId:ctx.user.id})),
+  framePaletteRender: protectedProcedure.input(framePaletteInput.extend({
+    requestId:z.string().uuid(),costConfirmation:z.object({accepted:z.literal(true),estimatedCny:z.number().nonnegative(),fingerprint:z.string().length(64)}),
+  })).mutation(({ctx,input})=>renderFramePaletteEdit({...input,userId:ctx.user.id})),
+
+  inspectFrameColorMatch: protectedProcedure
+    .input(z.object({ storyId: z.number().int().positive(), targetImageId: z.number().int().positive(), referenceImageId: z.number().int().positive() }))
+    .query(({ ctx, input }) => inspectFrameColorMatch({ ...input, userId: ctx.user.id })),
+
+  // 对话里「按图X的颜色改图Y」：本地套色（锁亮度），0 算力，不预占不扣费，结果存为新版本。
+  transferImageColor: protectedProcedure
+    .input(z.object({
+      storyId: z.number().int().positive(),
+      requestId: z.string().min(8).max(64),
+      instruction: z.string().min(1).max(500),
+      source: z.union([z.object({ imageId: z.number().int().positive() }).strict(), z.object({ shotNo: z.number().int().positive() }).strict()]),
+      targets: z.array(z.union([z.object({ imageId: z.number().int().positive() }).strict(), z.object({ shotNo: z.number().int().positive() }).strict()]))
+        .min(1).max(COLOR_TRANSFER_MAX_TARGETS),
+    }))
+    .mutation(({ ctx, input }) => transferStoryImageColor({ ...input, userId: ctx.user.id })),
+
+  // 对话里「只调亮度」（图片）：亮度贴近参考图，色相锁死、HSL 饱和度不变；中档/全档候选并排，0 算力，不自动替换。
+  gradeImageLuminance: protectedProcedure
+    .input(z.object({
+      storyId: z.number().int().positive(),
+      requestId: z.string().min(8).max(64),
+      instruction: z.string().min(1).max(500),
+      reference: z.union([z.object({ imageId: z.number().int().positive() }).strict(), z.object({ shotNo: z.number().int().positive() }).strict()]).optional(),
+      targets: z.array(z.union([z.object({ imageId: z.number().int().positive() }).strict(), z.object({ shotNo: z.number().int().positive() }).strict()]))
+        .min(1).max(COLOR_TRANSFER_MAX_TARGETS),
+      strengths: z.array(z.enum(["mid", "full"])).max(2).default(["mid", "full"]),
+    }))
+    .mutation(({ ctx, input }) => gradeStoryImageLuminance({ ...input, userId: ctx.user.id })),
+
+  // 对话里「视频只调亮度」：整片固定曲线（ffmpeg lut3d），存为同镜头的新 Take，0 算力，原 Take 不动，不自动放入。
+  gradeVideoLuminance: protectedProcedure
+    .input(z.object({
+      storyId: z.number().int().positive(),
+      requestId: z.string().min(8).max(64),
+      takeId: z.number().int().positive().optional(),
+      shotNo: z.number().int().positive().optional(),
+      referenceImageId: z.number().int().positive().optional(),
+      strength: z.enum(["mid", "full"]),
+    }).refine(input => input.takeId != null || input.shotNo != null, { message: "请指定视频 Take 或镜号" }))
+    .mutation(({ ctx, input }) => gradeVideoLuminance({ ...input, userId: ctx.user.id })),
+
+  /** 免费：视频分时段、按对象（森林）微调亮度，色相和饱和度不变；前段原样拷贝并逐帧校验。 */
+  gradeVideoRegion: protectedProcedure
+    .input(z.object({
+      storyId: z.number().int().positive(),
+      requestId: z.string().min(8).max(64),
+      takeId: z.number().int().positive().optional(),
+      shotNo: z.number().int().positive().optional(),
+      subject: z.enum(["forest"]),
+      window: z.union([z.enum(["second-half", "first-half", "whole"]), z.object({ startSec: z.number().min(0), endSec: z.number().positive() })]),
+      deltaL: z.number().min(1).max(12),
+      protectHighlights: z.boolean().default(true),
+      instruction: z.string().max(500).default(""),
+    }).refine(input => input.takeId != null || input.shotNo != null, { message: "请指定视频 Take 或镜号" }))
+    .mutation(({ ctx, input }) => gradeVideoRegion({ ...input, userId: ctx.user.id })),
+
+  /** 免费：「森林…，最后云层…」按内容找本镜图片，只读本机图片算颜色特征，不调模型、不写库。 */
+  proposeShotContentEdit: protectedProcedure
+    .input(z.object({ storyId: z.number().int().positive(), stableShotId: z.string().min(1).max(128), text: z.string().min(1).max(300) }))
+    .mutation(({ ctx, input }) => proposeShotContentEdit({ ...input, userId: ctx.user.id })),
+
+  /** 只计算：对话付费步骤附带的小额 LLM 费用上限（与实扣同一算法）。 */
+  quoteChatLlm: protectedProcedure
+    .input(z.object({ steps: z.array(z.object({ step: z.enum(["vision-read", "video-director", "prompt-rewrite"]), count: z.number().int().min(0).max(8) })).min(1).max(3) }))
+    .query(({ input }) => quoteChatLlmSteps(input.steps)),
+
+  /** 免费：AI 改图结果旁边追加「只调亮度」候选（中档/全档），不替换任何图。幂等。 */
+  attachLuminanceCandidates: protectedProcedure
+    .input(z.object({ storyId: z.number().int().positive(), requestId: z.string().min(1).max(100) }))
+    .mutation(({ ctx, input }) => attachLuminanceCandidates({ storyId: input.storyId, userId: ctx.user.id, revisionRequestId: input.requestId })),
 
   pendingStoryboardImages: protectedProcedure
     .input(z.object({ storyId: z.number() }))

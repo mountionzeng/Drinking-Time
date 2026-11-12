@@ -1,4 +1,4 @@
-import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
+import { useUiText as useDesktopUiText, useUiLanguage } from "@/features/uiLanguage/UiLanguage";
 import { trpc } from "@/lib/trpc";
 import { PendingShotImageError } from "@shared/shotImageRender";
 import { pollStoryboardImage } from "./pollStoryboardImage";
@@ -9,7 +9,7 @@ import type { CreationEditorShot } from "@/features/creationEditor/types";
 import { buildPromptTable } from "@/features/creationEditor/promptTable/buildPromptTable";
 import type { PromptRow } from "@/features/creationEditor/promptTable/types";
 import type { StoryMaterialState } from "@shared/storyMaterial";
-import { STORYBOARD_IMAGE_CANDIDATE_COUNT, STORYBOARD_MASKED_EDIT_PROFILE, estimateStoryboardMaskedEditCost } from "@shared/imageRenderCost";
+import { STORYBOARD_IMAGE_CANDIDATE_COUNT, estimateOriginalImageEditCost, mjEditSupplier, originalImageEditLabel } from "@shared/imageRenderCost";
 import {
   shotRenderReferenceOptions,
   selectedReferenceKeys,
@@ -40,6 +40,8 @@ export function useShotImageRender(
   imageConfirmationScope: string
 ) {
   const _ui = useDesktopUiText();
+  const { language } = useUiLanguage();
+  const inspectVisual = trpc.storyAgent.visualUnderstanding.inspect.useMutation();
   const recovery = trpc.storyAgent.recoverStoryboardImage.useMutation();
   const utils = trpc.useUtils();
   const [pendingRequestId, setPendingRequestId] = useState<string | null>(null);
@@ -128,6 +130,10 @@ export function useShotImageRender(
     generationProvider?: "midjourney" | "gpt-image";
     /** A parent batch already confirmed the same one-task quote. */
     skipCostConfirmation?: boolean;
+    /** 对话里的合并报价卡已经确认了这次改图（含读图费用）；只在对话会话内有效。 */
+    preconfirmedRevision?: boolean;
+    continueAfterUnknownRequestId?: string;
+    readingQuote?: { estimatedCny: number; fingerprint: string };
     settings: ShotImageRenderSettings;
     shot: CreationEditorShot;
     previousShots: CreationEditorShot[];
@@ -142,7 +148,7 @@ export function useShotImageRender(
       imageProvider: "midjourney" | "gpt-image";
       candidateCount?: 4;
       reference: { selection: ShotImageRenderSettings["references"]; referenceRevision?: boolean; conversationRevision?: boolean };
-      costConfirmation: { accepted: true; estimatedCny: number };
+      costConfirmation: { accepted: true; estimatedCny: number; continueAfterUnknownRequestId?: string };
     }) => Promise<{
       generatedCount: number;
       imageId?: number;
@@ -179,6 +185,7 @@ export function useShotImageRender(
     const conversationRevision = Boolean(isRevision && storyId && hasMediaChatSession(storyId));
     const provider = isRevision ? input.revisionProvider ?? "midjourney" : input.generationProvider ?? "midjourney";
     const isGptRevision = provider === "gpt-image";
+    const retexture = conversationRevision && provider === "midjourney";
     const choices = material ? shotRenderReferenceOptions(material) : [];
     const chosen = selectedReferenceKeys(settings.references).map(key =>
       choices.find(choice => choice.key === key)
@@ -204,15 +211,36 @@ export function useShotImageRender(
             : ""].filter(Boolean).join("\n");
     const rows = buildPromptTable(shot, { previousShots: input.previousShots });
     // Legacy saved settings may request eight; this entry always buys one task.
-    const quote = isGptRevision ? estimateStoryboardMaskedEditCost() : quoteShotImages(STORYBOARD_IMAGE_CANDIDATE_COUNT);
+    const quote = isGptRevision || retexture ? estimateOriginalImageEditCost(input.revisionInstruction ?? "", provider) : quoteShotImages(STORYBOARD_IMAGE_CANDIDATE_COUNT);
     const estimatedCny = quote.estimatedCny;
-    const fidelityNotice = !isGptRevision && names.length > 0 && requestsStrictReferenceFidelity(instruction)
+    const fidelityNotice = !isGptRevision && !retexture && names.length > 0 && requestsStrictReferenceFidelity(instruction)
       ? `${STRICT_REFERENCE_MJ_NOTICE}\n\n` : "";
-    const confirmed = (!isRevision && input.skipCostConfirmation) || await confirmImageCost(
-      `${label} · ${isGptRevision ? `重新生成图（${STORYBOARD_MASKED_EDIT_PROFILE.model}）` : isRevision ? "重新生成图（MJ）" : "生成4张图（MJ）"}\n${isRevision ? "原图" : "参考素材"}：${names.join("、") || "无"}\n\n${isRevision ? input.revisionInstruction : instruction}\n\n${fidelityNotice}${isGptRevision ? "按要求修改原图，返回1张新版；原图保留。\n" : isRevision ? "参考原图重绘4张候选，细节可能变化；原图保留。\n" : ""}预计费用 ${formatComputeQuote(estimatedCny).replace(/算力$/, _ui("算力"))}，最终以服务商实际扣费为准。`
+    // Quote the actual vision request before sending any image to a paid model.
+    let llmLine = "";
+    let readingQuote = input.readingQuote;
+    if (conversationRevision && storyId && !input.preconfirmedRevision) {
+      try {
+        const llm = await utils.storyAgent.visualUnderstanding.quote.fetch({ storyId, stableShotId: shot.stableShotId, imageId: settings.references.imageIds[0], instruction: input.revisionInstruction!, language });
+        readingQuote = llm;
+        llmLine = `\n读图理解最多 ${formatComputeQuote(llm.estimatedCny)}，与图片合计最多 ${formatComputeQuote(estimatedCny + llm.estimatedCny)}。读图失败时不会提交图片生成。`;
+      } catch { return { status: "error" as const, message: "暂时无法核对读图费用，尚未读图或生成。" }; }
+    }
+    const confirmed = (!isRevision && input.skipCostConfirmation) || (isRevision && conversationRevision && input.preconfirmedRevision) || await confirmImageCost(
+      retexture
+        ? `${label} · 原图编辑（${mjEditSupplier(input.revisionInstruction) === "302" ? "302 MJ Edits" : "Legnext MJ Retexture"}）\n原图：${names.join("、")} · 预计 ${formatComputeQuote(estimatedCny)}\n\n保留未提出修改的明暗、灰度、对比度、构图和物体位置。先看新旧图对比，确认后再继续视频。\n\n${input.revisionInstruction}\n\nMJ 仍可能改变细节，需看图确认；结果全部保存在仓库。${llmLine}`
+        : `${label} · ${isGptRevision ? `重新生成图（${originalImageEditLabel(input.revisionInstruction ?? "", provider)}）` : retexture ? "原图精修（MJ Retexture）" : isRevision ? "重新生成图（MJ）" : "生成4张图（MJ）"}\n${isRevision ? "原图" : "参考素材"}：${names.join("、") || "无"}\n\n${isRevision ? input.revisionInstruction : instruction}\n\n${fidelityNotice}${isGptRevision ? "按要求修改原图，返回1张新版；原图保留。\n" : retexture ? "只修改你点名的内容，默认保留明暗、灰度、对比度、构图和物体位置。返回结果将与原图并排展示，确认前不替换，也不自动生成视频。MJ仍可能改变细节，需要逐张确认。\n" : isRevision ? "参考原图重绘4张候选，细节可能变化；原图保留。\n" : ""}预计费用 ${formatComputeQuote(estimatedCny).replace(/算力$/, _ui("算力"))}，最终以服务商实际扣费为准。${llmLine}`
     );
     if (!confirmed || scope !== imageBatchScope.current || !input.canStart())
       return { status: "cancelled" as const, message: "已取消，未提交生成" };
+    if (conversationRevision && storyId) {
+      try {
+        if (!readingQuote) return { status: "error" as const, message: "缺少已确认的读图报价，尚未调用模型。" };
+        const result = await inspectVisual.mutateAsync({ costConfirmation: { accepted: true, ...readingQuote }, storyId, stableShotId: shot.stableShotId, imageId: settings.references.imageIds[0], instruction: input.revisionInstruction!, language });
+        if (scope !== imageBatchScope.current) return { status: "cancelled" as const, message: "已离开当前故事" };
+        // An unread image cannot silently proceed to a paid fidelity edit.
+        if (result.brief.status !== "seen") return { status: "error" as const, message: result.reply };
+      } catch (error) { return { status: "error" as const, message: error instanceof Error ? error.message : "原图读取失败，尚未生成" }; }
+    }
     input.start();
     try {
       const generate = async () => {
@@ -225,14 +253,14 @@ export function useShotImageRender(
           imageProvider: provider,
           candidateCount: isRevision || isGptRevision ? undefined : 4,
           reference: { selection: settings.references, ...(isRevision ? { referenceRevision: true, conversationRevision } : {}) },
-          costConfirmation: { accepted: true, estimatedCny },
+          costConfirmation: { accepted: true, estimatedCny, continueAfterUnknownRequestId: input.continueAfterUnknownRequestId },
         });
         if (!image.imageId || !image.imageUrl)
           throw new Error("服务端未返回图片，停止后续生成");
         return image;
       };
       let batch;
-      if (isGptRevision) {
+      if (isGptRevision || retexture) {
         const result = await generate();
         batch = { results: [result], generatedCount: result.generatedCount, error: undefined };
       } else {
@@ -250,7 +278,7 @@ export function useShotImageRender(
       if (conversationRevision && storyId) await utils.storyAgent.chatImageRevisions.invalidate({ storyId });
       const message = isRevision
         ? conversationRevision ? `${label} 新图已在对话中展示。请回复“替换原图”或“保留原图”。` : `${label} 新图已放到上方图层，全部版本已保存在仓库`
-        : `${label} 已生成 ${batch.generatedCount} 张图片，已放入画面行`;
+        : `${label} 已生成 ${batch.generatedCount} 张图片，已保存到仓库并放入画面行`;
       toast.success(message);
       const last = batch.results.at(-1);
       return {
@@ -266,7 +294,7 @@ export function useShotImageRender(
         if (cause instanceof PendingShotImageError) {
           if (conversationRevision) {
             await utils.storyAgent.chatImageRevisions.invalidate({ storyId: storyId! });
-            return { status: "success" as const, message: `${label} 图片任务已受理，完成后会显示在对话里。你可以继续发送其他内容；原图尚未替换。` };
+            return { status: "success" as const, requestId: cause.requestId, message: `${label} 图片任务已受理，完成后会显示在对话里。你可以继续发送其他内容；原图尚未替换。` };
           }
           return await followTask(cause.requestId);
         }

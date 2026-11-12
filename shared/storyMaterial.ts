@@ -68,6 +68,8 @@ export type StoryTimelineVisualClip = {
 };
 
 export type StoryTimelineImageClip = {
+  /** Explicit alpha compositing over the lower visual layer. */
+  composition?: { opacity: number; fadeInFrames: number; fadeOutFrames: number };
   id: string;
   imageId: number;
   imageUrl: string;

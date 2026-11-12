@@ -36,6 +36,16 @@ function configureBothGateways() {
 }
 
 describe("resolveComputeCandidates", () => {
+  it("isolates dedicated vision credentials and model from all other uses", () => {
+    configureBothGateways();
+    const dedicated = resolveComputeCandidates("vision", {
+      fallback302Model: "gemini-3-pro-preview", preferredNextApiKey: "isolated-key",
+      preferredNextBaseUrl: "https://vision.example.test/v1", preferredNextModel: "gemini-2.5-flash",
+    });
+    expect(dedicated[0]).toMatchObject({apiKey:"isolated-key",chatCompletionsUrl:"https://vision.example.test/v1/chat/completions",model:"gemini-2.5-flash"});
+    expect(resolveComputeCandidates("text", {fallback302Model:"legacy"})[0]).toMatchObject({apiKey:"test-next-key",model:"gpt-5.6-terra"});
+    expect(describeModelCapabilities("gemini-2.5-flash")).toMatchObject({registered:true,supportsVisionInput:true,supportsStructuredOutputs:true,supportsReasoningEffort:false,tokenLimitField:"max_tokens"});
+  });
   it("puts OpenAI Next first and keeps 302 as the ordered fallback for general text", () => {
     configureBothGateways();
 

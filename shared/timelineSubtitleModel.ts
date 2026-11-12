@@ -17,7 +17,7 @@
  * writer, and it round-trips the visual slices untouched via the U1 codec.
  */
 
-/** First version: exactly one subtitle track with this id. */
+/** Default track id for legacy and newly initialized subtitles. */
 export const SUBTITLE_TRACK_ID = "subtitle";
 
 /** The minimum structural length of any cue, in frames. */
@@ -57,8 +57,18 @@ export type SubtitleCue = {
   speechBindingId?: string;
 };
 
+export type SubtitlePlacement = {
+  /** Canvas-relative coordinates and font size, independent of export resolution. */
+  left: number;
+  top: number;
+  width: number;
+  fontSize: number;
+};
+
 export type SubtitleTrack = {
   id: string;
+  name?: string;
+  placement?: SubtitlePlacement;
   /** Sorted by (startFrame, id). Overlapping cues are read losslessly. */
   cues: SubtitleCue[];
 };
@@ -114,47 +124,93 @@ export function normalizeSubtitleState(value: unknown): TimelineSubtitleState {
       ? (value as unknown[])
       : null;
   if (!tracks) return emptySubtitleState();
-  const firstTrack = tracks.find(
-    (track): track is { id?: unknown; cues?: unknown } =>
-      Boolean(track) && typeof track === "object"
-  );
-  const rawCues = Array.isArray(firstTrack?.cues)
-    ? (firstTrack!.cues as unknown[])
-    : [];
-  const cues: SubtitleCue[] = [];
-  for (const raw of rawCues) {
-    if (!raw || typeof raw !== "object") continue;
-    const record = raw as Record<string, unknown>;
-    if (
-      typeof record.id !== "string" ||
-      typeof record.startFrame !== "number" ||
-      typeof record.durationFrames !== "number"
-    ) {
-      continue;
+  const seenTrackIds = new Set<string>();
+  const seenCueIds = new Set<string>();
+  const normalized: SubtitleTrack[] = [];
+  for (const rawTrack of tracks) {
+    if (!rawTrack || typeof rawTrack !== "object") continue;
+    const recordTrack = rawTrack as Record<string, unknown>;
+    const id =
+      typeof recordTrack.id === "string" && recordTrack.id
+        ? recordTrack.id
+        : normalized.length
+          ? `subtitle-${normalized.length + 1}`
+          : SUBTITLE_TRACK_ID;
+    if (seenTrackIds.has(id)) continue;
+    seenTrackIds.add(id);
+    const rawCues = Array.isArray(recordTrack.cues) ? recordTrack.cues : [];
+    const cues: SubtitleCue[] = [];
+    for (const raw of rawCues) {
+      if (!raw || typeof raw !== "object") continue;
+      const record = raw as Record<string, unknown>;
+      if (
+        typeof record.id !== "string" ||
+        typeof record.startFrame !== "number" ||
+        typeof record.durationFrames !== "number" ||
+        !Number.isFinite(record.startFrame) ||
+        !Number.isFinite(record.durationFrames) ||
+        seenCueIds.has(record.id)
+      ) {
+        continue;
+      }
+      seenCueIds.add(record.id);
+      cues.push({
+        id: record.id,
+        startFrame: Math.max(0, Math.round(record.startFrame)),
+        durationFrames: Math.max(
+          MIN_SUBTITLE_CUE_FRAMES,
+          Math.round(record.durationFrames)
+        ),
+        text: typeof record.text === "string" ? record.text : "",
+        provenance: normalizeProvenance(record.provenance),
+        sourceTextRevision:
+          typeof record.sourceTextRevision === "number"
+            ? record.sourceTextRevision
+            : 0,
+        textEdited: record.textEdited === true,
+        timingEdited: record.timingEdited === true,
+        textRevision:
+          typeof record.textRevision === "number" ? record.textRevision : 0,
+        ...(typeof record.speechBindingId === "string"
+          ? { speechBindingId: record.speechBindingId }
+          : {}),
+      });
     }
-    cues.push({
-      id: record.id,
-      startFrame: Math.max(0, Math.round(record.startFrame)),
-      durationFrames: Math.max(
-        MIN_SUBTITLE_CUE_FRAMES,
-        Math.round(record.durationFrames)
-      ),
-      text: typeof record.text === "string" ? record.text : "",
-      provenance: normalizeProvenance(record.provenance),
-      sourceTextRevision:
-        typeof record.sourceTextRevision === "number"
-          ? record.sourceTextRevision
-          : 0,
-      textEdited: record.textEdited === true,
-      timingEdited: record.timingEdited === true,
-      textRevision:
-        typeof record.textRevision === "number" ? record.textRevision : 0,
-      ...(typeof record.speechBindingId === "string"
-        ? { speechBindingId: record.speechBindingId }
+    const placement = recordTrack.placement as SubtitlePlacement | undefined;
+    const validPlacement =
+      placement &&
+      [
+        placement.left,
+        placement.top,
+        placement.width,
+        placement.fontSize,
+      ].every(Number.isFinite) &&
+      placement.left >= 0 &&
+      placement.top >= 0 &&
+      placement.top <= 1 &&
+      placement.width > 0 &&
+      placement.left + placement.width <= 1.001 &&
+      placement.fontSize > 0 &&
+      placement.fontSize <= 0.2;
+    normalized.push({
+      id,
+      cues: sortCues(cues),
+      ...(typeof recordTrack.name === "string"
+        ? { name: recordTrack.name }
+        : {}),
+      ...(validPlacement
+        ? {
+            placement: {
+              left: placement.left,
+              top: placement.top,
+              width: placement.width,
+              fontSize: placement.fontSize,
+            },
+          }
         : {}),
     });
   }
-  return { tracks: [{ id: SUBTITLE_TRACK_ID, cues: sortCues(cues) }] };
+  return normalized.length ? { tracks: normalized } : emptySubtitleState();
 }
 
 function normalizeProvenance(value: unknown): SubtitleProvenance {
@@ -173,19 +229,37 @@ function normalizeProvenance(value: unknown): SubtitleProvenance {
   return { kind: "manual" };
 }
 
-function track(state: TimelineSubtitleState): SubtitleTrack {
-  return state.tracks[0] ?? { id: SUBTITLE_TRACK_ID, cues: [] };
+function track(state: TimelineSubtitleState, cueId?: string): SubtitleTrack {
+  return (
+    (cueId
+      ? state.tracks.find(t => t.cues.some(c => c.id === cueId))
+      : state.tracks[0]) ?? { id: SUBTITLE_TRACK_ID, cues: [] }
+  );
 }
 
-function withCues(cues: SubtitleCue[]): TimelineSubtitleState {
-  return { tracks: [{ id: SUBTITLE_TRACK_ID, cues: sortCues(cues) }] };
+function withCues(
+  state: TimelineSubtitleState,
+  cueId: string | undefined,
+  cues: SubtitleCue[]
+): TimelineSubtitleState {
+  const target = track(state, cueId);
+  const tracks = state.tracks.length ? state.tracks : [target];
+  return {
+    tracks: tracks.map(t =>
+      t.id === target.id ? { ...t, cues: sortCues(cues) } : t
+    ),
+  };
+}
+
+export function allSubtitleCues(state: TimelineSubtitleState): SubtitleCue[] {
+  return state.tracks.flatMap(t => t.cues);
 }
 
 function findCue(
   state: TimelineSubtitleState,
   cueId: string
 ): SubtitleCue | undefined {
-  return track(state).cues.find(cue => cue.id === cueId);
+  return allSubtitleCues(state).find(cue => cue.id === cueId);
 }
 
 export function subtitleCueEndFrame(cue: SubtitleCue): number {
@@ -221,7 +295,7 @@ export function initializeSubtitleCues(
   state: TimelineSubtitleState,
   input: { candidates: (SubtitleCandidate & { id: string })[] }
 ): SubtitlePlannerResult {
-  if (track(state).cues.length > 0) {
+  if (allSubtitleCues(state).length > 0) {
     return ok(state, false);
   }
   const seeded: SubtitleCue[] = [];
@@ -250,7 +324,7 @@ export function initializeSubtitleCues(
     });
   }
   if (seeded.length === 0) return ok(state, false);
-  return ok(withCues(seeded), true);
+  return ok(withCues(state, undefined, seeded), true);
 }
 
 export function editSubtitleText(
@@ -267,7 +341,9 @@ export function editSubtitleText(
   if (text === cue.text) return ok(state, false);
   return ok(
     withCues(
-      track(state).cues.map(candidate =>
+      state,
+      input.cueId,
+      track(state, input.cueId).cues.map(candidate =>
         candidate.id === cue.id
           ? {
               ...candidate,
@@ -294,7 +370,9 @@ export function moveSubtitleCue(
   if (input.toStartFrame === cue.startFrame) return ok(state, false);
   return ok(
     withCues(
-      track(state).cues.map(candidate =>
+      state,
+      input.cueId,
+      track(state, input.cueId).cues.map(candidate =>
         candidate.id === cue.id
           ? { ...candidate, startFrame: input.toStartFrame, timingEdited: true }
           : candidate
@@ -322,7 +400,9 @@ export function trimSubtitleCueStart(
   if (input.toStartFrame === cue.startFrame) return ok(state, false);
   return ok(
     withCues(
-      track(state).cues.map(candidate =>
+      state,
+      input.cueId,
+      track(state, input.cueId).cues.map(candidate =>
         candidate.id === cue.id
           ? {
               ...candidate,
@@ -354,7 +434,9 @@ export function trimSubtitleCueEnd(
   if (nextDuration === cue.durationFrames) return ok(state, false);
   return ok(
     withCues(
-      track(state).cues.map(candidate =>
+      state,
+      input.cueId,
+      track(state, input.cueId).cues.map(candidate =>
         candidate.id === cue.id
           ? { ...candidate, durationFrames: nextDuration, timingEdited: true }
           : candidate
@@ -376,6 +458,7 @@ export function splitSubtitleCue(
 ): SubtitlePlannerResult {
   const cue = findCue(state, input.cueId);
   if (!cue) return err("字幕块不存在");
+  if (findCue(state, input.newCueId)) return err("字幕标识已存在");
   if (cue.textRevision !== input.expectedTextRevision) {
     return err("字幕文字已被改动，请重新加载后再拆分");
   }
@@ -415,8 +498,10 @@ export function splitSubtitleCue(
     speechBindingId: undefined,
   };
   return ok(
-    withCues([
-      ...track(state).cues.filter(candidate => candidate.id !== cue.id),
+    withCues(state, input.cueId, [
+      ...track(state, input.cueId).cues.filter(
+        candidate => candidate.id !== cue.id
+      ),
       left,
       right,
     ]),
@@ -430,7 +515,7 @@ export function mergeSubtitleCue(
   state: TimelineSubtitleState,
   input: { cueId: string; direction: SubtitleMergeDirection }
 ): SubtitlePlannerResult {
-  const cues = track(state).cues;
+  const cues = track(state, input.cueId).cues;
   const index = cues.findIndex(candidate => candidate.id === input.cueId);
   if (index < 0) return err("字幕块不存在");
   const neighbourIndex = input.direction === "previous" ? index - 1 : index + 1;
@@ -467,7 +552,7 @@ export function mergeSubtitleCue(
     textRevision: earlier.textRevision + 1,
   };
   return ok(
-    withCues([
+    withCues(state, input.cueId, [
       ...cues.filter(
         candidate => candidate.id !== earlier.id && candidate.id !== later.id
       ),
@@ -521,12 +606,16 @@ export function deleteSubtitleCue(
   state: TimelineSubtitleState,
   input: { cueId: string }
 ): SubtitlePlannerResult {
-  const cues = track(state).cues;
+  const cues = track(state, input.cueId).cues;
   if (!cues.some(candidate => candidate.id === input.cueId)) {
     return ok(state, false);
   }
   return ok(
-    withCues(cues.filter(candidate => candidate.id !== input.cueId)),
+    withCues(
+      state,
+      input.cueId,
+      cues.filter(candidate => candidate.id !== input.cueId)
+    ),
     true
   );
 }
@@ -537,7 +626,7 @@ export function resolveSubtitleCuesAtFrame(
   frame: number
 ): SubtitleCue[] {
   return sortCues(
-    track(state).cues.filter(
+    allSubtitleCues(state).filter(
       cue => frame >= cue.startFrame && frame < subtitleCueEndFrame(cue)
     )
   );
@@ -550,6 +639,8 @@ export function resolveSubtitleCuesAtFrame(
  * contract.
  */
 export type SubtitleRenderPlanCue = {
+  trackId?: string;
+  placement?: SubtitlePlacement;
   id: string;
   text: string;
   startFrame: number;
@@ -564,12 +655,21 @@ export type SubtitleRenderPlan = {
 export function buildSubtitleRenderPlan(
   state: TimelineSubtitleState
 ): SubtitleRenderPlan {
-  const cues = sortCues(track(state).cues).map(cue => ({
-    id: cue.id,
-    text: cue.text,
-    startFrame: cue.startFrame,
-    endFrame: subtitleCueEndFrame(cue),
-  }));
+  const cues = state.tracks.flatMap(t =>
+    sortCues(t.cues).map(cue => ({
+      id: cue.id,
+      // ChatCut SRT adds export line breaks; its two positioned language lanes
+      // each occupy one line. Keep the source text and later manual edits intact.
+      text:
+        t.placement && cue.provenance.kind === "chatcut-cue" && !cue.textEdited
+          ? cue.text.replace(/\s*\r?\n\s*/g, " ")
+          : cue.text,
+      startFrame: cue.startFrame,
+      endFrame: subtitleCueEndFrame(cue),
+      ...(state.tracks.length > 1 ? { trackId: t.id } : {}),
+      ...(t.placement ? { placement: t.placement } : {}),
+    }))
+  );
   return {
     cues,
     endFrame: cues.reduce((maximum, cue) => Math.max(maximum, cue.endFrame), 0),
@@ -588,7 +688,7 @@ export function resolveSubtitleRenderPlanAtFrame(
 
 /** Highest end frame across every cue (0 when empty). */
 export function subtitleStateEndFrame(state: TimelineSubtitleState): number {
-  return track(state).cues.reduce(
+  return allSubtitleCues(state).reduce(
     (max, cue) => Math.max(max, subtitleCueEndFrame(cue)),
     0
   );

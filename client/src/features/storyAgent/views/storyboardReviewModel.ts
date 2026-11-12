@@ -1249,7 +1249,9 @@ export function storyboardShotFrameImages(
 ): CreationEditorImage[] {
   const removed = new Set(positiveImageIds(generationParamsRecord(shot.generationParams).removedStoryboardImageIds));
   const identity = normalizeShotIdentity(shotIdentityFromShot(shot));
-  const candidates = [...(shot.imageVersions ?? [])];
+  const configured = storyboardFrameRoleConfig(shot.generationParams, shot.imageVersions ?? []);
+  const explicitlyUsed = new Set([configured.firstImageId, configured.lastImageId, ...configured.referenceImageIds]);
+  const candidates = (shot.imageVersions ?? []).filter(image => !image.referenceOnly || image.isPrimary || image.selectionSource === "explicit" || shot.imageId === image.id || explicitlyUsed.has(image.id));
   if (
     shot.imageId != null &&
     shot.imageId > 0 &&
@@ -1605,4 +1607,14 @@ export function storyboardDraftCostEstimate(
   const effective = source ? storyboardAutomaticVideoShot(storyboardRenderShotWithDraft(source, shot, pending)) : undefined;
   if (effective) effective.generationParams = storyboardStartEndTuningGenerationParams(effective.generationParams, tuning);
   return storyboardShotCostEstimate(effective, { neighbors, imageCount, priceProfile });
+}
+
+/** Explicit selection may edit a reference-only source without adopting it as a frame. */
+export function storyboardEditableImage(shot: CreationEditorShot, imageId: number) {
+  const displayed = storyboardShotFrameImages(shot).find(image => image.id === imageId);
+  if (displayed) return displayed.status === "rejected" ? undefined : displayed;
+  const identity = normalizeShotIdentity(shotIdentityFromShot(shot));
+  return shot.imageVersions?.find(image => image.id === imageId && image.referenceOnly &&
+    Boolean(image.imageUrl) && image.status !== "rejected" && Boolean(identity) &&
+    normalizeShotIdentity(image.shotIdentity) === identity);
 }

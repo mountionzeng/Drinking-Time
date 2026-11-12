@@ -61,7 +61,7 @@ export function useImageRevisionChat() {
           handled: true as const,
           reply: "没有找到这个图片序号，请按对话里的图片编号选择。",
         };
-      await decide.mutateAsync({
+      const decision = await decide.mutateAsync({
         storyId,
         requestId: revision.requestId,
         kind: command.kind,
@@ -94,7 +94,7 @@ export function useImageRevisionChat() {
       }
       return {
         handled: true as const,
-        reply: `第 ${String(revision.shotNo).padStart(2, "0")} 镜：${command.kind === "keep" ? "已保留原素材，新图仍可在对话和仓库查看。" : "已用新图替换原素材的位置和首尾帧引用，时间、图层不变，旧图保留在仓库。"}`,
+        reply: `第 ${String(revision.shotNo).padStart(2, "0")} 镜：${command.kind === "keep" ? "已保留原素材，新图仍可在对话和仓库查看。" : decision.referenceOnly ? "已确认新的参考帧，原图和新版都保存在仓库。视频与剪辑线保持不变，尚未生成视频。" : "已用新图替换原素材的位置和首尾帧引用，时间、图层不变，旧图保留在仓库。"}`,
       };
     } catch (error) {
       return {

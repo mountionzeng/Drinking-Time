@@ -1,10 +1,12 @@
-import { appendVisualProductionBrief } from "@shared/visualProductionChat";
+import { appendVisualProductionBrief, motionBriefText, motionSyncReply, syncMotionFields, type MotionField } from "@shared/visualProductionChat";
 import type { VisualProductionRequest } from "../visualProductionChatBridge";
 
 export type ProductionShot = {
   stableShotId: string; shotNo: number; cueCode?: string | null;
   promptDraft?: string | null; videoPrompt?: string | null;
   imageIds: number[]; takeIds: number[];
+  /** 画面动作、运镜、开始/结束画面等结构化字段（有值时视频以它们为准，忽略 videoPrompt）。 */
+  motionFields?: Partial<Record<MotionField, string>>;
 };
 type Dependencies = {
   shots: ProductionShot[];
@@ -12,6 +14,8 @@ type Dependencies = {
   referenceImageIds?: number[];
   isCurrent: () => boolean;
   save: (shot: ProductionShot, field: "promptDraft" | "videoPrompt", value: string) => Promise<void>;
+  /** 一次写入多个结构化字段（同一条修订）。没有提供时只写 videoPrompt，保持旧行为。 */
+  saveFields?: (shot: ProductionShot, fields: Partial<Record<MotionField, string>>) => Promise<void>;
   render: (shot: ProductionShot, kind: "image" | "video", instruction: string, referenceImageIds?: number[]) => Promise<string>;
   adopt: (shot: ProductionShot, asset: { imageId?: number; takeId?: number; timeline: boolean }) => Promise<void>;
 };
@@ -49,9 +53,15 @@ export async function executeVisualProduction(request: VisualProductionRequest, 
   // the existing field-version history retains the previous one.
   const value = intent.briefField ? instruction.trim() : appendVisualProductionBrief(shot[field], instruction);
   await deps.save(shot, field, value);
+  // 视频要求同时写进「画面动作」并清掉 ChatCut 残留，否则首尾帧视频会继续用旧字段。
+  const brief = field === "videoPrompt" ? motionBriefText(instruction) : null;
+  const sync = brief && deps.saveFields && shot.motionFields ? syncMotionFields(shot.motionFields, brief) : null;
+  if (sync) await deps.saveFields!(shot, sync.updates);
+  const synced = sync ? motionSyncReply(sync) : "";
   if (!deps.isCurrent()) return "要求已保存到原故事；你已切换工作区，没有提交生成。";
   if (intent.kind === "brief") return field === "videoPrompt"
-    ? `${label} 的视频要求已保存为新修订，包含这次对话的动作与变化节奏。尚未提交视频生成；可继续调整，或说“第 ${label} 镜生成视频”。`
+    ? `${label} 的视频要求已保存为新修订，包含这次对话的动作与变化节奏。${synced}尚未提交视频生成；可继续调整，或说“第 ${label} 镜生成视频”。`
     : `${label} 的画面要求已根据这次对话保存为新修订。可以继续补充参考图或美术方向，准备好后说“生成图片”；确定图片后，后续镜头会继承它的物体与色彩。`;
-  return deps.render({ ...shot, [field]: value }, intent.kind, instruction, request.referenceImageIds);
+  const rendered = await deps.render({ ...shot, [field]: value, ...(sync ? { motionFields: { ...shot.motionFields, ...sync.updates } } : {}) }, intent.kind, instruction, request.referenceImageIds);
+  return synced ? `${synced}\n${rendered}` : rendered;
 }

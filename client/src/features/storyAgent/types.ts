@@ -1,3 +1,5 @@
+import { frameRegionReviewSchema, type FrameRegionReview } from "@shared/frameRegionReview";
+import { chatFrameReferenceSchema, type ChatFrameReference } from "@shared/chatFrameReference";
 import type { SelectionContext } from "@shared/selectionContext";
 import { bookRewriteProposalSchema } from '@shared/bookRewrite';
 
@@ -92,6 +94,10 @@ export type StoryboardImageRerenderActionReference = {
   /** Original user wording; this must reach the image model unchanged. */
   instruction?: string | null;
   imageProvider?: "midjourney" | "gpt-image";
+  /** 对话里多张图合并报价、用户已确认：本次改图不再单独弹报价（只在当次运行中传递，不保存）。 */
+  preconfirmed?: boolean;
+  continueAfterUnknownRequestId?: string;
+  readingQuote?: { estimatedCny: number; fingerprint: string };
 };
 
 export type ImageRevision = { storyId: number; stableShotId: string; shotNo: number; imageId: number; imageUrl: string };
@@ -99,6 +105,8 @@ export type ImageRevision = { storyId: number; stableShotId: string; shotNo: num
 export interface ChatMessage {
   bookRewrite?: import('@shared/bookRewrite').BookRewriteProposal;
   imageRevision?: ImageRevision;
+  frameReferences?: ChatFrameReference[];
+  frameReview?: FrameRegionReview;
   id: string;
   role: "user" | "assistant";
   content: string;
@@ -645,6 +653,14 @@ export function normalizeChatMessages(
           };
         }
       }
+      const frameReview = frameRegionReviewSchema.safeParse(obj.frameReview);
+      if (frameReview.success) message.frameReview = frameReview.data;
+      if (Array.isArray(obj.frameReferences)) {
+        message.frameReferences = obj.frameReferences.slice(0, 6).flatMap(value => {
+          const parsed = chatFrameReferenceSchema.safeParse(value);
+          return parsed.success ? [parsed.data] : [];
+        });
+      }
       const revision = obj.imageRevision as Partial<ImageRevision> | undefined;
       if (revision && typeof revision.storyId === "number" && typeof revision.stableShotId === "string" &&
           typeof revision.shotNo === "number" && typeof revision.imageId === "number" && typeof revision.imageUrl === "string") {
@@ -786,3 +802,38 @@ export function buildReturningGreeting(
   }
   return "我还在呢，上次聊的都留着。今天想从哪儿接着说？";
 }
+
+export type GenerationProfileArg = {
+  scriptStyle?: {
+    id?: string;
+    label?: string;
+    logline?: string;
+    arc?: string;
+    treatment?: string;
+  } | null;
+  artStyle?: {
+    id?: string;
+    source?: "preset" | "library";
+    title?: string;
+    description?: string | null;
+    libraryVersionId?: number | null;
+    recipe?: Partial<import("@shared/artDirection").ArtRecipeDNA> | null;
+    items?: Array<{
+      dimension?: string;
+      content?: string;
+      negativeContent?: string | null;
+    }>;
+  } | null;
+};
+
+export type StoryboardImageRerenderResult = {
+  status: "success" | "cancelled" | "error";
+  requestId?: string;
+  message: string;
+  imageId?: number;
+  imageUrl?: string;
+};
+
+export type StoryboardImageRerenderRunner = (
+  request: NonNullable<ChatMessage["imageRerenderAction"]>
+) => Promise<StoryboardImageRerenderResult>;

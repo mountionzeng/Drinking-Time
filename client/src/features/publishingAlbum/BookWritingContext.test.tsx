@@ -173,7 +173,7 @@ it('the chapter chat snapshot carries the selected block and rejects an old vers
   const editor = nodes(tree).find(node => node.type === ChapterTextModules).props;
   const module = { storyId: 7, scope: editor.contextSource.scope, moduleId: 'b2', text: '新内容' };
   editor.onChange('新内容'); editor.onContextChange(module);
-  expect(context.getSnapshot()).toMatchObject({ draft: '新内容', module });
+  expect(context.getSnapshot()).toMatchObject({ chapterId: '2', draft: '新内容', module });
   editor.selection.current = { start: 0, end: 2 };
   expect(context.getSnapshot().selection).toEqual({ start: 0, end: 2 });
   editor.onContextChange(null);

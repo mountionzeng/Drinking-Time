@@ -81,11 +81,15 @@ const BODY_FIELDS_TO_PRESERVE = [
 // Dedicated mutations own these slices. Generic whole-Story saves may carry an
 // older browser snapshot and must never replace the latest server copy.
 const SERVER_OWNED_BODY_FIELDS = [
+  "warehouseFiles",
+  "creationEmotion",
   "bookWorkflow",
   "videoWorkflow",
   "bookModuleImageTasks",
   "storyboardImageTasks",
   "shotConversationMedia",
+  "visualEditBriefs",
+  "frameRegionReviews",
   "storyboardFieldVersions",
   "artPreviewBatches",
   "artSystemReceipts",
@@ -471,7 +475,7 @@ export function prepareStoryBody(
   for (const field of SERVER_OWNED_BODY_FIELDS) {
     if (hasOwn(existing, field)) {
       prepared[field] = existing[field];
-    } else if (["bookWorkflow", "videoWorkflow", "shotConversationMedia", "storyboardImageTasks", "storyboardFieldVersions", "artPreviewBatches", "artSystemReceipts", "bookModuleImageTasks", "bookVideoRecords", "textDraftHistory", "materialCapture", "textSourceLineage", "storyboardTextSource", "creationFlowReceipts", "creationFlowCommandReceipts"].includes(field)) {
+    } else if (["frameRegionReviews", "visualEditBriefs", "warehouseFiles", "creationEmotion", "bookWorkflow", "videoWorkflow", "shotConversationMedia", "storyboardImageTasks", "storyboardFieldVersions", "artPreviewBatches", "artSystemReceipts", "bookModuleImageTasks", "bookVideoRecords", "textDraftHistory", "materialCapture", "textSourceLineage", "storyboardTextSource", "creationFlowReceipts", "creationFlowCommandReceipts"].includes(field)) {
       // Generic saves cannot fabricate model results or adopted learning evidence.
       delete prepared[field];
     }

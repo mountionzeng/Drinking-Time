@@ -83,3 +83,11 @@ it("retrieves explicit legacy mentions without overriding saved stable identity"
     shotConversationMessages(messages, 1, "b", shots[1]).map(m => m.id)
   ).toEqual(["legacy", "reply"]);
 });
+
+
+it("associates a returned frame with its original shot even after selection changes", () => {
+  const messages = [{ role: "assistant", content: "参考帧", frameReferences: [{storyId: 7, stableShotId: "shot-c"}] }];
+  expect(shotConversationMessages(messages, 7, "shot-c")).toEqual(messages);
+  expect(shotConversationMessages(messages, 7, "shot-b")).toEqual([]);
+  expect(shotConversationMessages(messages, 8, "shot-c")).toEqual([]);
+});

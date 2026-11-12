@@ -5,7 +5,7 @@ import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage"
  * This component never constructs the next Timeline document or owns assets.
  */
 import { useCallback, useState } from "react";
-import { FolderOpen, Layers, Plus } from "lucide-react";
+import { FolderOpen, Layers, Music2 } from "lucide-react";
 import { VideoMediaVersionSelect, type VideoMediaVersionBinding } from "./VideoMediaVersionSelect";
 import {
   audioClipEndFrame,
@@ -177,6 +177,7 @@ function waveformClip(
 export function AudioTrackRow({
   storyId,
   track,
+  audioAssets = [],
   viewport,
   playheadMs,
   selectedClipId,
@@ -189,6 +190,7 @@ export function AudioTrackRow({
 }: {
   storyId: number;
   track: AudioTrack;
+  audioAssets?: readonly TimelineAudioAssetLibraryItem[];
   viewport: TimelineViewport;
   playheadMs: number;
   selectedClipId: string | null;
@@ -336,7 +338,7 @@ export function AudioTrackRow({
 
   return (
     <div
-      className="relative h-full min-h-12 min-w-0 overflow-hidden border-b border-r bg-muted/10"
+      className="relative isolate h-12 min-w-0 overflow-hidden border-b border-r bg-muted/10"
       style={{
         borderColor: "color-mix(in srgb, var(--panel-border) 62%, transparent)",
       }}
@@ -351,12 +353,15 @@ export function AudioTrackRow({
         const ghost = audioClipDragGhost(clip, activeDrag);
         const placement = audioClipPlacement(ghost, viewport);
         const selected = selectedClipId === clip.id;
+        const assetName = audioAssets.find(asset => asset.id === clip.assetId)?.displayName;
+        const clipLabel = assetName || `${_ui(profile.label)} ${_ui("· 素材 #")}${clip.assetId}`;
         return (
           <div
             key={clip.id}
             role="button"
             tabIndex={clip.id === rovingId ? 0 : -1}
             aria-label={_ui("{0} · 素材 {1}", [_ui(profile.label), clip.assetId])}
+            title={`${clipLabel} · ${(clip.durationFrames / 30).toFixed(1)}s`}
             aria-selected={selected}
             data-timeline-media-keyboard="true"
             data-testid={`storyboard-audio-clip-${clip.id}`}
@@ -386,8 +391,8 @@ export function AudioTrackRow({
               onPointerDown={event => beginDrag(event, clip, "trim-start")}
               onKeyDown={event => onHandleKeyDown(event, clip, "start")}
             />
-            <span className="pointer-events-none absolute bottom-0 left-3 max-w-[calc(100%-24px)] truncate bg-[var(--background)]/75 px-1 font-mono text-[7px] leading-3">
-              {_ui(profile.label)} {_ui("· 素材 #")}{clip.assetId}
+            <span className="pointer-events-none absolute bottom-0 left-3 max-w-[calc(100%-24px)] truncate rounded-sm bg-[var(--background)]/85 px-1 text-[10px] font-medium leading-4">
+              {clipLabel}
               {track.kind === "dialogue"
                 ? ` · ${clip.speakerLabel ?? (clip.speakerId === "unassigned" ? _ui("未分配人物") : clip.speakerId)}`
                 : ""}
@@ -423,22 +428,26 @@ export function AudioTrackRow({
 }
 
 function AudioTrackHeader({
+  sourceLabel,
   kind,
+  trackNumber,
   action,
   tools,
   versions,
 }: {
   versions?: VideoMediaVersionBinding;
+  sourceLabel?: string;
   kind: AudioTrack["kind"] | null;
+  trackNumber?: number;
   action?: React.ReactNode;
   tools?: React.ReactNode;
 }) {
   const _ui = useDesktopUiText();
-  const label = kind ? timelineMediaKindProfile(kind).label : "声音";
+  const label = sourceLabel ?? (kind ? timelineMediaKindProfile(kind).label : "声音");
   return (
     <div
       role="rowheader"
-      className="sticky left-0 z-20 flex min-w-0 flex-col justify-center gap-1 border-b border-r px-1.5 py-1.5 text-[9px] font-semibold text-muted-foreground"
+      className="sticky left-0 z-20 flex h-12 min-w-0 flex-col justify-center gap-0.5 border-b border-r px-2 py-1 text-[10px] font-medium text-muted-foreground"
       style={{
         borderColor: "color-mix(in srgb, var(--panel-border) 62%, transparent)",
         background: "var(--background)",
@@ -446,11 +455,13 @@ function AudioTrackHeader({
       data-testid={kind ? `storyboard-audio-header-${kind}` : undefined}
     >
       <div className="flex min-w-0 items-center justify-between gap-0.5">
-        <span className="shrink-0 whitespace-nowrap">{_ui(label)}</span>
-        {tools}
+        <span className="flex shrink-0 items-center gap-1.5 whitespace-nowrap">
+          {trackNumber != null && <span className="rounded-sm bg-emerald-600/15 px-1 font-mono font-semibold text-emerald-700 dark:text-emerald-300">A{trackNumber}</span>}
+          {_ui(label)}
+        </span>
+        {kind ? <VideoMediaVersionSelect kind={kind} binding={versions} /> : null}
       </div>
-      {kind ? <VideoMediaVersionSelect kind={kind} binding={versions} /> : null}
-      {action}
+      {tools || action ? <div className="flex items-center justify-between gap-1">{tools}{action}</div> : null}
     </div>
   );
 }
@@ -503,17 +514,19 @@ export function AudioTrackSection({
   ).filter((track): track is AudioTrack => Boolean(track && (track.clips.length || versions?.history?.entries.some(entry => entry.kind === track.kind))));
 
   const controls = (
-    <div className="flex min-w-0 flex-col gap-1">
+    <div className="flex min-w-0 flex-1 items-center justify-end gap-1">
       {onRequestGenerateMusic ? (
         <button
           type="button"
           disabled={pending}
           onClick={onRequestGenerateMusic}
           data-testid="audio-library-generate-music"
-          className="flex h-6 w-full items-center justify-center gap-0.5 whitespace-nowrap rounded-sm border border-border text-[9px] font-medium text-[var(--nayin-accent)] transition hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40"
+          title={_ui("生成新音乐 / New music")}
+          aria-label={_ui("生成新音乐 / New music")}
+          className="flex size-5 shrink-0 items-center justify-center rounded-sm text-[var(--nayin-accent)] transition hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40"
         >
-          <Plus className="size-2.5 shrink-0" />
-          {_ui("生成新音乐")}</button>
+          <Music2 className="size-3 shrink-0" />
+        </button>
       ) : null}
       <div className="flex items-center justify-between gap-0.5">
         <button
@@ -569,11 +582,12 @@ export function AudioTrackSection({
     );
   }
 
-  const visibleTracks = showEmpty
+  const visibleTracksUnsorted = showEmpty
     ? AUDIO_KIND_ORDER.map(kind =>
         audioState.tracks.find(track => track.kind === kind)
       ).filter((track): track is AudioTrack => Boolean(track))
     : contentTracks;
+  const visibleTracks = [...visibleTracksUnsorted].sort((a, b) => (a.sourceTrack?.index ?? 100) - (b.sourceTrack?.index ?? 100));
   return (
     <>
       {audioAssets.length > 0 ? (
@@ -650,6 +664,8 @@ export function AudioTrackSection({
         <div key={track.kind} className="contents">
           <AudioTrackHeader
             kind={track.kind}
+            trackNumber={track.sourceTrack?.index ?? index + 1}
+            sourceLabel={track.sourceTrack?.label}
             versions={versions}
             tools={index === 0 ? addControl : undefined}
             action={index === 0 ? controls : undefined}
@@ -661,6 +677,7 @@ export function AudioTrackSection({
             <AudioTrackRow
               storyId={storyId}
               track={track}
+              audioAssets={audioAssets}
               viewport={viewport}
               playheadMs={playheadMs}
               selectedClipId={selectedClipId}

@@ -127,12 +127,20 @@ async function ensureLocalTakePath(
   };
 }
 
+export function transitionFrameFilter(input: { preserveDimensions?: boolean; preserveAspect?: boolean }) {
+  return input.preserveDimensions ? "null" : input.preserveAspect
+    ? "scale=1280:1280:force_original_aspect_ratio=decrease"
+    : "scale=720:720:force_original_aspect_ratio=increase,crop=720:720";
+}
+
 export async function renderTransitionVideoFrame(input: {
   takeId: number;
   userId: number;
   rangeId: number | null;
   atSec: number;
   outputPath?: string;
+  preserveAspect?: boolean;
+  preserveDimensions?: boolean;
 }): Promise<{ path: string; atSec: number }> {
   if (!Number.isFinite(input.atSec) || input.atSec < 0) {
     throw new Error("视频端点时间无效");
@@ -160,7 +168,7 @@ export async function renderTransitionVideoFrame(input: {
   const atSec = Math.min(upperBound, Math.max(lowerBound, input.atSec));
   const digest = createHash("sha256")
     .update(
-      `${input.takeId}:${path.basename(sourcePath)}:${input.rangeId ?? "full"}:${atSec.toFixed(3)}`
+      `${input.takeId}:${path.basename(sourcePath)}:${input.rangeId ?? "full"}:${atSec.toFixed(3)}${input.preserveDimensions ? ":source-native" : input.preserveAspect ? ":source-aspect" : ""}`
     )
     .digest("hex")
     .slice(0, 16);
@@ -180,7 +188,7 @@ export async function renderTransitionVideoFrame(input: {
       "-frames:v",
       "1",
       "-vf",
-      "scale=720:720:force_original_aspect_ratio=increase,crop=720:720",
+      transitionFrameFilter(input),
       temporaryPath,
     ]);
     await fs.promises.rename(temporaryPath, outputPath);

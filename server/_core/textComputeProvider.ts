@@ -37,6 +37,9 @@ export type ComputeCandidateOptions = {
   fallback302Model: string;
   /** 覆盖该用途默认的 OpenAI Next 模型。 */
   preferredNextModel?: string;
+  /** Optional credentials scoped to this call; other use cases keep their defaults. */
+  preferredNextApiKey?: string;
+  preferredNextBaseUrl?: string;
   /** 视觉等自带 302 凭据的调用方可以传入专用 Key / 网关。 */
   fallback302ApiKey?: string;
   fallback302BaseUrl?: string;
@@ -102,6 +105,15 @@ const MODEL_CAPABILITIES: Readonly<Record<string, CapabilityTier>> = {
   // 声明不支持图片」的模型，而未登记模型按最小集放行——不登记它就等于让
   // 回退通道永远走最小字段，白白丢掉 temperature 和结构化输出。
   "gemini-3-pro-preview": {
+    tokenLimitField: "max_tokens",
+    supportsReasoningEffort: false,
+    reasoningEfforts: [],
+    supportsTemperature: true,
+    supportsStructuredOutputs: true,
+    supportsToolCalls: false,
+    supportsVisionInput: true,
+  },
+  "gemini-2.5-flash": {
     tokenLimitField: "max_tokens",
     supportsReasoningEffort: false,
     reasoningEfforts: [],
@@ -191,11 +203,11 @@ function nextCandidate(
   useCase: TextComputeUseCase,
   options: ComputeCandidateOptions
 ): TextComputeProvider | null {
-  const apiKey = str(ENV.openaiNextApiKey);
+  const apiKey = str(options.preferredNextApiKey) || str(ENV.openaiNextApiKey);
   const model = str(options.preferredNextModel) || defaultNextModel(useCase);
   if (!apiKey || !model) return null;
 
-  const baseUrl = normalizeBaseUrl(str(ENV.openaiNextBaseUrl));
+  const baseUrl = normalizeBaseUrl(str(options.preferredNextBaseUrl) || str(ENV.openaiNextBaseUrl));
   return {
     id: "openai-next",
     label: "OpenAI Next",

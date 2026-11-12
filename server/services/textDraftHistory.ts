@@ -1,3 +1,5 @@
+import { getChapter } from "../repositories/chapters";
+import { storyEmotion } from "./creationEmotion";
 import { readyTextSource } from "../repositories/textSourceLineage";
 import { generatedBookText } from "../../shared/bookTextFormat";
 import { createHash } from "node:crypto";
@@ -303,6 +305,13 @@ export async function generateTextDraft(
   const { adoptions: evidence, originalSamples } = memoryCards
     ? { adoptions: [], originalSamples: [] }
     : await writingEvidence(owner, request.platform);
+  if (request.emotionChapterId != null) {
+    const chapterId = Number(request.emotionChapterId);
+    const chapter = Number.isSafeInteger(chapterId) && chapterId > 0 && String(chapterId) === request.emotionChapterId
+      ? await getChapter(chapterId, owner.userId) : null;
+    if (chapter?.storyId !== owner.storyId) throw bad("章节不存在或不属于当前故事，请重新打开章节");
+  }
+  const creationEmotion = storyEmotion(body, { chapterId: request.emotionChapterId });
   const prompt = compileTextDraftPrompt(
     request,
     delta,
@@ -310,7 +319,8 @@ export async function generateTextDraft(
     originalSamples,
     memoryCards ? "" : inheritedStoryReference(body),
     memoryCards,
-    snapshot
+    snapshot,
+    creationEmotion
   );
   if (prompt.modelMessage.length > 160_000)
     throw bad("写作上下文过长，请缩短本次材料");
@@ -347,6 +357,7 @@ export async function generateTextDraft(
           conversationSnapshot: snapshot,
           conversationDelta: delta,
           ...(memoryCards ? { memoryCards } : {}),
+          ...(creationEmotion ? { creationEmotion } : {}),
           promptVersion: WRITING_PROMPT_VERSION,
           libraryVersion: WRITING_LIBRARY_VERSION,
           ...prompt,

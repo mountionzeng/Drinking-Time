@@ -8,8 +8,20 @@ import {
 } from "./mediaComputeBilling";
 import { settleOperation } from "./computeLedger";
 import { computeStaleReleaseEnabled } from "./computeStaleRelease";
-import { refreshShotVideoTask } from "./videoGen";
+import { refreshShotVideoTask, resolveShotVideoPollTarget } from "./videoGen";
 import { refreshViduTransition } from "./videoTransition302";
+
+function recordOf(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function isStartEndSnapshot(snapshot: Record<string, unknown> | null): boolean {
+  if (!snapshot) return false;
+  if (snapshot.kind === "shot-start-end") return true;
+  return recordOf(snapshot.renderProfile)?.profileId === "video.vidu-q2-turbo-start-end";
+}
 
 /** Recovery only queries existing task IDs. It must never generate or upload. */
 export async function reconcileMediaBilling(afterId = 0): Promise<number> {
@@ -49,16 +61,61 @@ export async function reconcileMediaBilling(afterId = 0): Promise<number> {
           status: "processing",
         });
       }
-      const refreshed =
-        snapshot.kind === "shot-start-end"
-          ? await refreshViduTransition(receipt.taskId)
-          : await refreshShotVideoTask(receipt.taskId, { renderMode: snapshot.renderMode === "economy" ? "economy" : "existing" });
+      const queryTaskId = take.taskId || receipt.taskId;
+      const startEnd = isStartEndSnapshot(snapshot);
+      if (startEnd) {
+        const target = resolveShotVideoPollTarget(snapshot);
+        if (target.source === "unrecoverable") {
+          console.warn(
+            "[media-billing] video poll unrecoverable; keeping hold",
+            operation.operationId,
+            queryTaskId
+          );
+          continue;
+        }
+        const refreshed = await refreshViduTransition(queryTaskId, {
+          baseUrl: target.baseUrl,
+          pollPath: target.pollPath,
+        });
+        if (refreshed.status === "available") {
+          await finishVideoBilling(take, { videoUrl: refreshed.videoUrl });
+        } else if (refreshed.status === "task_failed") {
+          await finishVideoBilling(take, { failed: true });
+        } else if (
+          refreshed.status === "processing" ||
+          refreshed.status === "retryable" ||
+          refreshed.status === "query_error" ||
+          refreshed.status === "timed_out"
+        ) {
+          // Transient query failure or in-flight work: keep the hold.
+        } else {
+          await finishVideoBilling(take, { unknown: true });
+        }
+        continue;
+      }
+
+      const refreshed = await refreshShotVideoTask(queryTaskId, {
+        renderMode: snapshot?.renderMode === "economy" ? "economy" : "existing",
+        snapshot,
+      });
       if (refreshed.status === "available") {
         await finishVideoBilling(take, { videoUrl: refreshed.videoUrl });
+      } else if (refreshed.status === "failed" && refreshed.providerConfirmed) {
+        await finishVideoBilling(take, { failed: true });
       } else if (
-        refreshed.status !== "processing" &&
-        refreshed.status !== "retryable"
+        refreshed.status === "processing" ||
+        refreshed.status === "timeout" ||
+        refreshed.status === "unfollowable" ||
+        (refreshed.status === "failed" && refreshed.queryFailed)
       ) {
+        if (refreshed.status === "unfollowable") {
+          console.warn(
+            "[media-billing] video poll unrecoverable; keeping hold",
+            operation.operationId,
+            queryTaskId
+          );
+        }
+      } else {
         await finishVideoBilling(take, { unknown: true });
       }
     } catch (error) {

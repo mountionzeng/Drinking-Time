@@ -274,7 +274,7 @@ export function useTimelineMediaController(
     [extensions]
   );
   const cues = useMemo(
-    () => subtitleState.tracks[0]?.cues ?? [],
+    () => subtitleState.tracks.flatMap(track => track.cues),
     [subtitleState]
   );
   const audioState = useMemo<TimelineAudioStateModel>(

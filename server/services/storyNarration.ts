@@ -245,7 +245,7 @@ async function resolveCue(input: {
   const subtitleState = normalizeSubtitleState(
     timeline.extensions.subtitleTracks
   );
-  const cue = subtitleState.tracks[0]?.cues.find(
+  const cue = subtitleState.tracks.flatMap(track => track.cues).find(
     candidate => candidate.id === input.subtitleCueId
   );
   if (!cue) throw new Error("字幕块不存在或已经更新");
@@ -412,7 +412,7 @@ export async function listStoryNarrationCandidates(input: {
     }
   }
   return ready.map(({ asset, provenance }) => {
-    const cue = subtitle.tracks[0]?.cues.find(
+    const cue = subtitle.tracks.flatMap(track => track.cues).find(
       candidate => candidate.id === provenance.subtitleCueId
     );
     let unavailableReason: string | undefined;

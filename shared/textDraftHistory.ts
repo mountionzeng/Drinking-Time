@@ -1,3 +1,4 @@
+import { emotionSnapshotSchema } from "./creationEmotion";
 import { z } from "zod";
 import { PUBLISHING_PLATFORM_IDS } from "./publishingDraft";
 import {
@@ -40,6 +41,7 @@ export const textDraftRequestSchema = z.object({
   // Opt in only from the book editor; platform exports and mobile keep their existing format.
   outputFormat: z.literal("book-latex").optional(),
   memoryCardIds: memoryCardSelectionSchema.optional(),
+  emotionChapterId: z.string().max(200).optional(),
 });
 export type TextDraftRequest = z.infer<typeof textDraftRequestSchema>;
 export type TextDraftMessage = z.infer<typeof textDraftMessageSchema>;
@@ -66,6 +68,7 @@ export const textDraftVersionSchema = z.object({
   request: textDraftRequestSchema,
   conversationSnapshot: z.array(textDraftMessageSchema),
   conversationDelta: z.array(textDraftMessageSchema),
+  creationEmotion: emotionSnapshotSchema.optional(),
   promptVersion: z.string(),
   libraryVersion: z.string(),
   systemPrompt: z.string(),

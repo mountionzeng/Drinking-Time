@@ -19,8 +19,8 @@ it("reports failed or overdue tasks without prompting placement or repurchasing"
   const confirm = vi.fn(); const adopt = vi.fn(); let time = 0;
   const input = { takeId: 9, label: "01", current: () => true, confirm, adopt };
   expect(await completeChatVideo({ ...input, read: () => ({ id: 9, status: "failed" }) })).toContain("未生成成功");
-  expect(await completeChatVideo({ ...input, read: () => ({ id: 9, status: "timeout" }) })).toContain("未生成成功");
-  expect(await completeChatVideo({ ...input, read: () => ({ id: 9, status: "unfollowable" }) })).toContain("未生成成功");
+  expect(await completeChatVideo({ ...input, read: () => ({ id: 9, status: "timeout" }) })).toContain("暂时无法确认结果");
+  expect(await completeChatVideo({ ...input, read: () => ({ id: 9, status: "unfollowable" }) })).toContain("暂时无法确认结果");
   expect(await completeChatVideo({ ...input, read: () => ({ id: 10, status: "available", videoUrl: "/wrong.mp4" }), now: () => time, timeoutMs: 2, wait: async () => { time++; } })).toContain("仍在原任务");
   expect(confirm).not.toHaveBeenCalled(); expect(adopt).not.toHaveBeenCalled();
 });

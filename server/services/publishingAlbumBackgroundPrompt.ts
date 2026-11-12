@@ -1,3 +1,4 @@
+import type { CreationEmotionSnapshot } from "../../shared/creationEmotion";
 import { createHash } from "node:crypto";
 
 import { canonicalJsonStringify } from "../../shared/canonicalJson";
@@ -40,6 +41,7 @@ export async function compilePublishingAlbumBackgroundPrompt(input: {
   coverPrompt: string;
   feedback?: string;
   storyId?: number;
+  creationEmotion?: CreationEmotionSnapshot;
 }): Promise<{
   prompt: string;
   artDirection: string;
@@ -51,6 +53,7 @@ export async function compilePublishingAlbumBackgroundPrompt(input: {
   const inherited = applyPublishingCoverArtDirection(brief, artDirection);
   const prompt = await engineerImagePrompt({
     prompt: inherited,
+    creationEmotion: input.creationEmotion,
     storyId: input.storyId,
     outputPurpose: "publishing-album",
     referencePolicy: "style-only",

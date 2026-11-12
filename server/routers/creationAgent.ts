@@ -1,3 +1,8 @@
+import { frameRegionReviewRouter } from "./frameRegionReview";
+import { pausedFrameSnapshotSchema } from "../../shared/chatFrameReference";
+import { quoteChatLlmSteps, withStartEndAnalysisQuote } from "../services/chatLlmQuote";
+import { importWarehouseFile, listWarehouseFiles, inspectWarehouseFiles } from "../services/warehouseFiles";
+import { extractChatFrameReferences } from "../services/chatFrameReferences";
 import { shotVideoPriceProfile } from "../../shared/shotDirector";
 import { TRPCError } from "@trpc/server";
 import { formatComputeQuote } from "../../shared/computeMoney";
@@ -59,6 +64,7 @@ import {
   undoVisualEditForStory,
   withPlayheadShot,
   updateVideoEditForStory,
+  promoteAdoptedTakeToPrimary,
   withVisualEditServiceLock,
   includeAllShotsForStory,
   moveShotOrderForStory,
@@ -403,6 +409,7 @@ function resolveStoryShotTarget(
 }
 
 export const creationAgentRouter = router({
+  frameReview: frameRegionReviewRouter,
   imageProviderStatus: protectedProcedure.query(() => getImageProviderStatus()),
 
   shotVideoProviderStatus: protectedProcedure.query(() =>
@@ -417,11 +424,15 @@ export const creationAgentRouter = router({
         stableShotId: z.string().trim().min(1).max(128),
         draftPrompt: z.string().trim().min(1).max(8_000),
         subtitle: z.string().max(2_000).optional(),
+        costConfirmation: z.object({accepted:z.literal(true),estimatedCny:z.number().nonnegative()}),
       })
     )
-    .mutation(({ ctx, input }) =>
-      analyzeShotVideoDirection(input, ctx.user.id)
-    ),
+    .mutation(({ ctx, input }) => {
+      const quote = quoteChatLlmSteps([{step:"video-director",count:1}]);
+      if(input.costConfirmation.estimatedCny + 0.000001 < quote.totalCny)
+        throw new TRPCError({code:"PRECONDITION_FAILED",message:"导演分析费用已变化，请重新确认报价"});
+      return analyzeShotVideoDirection(input, ctx.user.id);
+    }),
 
   /** Conversational chat with the creation agent */
   chat: protectedProcedure
@@ -936,6 +947,9 @@ export const creationAgentRouter = router({
       };
     }),
 
+  warehouseFiles: protectedProcedure.input(z.object({storyId:z.number().int().positive()})).query(({ctx,input})=>listWarehouseFiles({...input,userId:ctx.user.id})),
+  inspectWarehouseFiles: protectedProcedure.input(z.object({storyId:z.number().int().positive(),fileIds:z.array(z.number().int().positive()).min(1).max(8),instruction:z.string().min(1).max(8000)})).mutation(({ctx,input})=>inspectWarehouseFiles({...input,userId:ctx.user.id})),
+
   importStoryMaterial: protectedProcedure
     .input(
       z.object({
@@ -1068,6 +1082,8 @@ export const creationAgentRouter = router({
           videoKey: stored.videoKey,
           videoUrl: stored.videoUrl,
           aspectRatio: metadata?.aspectRatio ?? "16:9",
+          // 时长用 ffprobe 实测；测不出才沿用镜头原时长。
+          durationSec: metadata?.durationSec ?? target.durationSec,
           errorMessage: null,
           parameterSnapshot: {
             source: "material_warehouse",
@@ -1090,10 +1106,8 @@ export const creationAgentRouter = router({
         };
       }
 
-      return {
-        status: "error" as const,
-        error: "暂时只支持 JPG、PNG、WEBP、MP4、WEBM、MOV",
-      };
+      const file = await importWarehouseFile({storyId:input.storyId,userId:ctx.user.id,fileName:input.fileName,mimeType:input.mimeType,bytes});
+      return {status:"ok" as const,kind:"file" as const,file};
     }),
 
   /**
@@ -1111,7 +1125,7 @@ export const creationAgentRouter = router({
       try {
         return {
           status: "ok" as const,
-          estimate: await estimateStartEndShotVideo(input, ctx.user.id),
+          estimate: withStartEndAnalysisQuote(await estimateStartEndShotVideo(input, ctx.user.id)),
         };
       } catch (error) {
         return {
@@ -1134,12 +1148,16 @@ export const creationAgentRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      const rawEstimate = await estimateStartEndShotVideo(input, ctx.user.id);
+      const combined = withStartEndAnalysisQuote(rawEstimate);
+      if (Math.abs(combined.estimatedCny - input.costConfirmation.estimatedCny) > 0.001)
+        return { status: "error" as const, error: "视频与导演分析费用已变化，请重新确认报价" };
       const result = await startEndShotVideoJob(
         {
           storyId: input.storyId,
           stableShotId: input.stableShotId,
           rerenderRequestId: input.rerenderRequestId,
-          confirmedEstimatedCny: input.costConfirmation.estimatedCny,
+          confirmedEstimatedCny: rawEstimate.estimatedCny,
         },
         ctx.user.id
       );
@@ -1627,12 +1645,26 @@ export const creationAgentRouter = router({
         stableShotId: z.string().min(1),
         takeId: z.number(),
         plannedDurationSec: z.number().min(0.1).max(30),
+        /** 聊天、仓库和剪辑台采用统一更新已有主视频；保留旧调用的显式选项。 */
+        replacePrimary: z.boolean().default(true),
       })
     )
     .mutation(async ({ ctx, input }) => {
       try {
-        const result = await adoptVideoTake(input, ctx.user.id);
-        return { status: "ok" as const, ...result };
+        const { replacePrimary, ...adoptInput } = input;
+        // Keep selection and the primary edit in the same serial operation.
+        return await withVisualEditServiceLock(input.storyId, ctx.user.id, async () => {
+          const result = await adoptVideoTake(adoptInput, ctx.user.id);
+          if (replacePrimary) {
+            const promoted = await promoteAdoptedTakeToPrimary({
+              storyId: input.storyId, userId: ctx.user.id, lockHeld: true,
+              stableShotId: result.range.stableShotId, takeId: input.takeId, sourceEndSec: result.range.endSec,
+            });
+            if (promoted.status !== "ok") throw new Error(`视频已采用，但主视频没有换成功：${promoted.error}`);
+            return { status: "ok" as const, ...result, primaryReplaced: promoted.changed };
+          }
+          return { status: "ok" as const, ...result };
+        });
       } catch (error) {
         return {
           status: "error" as const,
@@ -1843,6 +1875,7 @@ export const creationAgentRouter = router({
                   imageId: z.number().int().positive(),
                   imageUrl: z.string().min(1),
                   label: z.string().min(1).max(120),
+                  composition: z.object({ opacity: z.number().min(0).max(1), fadeInFrames: z.number().int().min(0), fadeOutFrames: z.number().int().min(0) }).optional(),
                   offsetFrames: z.number().int().min(0),
                   timelineStartFrame: z.number().int().min(0).optional(),
                   durationFrames: z.number().int().min(1),
@@ -1981,6 +2014,10 @@ export const creationAgentRouter = router({
    * 权威时间线抽帧。客户端只交代播放头与操作层；赢家解析、视频解码、
    * 仓库备份、相邻可见层规划和图片落位全部由服务端完成并可幂等重放。
    */
+  chatFrameReferences: protectedProcedure
+    .input(z.object({ storyId: z.number().int().positive(), instruction: z.string().trim().min(1).max(8000), pausedFrame: pausedFrameSnapshotSchema.optional(), stableShotId: z.string().min(1).max(240).optional() }))
+    .mutation(({ ctx, input }) => extractChatFrameReferences({ ...input, userId: ctx.user.id })),
+
   extractTimelineFrame: protectedProcedure
     .input(
       z.object({
@@ -2525,6 +2562,8 @@ export const creationAgentRouter = router({
           operation: visualEditOperationSchema,
           stableShotId: z.string().min(1).max(240),
           cutFrame: z.number().int().nonnegative(),
+          startEndPlan: z.object({ imageIds: z.tuple([z.number().int().positive(),z.number().int().positive(),z.number().int().positive()]),
+            durationSec: z.union([z.literal(4),z.literal(5)]), expectedStartFrame:z.number().int().nonnegative(), expectedEndFrame:z.number().int().positive() }).optional(),
         })
         .strict()
     )
@@ -3319,6 +3358,7 @@ export const creationAgentRouter = router({
               provider: "gpt-image",
               editMaskImageUrl: maskUrl,
               localImagePatch: true,
+              renderProfileId: "image.gpt-image.local-patch",
               onProviderTaskAccepted: taskId =>
                 markPreviewMaskedImageOperationAccepted({
                   storyId: input.storyId,

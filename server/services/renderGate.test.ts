@@ -582,3 +582,10 @@ describe("renderViaGate（出图网关）", () => {
     expect(seen).not.toContain("42");
   });
 });
+
+it("passes the art director's constrained English edit all the way to the renderer", async()=>{
+ let sent="";
+ await renderViaGate({prompt:"ignored old scene",strictReferenceFidelity:true,referenceImages:["/original"],userInstructions:["森林更细腻"],referenceEditPrompt:"Refine the existing tree stippling; preserve everything else."},async prompt=>{sent=prompt;});
+ expect(sent).toBe("Refine the existing tree stippling; preserve everything else.");
+ expect(sent).not.toContain("no readable text");
+});

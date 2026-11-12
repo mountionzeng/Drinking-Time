@@ -4,6 +4,7 @@
  */
 export {
   LocalPersistenceWriteError,
+  flushLocalPersistence,
   getDb,
   getLocalPromptLineageState,
   getLocalPromptLineageStateForStory,

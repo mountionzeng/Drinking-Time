@@ -1,15 +1,22 @@
 import { guardComputeFetch, ComputeAccessError } from "./computeRequestAccess";
+import { providerErrorFromBody, type ProviderErrorDetail } from "./providerError";
 import { ENV } from "../_core/env";
 import { log302FileUrl } from "./provider302FileUrlLog";
 import type { ShotVideoProviderStatus } from "../../shared/videoAsset";
 import { SHOT_VIDEO_ASPECT_RATIO } from "../../shared/shotDirector";
 import type { ShotVideoRenderMode } from "../../shared/shotDirector";
-import { submitViduSingleVideo, refreshViduSingleVideo, VIDU_SINGLE_MODEL, VIDU_SINGLE_PATH } from "./viduSingleVideo";
+import { submitViduSingleVideo, refreshViduSingleVideo, VIDU_SINGLE_MODEL, VIDU_SINGLE_PATH, VIDU_SINGLE_POLL_PATH } from "./viduSingleVideo";
+import { submitRender } from "./render/submitRender";
+import { resolveShotVideoProfileId } from "./render/routing";
+import type { ShotVideoProfileId } from "./render/types";
 
 type Fetcher = typeof fetch;
 const MJ_VIDEO_MODEL = "mj-video";
 const MJ_VIDEO_SUBMIT_PATH = "/mj-turbo/submit/video";
 const MJ_VIDEO_POLL_PATH = "/mj-turbo/task/{taskId}/fetch";
+/** Known 302 origin used only when a Vidu/MJ route can be derived but no submit host was stored. Never read from the current env. */
+export const DEFAULT_302_BASE_URL = "https://api.302.ai";
+const VIDU_START_END_PATH = "/vidu/ent/v2/start-end2video";
 
 export type ShotVideoInput = {
   renderMode?: ShotVideoRenderMode;
@@ -50,6 +57,8 @@ export type ShotVideoSubmitResult =
       message: string;
       submissionState?: "not_submitted" | "unknown";
       taskId?: string;
+      /** Sanitized original provider error, for the take record. */
+      providerError?: ProviderErrorDetail;
     };
 
 export type ShotVideoTaskRefreshResult =
@@ -72,7 +81,116 @@ export type ShotVideoTaskRefreshResult =
       providerConfirmed?: true;
       /** Our status query failed (HTTP error); says nothing about the generation. */
       queryFailed?: true;
+      /** No stored route; must not poll the current VIDEO_302_* config. */
+      unrecoverable?: true;
+      providerError?: ProviderErrorDetail;
     };
+
+/** Provider routing captured when the task was submitted (take.parameterSnapshot). */
+export type ShotVideoTaskSnapshot = {
+  submitPath?: unknown;
+  pollPath?: unknown;
+  submitUrl?: unknown;
+  renderProfile?: unknown;
+  renderMode?: unknown;
+  kind?: unknown;
+};
+
+export type ShotVideoPollTarget = {
+  pollPath: string;
+  baseUrl: string;
+  /** snapshot/profile: stored path; snapshot-submit-path: derived from submitPath/endpoint; vidu-default: known Vidu route with no stored host; unrecoverable: do not guess from current env. */
+  source: "snapshot" | "profile" | "snapshot-submit-path" | "vidu-default" | "unrecoverable";
+};
+
+const UNRECOVERABLE_POLL_TARGET: ShotVideoPollTarget = {
+  pollPath: "",
+  baseUrl: "",
+  source: "unrecoverable",
+};
+
+function recordOf(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+/** Accept a stored https origin or full URL; reject credentials and non-https. */
+export function httpsOriginFrom(value: unknown): string {
+  if (typeof value !== "string" || !value.trim()) return "";
+  try {
+    const url = new URL(value);
+    if (url.protocol === "https:" && !url.username && !url.password) return url.origin;
+  } catch {
+    // Malformed snapshot URL: ignore.
+  }
+  return "";
+}
+
+function isViduSubmitPath(path: string): boolean {
+  return path === VIDU_SINGLE_PATH || path === VIDU_START_END_PATH;
+}
+
+function isViduPollPath(path: string): boolean {
+  return normalizedPath(path) === VIDU_SINGLE_POLL_PATH;
+}
+
+function isKnown302PollPath(path: string): boolean {
+  return isViduPollPath(path) || path.startsWith("/mj-turbo/") || path.startsWith("/mj/");
+}
+
+function snapshotLooksLikeVidu(
+  snapshot: ShotVideoTaskSnapshot | null | undefined,
+  renderMode?: ShotVideoRenderMode
+): boolean {
+  if (renderMode === "economy" || snapshot?.renderMode === "economy") return true;
+  if (snapshot?.kind === "shot-start-end") return true;
+  const profile = recordOf(snapshot?.renderProfile);
+  const profileId = profile?.profileId;
+  if (profileId === "video.vidu-q2-pro-fast" || profileId === "video.vidu-q2-turbo-start-end") {
+    return true;
+  }
+  const endpoint = typeof profile?.endpoint === "string" ? normalizedPath(profile.endpoint) : "";
+  const submit = typeof snapshot?.submitPath === "string" ? normalizedPath(snapshot.submitPath) : "";
+  return isViduSubmitPath(endpoint) || isViduSubmitPath(submit);
+}
+
+/**
+ * Resolve where to poll a submitted task. An accepted task belongs to the
+ * vendor/route it was submitted to; changing VIDEO_302_* afterwards must not
+ * strand it. Never fall back to the current env.
+ */
+export function resolveShotVideoPollTarget(
+  snapshot?: ShotVideoTaskSnapshot | null,
+  hints?: { renderMode?: ShotVideoRenderMode }
+): ShotVideoPollTarget {
+  const profile = recordOf(snapshot?.renderProfile);
+  const storedPoll = typeof snapshot?.pollPath === "string" ? normalizedPath(snapshot.pollPath) : "";
+  const profilePoll = typeof profile?.pollPath === "string" ? normalizedPath(profile.pollPath) : "";
+  const storedSubmit = typeof snapshot?.submitPath === "string" ? normalizedPath(snapshot.submitPath) : "";
+  const profileEndpoint = typeof profile?.endpoint === "string" ? normalizedPath(profile.endpoint) : "";
+  const derived = defaultPollPathFor(storedSubmit) || defaultPollPathFor(profileEndpoint);
+  const vidu = snapshotLooksLikeVidu(snapshot, hints?.renderMode);
+  const pollPath = storedPoll || profilePoll || derived || (vidu ? VIDU_SINGLE_POLL_PATH : "");
+  if (!pollPath) return UNRECOVERABLE_POLL_TARGET;
+
+  const baseUrl =
+    httpsOriginFrom(snapshot?.submitUrl) ||
+    httpsOriginFrom(profile?.baseUrl) ||
+    (isKnown302PollPath(pollPath) || isMjVideoSubmitPath(storedSubmit) || isMjVideoSubmitPath(profileEndpoint) || vidu
+      ? DEFAULT_302_BASE_URL
+      : "");
+  if (!baseUrl) return UNRECOVERABLE_POLL_TARGET;
+
+  const source: ShotVideoPollTarget["source"] = storedPoll
+    ? "snapshot"
+    : profilePoll
+      ? "profile"
+      : derived
+        ? "snapshot-submit-path"
+        : "vidu-default";
+  return { pollPath, baseUrl, source };
+};
 
 function normalizeBaseUrl(value: string): string {
   return (value || "https://api.302.ai").replace(/\/+$/, "");
@@ -110,6 +228,16 @@ function configuredSubmitPath(): string {
 
 function isMjVideoSubmitPath(path: string): boolean {
   return [MJ_VIDEO_SUBMIT_PATH, "/mj/submit/video"].includes(normalizedPath(path));
+}
+
+/** Poll path implied by a submit path alone. Never reads VIDEO_302_POLL_PATH. */
+function defaultPollPathFor(submitPath: string): string {
+  if (!submitPath) return "";
+  if (isMjVideoSubmitPath(submitPath)) {
+    return submitPath.startsWith("/mj-turbo/") ? MJ_VIDEO_POLL_PATH : "/mj/task/{taskId}/fetch";
+  }
+  if (isViduSubmitPath(normalizedPath(submitPath))) return VIDU_SINGLE_POLL_PATH;
+  return "";
 }
 
 function configuredPollPath(submitPath = configuredSubmitPath()): string {
@@ -266,9 +394,10 @@ function failureMessage(json: unknown, fallback: string): string {
 
 async function pollVideoTask(
   taskId: string,
-  fetcher: Fetcher
+  fetcher: Fetcher,
+  snapshot?: ShotVideoTaskSnapshot
 ): Promise<ShotVideoResult> {
-  const pollPath = configuredPollPath();
+  const pollPath = resolveShotVideoPollTarget(snapshot).pollPath;
   if (!pollPath) {
     return {
       status: "error",
@@ -284,7 +413,7 @@ async function pollVideoTask(
   while (Date.now() - startedAt < timeoutMs) {
     await new Promise(resolve => setTimeout(resolve, nextPollDelayMs));
     nextPollDelayMs = pollMs;
-    const refreshed = await refreshShotVideoTask(taskId, { fetcher });
+    const refreshed = await refreshShotVideoTask(taskId, { fetcher, snapshot });
     if (refreshed.status === "available") {
       return { status: "ok", videoUrl: refreshed.videoUrl, taskId, prompt: "" };
     }
@@ -306,7 +435,8 @@ async function pollVideoTask(
   };
 }
 
-function buildSubmitRequest(input: ShotVideoInput) {
+/** Request body for MJ-Video / configured 302 video (exported for contract tests and render-smoke). */
+export function buildSubmitRequest(input: ShotVideoInput) {
   const submitPathTemplate = configuredSubmitPath();
   const model = configuredModel(submitPathTemplate);
   const submitPath = buildPath(submitPathTemplate, { model });
@@ -379,12 +509,30 @@ export function getShotVideoProviderStatus(renderMode?: ShotVideoRenderMode): Sh
   };
 }
 
+/** Render profile a shot video request resolves to with the current config. */
+export function shotVideoRenderProfileId(renderMode?: ShotVideoRenderMode): ShotVideoProfileId {
+  return resolveShotVideoProfileId(renderMode, getShotVideoProviderStatus(renderMode).submitPath);
+}
+
+/** Submit a shot video through submitRender, the only paid exit. */
 export async function submitShotVideo(
   input: ShotVideoInput,
   options: { fetcher?: Fetcher } = {}
 ): Promise<ShotVideoSubmitResult> {
-  if (input.renderMode === "economy") return submitViduSingleVideo({ ...input, durationSec: input.durationSec ?? 5 }, options);
+  return submitRender(shotVideoRenderProfileId(input.renderMode), { input, options });
+}
+
+/** Shot video adapter behind submitRender: one POST for the given profile. */
+export async function submitShotVideoForProfile(
+  profileId: ShotVideoProfileId,
+  input: ShotVideoInput,
+  options: { fetcher?: Fetcher } = {}
+): Promise<ShotVideoSubmitResult> {
+  if (profileId === "video.vidu-q2-pro-fast") return submitViduSingleVideo({ ...input, durationSec: input.durationSec ?? 5 }, options);
   const providerStatus = getShotVideoProviderStatus();
+  if (resolveShotVideoProfileId(input.renderMode, providerStatus.submitPath) !== profileId) {
+    return { status: "error", submissionState: "not_submitted", message: `视频档位 ${profileId} 与当前配置不一致，已停止，本次没有提交付费任务。` };
+  }
   if (providerStatus.missing.includes("API302_KEY")) {
     return {
       status: "error",
@@ -427,6 +575,7 @@ export async function submitShotVideo(
             ? "unknown"
             : "not_submitted",
         message: failureMessage(json, `视频提交失败 HTTP ${response.status}`),
+        providerError: providerErrorFromBody("302-video", json, response.status),
       };
     }
     const responseCode = numericCodeFromJson(json);
@@ -442,6 +591,7 @@ export async function submitShotVideo(
           json,
           `MJ-Video 提交失败：code ${responseCode}`
         ),
+        providerError: providerErrorFromBody("302-mj-video", json, response.status),
       };
     }
 
@@ -485,9 +635,8 @@ export async function submitShotVideo(
 
 export async function refreshShotVideoTask(
   taskId: string,
-  options: { fetcher?: Fetcher; renderMode?: ShotVideoRenderMode } = {}
+  options: { fetcher?: Fetcher; renderMode?: ShotVideoRenderMode; snapshot?: ShotVideoTaskSnapshot | null } = {}
 ): Promise<ShotVideoTaskRefreshResult> {
-  if (options.renderMode === "economy") return refreshViduSingleVideo(taskId, options);
   if (!ENV.api302Key) {
     return {
       status: "unfollowable",
@@ -495,21 +644,30 @@ export async function refreshShotVideoTask(
       message: "API302_KEY 未配置，无法查询视频任务。",
     };
   }
-  const submitPath = configuredSubmitPath();
-  const pollPath = configuredPollPath(submitPath);
-  if (!pollPath) {
+  const target = resolveShotVideoPollTarget(options.snapshot, { renderMode: options.renderMode });
+  if (target.source === "unrecoverable" || !target.pollPath) {
+    console.warn("[video] task has no recoverable submission snapshot; not polling current VIDEO_302_* config", { taskId });
     return {
       status: "unfollowable",
+      unrecoverable: true,
       taskId,
-      message: "视频任务已提交，但未配置 VIDEO_302_POLL_PATH，无法查询结果。",
+      message: "视频任务已提交，但无法从提交快照恢复查询路径，已停止用当前配置猜测。",
     };
   }
+  if (isViduPollPath(target.pollPath)) {
+    return refreshViduSingleVideo(taskId, {
+      fetcher: options.fetcher,
+      baseUrl: target.baseUrl,
+      pollPath: target.pollPath,
+    });
+  }
+  const pollPath = target.pollPath;
 
   const fetcher = guardComputeFetch(
     (options.fetcher ?? globalThis.fetch) as Fetcher
   );
   try {
-    const url = endpoint(buildPath(pollPath, { taskId }));
+    const url = new URL(buildPath(pollPath, { taskId }).replace(/^\/+/, ""), `${target.baseUrl}/`);
     const response = await withTimeout(
       fetcher(url.toString(), {
         method: "GET",
@@ -527,6 +685,7 @@ export async function refreshShotVideoTask(
           json,
           `视频任务查询失败 HTTP ${response.status}`
         ),
+        providerError: providerErrorFromBody("302-video", json, response.status),
       };
     }
     const previewVideoUrl = directVideoUrlFromJson(json);
@@ -556,6 +715,7 @@ export async function refreshShotVideoTask(
         taskId,
         providerConfirmed: true,
         message: failureMessage(json, "视频生成失败"),
+        providerError: providerErrorFromBody("302-video", json),
       };
     }
     return { status: "processing", taskId };
@@ -575,6 +735,8 @@ export async function generateShotVideo(
   const fetcher = guardComputeFetch(
     (options.fetcher ?? globalThis.fetch) as Fetcher
   );
+  // Freeze the route before submitting: the poll must follow this submission.
+  const routeAtSubmit = { submitPath: configuredSubmitPath(), pollPath: configuredPollPath() };
   const submitted = await submitShotVideo(input, { fetcher });
   if (submitted.status !== "ok") return submitted;
   if (submitted.videoUrl) {
@@ -588,6 +750,6 @@ export async function generateShotVideo(
   if (!submitted.taskId) {
     return { status: "error", message: "视频接口没有返回 videoUrl 或 taskId" };
   }
-  const polled = await pollVideoTask(submitted.taskId, fetcher);
+  const polled = await pollVideoTask(submitted.taskId, fetcher, { ...routeAtSubmit, submitUrl: submitted.submitUrl });
   return polled.status === "ok" ? { ...polled, prompt: input.prompt } : polled;
 }

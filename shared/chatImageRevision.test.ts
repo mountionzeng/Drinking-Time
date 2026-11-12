@@ -60,3 +60,12 @@ it("does not treat whitespace normalization as proof that the source is still a 
   expect(replaceRevisionFrameRoles(raw, 1, 2)).toBe(raw);
   expect(replaceRevisionFrameRoles(undefined, 1, 2)).toBeUndefined();
 });
+
+it("requires review of the latest frame refinement per source without blocking other shots or failed edits",async()=>{
+ const {hasUnreviewedFrameRefinement:pending}=await import("./chatImageRevision");
+ const task={shotIdentity:"s3",meta:{editMode:"retexture",parentImageId:20},status:"succeeded"};
+ expect(pending([task],"s3")).toBe(true);expect(pending([task],"s1")).toBe(false);
+ expect(pending([task,{...task,decision:{kind:"kept"}}],"s3")).toBe(false);
+ expect(pending([{...task,status:"failed"}],"s3")).toBe(false);
+ expect(pending([{...task,status:"accepted"}],"s3")).toBe(true);
+});

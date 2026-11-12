@@ -66,12 +66,12 @@ it("does not overwrite a concurrent story edit or malformed model response", asy
     await updateStory(input.storyId, 1, { body: { ...old, _revision: 2, customMarker: "concurrent" } });
     return { parsed: draft };
   });
-  await expect(writeArtSystem(input)).rejects.toThrow("revision conflict");
+  await expect(writeArtSystem(input)).resolves.toMatchObject({version:1,revision:3});
   const body = (await getStoryById(input.storyId, 1))!.body as Record<string, unknown>;
-  expect(body.customMarker).toBe("concurrent"); expect(body.artDirection).toBeUndefined();
+  expect(body.customMarker).toBe("concurrent"); expect(body.artDirection).toBeDefined();
   mocks.agent.mockResolvedValueOnce({ parsed: { name: "incomplete" } });
-  await expect(writeArtSystem(input)).rejects.toThrow();
-  expect(((await getStoryById(input.storyId, 1))!.body as Record<string, unknown>).artDirection).toBeUndefined();
+  await expect(writeArtSystem({...input,expectedVersion:1,operationToken:crypto.randomUUID()})).rejects.toThrow();
+  expect(((await getStoryById(input.storyId, 1))!.body as Record<string, unknown>).artDirection).toEqual(body.artDirection);
 });
 
 it("restores the specifically named historical recipe as a new confirmed version", async () => {
@@ -82,4 +82,26 @@ it("restores the specifically named historical recipe as a new confirmed version
   expect(restored.version).toBe(3); expect(restored.direction.recipe?.style).toEqual(["ink wash"]);
   expect(restored.direction.recipeVersions.find(r => r.version === 2)?.style).toEqual(["oil paint"]);
   await expect(writeArtSystem({ ...input, expectedVersion: 3, operationToken: crypto.randomUUID(), action: "confirm", recipeVersion: 999 })).rejects.toThrow("没有找到");
+});
+
+it("rebases unrelated chat saves after inference without calling the model twice", async () => {
+  const input = await fixture();
+  mocks.agent.mockImplementationOnce(async () => {
+    const current = (await getStoryById(input.storyId, 1))!;
+    await updateStory(input.storyId, 1, {body:{...(current.body as object), _revision:2, customMarker:"new chat saved", messages:[{role:"user",content:"new message"}]}});
+    return {parsed:draft};
+  });
+  const saved = await writeArtSystem(input);
+  expect(saved.version).toBe(1); expect(saved.revision).toBe(3); expect(mocks.agent).toHaveBeenCalledTimes(1);
+  expect((await getStoryById(input.storyId,1))!.body).toMatchObject({customMarker:"new chat saved",messages:[{role:"user",content:"new message"}]});
+});
+it("does not overwrite a concurrent art edit after inference", async () => {
+  const input = await fixture();
+  mocks.agent.mockImplementationOnce(async () => {
+    const current = (await getStoryById(input.storyId, 1))!;
+    await updateStory(input.storyId, 1, {body:{...(current.body as object), _revision:2,artDirection:{phase:"recipe-review",recipe:{style:["other artist"],version:1,updatedAt:1},recipeVersions:[]}}});
+    return {parsed:draft};
+  });
+  await expect(writeArtSystem(input)).rejects.toThrow("美术体系已更新");
+  expect(mocks.agent).toHaveBeenCalledTimes(1);
 });

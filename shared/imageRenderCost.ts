@@ -120,3 +120,48 @@ export function estimateLocalImagePatchCost(): StoryboardMaskedEditCostEstimate 
   const estimatedPtc = (2048 * 8 + 3072 * 5 + 272 * 30) / 1_000_000;
   return { currency: "CNY", estimatedCny: Math.ceil(estimatedPtc * (REFERENCE_CNY / REFERENCE_PTC) * 100) / 100, candidateCount: 1 };
 }
+
+/** Legnext Retexture / Style Transfer, Fast: 120 credits; $1 = 1000 credits.
+ * https://legnext.ai/pricing (verified 2026-11-10). Uses the existing provider
+ * quote conversion; returns the actual 1–4 outputs without buying missing ones.
+ */
+export function estimateStoryboardRetextureCost() {
+  return { currency: "CNY" as const, estimatedCny: Math.ceil(0.12 * (REFERENCE_CNY / REFERENCE_PTC) * 100) / 100, candidateCount: 4 as const };
+}
+
+/** Supplier routing is taken from the user's explicit instruction, never model prose. */
+export function mjEditSupplier(instruction = ""): "legnext" | "302" {
+  const affirmative = instruction.replace(/(?:不要|不用|别|不再|do not|don't)[^，。；\n]*302[^，。；\n]*/gi, "");
+  return /(?:使用|通过|改用|换用|用|use|via)\s*302(?:\s*[·/／-]?\s*(?:MJ|Midjourney))?/i.test(affirmative) ? "302" : "legnext";
+}
+
+/** 302 MJ Edits: 0.05 PTC/task. https://doc.302.ai/317861511e0 */
+export function estimateMjOriginalEditCost(instruction = "") {
+  return mjEditSupplier(instruction) === "302"
+    ? { currency: "CNY" as const, estimatedCny: Math.ceil(0.05 * (REFERENCE_CNY / REFERENCE_PTC) * 100) / 100, candidateCount: 4 as const }
+    : estimateStoryboardRetextureCost();
+}
+
+/** Only an explicit routing clause selects Kontext; artwork mentioning the name does not. */
+export function fluxKontextEditModel(instruction = ""): "pro" | "dev" | null {
+  const text = instruction.replace(/^以所选参考图片为基础生成新版，保留未要求修改的主体与画面内容。用户修改要求：\s*/, "");
+  const match = /^(?:(?:修改这张图片[:：]\s*|修改第\s*\d+\s*镜图片\s*#\s*\d+\s*[,，]\s*)?(?:请)?(?:使用|通过|改用|换用|用)\s*(?:302\s*[·/／-]?\s*)?FLUX[\s-]+Kontext[\s-]+(Pro|Dev)\s*(?:的)?(?:原图)?(?:精修|编辑|改图|修改)|(?:use|via)\s+(?:302\s+)?FLUX[\s-]+Kontext[\s-]+(Pro|Dev)\s+(?:Edits|original image editing))(?=\s*[,，。；.;\n]|\s*$)/i.exec(text);
+  return match ? (match[1] ?? match[2]).toLowerCase() as "pro" | "dev" : null;
+}
+
+export function isFluxKontextEdit(instruction = "") { return fluxKontextEditModel(instruction) !== null; }
+
+/** 302 official BFL edit route, 0.04 PTC/image: https://doc.302.ai/304406213e0 */
+export function estimateFluxKontextEditCost(model: "pro" | "dev" = "pro"): StoryboardMaskedEditCostEstimate {
+  return { currency: "CNY", estimatedCny: Math.ceil((model === "dev" ? 0.03 : 0.04) * (REFERENCE_CNY / REFERENCE_PTC) * 100) / 100, candidateCount: 1 };
+}
+
+export function estimateOriginalImageEditCost(instruction: string, provider: "midjourney" | "gpt-image") {
+  return provider === "midjourney" ? estimateMjOriginalEditCost(instruction)
+    : isFluxKontextEdit(instruction) ? estimateFluxKontextEditCost(fluxKontextEditModel(instruction)!) : estimateStoryboardMaskedEditCost();
+}
+
+export function originalImageEditLabel(instruction: string, provider: "midjourney" | "gpt-image") {
+  return provider === "midjourney" ? mjEditSupplier(instruction) === "302" ? "302 MJ Edits" : "Legnext MJ Retexture"
+    : isFluxKontextEdit(instruction) ? `302 / FLUX Kontext ${fluxKontextEditModel(instruction) === "dev" ? "Dev" : "Pro"}` : "302 / GPT Image 2";
+}

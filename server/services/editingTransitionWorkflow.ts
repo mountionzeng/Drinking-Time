@@ -1,3 +1,4 @@
+import { submitRender } from "./render/submitRender";
 import { spawn } from "node:child_process";
 import { lookup } from "node:dns/promises";
 import fs from "node:fs";
@@ -43,7 +44,6 @@ import {
   estimateViduQ2TransitionCny,
   estimateViduQ2TransitionCost,
   hardCutToLastFrame,
-  submitViduTransition,
   uploadFileToVidu,
   ViduSubmissionError,
   waitForViduTransition,
@@ -1575,14 +1575,14 @@ async function runConfirmation(
           durableLastFrameKey: path.basename(durableLastFramePath(take.id)),
         }
       );
-      const submitted = await submitViduTransition({
+      const submitted = await submitRender("video.vidu-q2-turbo-start-end", { spec: {
         prompt: candidate.prompt,
         firstImageUrl,
         lastImageUrl,
         durationSec: candidate.durationSec,
         resolution: candidate.resolution,
         movementAmplitude: candidate.movementAmplitude ?? "auto",
-      });
+      } });
       taskId = submitted.taskId;
       take = await patchTake(
         take,

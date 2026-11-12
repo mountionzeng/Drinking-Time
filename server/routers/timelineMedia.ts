@@ -718,6 +718,7 @@ export const timelineMediaRouter = router({
         .map(asset => ({
           id: asset.id,
           displayName: asset.displayName,
+          stableShotId: audioWarehouseShotId(asset.provenance, envelope?.extensions.subtitleTracks),
           mediaKind: asset.mediaKind,
           durationFrames: Math.max(1, asset.durationFrames ?? 1),
           createdAt: asset.createdAt,
@@ -811,3 +812,4 @@ export const timelineMediaRouter = router({
       })
     ),
 });
+import { audioWarehouseShotId } from "../../shared/audioWarehouseShot";

@@ -34,6 +34,8 @@ export type StartEndVideoConfig = {
 
 export type StartEndShotVideoEstimate = {
   currency: "CNY";
+  videoEstimatedCny?: number;
+  analysisEstimatedCny?: number;
   estimatedCny: number;
   stableShotId: string;
   cueCode: string;

@@ -1,8 +1,8 @@
+import { VideoTextDraft } from "./VideoTextDraft";
 import { NEW_VERSION_EVENT, type NewVersionRequest } from "./newVersionRequest";
 import { FilmVersionDraft } from "./FilmVersionDraft";
 import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { useEffect, useRef, useState } from "react";
-import { Loader2, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import {
@@ -36,8 +36,7 @@ import { ARTICLE_NATURES, ARTICLE_FORMS, ARTICLE_LENGTHS, DEFAULT_ARTICLE_OPTION
 
 const buttonClass =
   "inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg border border-[var(--panel-border)] px-3 py-2 text-xs transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)] disabled:cursor-not-allowed disabled:opacity-45";
-const compactButtonClass =
-  "inline-flex h-7 shrink-0 items-center justify-center gap-1 rounded-md border border-[var(--panel-border)] px-2 text-[11px] font-medium transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)] disabled:cursor-not-allowed disabled:opacity-45";
+
 
 export function TextDraftVersions({
   storyId,
@@ -57,6 +56,13 @@ export function TextDraftVersions({
   const [directionOpen, setDirectionOpen] = useState(false);
   const [presentation, setPresentation] = useState<"film" | "text" | null>(null);
   const [newThoughts, setNewThoughts] = useState("");
+  const [textBasis, setTextBasis] = useState<"video" | "video-transcript" | "book">("video");
+  const videoSource = trpc.bookWorkflow.videoSource.useQuery({ storyId: storyId ?? 0 }, {
+    enabled: directionOpen && Boolean(storyId && storyId > 0), retry: false,
+  });
+  const sourceReady = !storyId || storyId <= 0 || Boolean(videoSource.data && !videoSource.isFetching && !videoSource.isError);
+  const useVideo = Boolean(videoSource.data?.available && textBasis !== "book");
+  useEffect(() => { if (directionOpen && videoSource.data?.available && presentation === null) setPresentation("text"); }, [directionOpen, videoSource.data?.available, presentation]);
   const [articleOptions, setArticleOptions] = useState<ArticleGenerationOptions>(DEFAULT_ARTICLE_OPTIONS);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [edited, setEdited] = useState<TextDraftContent | null>(null);
@@ -154,6 +160,7 @@ export function TextDraftVersions({
   function openGeneration(request?: NewVersionRequest) {
     if (busy || blocked) return;
     setPresentation(request?.presentation ?? null);
+    setTextBasis(request?.videoTextMethod==="local-transcript"?"video-transcript":"video");
     setNewThoughts(request?.instruction ?? "");
     setDirectionOpen(true);
   }
@@ -261,6 +268,8 @@ export function TextDraftVersions({
         parentId,
         basis: basis?.body.trim() ? basis : null,
         ...(selection ? { selection } : {}),
+        ...(writingSnapshot?.chapterId && writingSnapshot.draft === basis?.body
+          ? { emotionChapterId: writingSnapshot.chapterId } : {}),
         messages: fresh.messages
           .filter(m => m.role === "user" || m.role === "assistant")
           .map(m => ({ id: m.id, role: m.role, content: m.content })),
@@ -395,21 +404,6 @@ export function TextDraftVersions({
 
   return (
     <>
-      <div className="mt-1 flex justify-end">
-        <button
-          type="button"
-          className={`${compactButtonClass} text-[var(--nayin-accent)]`}
-          onClick={() => openGeneration()}
-          disabled={blocked || busy || query.isError}
-        >
-          {busy ? (
-            <Loader2 className="h-3 w-3 animate-spin" />
-          ) : (
-            <Plus className="h-3 w-3" />
-          )}
-          {busy ? _ui("正在处理…") : hasExistingText ? _ui("生成新版本") : _ui("生成文章")}
-        </button>
-      </div>
       {versions.at(-1)?.error && (
         <p role="status" className="mt-1 text-[10px] text-muted-foreground">
           {versions.at(-1)?.error}
@@ -427,21 +421,37 @@ export function TextDraftVersions({
         <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>
-              {hasExistingText ? _ui("生成新版本") : _ui("生成文章")}
+              {_ui("生成新版本")}
             </DialogTitle>
             <DialogDescription>
-              {_ui("根据当前书稿、聊天和新的想法生成，旧版本会保留。")}</DialogDescription>
+              {_ui(videoSource.data?.available ? "告诉我想把视频写成什么样，也可以选一个例子再修改。" : "根据当前书稿、聊天和新的想法生成，旧版本会保留。")}</DialogDescription>
           </DialogHeader>
-          <label className="grid gap-1 text-sm">{_ui("这次有什么新想法？（选填）")}
+          <label className="grid gap-1 text-sm">{_ui(videoSource.data?.available ? "你想生成什么样的文字？" : "这次有什么新想法？（选填）")}
             <textarea aria-label={_ui("新的想法")} className="rounded-md border bg-background p-3" rows={3} maxLength={2000} value={newThoughts} onChange={event => setNewThoughts(event.target.value)} placeholder={_ui("想表达什么、给谁看、准备发在哪里……")} />
           </label>
+          {videoSource.data?.available && <label className="grid gap-1 text-sm text-muted-foreground">{_ui("参考写法（可选）")}
+            <select aria-label={_ui("参考写法")} className="min-h-10 rounded-md border bg-background px-3" value="" onChange={e=>{if(e.target.value){setNewThoughts(e.target.value);setTextBasis(e.target.selectedOptions[0]?.dataset.method==="local-transcript"?"video-transcript":"video");}}}>
+              <option value="">{_ui("选一个例子，也可以完全自己写")}</option>
+              {[
+                ["原片文字 / Original wording","优先按原视频字幕恢复文字稿，没有字幕时读取旁白，保持原有内容和顺序，不改写、不扩写。","local-transcript"],
+                ["产品介绍 / Product introduction","请把视频整理成一篇温暖、简洁的产品介绍，分章、节呈现，保留片中事实，不添加没有出现的功能。"],
+                ["旁白稿 / Narration script","请忠实整理成原视频的旁白稿，保持内容和顺序，修正明显的转写错字，不扩写。"],
+                ["朋友圈短文 / Social post","请把视频改写成适合发朋友圈的简短文字，自然、有温度，保留主要内容，不夸大。"],
+              ].map(([label,value,method])=><option key={label} data-method={method} value={_ui(value)}>{_ui(label)}</option>)}
+            </select></label>}
           <fieldset className="space-y-2"><legend className="mb-2 text-sm">{_ui("这次想做成影片，还是直接用文字呈现？")}</legend>
             <div className="flex gap-4">{([["film", "做成影片"], ["text", "文字呈现"]] as const).map(([value, label]) => <label key={value} className="flex items-center gap-2 text-sm"><input type="radio" name="version-presentation" value={value} checked={presentation === value} onChange={() => setPresentation(value)} />{_ui(label)}</label>)}</div>
           </fieldset>
           {presentation === "film" && storyId && storyId > 0 && <FilmVersionDraft key={`${spine.accountId}:${storyId}`} storyId={storyId} request={[input, newThoughts].filter(Boolean).join("\n")} blocked={blocked} onDone={() => setDirectionOpen(false)} />}
           {presentation === "film" && (!storyId || storyId <= 0) && <p className="text-sm text-muted-foreground">{_ui("先把聊天生成文字稿，再继续制作影片。")}</p>}
-          {presentation === "text" && convertingToText && storyId && <FilmVersionDraft key={`text:${spine.accountId}:${storyId}`} target="text" storyId={storyId} request={[input, newThoughts].filter(Boolean).join("\n")} blocked={blocked} onDone={() => setDirectionOpen(false)} />}
-          {presentation === "text" && !convertingToText && <>
+          {presentation === "text" && !sourceReady && <p role="status" className="text-sm text-muted-foreground">{_ui(videoSource.isError ? "视频来源读取失败，请关闭后重试；未提交生成。" : "正在读取视频来源…")}</p>}
+          {presentation === "text" && videoSource.data?.available && <label className="flex items-center gap-2 text-sm">{_ui("素材来源")}
+            <select aria-label={_ui("素材来源")} className="rounded-md border bg-background px-2 py-1" value={textBasis} onChange={e=>setTextBasis(e.target.value as "video"|"video-transcript"|"book")}>
+              <option value="video">{_ui("当前视频")}</option><option value="video-transcript">{_ui("原片文字（0 算力）")}</option><option value="book">{_ui("当前书稿与聊天")}</option>
+            </select></label>}
+          {presentation === "text" && useVideo && storyId && <VideoTextDraft key={`video:${spine.accountId}:${storyId}`} storyId={storyId} request={newThoughts} method={textBasis==="video-transcript"?"local-transcript":"rewrite"} blocked={blocked} onDone={()=>setDirectionOpen(false)} />}
+          {presentation === "text" && sourceReady && !useVideo && convertingToText && storyId && <FilmVersionDraft key={`text:${spine.accountId}:${storyId}`} target="text" storyId={storyId} request={[input, newThoughts].filter(Boolean).join("\n")} blocked={blocked} onDone={() => setDirectionOpen(false)} />}
+          {presentation === "text" && sourceReady && !useVideo && !convertingToText && <>
           <details><summary className="cursor-pointer text-sm text-muted-foreground">{_ui("文字要求（选填）")}</summary>
           <div className="grid gap-4">
             <label className="grid gap-1 text-sm">{_ui("内容性质")}<select aria-label={_ui("内容性质")} className="min-h-10 rounded-md border bg-background px-3" value={articleOptions.nature}

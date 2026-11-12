@@ -147,6 +147,8 @@ export type InferenceRequest = {
   replaySafe?: boolean;
   /** Allow a structurally safe request to fall back only after a definite rejection. */
   retryRejected?: boolean;
+  /** Explicit one-attempt workflows must not retry, downgrade or switch provider. */
+  maxAttempts?: 1 | 2;
   /** 整个候选链的外层预算；切换候选不重置。 */
   deadlineMs?: number;
   /**
@@ -804,7 +806,7 @@ async function runInferenceChain(
   let candidateIndex = 0;
   let minimalPayload = false;
 
-  while (attemptsUsed < MAX_PROVIDER_ATTEMPTS && candidateIndex < candidates.length) {
+  while (attemptsUsed < (request.maxAttempts ?? MAX_PROVIDER_ATTEMPTS) && candidateIndex < candidates.length) {
     if (request.signal?.aborted) {
       throw new InferenceError("LLM invoke aborted by caller", failures);
     }

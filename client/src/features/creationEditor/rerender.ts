@@ -37,7 +37,7 @@ export type GenerateForMobileInput = {
   exactFrameEdit?: boolean;
   costConfirmation?: {
     accepted: true;
-    estimatedCny: number;
+    estimatedCny: number; continueAfterUnknownRequestId?: string;
   };
   styleHint?: string;
   autoSelect?: boolean;
@@ -63,6 +63,7 @@ export type GenerateForMobileResult = {
   error?: string;
   /** 已被服务商受理但结果尚未回传的任务收据；禁止盲目重复提交。 */
   providerTaskId?: string;
+  recoveryPending?: boolean;
   /** 连接在拿到服务商任务号前中断，无法确认是否已受理。 */
   submissionUncertain?: boolean;
 };
@@ -116,7 +117,7 @@ export function createGenerateForMobileInput(params: {
   exactFrameEdit?: boolean;
   costConfirmation?: {
     accepted: true;
-    estimatedCny: number;
+    estimatedCny: number; continueAfterUnknownRequestId?: string;
   };
   imageProvider?: ImageProvider;
   editMaskImageUrl?: string;
@@ -163,7 +164,7 @@ export async function rerenderShotImage(params: {
   exactFrameEdit?: boolean;
   costConfirmation?: {
     accepted: true;
-    estimatedCny: number;
+    estimatedCny: number; continueAfterUnknownRequestId?: string;
   };
   imageProvider?: ImageProvider;
   editMaskImageUrl?: string;
@@ -181,8 +182,8 @@ export async function rerenderShotImage(params: {
     throw new Error(readableRerenderError(error, "重渲请求失败"));
   }
   if (result.status !== "ok" || !result.imageUrl) {
-    if (result.providerTaskId && input.shotImageRequestId && (!input.referenceRevision || input.conversationRevision)) {
-      throw new PendingShotImageError(result.error || "图片任务已受理，请恢复原任务", result.providerTaskId);
+    if ((result.providerTaskId || result.recoveryPending) && input.shotImageRequestId && (!input.referenceRevision || input.conversationRevision)) {
+      throw new PendingShotImageError(result.error || "图片任务已受理，请恢复原任务", input.shotImageRequestId);
     }
     throw new Error(readableRerenderError(result.error, "图片生成失败"));
   }
@@ -224,7 +225,7 @@ export async function rerenderShotImageCandidates(params: {
   candidateCount: typeof STORYBOARD_IMAGE_CANDIDATE_COUNT;
   costConfirmation: {
     accepted: true;
-    estimatedCny: number;
+    estimatedCny: number; continueAfterUnknownRequestId?: string;
   };
   generate: (input: GenerateForMobileInput) => Promise<GenerateForMobileResult>;
 }): Promise<RerenderShotImageCandidatesResult> {

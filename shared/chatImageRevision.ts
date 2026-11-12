@@ -1,18 +1,36 @@
 import type { VisualEditDocument } from "./visualClipModel";
 
+export type ImageDimensions = { width: number; height: number };
+export type ImageEditDimensionCheck = {
+  status: "matched" | "resized" | "mismatch" | "unverified";
+  expected: ImageDimensions;
+  provider?: ImageDimensions;
+  output?: ImageDimensions;
+  /** Original supplier output is retained even when a same-aspect copy is resized. */
+  originalImageUrl: string;
+};
+
 export type ChatImageRevision = {
   requestId: string;
   stableShotId: string;
   shotNo: number;
   sourceImageId: number;
+  sourceImageUrl?: string;
+  editMode?: "retexture";
+  referenceOnly?: boolean;
+  paletteReferenceImageId?: number;
+  paletteSummary?: string;
   createdAt: number;
   editorUserId?: number;
   instruction: string;
   status: "preparing" | "unknown" | "accepted" | "failed" | "succeeded";
-  candidates: { imageId: number; imageUrl: string }[];
+  candidates: { imageId: number; imageUrl: string; dimensionCheck?: ImageEditDimensionCheck }[];
+  /** 免费「只调亮度」候选的说明（AI 新图按原图亮度调整），按图片编号。 */
+  candidateLabels?: Record<number, string>;
   error?: string;
   decision?: {
     kind: "kept" | "replaced";
+    referenceOnly?: boolean;
     imageId?: number;
     at: number;
     userId: number;
@@ -23,7 +41,7 @@ export type ChatImageRevision = {
 export function parseImageRevisionDecision(text: string) {
   const value = text.trim().replace(/[。.!！]+$/u, "");
   const exact = value.match(
-    /^(?:用)?(?:图片|image)\s*#?(\d+)\s*(替换原图|替换原素材|replace original)$/i
+    /^(?:用)?(?:图片|image)\s*#?(\d+)\s*(替换原图|替换原素材|替换参考帧|replace original)$/i
   );
   if (exact)
     return {
@@ -33,7 +51,7 @@ export function parseImageRevisionDecision(text: string) {
       ordinal: undefined,
     };
   const match = value.match(
-    /^(?:第\s*(\d+)\s*(?:个)?镜(?:头)?\s*[，,:：]?\s*)?(?:(?:用)?第\s*(\d+)\s*张\s*)?(替换(?:原图|原素材)?|采用新图|保留原图|先保留原图|不替换|replace(?: original)?|keep original)$/i
+    /^(?:第\s*(\d+)\s*(?:个)?镜(?:头)?\s*[，,:：]?\s*)?(?:(?:用)?第\s*(\d+)\s*张\s*)?(替换(?:原图|原素材|参考帧)?|采用新图|保留原图|先保留原图|不替换|replace(?: original)?|keep original)$/i
   );
   if (!match) return null;
   return {
@@ -128,4 +146,15 @@ export function replaceRevisionFrameRoles(
   }
   if (JSON.stringify(params) === before) return raw;
   return typeof raw === "string" ? JSON.stringify(params) : params;
+}
+
+/** Most recent refinement of each source must be reviewed before a new video purchase. */
+export function hasUnreviewedFrameRefinement(raw: unknown, stableShotId: string): boolean {
+  if (!Array.isArray(raw)) return false;
+  const latest = new Map<number, { status?: string; decision?: unknown }>();
+  for (const task of raw) {
+    if (task && task.shotIdentity === stableShotId && task.meta?.editMode === "retexture" && Number.isInteger(task.meta.parentImageId))
+      latest.set(task.meta.parentImageId, task);
+  }
+  return [...latest.values()].some(task => task.status !== "failed" && !task.decision);
 }

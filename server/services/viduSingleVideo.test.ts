@@ -65,6 +65,7 @@ it("distinguishes definitive rejection from an unknown accepted receipt", async 
 
 it("refreshes the recorded economy provider even when current default is MJ", async () => {
   ENV.video302SubmitPath = "/mj-turbo/submit/video";
+  ENV.api302BaseUrl = "https://api.302ai.cn";
   const fetcher = vi.fn(async () => new Response('{"state":"success","creations":[{"url":"https://cdn.example/video.mp4"}]}'));
   const result = await refreshShotVideoTask("vidu-1", { renderMode: "economy", fetcher });
   expect(result).toMatchObject({ status: "available", videoUrl: "https://cdn.example/video.mp4" });

@@ -23,6 +23,15 @@ import {
   type ChatImageRevision,
 } from "../../shared/chatImageRevision";
 import type { Task } from "./storyboardImageTask";
+import { readImageDimensions } from "./imageEditDimensions";
+
+/** attachLuminanceCandidates 写入的免费候选：在画廊里标明「只调亮度」，和 AI 新图区分开。 */
+function luminanceLabels(meta: unknown): { candidateLabels?: Record<number, string> } {
+  const items = (meta as { luminanceCandidates?: Array<{ imageId: number; strength: string; fromImageId: number }> } | undefined)?.luminanceCandidates;
+  if (!Array.isArray(items) || !items.length) return {};
+  return { candidateLabels: Object.fromEntries(items.map(item =>
+    [item.imageId, `免费·只调亮度（${item.strength === "mid" ? "中档" : "全档"}）：AI 新图 #${item.fromImageId} 按原图亮度，0 算力`])) };
+}
 
 export async function readChatImageRevisions(
   storyId: number,
@@ -41,12 +50,18 @@ export async function readChatImageRevisions(
       stableShotId: t.shotIdentity,
       shotNo: Number(t.meta!.shotNo.replace(/^SH/i, "")),
       sourceImageId: t.meta!.parentImageId!,
+      editMode: t.meta!.editMode,
+      referenceOnly: t.meta!.referenceOnly,
+      paletteReferenceImageId: t.meta!.paletteReferenceImageId,
+      paletteSummary: typeof jsonRecord(t.meta!.paletteReading).summary === "string"
+        ? String(jsonRecord(t.meta!.paletteReading).summary).slice(0,240) : undefined,
       createdAt: t.createdAt ?? 0,
       instruction: t.meta!.instruction ?? "",
       status: t.status,
       candidates: t.result?.status === "ok" ? t.result.candidates : [],
       error: t.result?.status === "error" ? t.result.error : undefined,
       decision: t.decision,
+      ...luminanceLabels(t.meta),
     }));
   const included = new Set(
     revisions.flatMap(r => r.candidates.map(c => c.imageId))
@@ -95,7 +110,8 @@ export async function readChatImageRevisions(
       },
     });
   }
-  return revisions.sort((a, b) => a.createdAt - b.createdAt);
+  return revisions.map(revision => ({ ...revision, sourceImageUrl: images.find(image => image.id === revision.sourceImageId)?.imageUrl }))
+    .sort((a, b) => a.createdAt - b.createdAt);
 }
 
 /** A replay can finish projection after a committed timeline decision. CAS never displaces a newer choice. */
@@ -105,7 +121,7 @@ async function syncSelectedRevision(
   task: Task
 ) {
   if (
-    task.decision?.kind !== "replaced" ||
+    task.meta?.referenceOnly || task.decision?.kind !== "replaced" ||
     !task.decision.imageId ||
     !task.meta?.parentImageId
   )
@@ -133,7 +149,7 @@ export async function decideChatImageRevision(input: {
   requestId: string;
   kind: "keep" | "replace";
   imageId?: number;
-}) {
+}): Promise<NonNullable<Task["decision"]>> {
   for (let attempt = 0; attempt < 3; attempt++) {
     const aggregate = await loadOwnedStoryVisualAggregate(input);
     if (!aggregate) throw new Error("故事不存在或无权访问");
@@ -206,6 +222,19 @@ export async function decideChatImageRevision(input: {
     );
     if (!candidate || !source || !image)
       throw new Error("图片与原素材的关系已经变化，请重新选择");
+    // Also covers older results and free derived candidates without recorded checks.
+    const expected = task.meta.sourceDimensions ?? await readImageDimensions(source.imageUrl);
+    const actual = await readImageDimensions(image.imageUrl);
+    if (actual.width !== expected.width || actual.height !== expected.height)
+      throw new Error(`新版尺寸 ${actual.width}×${actual.height} 与原图 ${expected.width}×${expected.height} 不符，未替换。 / Dimensions differ; original retained.`);
+    if (task.meta.referenceOnly) {
+      // Approval of a video reference is not permission to cover the video with a still.
+      const referenceDecision = { ...decision, referenceOnly: true };
+      task.decision = referenceDecision;
+      if (await updateStoryBodyIfRevision({ id: input.storyId, userId: input.userId,
+        expectedRevision: revision, body: nextBody })) return referenceDecision;
+      continue;
+    }
     const document =
       aggregate.timeline && visualDocumentFromTimeline(aggregate.timeline);
     if (!document) throw new Error("当前时间线不可用，新图保留在对话和仓库中");

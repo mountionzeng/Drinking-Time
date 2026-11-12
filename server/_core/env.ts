@@ -157,6 +157,10 @@ export const ENV = {
     process.env.OPENAI_NEXT_EMOTION_MODEL ?? "deepseek-v3.2",
   openaiNextVisionModel:
     process.env.OPENAI_NEXT_VISION_MODEL ?? "qwen3-vl-plus",
+  // Palette analysis may use a cheaper model and isolated preview credentials.
+  framePaletteNextApiKey: process.env.FRAME_PALETTE_NEXT_API_KEY ?? "",
+  framePaletteNextBaseUrl: process.env.FRAME_PALETTE_NEXT_BASE_URL ?? "",
+  framePaletteNextModel: process.env.FRAME_PALETTE_NEXT_MODEL ?? "gemini-2.5-flash",
   // 登录欢迎页访客回信独立档位：与通用故事 Agent 和登录后每日回信分开，
   // 也不复用任何身份认证配置——模型不参与邀请码、会话或权限决策。
   openaiNextLoginGuestModel:

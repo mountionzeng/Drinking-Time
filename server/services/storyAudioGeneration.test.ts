@@ -190,6 +190,48 @@ describe("scene audio context", () => {
 });
 
 describe("story scene audio paid workflow", () => {
+  it("binds actual music provider requests to shared emotion and rejects changed quotes before charging", async () => {
+    const { saveCreationEmotion } = await import("./creationEmotion");
+    const storyId = await seed(971);
+    const { getStoryById } = await import("../db");
+    const { persistPreparedStoryBody } = await import("./storyBodyPersistence");
+    const { getStoryRevision, prepareStoryBody } = await import("./storySync");
+    const story = (await getStoryById(storyId, 971))!;
+    const body = story.body as any;
+    const next = { ...body, shots: body.shots.map((s: any) => s.stableShotId === "shot-b" ? { ...s, subject: "白瓷小茶杯", action: "放在桌面", location: "细腻彩色像素世界" } : s) };
+    await persistPreparedStoryBody({ storyId, userId: 971, expectedRevision: getStoryRevision(body), body: prepareStoryBody(next, getStoryRevision(body) + 1, body) });
+    for (const [index, raw] of ["温暖怀念", "压抑不安", "释然平静"].entries()) {
+      await saveCreationEmotion({ storyId, userId: 971, expectedRevision: index, scope: { kind: "story" }, intent: { raw } });
+      const quote = await quoteStorySceneAudio({ storyId, userId: 971, kind: "music", targetFrame: 80, now: () => NOW });
+      const generate = vi.fn(async () => generatedUrl());
+      const result = await generateStorySceneAudio({ storyId, userId: 971,
+        quoteToken: quote.quoteToken, operation: { editorSessionEpoch: "emotion", operationId: `emotion-audio-${index}` },
+        dependencies: { now: () => NOW + 1000, generate, importRemote: fakeRemoteImport(`emotion-${index}`) } });
+      expect(result.status).toBe("ready");
+      expect(JSON.stringify(generate.mock.calls)).toContain(raw);
+      expect(JSON.stringify(generate.mock.calls)).toContain("3.0 seconds");
+      expect(JSON.stringify(generate.mock.calls)).toContain("白瓷小茶杯");
+      expect(JSON.stringify(generate.mock.calls)).toContain("放在桌面");
+    }
+    const oldQuote = await quoteStorySceneAudio({ storyId, userId: 971, kind: "music", targetFrame: 80, now: () => NOW });
+    await saveCreationEmotion({ storyId, userId: 971, expectedRevision: 3, scope: { kind: "story" }, intent: { raw: "改为开阔的希望" } });
+    const generate = vi.fn();
+    const result = await generateStorySceneAudio({ storyId, userId: 971, quoteToken: oldQuote.quoteToken,
+      operation: { editorSessionEpoch: "emotion", operationId: "emotion-obsolete" }, dependencies: { now: () => NOW + 1000, generate } });
+    expect(result.status).toBe("error"); expect(generate).not.toHaveBeenCalled();
+    expect(await findBillingOperation("emotion-obsolete")).toBeNull();
+  });
+
+  it("uses time-bound shot variations for a whole-film music quote", async () => {
+    const { saveCreationEmotion } = await import("./creationEmotion");
+    const storyId = await seed(972);
+    await saveCreationEmotion({storyId,userId:972,expectedRevision:0,scope:{kind:"story"},intent:{raw:"温暖怀念"}});
+    await saveCreationEmotion({storyId,userId:972,expectedRevision:1,scope:{kind:"shot",id:"shot-b"},intent:{raw:"压抑不安",mediumDirections:{music:"轻快反衬"}}});
+    const quote = await quoteStorySceneAudio({storyId,userId:972,kind:"music",targetFrame:0,scope:"story",now:()=>NOW});
+    expect(quote.prompt).toContain("2.0–5.0 秒");
+    expect(quote.prompt).toContain("轻快反衬");
+    expect(quote.context.emotionTargets).toContain("shot-b");
+  });
   it("quotes from the shot, generates once, and inserts the asset at the shot range", async () => {
     const storyId = await seed(901);
     const quote = await quoteStorySceneAudio({

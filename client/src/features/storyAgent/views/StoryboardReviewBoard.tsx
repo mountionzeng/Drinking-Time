@@ -141,6 +141,7 @@ import {
 } from "../storyboardTiming";
 import {
   StoryboardEditRow,
+  STORYBOARD_TRACK_HEADER_WIDTH,
   StoryboardEditTransport,
   type StoryboardBoardTimeline,
   type StoryboardEditShot,
@@ -224,6 +225,7 @@ import {
   storyboardRenderShotWithDraft,
   storyboardRerenderRequestId,
   storyboardShotFrameImages,
+  storyboardEditableImage,
   STORYBOARD_CONTINUITY_REQUEST_INTERRUPTED,
   STORYBOARD_START_END_AMPLITUDE_OPTIONS,
   STORYBOARD_START_END_DURATION_OPTIONS,
@@ -484,7 +486,7 @@ export function StoryboardReviewBoard({
   onAdoptVideoTake?: (input: {
     stableShotId: string;
     takeId: number;
-    plannedDurationSec: number;
+    plannedDurationSec: number; replacePrimary?: boolean;
   }) => Promise<void>;
   onPromoteFrameCrop?: (input: {
     shotNo: number;
@@ -934,7 +936,7 @@ export function StoryboardReviewBoard({
       trackWidth: trackRect.width,
       playheadMs: boardTimeline.playheadMs,
       totalMs: boardTimeline.totalMs,
-      leftInset: storyboardPlaybackCenterInset(scrollerRect.width, 76),
+      leftInset: storyboardPlaybackCenterInset(scrollerRect.width, STORYBOARD_TRACK_HEADER_WIDTH),
     });
     if (delta !== 0) scroller.scrollBy({ left: delta, behavior: "auto" });
   }, [
@@ -958,7 +960,7 @@ export function StoryboardReviewBoard({
           scrollElementHorizontallyIntoView(
             boardScrollRef.current,
             target ?? null,
-            76
+            STORYBOARD_TRACK_HEADER_WIDTH
           );
           return;
         }
@@ -992,7 +994,7 @@ export function StoryboardReviewBoard({
         const target = boardRef.current?.querySelector<HTMLElement>(
           `[data-storyboard-shot-no="${selectedShotNo}"]`
         );
-        scrollElementHorizontallyIntoView(scroller, target ?? null, 76);
+        scrollElementHorizontallyIntoView(scroller, target ?? null, STORYBOARD_TRACK_HEADER_WIDTH);
       });
     };
     const observer = new ResizeObserver(keepSelectedShotVisible);
@@ -1676,7 +1678,7 @@ export function StoryboardReviewBoard({
   useLayoutEffect(() => {
     const scroller = presentation === "manuscript" ? boardRef.current : boardScrollRef.current;
     if (!scroller) return;
-    const measure = () => setBoardAvailableWidth(Math.max(1, scroller.clientWidth - 76));
+    const measure = () => setBoardAvailableWidth(Math.max(1, scroller.clientWidth - STORYBOARD_TRACK_HEADER_WIDTH));
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(scroller);
@@ -1706,7 +1708,7 @@ export function StoryboardReviewBoard({
     if (!scroller || !header) return;
     const bounds = scroller.getBoundingClientRect();
     const cell = header.getBoundingClientRect();
-    if (cell.left < bounds.left + 76) scroller.scrollLeft += cell.left - bounds.left - 76;
+    if (cell.left < bounds.left + STORYBOARD_TRACK_HEADER_WIDTH) scroller.scrollLeft += cell.left - bounds.left - STORYBOARD_TRACK_HEADER_WIDTH;
     else if (cell.right > bounds.right) scroller.scrollLeft += cell.right - bounds.right;
   }, [simplifiedDisplay, expandedShotNo]);
   const matrixShotEntries = useMemo(() => {
@@ -1738,7 +1740,7 @@ export function StoryboardReviewBoard({
       ? `${Math.max(1, matrixShotEntries.leadingWidth)}px `
       : "";
     if (renderCompactShots) {
-      return `76px ${leadingGap}${matrixShotEntries.entries
+      return `${STORYBOARD_TRACK_HEADER_WIDTH}px ${leadingGap}${matrixShotEntries.entries
         .map(({ shot }) =>
           shot.shotNo === expandedShotNo
             ? `${matrixShotColumnWidth}px`
@@ -1746,7 +1748,7 @@ export function StoryboardReviewBoard({
         )
         .join(" ")}`;
     }
-    return `76px ${leadingGap}${matrixShotEntries.widths
+    return `${STORYBOARD_TRACK_HEADER_WIDTH}px ${leadingGap}${matrixShotEntries.widths
       .map(width => `${Math.max(1, width)}px`)
       .join(" ")}`;
   }, [
@@ -2089,17 +2091,17 @@ export function StoryboardReviewBoard({
     shot: StoryShot, creationShot: CreationEditorShot | undefined, index: number, settings: ShotImageRenderSettings, request?: NonNullable<ChatMessage["imageRerenderAction"]>, skipCostConfirmation?: boolean, automaticVideoFrame = false
   ): Promise<StoryboardImageRerenderResult> => {
     if (!creationShot || !onGenerateShotImages || !canStartImageRenderRef.current(shot.shotNo)) return { status: "cancelled", message: "镜头正在渲染或尚未加载" };
-    if (request?.imageId && !storyboardShotFrameImages(creationShot).some(frame => frame.id === request.imageId))
+    if (request?.imageId && !storyboardEditableImage(creationShot, request.imageId))
       return { status: "error", message: "所选图片已不属于这个镜头，请重新选择" };
     const pending = matrixDraftsRef.current.get(storyShotInsertIdentity(shot, index) ?? "");
     const effective = storyboardRenderShotWithDraft(creationShot, shot, pending);
     if (automaticVideoFrame && !effective.promptDraft?.trim()) effective.promptDraft = storyboardAutomaticVideoShot(effective).videoPrompt;
-    return renderImageBatch({ label: displayShotCode(shot), settings, shot: effective, material: materialState, revisionInstruction: request?.instruction ?? undefined, revisionProvider: request?.imageProvider, skipCostConfirmation,
+    return renderImageBatch({ label: displayShotCode(shot), settings, shot: effective, material: materialState, revisionInstruction: request?.instruction ?? undefined, revisionProvider: request?.imageProvider, skipCostConfirmation, preconfirmedRevision: request?.preconfirmed, readingQuote: request?.readingQuote, continueAfterUnknownRequestId: request?.continueAfterUnknownRequestId,
       generationProvider: automaticVideoFrame && shouldUseSingleImageFallback(imageProviderStatus) ? "gpt-image" : undefined,
       previousShots: creationShots.slice(0, Math.max(0, creationShots.indexOf(creationShot))),
       canStart: () => canStartImageRenderRef.current(shot.shotNo) && (!request?.imageId || currentCreationShots.current.some(current =>
         (current.stableShotId ?? current.shotIdentity) === (creationShot.stableShotId ?? creationShot.shotIdentity) &&
-        storyboardShotFrameImages(current).some(frame => frame.id === request.imageId))),
+        Boolean(storyboardEditableImage(current, request.imageId!)))),
       start: () => { beginShotRender(shot.shotNo); onSelectShot?.(shot.shotNo); },
       finish: () => finishShotRender(shot.shotNo), generate: onGenerateShotImages,
     });
@@ -2918,7 +2920,7 @@ export function StoryboardReviewBoard({
             usesLocalTransform
               ? `${label} 已判断为简单缩放、平移或定格：${estimate.renderReason} 将在本机免费生成，0.00 算力，不会请求 302；会创建新 Take 并保留旧版本。确认生成？`
               : `${label} 已先保存本镜文字，视频模型会收到：\n${intentSummary || "当前镜头表格中的动作与运镜"}\n\n人物版本：${continuityChoice?.label ?? "当前镜头"}。并使用首帧 ${estimate.firstFrame.label}（图 #${estimate.firstFrame.imageId}）和末帧 ${estimate.lastFrame.label}（图 #${estimate.lastFrame.imageId}）重新渲染。${frameConstraintNotice}\n\n判断：${estimate.renderReason} 预计${formatComputeQuote(estimate.estimatedCny).replace(/算力$/, _ui("算力"))}，时长 ${estimate.durationSec} 秒、${estimate.resolution}、1:1；会创建新 Take 并保留旧版本。确认提交？`,
-            `第 ${label} 镜将按最新要求生成 1 条 ${estimate.durationSec} 秒视频，预计 ${formatComputeQuote(estimate.estimatedCny)}。使用本镜图片 #${estimate.firstFrame.imageId} 和 #${estimate.lastFrame.imageId} 作为首尾参考。${frameConstraintNotice}\n生成后在这里预览，再决定是否放入镜头。`
+            `第 ${label} 镜将按最新要求生成 1 条 ${estimate.durationSec} 秒视频，预计最多 ${formatComputeQuote(estimate.estimatedCny)}${estimate.analysisEstimatedCny ? "（含导演读图）" : ""}。使用本镜图片 #${estimate.firstFrame.imageId} 和 #${estimate.lastFrame.imageId} 作为首尾参考。${frameConstraintNotice}\n生成后在这里预览，再决定是否放入镜头。`
           );
         if (!confirmed || options.isCurrent?.() === false) {
           toast.info(`${label} 已取消视频生成，未产生费用`);
@@ -3038,18 +3040,23 @@ export function StoryboardReviewBoard({
       return stableShotId && source ? [{ stableShotId, shotNo: shot.shotNo, cueCode: shot.cueCode,
         promptDraft: shot.promptDraft, videoPrompt: shot.videoPrompt,
         imageIds: storyboardShotFrameImages(source).map(image => image.id),
-        takeIds: (source.videoTakes ?? []).map(take => take.id) }] : [];
+        takeIds: (source.videoTakes ?? []).map(take => take.id),
+        motionFields: { action: shot.action, cameraMove: shot.cameraMove, videoStart: shot.videoStart, videoEnd: shot.videoEnd, transitionIn: shot.transitionIn, transitionOut: shot.transitionOut } }] : [];
     }),
     save: async (shot, field, value) => {
       if (!onUpdateShotFields) throw new Error("镜头尚不能保存，请稍后重试");
       await onUpdateShotFields(shot.stableShotId, { [field]: value });
+    },
+    saveFields: async (shot, fields) => {
+      if (!onUpdateShotFields) throw new Error("镜头尚不能保存，请稍后重试");
+      await onUpdateShotFields(shot.stableShotId, fields);
     },
     render: async (target, kind, _instruction, referenceImageIds) => {
       const index = shots.findIndex((shot, i) => storyShotInsertIdentity(shot, i) === target.stableShotId);
       const original = shots[index];
       const source = creationShots.find(s => (s.stableShotId ?? s.shotIdentity) === target.stableShotId);
       if (!original || !source) throw new Error("镜头已变化，请重新选择");
-      const effective = { ...original, promptDraft: target.promptDraft ?? undefined, videoPrompt: target.videoPrompt ?? undefined };
+      const effective = { ...original, ...target.motionFields, promptDraft: target.promptDraft ?? undefined, videoPrompt: target.videoPrompt ?? undefined };
       const effectiveSource = { ...source, promptDraft: effective.promptDraft, videoPrompt: effective.videoPrompt };
       if (kind === "image") {
         const settings = loadShotRenderSettings(storyId!, target.stableShotId, materialState);
@@ -3077,7 +3084,7 @@ export function StoryboardReviewBoard({
           text: `视频 Take ${take.id} 已生成并保存在仓库。是否放入第 ${label} 镜？` }) ?? Promise.resolve(false),
         adopt: async take => {
           if (!onAdoptVideoTake) throw new Error("视频已保存在仓库，剪辑线暂未载入，尚未放入镜头");
-          await onAdoptVideoTake({ stableShotId: target.stableShotId, takeId: take.id,
+          await onAdoptVideoTake({ stableShotId: target.stableShotId, takeId: take.id, replacePrimary: true,
             plannedDurationSec: Math.max(0.1, take.durationSec ?? (source.durationMs ?? 5000) / 1000) });
         },
       });
@@ -3097,7 +3104,7 @@ export function StoryboardReviewBoard({
         const source = creationShots.find(s => (s.stableShotId ?? s.shotIdentity) === target.stableShotId);
         const take = source?.videoTakes?.find(t => t.id === asset.takeId);
         if (!take || take.status !== "available" || !take.videoUrl) throw new Error("这条视频还未生成完成，暂未放入剪辑线");
-        await onAdoptVideoTake({ stableShotId: target.stableShotId, takeId: asset.takeId,
+        await onAdoptVideoTake({ stableShotId: target.stableShotId, takeId: asset.takeId, replacePrimary: true,
           plannedDurationSec: Math.max(0.1, take.durationSec ?? (source?.durationMs ?? 5000) / 1000) });
       }
     },
@@ -3365,7 +3372,7 @@ export function StoryboardReviewBoard({
                 }
               }}
               className="min-h-0 flex-1 overflow-auto custom-scrollbar"
-              style={{ scrollPaddingLeft: 76 }}
+              style={{ scrollPaddingLeft: STORYBOARD_TRACK_HEADER_WIDTH }}
             >
               <div
                 role="table"

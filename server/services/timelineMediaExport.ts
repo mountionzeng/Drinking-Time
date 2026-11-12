@@ -17,6 +17,7 @@ import type {
 import {
   resolveSubtitleRenderPlanAtFrame,
   type SubtitleRenderPlan,
+  type SubtitleRenderPlanCue,
 } from "../../shared/timelineSubtitleModel";
 
 const EXPORT_SAMPLE_RATE = 48_000;
@@ -48,6 +49,7 @@ export type SubtitleOverlayInterval = {
   startFrame: number;
   endFrame: number;
   lines: string[];
+  positioned?: SubtitleRenderPlanCue[];
 };
 
 export type ResolvedSubtitleOverlay = SubtitleOverlayInterval & {
@@ -68,7 +70,10 @@ export function buildSubtitleOverlayIntervals(
     const startFrame = boundaries[index];
     const endFrame = boundaries[index + 1];
     if (endFrame <= startFrame) continue;
-    const lines = resolveSubtitleRenderPlanAtFrame(plan, startFrame)
+    const active = resolveSubtitleRenderPlanAtFrame(plan, startFrame);
+    const positioned = active.filter(cue => cue.placement);
+    const lines = active
+      .filter(cue => !cue.placement)
       .flatMap(cue => cue.text.replace(/\r\n?/g, "\n").split("\n"))
       .map(line =>
         line
@@ -76,17 +81,24 @@ export function buildSubtitleOverlayIntervals(
           .trim()
       )
       .filter(Boolean);
-    if (lines.length === 0) continue;
+    if (lines.length === 0 && positioned.length === 0) continue;
     const previous = intervals.at(-1);
     if (
       previous &&
+      positioned.length === 0 &&
+      !previous.positioned?.length &&
       previous.endFrame === startFrame &&
       previous.lines.length === lines.length &&
       previous.lines.every((line, lineIndex) => line === lines[lineIndex])
     ) {
       previous.endFrame = endFrame;
     } else {
-      intervals.push({ startFrame, endFrame, lines });
+      intervals.push({
+        startFrame,
+        endFrame,
+        lines,
+        ...(positioned.length ? { positioned } : {}),
+      });
     }
   }
   return intervals;
@@ -124,7 +136,7 @@ function wrapSubtitleLines(
 
 /** SVG is rendered by sharp; XML escaping prevents text from becoming markup. */
 export function buildSubtitleOverlaySvg(
-  interval: Pick<SubtitleOverlayInterval, "lines">,
+  interval: Pick<SubtitleOverlayInterval, "lines" | "positioned">,
   dimensions: { width: number; height: number },
   fontDataBase64?: string | null
 ): string {
@@ -150,6 +162,18 @@ export function buildSubtitleOverlaySvg(
         `<tspan x="${width / 2}" dy="${index === 0 ? 0 : lineHeight}">${escapeXml(line)}</tspan>`
     ),
     "</text>",
+    ...(interval.positioned ?? []).map(cue => {
+      const p = cue.placement!;
+      const size = height * p.fontSize;
+      return `<text x="${(p.left + p.width / 2) * width}" y="${p.top * height + size}" text-anchor="middle" style="font-family:Roboto,'Noto Sans SC',sans-serif;font-size:${size}px;font-weight:400;stroke:none">${cue.text
+        .replace(/\r\n?/g, "\n")
+        .split("\n")
+        .map(
+          (line, index) =>
+            `<tspan x="${(p.left + p.width / 2) * width}" dy="${index === 0 ? 0 : size * 1.3}">${escapeXml(line)}</tspan>`
+        )
+        .join("")}</text>`;
+    }),
     "</svg>",
   ].join("");
 }
@@ -247,7 +271,7 @@ export function buildTimelineMediaFfmpegPlan(input: {
           overlay.startFrame
         ).toFixed(
           6
-        )})*lt(t,${frameSeconds(overlay.endFrame).toFixed(6)})'[${outputLabel}]`
+        )})*lt(t,${frameSeconds(overlay.endFrame).toFixed(6)})':eof_action=repeat[${outputLabel}]`
       );
       previousLabel = outputLabel;
     });
@@ -282,14 +306,10 @@ export function buildTimelineMediaFfmpegPlan(input: {
     "-i",
     input.visualMasterPath,
     ...audible.flatMap(resolved => ["-i", resolved.filePath]),
-    ...subtitleOverlays.flatMap(overlay => [
-      "-loop",
-      "1",
-      "-framerate",
-      String(STORY_TIMELINE_FPS),
-      "-i",
-      overlay.filePath,
-    ]),
+    // Decode each still once. The overlay filter retains its last frame;
+    // looping every PNG at 30fps needlessly decodes all language intervals
+    // throughout the entire film and can exceed the export timeout.
+    ...subtitleOverlays.flatMap(overlay => ["-i", overlay.filePath]),
     "-filter_complex",
     filterComplex,
     "-map",
@@ -348,9 +368,20 @@ export function buildSubtitleAssDocument(
   const fontSize = Math.max(18, Math.round(height * 0.045));
   const outline = Math.max(2, Math.round(fontSize * 0.08));
   const marginV = Math.max(24, Math.round(height * 0.08));
-  const events = buildSubtitleOverlayIntervals(plan).map(interval => {
-    const text = interval.lines.map(escapeAssText).join("\\N");
-    return `Dialogue: 0,${assTime(interval.startFrame)},${assTime(interval.endFrame)},TimelineSubtitle,,0,0,0,,${text}`;
+  const events = buildSubtitleOverlayIntervals(plan).flatMap(interval => {
+    const defaultEvent = interval.lines.length
+      ? [
+          `Dialogue: 0,${assTime(interval.startFrame)},${assTime(interval.endFrame)},TimelineSubtitle,,0,0,0,,${interval.lines.map(escapeAssText).join("\\N")}`,
+        ]
+      : [];
+    return [
+      ...defaultEvent,
+      ...(interval.positioned ?? []).map(cue => {
+        const p = cue.placement!;
+        const tags = `{\\an8\\pos(${((p.left + p.width / 2) * width).toFixed(3)},${(p.top * height).toFixed(3)})\\fs${(p.fontSize * height).toFixed(3)}\\b0\\bord0\\shad0}`;
+        return `Dialogue: 0,${assTime(interval.startFrame)},${assTime(interval.endFrame)},TimelineSubtitle,,0,0,0,,${tags}${escapeAssText(cue.text)}`;
+      }),
+    ];
   });
   return [
     "[Script Info]",

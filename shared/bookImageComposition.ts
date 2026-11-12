@@ -11,6 +11,8 @@ export type BookImageComposition = {
   estimatedCny: number;
   billingOperationId: string | null;
   compiledPrompt?: string;
+  /** Render profile frozen at submission (see shared/renderProfiles.ts). */
+  renderProfile?: import('./renderProfiles').RenderProfileSnapshot;
 };
 
 /** Resolve actual shot links, never infer a shot from creative prose or reference-image contents. */

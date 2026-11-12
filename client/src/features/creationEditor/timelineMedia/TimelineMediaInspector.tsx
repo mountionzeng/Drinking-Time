@@ -116,7 +116,7 @@ export function TimelineMediaInspector({
     const bindingId = selectedAudio?.clip.speechBindingId;
     if (!bindingId) return selectedCue;
     return (
-      subtitleState.tracks[0]?.cues.find(
+      subtitleState.tracks.flatMap(track => track.cues).find(
         cue => cue.speechBindingId === bindingId
       ) ?? null
     );

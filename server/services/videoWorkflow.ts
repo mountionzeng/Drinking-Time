@@ -137,7 +137,7 @@ function appendVideoSnapshot(
       material.timeline.extensions?.audioTracks == null
         ? legacy.audioSources
         : undefined,
-    planId: plan?.id,
+    planId: plan?.id ?? (before.chatCutMigration as { id?: string } | undefined)?.id,
     material: snapshot,
     shots: structuredClone(Array.isArray(before.shots) ? before.shots : []),
     exports: [],

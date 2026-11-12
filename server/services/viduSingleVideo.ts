@@ -4,8 +4,8 @@ import { guardComputeFetch, ComputeAccessError } from "./computeRequestAccess";
 import { refreshViduTransition, viduSubmissionStateForHttpStatus } from "./videoTransition302";
 import type { ShotVideoSubmitResult, ShotVideoTaskRefreshResult } from "./videoGen";
 
-export const VIDU_SINGLE_MODEL = "viduq2-pro-fast";
-export const VIDU_SINGLE_PATH = "/vidu/ent/v2/img2video";
+import { buildViduSingleRequest } from "./render/adapters/viduSingle";
+export { VIDU_SINGLE_MODEL, VIDU_SINGLE_PATH, VIDU_SINGLE_POLL_PATH, DEFAULT_302_BASE_URL } from "./render/adapters/viduSingle";
 
 export async function submitViduSingleVideo(input: { prompt: string; sourceImage: string; durationSec: number },
   options: { fetcher?: typeof fetch } = {}): Promise<ShotVideoSubmitResult> {
@@ -17,9 +17,7 @@ export async function submitViduSingleVideo(input: { prompt: string; sourceImage
   } catch (error) {
     return { status: "error", submissionState: "not_submitted", message: error instanceof Error ? error.message : "视频参数无效" };
   }
-  const body = { model: VIDU_SINGLE_MODEL, images: [input.sourceImage], prompt: input.prompt,
-    duration: input.durationSec, resolution: "720p", audio: false };
-  const url = `${(ENV.api302BaseUrl || "https://api.302.ai").replace(/\/+$/, "")}${VIDU_SINGLE_PATH}`;
+  const { url, body } = buildViduSingleRequest({ baseUrl: ENV.api302BaseUrl, prompt: input.prompt, sourceImage: input.sourceImage, durationSec: input.durationSec });
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 45_000);
   try {
@@ -40,8 +38,23 @@ export async function submitViduSingleVideo(input: { prompt: string; sourceImage
 }
 
 /** Read the existing receipt only. A temporary query failure must not trigger a new purchase. */
-export async function refreshViduSingleVideo(taskId: string, options: { fetcher?: typeof fetch } = {}): Promise<ShotVideoTaskRefreshResult> {
-  const result = await refreshViduTransition(taskId, options);
+export async function refreshViduSingleVideo(
+  taskId: string,
+  options: { fetcher?: typeof fetch; baseUrl?: string; pollPath?: string } = {}
+): Promise<ShotVideoTaskRefreshResult> {
+  const result = await refreshViduTransition(taskId, {
+    fetcher: options.fetcher,
+    baseUrl: options.baseUrl,
+    pollPath: options.pollPath,
+  });
   if (result.status === "available" || result.status === "processing") return result;
-  return { status: result.status === "task_failed" ? "failed" : "timeout", taskId, message: result.message };
+  if (result.status === "task_failed") {
+    return { status: "failed", providerConfirmed: true, taskId, message: result.message };
+  }
+  return {
+    status: "timeout",
+    queryFailed: true,
+    taskId,
+    message: result.message,
+  };
 }

@@ -1,3 +1,7 @@
+vi.mock('@/lib/trpc', () => ({ trpc: {
+  storyAgent: { chatImageRevisions: { useQuery: () => ({ data: [] }) } },
+  timelineMedia: { audioAssetLibrary: { useQuery: () => ({ data: [] }) } },
+} }));
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';

@@ -4,6 +4,7 @@ import {
   ArrowRight,
   ArrowDown,
   ArrowUp,
+  ChevronDown,
   Eye,
   EyeOff,
   GripVertical,
@@ -22,6 +23,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { toast } from "sonner";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 import type {
   StoryTimelineItem,
@@ -612,10 +614,13 @@ export function StoryboardVisualLayerHeader({
   onDropLayer: (sourceLayer: number) => void;
 }) {
   const _ui = useDesktopUiText();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const layerLabel = _ui("画面 Video");
   return (
     <div
       role="rowheader"
-      className="group sticky left-0 z-20 flex flex-col justify-center gap-1 border-b border-r px-1.5 py-1 text-[9px] font-semibold text-muted-foreground"
+      data-testid={`storyboard-visual-header-${visualLayer + 1}`}
+      className="group sticky left-0 z-20 flex min-w-0 items-center gap-1 border-b border-r px-2 py-1 text-[11px] font-medium text-muted-foreground"
       style={{
         borderColor: "color-mix(in srgb, var(--panel-border) 62%, transparent)",
         background: "var(--background)",
@@ -637,7 +642,7 @@ export function StoryboardVisualLayerHeader({
         onDropLayer(Number(value));
       }}
     >
-      <div className="flex min-w-0 items-center gap-0.5">
+      <div className="flex min-w-0 flex-1 items-center gap-1">
         <span
           draggable
           onDragStart={event => {
@@ -647,15 +652,42 @@ export function StoryboardVisualLayerHeader({
             );
             event.dataTransfer.effectAllowed = "move";
           }}
-          className="flex min-w-0 flex-1 cursor-grab items-center gap-0.5 truncate active:cursor-grabbing"
+          className="flex shrink-0 cursor-grab items-center gap-0.5 active:cursor-grabbing"
           title={_ui("拖动可调整整层顺序")}
         >
           <GripVertical className="h-3 w-3 shrink-0" />
-          {visualLayer === 0 ? _ui("视觉 · 剪辑") : _ui("视觉层 {0}", [visualLayer + 1])}
+          <span className="rounded-sm bg-sky-600/15 px-1.5 py-1 font-mono font-semibold text-sky-700 dark:text-sky-300">V{visualLayer + 1}</span>
         </span>
+        <Popover open={menuOpen} onOpenChange={setMenuOpen}>
+          <PopoverTrigger asChild>
+            <button type="button" className="flex min-w-0 flex-1 items-center gap-1 py-1 text-left hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+              aria-label={_ui("视觉层 {0} 排列控制", [visualLayer + 1])}>
+              <span className="whitespace-nowrap">{layerLabel}</span><ChevronDown className="size-3 shrink-0" />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent align="start" className="z-[110] w-56 bg-[var(--background)] p-1 text-foreground">
+            {[
+              { label: "在上方插入图层 / Add above", icon: Plus, action: onAddAbove, disabled: false, ariaLabel: _ui("在上方插入图层") },
+              { label: "在下方插入图层 / Add below", icon: Plus, action: onAddBelow, disabled: false, ariaLabel: _ui("在下方插入图层") },
+              { label: "整层上移 / Move up", icon: ArrowUp, action: onMoveUp, disabled: !canMoveUp, ariaLabel: _ui("视觉层 {0} 上移", [visualLayer + 1]) },
+              { label: "整层下移 / Move down", icon: ArrowDown, action: onMoveDown, disabled: !canMoveDown, ariaLabel: _ui("视觉层 {0} 下移", [visualLayer + 1]) },
+            ].map(item => <button key={item.label} type="button" disabled={item.disabled}
+              onClick={() => { setMenuOpen(false); item.action(); }}
+              aria-label={item.ariaLabel}
+              className="flex w-full items-center gap-2 rounded-sm px-2 py-2 text-left text-xs hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-30">
+              <item.icon className="size-3.5 shrink-0" />{_ui(item.label)}
+            </button>)}
+            <button type="button" disabled={!canDelete} onClick={() => { setMenuOpen(false); onDelete(); }}
+              aria-label={_ui("删除视觉层 {0}", [visualLayer + 1])}
+              title={canDelete ? _ui("删除图层；非空层会先确认并把素材合并到相邻层") : _ui("最高的空白投放层始终保留，删不掉")}
+              className="flex w-full items-center gap-2 rounded-sm px-2 py-2 text-left text-xs text-destructive hover:bg-destructive/10 focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-30">
+              <Trash2 className="size-3.5 shrink-0" />{_ui("删除图层 / Delete track")}
+            </button>
+          </PopoverContent>
+        </Popover>
         <button
           type="button"
-          className="flex h-5 w-5 items-center justify-center rounded-sm transition hover:bg-muted hover:text-foreground"
+          className="flex size-6 shrink-0 items-center justify-center rounded-sm transition hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
           onClick={onToggleHidden}
           aria-label={_ui("{0}视觉层 {1}", [hidden ? _ui("显示") : _ui("隐藏"), visualLayer + 1])}
           title={_ui("{0}视觉层 {1}", [hidden ? _ui("显示") : _ui("隐藏"), visualLayer + 1])}
@@ -665,59 +697,6 @@ export function StoryboardVisualLayerHeader({
           ) : (
             <Eye className="h-3 w-3" />
           )}
-        </button>
-        <button
-          type="button"
-          disabled={!canDelete}
-          className="flex h-5 w-5 items-center justify-center rounded-sm text-destructive transition hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-30"
-          onClick={onDelete}
-          aria-label={_ui("删除视觉层 {0}", [visualLayer + 1])}
-          title={
-            canDelete
-              ? _ui("删除图层；非空层会先确认并把素材合并到相邻层")
-              : _ui("最高的空白投放层始终保留，删不掉")
-          }
-        >
-          <Trash2 className="h-3 w-3" />
-        </button>
-      </div>
-      <div
-        className="flex items-center gap-0.5"
-        aria-label={_ui("视觉层 {0} 排列控制", [visualLayer + 1])}
-      >
-        <button
-          type="button"
-          className="flex h-4 flex-1 items-center justify-center rounded-sm border border-border/60 text-[7px] transition hover:bg-muted"
-          onClick={onAddAbove}
-          title={_ui("在上方插入图层")}
-        >
-          <Plus className="h-2.5 w-2.5" />{_ui("上")}</button>
-        <button
-          type="button"
-          className="flex h-4 flex-1 items-center justify-center rounded-sm border border-border/60 text-[7px] transition hover:bg-muted"
-          onClick={onAddBelow}
-          title={_ui("在下方插入图层")}
-        >
-          <Plus className="h-2.5 w-2.5" />{_ui("下")}</button>
-        <button
-          type="button"
-          disabled={!canMoveUp}
-          className="flex h-4 w-5 items-center justify-center rounded-sm border border-border/60 transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-30"
-          onClick={onMoveUp}
-          aria-label={_ui("视觉层 {0} 上移", [visualLayer + 1])}
-          title={_ui("整层上移")}
-        >
-          <ArrowUp className="h-2.5 w-2.5" />
-        </button>
-        <button
-          type="button"
-          disabled={!canMoveDown}
-          className="flex h-4 w-5 items-center justify-center rounded-sm border border-border/60 transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-30"
-          onClick={onMoveDown}
-          aria-label={_ui("视觉层 {0} 下移", [visualLayer + 1])}
-          title={_ui("整层下移")}
-        >
-          <ArrowDown className="h-2.5 w-2.5" />
         </button>
       </div>
     </div>
@@ -1249,12 +1228,12 @@ export function StoryboardVisualLayerRow({
       />
       <div
         role="cell"
-        className={`py-1 transition-opacity ${hidden ? "opacity-35 grayscale" : ""}`}
+        className={`border-b border-r border-border/60 py-1 transition-opacity ${hidden ? "opacity-35 grayscale" : ""}`}
         style={{ gridColumn: `span ${Math.max(1, columnSpan)}` }}
       >
         <div
           ref={trackRef}
-          className="relative h-12 overflow-hidden rounded-sm border border-border/70 bg-muted/15"
+          className="relative isolate h-9 overflow-hidden rounded-sm border border-border/70 bg-muted/15"
           data-testid={`storyboard-visual-layer-track-${visualLayer + 1}`}
           data-storyboard-visual-layer={visualLayer}
           aria-label={_ui("视觉层 {0} 时间线", [visualLayer + 1])}

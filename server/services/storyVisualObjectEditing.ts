@@ -1,3 +1,5 @@
+import { getStoryGeneratedImages } from "../repositories/images";
+import { splitFrameParams, type ShotSplitPlan } from "../../shared/shotSplitChat";
 import { createHash } from "node:crypto";
 import type { VisualObjectRef } from "../../shared/visualObject";
 import {
@@ -547,6 +549,7 @@ export async function splitStoryVisualShot(input: {
   operation: VisualEditOperationRef;
   stableShotId: string;
   cutFrame: number;
+  startEndPlan?: ShotSplitPlan;
 }): Promise<StoryVisualObjectEditResult> {
   return withVisualEditServiceLock(input.storyId, input.userId, () =>
     splitStoryVisualShotUnlocked(input)
@@ -559,7 +562,13 @@ async function splitStoryVisualShotUnlocked(input: {
   operation: VisualEditOperationRef;
   stableShotId: string;
   cutFrame: number;
+  startEndPlan?: ShotSplitPlan;
 }): Promise<StoryVisualObjectEditResult> {
+  if (input.startEndPlan) {
+    const owned = await getStoryGeneratedImages(input.storyId, input.userId);
+    if (new Set(input.startEndPlan.imageIds).size !== 3 || input.startEndPlan.imageIds.some(id => !owned.some(image => image.id === id)))
+      return {status:"error", errorKind:"invalid", error:"拆镜参考图不存在或无权使用"};
+  }
   const rightStableShotId = deterministicId("split-shot", {
     ...input.operation,
     storyId: input.storyId,
@@ -579,6 +588,7 @@ async function splitStoryVisualShotUnlocked(input: {
     lockHeld: true,
     payload: {
       kind: "split-story-shot",
+      ...(input.startEndPlan ? {startEndPlan: input.startEndPlan} : {}),
       stableShotId: input.stableShotId,
       cutFrame: input.cutFrame,
     },
@@ -599,6 +609,8 @@ async function splitStoryVisualShotUnlocked(input: {
       );
       if (shotIndex < 0 || itemIndex < 0 || !row)
         return { status: "error", message: "镜头不存在或已经更新" };
+      if (input.startEndPlan && (row.startFrame !== input.startEndPlan.expectedStartFrame || row.endFrame !== input.startEndPlan.expectedEndFrame))
+        return {status:"error", message:"镜头位置或长度已变化，请重新核对拆镜方案"};
       const sourceItem = baseDocument.items[itemIndex];
       const timeline = splitTimelineItem({
         item: sourceItem,
@@ -664,6 +676,13 @@ async function splitStoryVisualShotUnlocked(input: {
         rightDurationMs: right.plannedDurationMs,
       });
       if (!story) return { status: "error", message: "镜头拆分失败" };
+      if (input.startEndPlan) {
+        const plan = input.startEndPlan;
+        for (let segment = 0; segment < 2; segment++) {
+          const target = story.shots[shotIndex + segment];
+          target.generationParams = splitFrameParams(target.generationParams, plan.imageIds[segment], plan.imageIds[segment + 1], plan.durationSec);
+        }
+      }
       const items = [
         ...baseDocument.items.slice(0, itemIndex),
         left,

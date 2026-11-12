@@ -436,8 +436,10 @@ function parseTracks(
 }
 
 function selectPrimaryVideoTrack(tracks: ChatCutTrack[]): ChatCutTrack | null {
+  // A full-length text/image overlay must not displace the actual video track.
+  const motionTracks = tracks.filter(track => track.clips.some(clip => clip.mediaKind === "video"));
   return (
-    [...tracks]
+    [...(motionTracks.length ? motionTracks : tracks)]
       .filter(track => track.clips.length > 0)
       .sort((left, right) => {
         if (left.clips.length !== right.clips.length) {

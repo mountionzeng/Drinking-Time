@@ -5,7 +5,7 @@ export const MAX_CHAT_MEDIA_ATTACHMENTS = 8;
 export const MAX_CHAT_IMAGE_BYTES = 30 * 1024 * 1024;
 export const MAX_CHAT_VIDEO_BYTES = 200 * 1024 * 1024;
 
-export type ChatMediaKind = "image" | "video";
+export type ChatMediaKind = "image" | "video" | "file";
 
 export type PendingChatMedia = {
   id: string;
@@ -58,7 +58,7 @@ export function chatMediaKind(
   const mimeType = inferChatMediaMime(file);
   if (mimeType.startsWith("image/")) return "image";
   if (mimeType.startsWith("video/")) return "video";
-  return null;
+  return "file";
 }
 
 export function chatMediaFileKey(
@@ -100,11 +100,11 @@ export function selectChatMediaFiles(input: {
       continue;
     }
     const maxBytes =
-      kind === "image" ? MAX_CHAT_IMAGE_BYTES : MAX_CHAT_VIDEO_BYTES;
+      kind === "image" ? MAX_CHAT_IMAGE_BYTES : kind === "video" ? MAX_CHAT_VIDEO_BYTES : 25 * 1024 * 1024;
     if (file.size > maxBytes) {
       rejected.push({
         fileName: file.name,
-        reason: kind === "image" ? "图片超过 30MB" : "视频超过 200MB",
+        reason: kind === "image" ? "图片超过 30MB" : kind === "video" ? "视频超过 200MB" : "文件超过 25MB / File exceeds 25 MB",
       });
       continue;
     }
@@ -133,7 +133,7 @@ export function buildImportedMediaPrompt(
 ): string {
   const list = imported
     .map((item, index) => {
-      const idLabel = item.kind === "image" ? `图片 #${item.assetId}` : `Take #${item.assetId}`;
+      const idLabel = item.kind === "image" ? `图片 #${item.assetId}` : item.kind === "file" ? `文件 #${item.assetId}` : `Take #${item.assetId}`;
       const target =
         item.kind === "video" && item.targetShotNo != null
           ? `，暂放 ${item.targetCueCode?.trim() || String(item.targetShotNo).padStart(2, "0")}`

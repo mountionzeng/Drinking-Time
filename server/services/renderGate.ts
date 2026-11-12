@@ -1,3 +1,4 @@
+import { compileCreationEmotion, type CreationEmotionSnapshot } from "../../shared/creationEmotion";
 /**
  * 全站静态图片唯一的美术提示词工程入口。
  *
@@ -42,6 +43,8 @@ export type LockedVisualAssetPromptContract = {
 
 /** 渲染上下文：prompt 只承载内容事实；美术与交互意图通过独立字段传入。 */
 export type RenderContext = {
+  creationEmotion?: CreationEmotionSnapshot;
+  emotionArtForm?: "texture";
   prompt: string;
   /** 用户意图（如「改暖一点」） */
   intent?: string;
@@ -98,6 +101,8 @@ export type RenderContext = {
   authoredBrief?: boolean;
   /** Explicit reference-preservation exception approved by the user; not a new style preset. */
   strictReferenceFidelity?: boolean;
+  /** Existing art director's scoped English edit, already quoted with image reading. */
+  referenceEditPrompt?: string;
   /** Immutable user-confirmed asset facts; these outrank inferred art direction. */
   lockedVisualAssets?: LockedVisualAssetPromptContract;
   /** 测试/重放时固定“当下”的日期；运行时默认使用上海时区当天。 */
@@ -397,6 +402,11 @@ function withoutPreviousColorSection(prompt: string): string {
 
 export async function compileImagePrompt(ctx: RenderContext): Promise<CompiledImagePrompt> {
   if (ctx.strictReferenceFidelity && ctx.referenceImages?.length && ctx.userInstructions?.some(value => value.trim())) {
+    if (ctx.referenceEditPrompt) {
+      if (!/^[\x20-\x7E\r\n]+$/.test(ctx.referenceEditPrompt) || ctx.referenceEditPrompt.length > promptMaxLengthFor(ctx))
+        throw new Error("美术修改提示词无效或过长，本次未提交图片任务。");
+      return {prompt:ctx.referenceEditPrompt.replace(/\s+/g," ").trim()};
+    }
     const prompt = [
       "【原图优先】参考图片定义最终视觉，严格保留用户指定的主体形状、比例、相对位置、构图、配色、线条和材质。只修改用户明确点名的部分，不重新设计，不擅自添加笔触、电影光效、景深或装饰。",
       "参考图中已有的界面、Logo和文字属于原图内容，按用户要求保留，不删除、不发明替代内容。多张参考分别保留用户点名的内容，不擅自混合成新风格。",
@@ -436,6 +446,8 @@ export async function compileImagePrompt(ctx: RenderContext): Promise<CompiledIm
     );
   }
   additions.push(...productConstraintBlock(ctx));
+  const emotionDirection = compileCreationEmotion(ctx.creationEmotion, "art", { artForm: ctx.emotionArtForm });
+  if (emotionDirection) additions.push(emotionDirection);
   const protectedAdditions = additions.join("\n");
   const lockedStyle = ctx.lockedVisualAssets?.kinds.includes("style") === true;
   let dominant: ColorDesign | undefined = colorDesignFromSummary(ctx.prompt);
@@ -559,6 +571,8 @@ export async function compileImagePrompt(ctx: RenderContext): Promise<CompiledIm
   }
   if (colorBlock && body.length + colorBlock.length + 1 <= bodyBudget) body += `\n${colorBlock}`;
   else colorDesign = undefined;
+  if (emotionDirection && (!body.includes(emotionDirection) || !body.includes(sourceContent)))
+    throw new Error("情绪与原画面要求超过当前模型提示词容量，请缩短本次要求；尚未提交出图。");
   return { prompt: [body, hardConstraints].filter(Boolean).join("\n"), ...(colorDesign ? { colorDesign } : {}) };
 }
 

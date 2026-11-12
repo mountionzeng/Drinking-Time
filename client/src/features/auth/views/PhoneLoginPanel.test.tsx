@@ -57,6 +57,14 @@ describe("PhoneLoginPanelView", () => {
     expect(html).toContain("未注册的手机号验证后将创建新账号。已有邮箱或微信账号，请使用原登录方式。");
   });
 
+  it("shows long sending limits in readable units without blocking code verification", () => {
+    const html = view(true, { seconds: 74270, phone: "13800138000", code: "123456" });
+    expect(html).toContain("21 小时后可重发");
+    expect(html).not.toContain("74270 秒");
+    expect(html).not.toMatch(/type="submit"[^>]* disabled=""/);
+    expect(view(true, { seconds: 120 })).toContain("2 分钟后可重发");
+  });
+
   it("shows send countdown and login busy labels", () => {
     expect(view(true, { seconds: 42 })).toContain("42 秒后重发");
     expect(view(true, { busy: "send" })).toContain("发送中…");

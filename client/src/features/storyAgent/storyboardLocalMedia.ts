@@ -173,6 +173,10 @@ export async function importStoryboardMediaFiles(input: {
       images.push(result);
       continue;
     }
+    if (result.kind === "file") {
+      rejected.push({ fileName: file.name, reason: "已保存为仓库文件，不能作为镜头画面 / Saved as a file, not a shot visual" });
+      continue;
+    }
     videoCount += 1;
     videos.push(result);
     if (input.adoptVideoTake) {

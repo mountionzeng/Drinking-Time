@@ -1,3 +1,5 @@
+import { buildRenderSnapshot } from "./render/snapshot";
+import { submitRender } from "./render/submitRender";
 import {
   mediaBillingEnabled,
   mediaOperationId,
@@ -46,12 +48,38 @@ import { directVideoPrompt } from "./videoPromptDirector";
 import { VIDEO_PROMPT_ENGINEERING_VERSION } from "./videoPromptEngineering";
 import { storyVideoContext } from "./videoShotContext";
 import { createLocalMotionVideoTake } from "./localMotionVideo";
+import { ENV } from "../_core/env";
+import {
+  DEFAULT_302_BASE_URL,
+  httpsOriginFrom,
+  resolveShotVideoPollTarget,
+} from "./videoGen";
 import {
   estimateViduQ2TransitionCny,
   refreshViduTransition,
-  submitViduTransition,
   uploadFileToVidu,
 } from "./videoTransition302";
+
+function current302Origin(): string {
+  return httpsOriginFrom(ENV.api302BaseUrl) || DEFAULT_302_BASE_URL;
+}
+
+function withStoredSubmitHost(
+  snapshot: RecordValue,
+  submitUrl: string | undefined
+): RecordValue {
+  const origin = httpsOriginFrom(submitUrl);
+  if (!origin) return submitUrl ? { submitUrl } : {};
+  const profile = snapshot.renderProfile;
+  const nextProfile =
+    profile && typeof profile === "object" && !Array.isArray(profile)
+      ? { ...(profile as RecordValue), baseUrl: origin }
+      : profile;
+  return {
+    submitUrl,
+    ...(nextProfile ? { renderProfile: nextProfile } : {}),
+  };
+}
 
 type RecordValue = Record<string, unknown>;
 
@@ -860,6 +888,16 @@ export async function startEndShotVideoJob(
       {
         submissionState: "submitting",
         framesUploaded: true,
+        renderProfile: buildRenderSnapshot("video.vidu-q2-turbo-start-end", {
+          baseUrl: current302Origin(),
+          params: {
+            durationSec: resolved.config.durationSec,
+            resolution: resolved.config.resolution,
+            movementAmplitude: resolved.config.movementAmplitude,
+          },
+          quoteInput: { durationSec: resolved.config.durationSec, resolution: resolved.config.resolution },
+          promptChars: providerPrompt.trim().length,
+        }),
         promptDirector: {
           source: promptDirector.source,
           model: promptDirector.model,
@@ -869,7 +907,7 @@ export async function startEndShotVideoJob(
         },
       }
     );
-    const submitted = await submitViduTransition({
+    const submitted = await submitRender("video.vidu-q2-turbo-start-end", { spec: {
       prompt: providerPrompt,
       firstImageUrl,
       lastImageUrl,
@@ -877,7 +915,7 @@ export async function startEndShotVideoJob(
       resolution: resolved.config.resolution,
       movementAmplitude: resolved.config.movementAmplitude,
       model: resolved.config.model,
-    });
+    } });
     taskId = submitted.taskId;
     if (computeOperationId)
       await recordMediaResult(computeOperationId, "302", {
@@ -892,6 +930,8 @@ export async function startEndShotVideoJob(
         submissionState: "accepted",
         taskId,
         submittedAt: new Date().toISOString(),
+        submittedParameters: submitted.submittedParameters,
+        ...withStoredSubmitHost(snapshot(take), submitted.submitUrl),
       }
     );
     return { status: "ok", take, estimate };
@@ -963,7 +1003,17 @@ export async function refreshStartEndShotVideoTake(
     };
   }
 
-  const refreshed = await refreshViduTransition(current.taskId);
+  const target = resolveShotVideoPollTarget(snapshot(current));
+  if (target.source === "unrecoverable") {
+    return {
+      status: "error",
+      error: "首尾帧视频任务无法从提交快照恢复查询路径，已停止用当前配置猜测",
+    };
+  }
+  const refreshed = await refreshViduTransition(current.taskId, {
+    baseUrl: target.baseUrl,
+    pollPath: target.pollPath,
+  });
   if (refreshed.status === "available") {
     await finishVideoBilling(current, { videoUrl: refreshed.videoUrl });
     const managed = await materializeVideoUrl(refreshed.videoUrl, current.id);

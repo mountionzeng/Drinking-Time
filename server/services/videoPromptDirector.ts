@@ -1,3 +1,5 @@
+import { estimateInferenceMaxCostMinor } from "../_core/inferenceBilling";
+import { toYuan } from "../../shared/computeMoney";
 import { ENV } from "../_core/env";
 import { parseJsonLoose } from "../_core/llmJson";
 import { resolveComputeCandidates } from "../_core/textComputeProvider";
@@ -340,6 +342,19 @@ function userContext(
   });
 }
 
+// One charged analysis, with a checked input ceiling. Oversize requests stop
+// instead of silently truncating the user's instructions or exceeding the quote.
+const DIRECTOR_TEXT_LIMIT = 16000;
+class DirectorQuoteExceeded extends Error {}
+export function quoteVideoDirector() {
+  const candidates = resolveComputeCandidates("vision", { fallback302Model: ENV.videoPrompt302Model,
+    fallback302ApiKey: ENV.api302Key, fallback302BaseUrl: ENV.api302BaseUrl });
+  if (!candidates.length) return 0;
+  return toYuan(estimateInferenceMaxCostMinor({useCase:"vision",candidates:{fallback302Model:ENV.videoPrompt302Model},maxTokens:1400,
+    messages:[{role:"user",content:[{type:"text",text:"x".repeat(DIRECTOR_TEXT_LIMIT)},
+      ...Array.from({length:7},()=>({type:"image_url" as const,image_url:{url:"data:,"}}))]}]},candidates));
+}
+
 export async function directVideoPrompt(
   input: DirectVideoPromptInput
 ): Promise<VideoPromptDirectorResult> {
@@ -437,6 +452,9 @@ export async function directVideoPrompt(
       { role: "user", content: visualContent },
     ];
 
+    const textLength = messages.reduce((sum, message) => sum + (typeof message.content === "string"
+      ? message.content.length : (Array.isArray(message.content) ? message.content : [message.content]).reduce((n, part) => n + (part && typeof part !== "string" && part.type === "text" ? part.text.length : 0), 0)), 0);
+    if (textLength > DIRECTOR_TEXT_LIMIT) throw new DirectorQuoteExceeded("镜头要求超过当前导演报价范围，请缩短要求后重新报价；尚未调用模型。");
     const outcome = await runInference({
       useCase: "vision",
       messages,
@@ -444,8 +462,9 @@ export async function directVideoPrompt(
       maxTokens: 1400,
       reasoningEffort: "low",
       responseFormat: { type: "json_object" },
-      // 视频提示词导演是纯分析，没有工具调用也没有业务写入，可以安全重发。
-      replaySafe: true,
+      // The quote authorizes one request; failures do not buy another attempt.
+      replaySafe: false,
+      maxAttempts: 1,
       deadlineMs: positiveInteger(ENV.videoPrompt302TimeoutMs, 30_000),
     });
 
@@ -480,6 +499,7 @@ export async function directVideoPrompt(
       engineering: directedEngineering,
     };
   } catch (error) {
+    if (error instanceof DirectorQuoteExceeded) throw error;
     return fallback(
       input,
       error instanceof Error

@@ -62,7 +62,7 @@ describe("chatMediaAttachments", () => {
     expect(inferChatMediaMime(mediaFile("take.mov", ""))).toBe(
       "video/quicktime"
     );
-    expect(chatMediaKind(mediaFile("notes.pdf", "application/pdf"))).toBeNull();
+    expect(chatMediaKind(mediaFile("notes.pdf", "application/pdf"))).toBe("file");
   });
 
   it("keeps valid unique media and reports duplicates, unsupported files and size limits", () => {
@@ -75,11 +75,10 @@ describe("chatMediaAttachments", () => {
       files: [image, duplicate, video, hugeVideo, pdf],
     });
 
-    expect(result.accepted).toEqual([image, video]);
+    expect(result.accepted).toEqual([image, video, pdf]);
     expect(result.rejected.map(item => item.reason)).toEqual([
       "已经添加过",
       "视频超过 200MB",
-      "只支持图片或视频",
     ]);
   });
 

@@ -6,11 +6,13 @@ import { useShotImageRender } from "./useShotImageRender";
 import type { CreationEditorShot } from "@/features/creationEditor/types";
 import type { StoryMaterialState } from "@shared/storyMaterial";
 const pendingTasks = vi.hoisted(() => ({ fetch: vi.fn(async () => [] as Array<{requestId: string; shotIdentity: string; recoverable: boolean}>) }));
+const readingQuote = vi.hoisted(() => ({ fetch: vi.fn(async () => ({ estimatedCny: 0.01, fingerprint: "test" })) }));
+const inspection = vi.hoisted(() => ({ mutateAsync: vi.fn(async () => ({ brief: { status: "seen" }, reply: "已看图：保留构图" })) }));
 const recovery = vi.hoisted(() => ({ mutateAsync: vi.fn(), invalidate: vi.fn(async () => {}) }));
 vi.stubGlobal("React", React);
-vi.mock("@/lib/trpc", () => ({ trpc: { storyAgent: { recoverStoryboardImage: { useMutation: () => ({ mutateAsync: recovery.mutateAsync, isPending: false }) } }, useUtils: () => ({ storyAgent: { chatImageRevisions: { invalidate: recovery.invalidate }, pendingStoryboardImages: { fetch: pendingTasks.fetch, invalidate: recovery.invalidate }, storyImages: { invalidate: recovery.invalidate }, storyMaterialState: { invalidate: recovery.invalidate }, storyGet: { invalidate: recovery.invalidate } } }) } }));
+vi.mock("@/lib/trpc", () => ({ trpc: { storyAgent: { visualUnderstanding: { inspect: { useMutation: () => ({ mutateAsync: inspection.mutateAsync }) } }, recoverStoryboardImage: { useMutation: () => ({ mutateAsync: recovery.mutateAsync, isPending: false }) } }, useUtils: () => ({ storyAgent: { visualUnderstanding: { quote: readingQuote }, chatImageRevisions: { invalidate: recovery.invalidate }, pendingStoryboardImages: { fetch: pendingTasks.fetch, invalidate: recovery.invalidate }, storyImages: { invalidate: recovery.invalidate }, storyMaterialState: { invalidate: recovery.invalidate }, storyGet: { invalidate: recovery.invalidate } } }) } }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), loading: vi.fn(), dismiss: vi.fn(), warning: vi.fn() } }));
-afterEach(() => { vi.useRealTimers(); recovery.mutateAsync.mockReset(); recovery.invalidate.mockClear(); });
+afterEach(() => { vi.useRealTimers(); inspection.mutateAsync.mockClear(); readingQuote.fetch.mockClear(); recovery.mutateAsync.mockReset(); recovery.invalidate.mockClear(); });
 function setup() {
   let api!: ReturnType<typeof useShotImageRender>;
   function Host() {
@@ -194,12 +196,48 @@ it("does not query or generate when submission is still uncertain", async () => 
 });
 
 it("releases chat after an accepted revision and leaves recovery to the durable gallery", async () => {
-  const { withMediaChatSession, answerMediaChatQuestion } = await import("../mediaChatSession");
+  const { withMediaChatSession, answerMediaChatQuestion, mediaChatQuestionStore } = await import("../mediaChatSession");
   const { api, input } = setup();
   input.generate.mockRejectedValue(new PendingShotImageError("accepted", "receipt"));
   const pending = withMediaChatSession(7, () => api.render({ ...input, revisionProvider: "gpt-image" }));
+  await vi.waitFor(() => expect(mediaChatQuestionStore.getState().question).not.toBeNull());
   answerMediaChatQuestion(7, "确认");
   expect(await pending).toMatchObject({ status: "success", message: expect.stringContaining("你可以继续发送") });
   expect(input.generate).toHaveBeenCalledWith(expect.objectContaining({ reference: expect.objectContaining({ conversationRevision: true }) }));
   expect(recovery.mutateAsync).not.toHaveBeenCalled();
+});
+
+it("quotes a chat MJ original edit and accepts the actual output count without another purchase", async () => {
+  const {withMediaChatSession,answerMediaChatQuestion,mediaChatQuestionStore}=await import("../mediaChatSession");
+  const {api,input}=setup();input.generate.mockResolvedValue({generatedCount:1,imageId:48,imageUrl:"/48.png"});
+  const pending=withMediaChatSession(7,()=>api.render(input));
+  await vi.waitFor(() => expect(mediaChatQuestionStore.getState().question?.text).toContain("原图编辑（Legnext MJ Retexture）"));
+  expect(mediaChatQuestionStore.getState().question?.text).toContain("1.62");
+  expect(mediaChatQuestionStore.getState().question?.text).toContain("灰度");expect(input.generate).not.toHaveBeenCalled();
+  answerMediaChatQuestion(7,"确认");
+  expect(await pending).toMatchObject({status:"success",imageId:undefined});
+  expect(input.generate).toHaveBeenCalledTimes(1);expect(input.generate.mock.calls[0][0]).toMatchObject({costConfirmation:{estimatedCny:0.81},reference:{conversationRevision:true}});
+});
+it("quotes reading before inspection and never buys images when reading fails", async () => {
+  const {withMediaChatSession,answerMediaChatQuestion,mediaChatQuestionStore}=await import("../mediaChatSession");
+  const {api,input}=setup();
+  inspection.mutateAsync.mockResolvedValueOnce({brief:{status:"unavailable"},reply:"原图未能读取"});
+  const pending = withMediaChatSession(7,()=>api.render(input));
+  await vi.waitFor(() => expect(mediaChatQuestionStore.getState().question).not.toBeNull());
+  expect(inspection.mutateAsync).not.toHaveBeenCalled();
+  answerMediaChatQuestion(7,"确认");
+  expect(await pending).toMatchObject({status:"error",message:"原图未能读取"});
+  expect(input.generate).not.toHaveBeenCalled();
+  expect(mediaChatQuestionStore.getState().question).toBeNull();
+});
+
+it("cancelled reading quote incurs no model calls", async () => {
+  const {withMediaChatSession,answerMediaChatQuestion,mediaChatQuestionStore}=await import("../mediaChatSession");
+  const {api,input}=setup();
+  const pending = withMediaChatSession(7,()=>api.render(input));
+  await vi.waitFor(() => expect(mediaChatQuestionStore.getState().question?.text).toContain("读图理解最多"));
+  answerMediaChatQuestion(7,"取消");
+  expect(await pending).toMatchObject({status:"cancelled"});
+  expect(inspection.mutateAsync).not.toHaveBeenCalled();
+  expect(input.generate).not.toHaveBeenCalled();
 });

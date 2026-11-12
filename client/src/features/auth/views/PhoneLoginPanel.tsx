@@ -151,7 +151,11 @@ export function PhoneLoginPanelView({
             {sending
               ? _ui("发送中…")
               : seconds > 0
-                ? _ui("{0} 秒后重发", [seconds])
+                ? seconds >= 3600
+                  ? _ui("{0} 小时后可重发", [Math.ceil(seconds / 3600)])
+                  : seconds >= 60
+                    ? _ui("{0} 分钟后可重发", [Math.ceil(seconds / 60)])
+                    : _ui("{0} 秒后重发", [seconds])
                 : _ui("获取验证码")}
           </button>
         </div>
@@ -283,7 +287,9 @@ export default function PhoneLoginPanel({
       )
         setRetryAt(Date.now() + Math.max(0, data.retryAfterMs));
       if (!response.ok || data.ok !== true) {
-        setError(messageForError(data.error, _ui));
+        setError(action === "send" && data.error === "rate_limited"
+          ? _ui("短信发送次数已达限制，请等待倒计时结束后再获取")
+          : messageForError(data.error, _ui));
         return;
       }
       if (action === "send") {

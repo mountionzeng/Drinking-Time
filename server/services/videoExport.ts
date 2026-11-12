@@ -1,3 +1,4 @@
+import { compositeTimelineImages, type CompositeImageInterval } from "./compositeTimelineImages";
 /**
  * 成片导出：把故事时间轴合成为一条 mp4——「从聊天到成片」闭环的最后一环。
  *
@@ -107,6 +108,7 @@ export type ExportPart =
     };
 
 export type ExportPlan = {
+  compositeImages?: CompositeImageInterval[];
   /** 只含真有素材的段；旧调用点和旧测试仍按这个读。 */
   segments: ExportSegment[];
   /** 完整的区间序列，含空档与缺素材占位。 */
@@ -421,6 +423,34 @@ export function buildExportPlan(
     audioState?: TimelineAudioState;
   } = {}
 ): ExportPlan {
+  // Alpha image clips have their own independently editable layer. Resolve their
+  // visibility with the same priority rules as preview, then composite over the
+  // lower visual plan instead of turning transparent pixels into a black frame.
+  const composited = material.timeline.items.flatMap(item => item.imageClips ?? []).filter(c => c.composition);
+  if (composited.length) {
+    const lower = { ...material, timeline: { ...material.timeline,
+      items: material.timeline.items.map(item => ({ ...item, imageClips: item.imageClips?.filter(c => !c.composition) })) } };
+    const plan = buildExportPlan(lower, opts);
+    const rows = buildTimelineLayout(material.timeline.items.filter(i => i.included !== false));
+    const placements = rows.flatMap(row => (row.item.imageClips ?? []).map(clip => ({ clip, start: timelineImageClipStartFrame(clip, row.startFrame) })));
+    const totalFrames = Math.max(plan.totalFrames, ...placements.map(p => p.start+p.clip.durationFrames));
+    const bounds = [...new Set([0, totalFrames, ...rows.flatMap(row => [row.startFrame, row.endFrame, ...internalBoundaryFrames(row)]),
+      ...placements.flatMap(p => [p.start, p.start+p.clip.durationFrames]),
+      ...(material.timeline.overlays ?? []).flatMap(o => [o.startFrame, o.mediaEndFrame, o.endFrame])])].sort((a,b) => a-b);
+    const images: CompositeImageInterval[] = [];
+    for (let i=0; i<bounds.length-1; i++) {
+      const startFrame=bounds[i], endFrame=bounds[i+1];
+      const visible=resolveTimelineVisualFrame({ items: material.timeline.items, overlays: material.timeline.overlays,
+        hiddenVisualLayers: material.timeline.visualLayerState?.hidden, frame: startFrame });
+      if (visible.kind !== "image" || !visible.placement.clip.composition) continue;
+      const { clip, startFrame: clipStartFrame }=visible.placement;
+      images.push({ imageId: clip.imageId, startFrame, endFrame, clipStartFrame, durationFrames: clip.durationFrames,
+        composition: clip.composition!, transform: clip.transform ?? DEFAULT_TIMELINE_TRANSFORM });
+    }
+    if (totalFrames>plan.totalFrames) plan.parts.push({ kind: "gap", startFrame: plan.totalFrames,
+      durationFrames: totalFrames-plan.totalFrames, durationSec: (totalFrames-plan.totalFrames)/30 });
+    return { ...plan, totalFrames, totalSec: totalFrames/30, compositeImages: images };
+  }
   const byIdentity = new Map(
     material.shots.map(shot => [shot.stableShotId, shot] as const)
   );
@@ -1048,6 +1078,31 @@ export async function downloadLegacyAudioForExport(
   return paths;
 }
 
+/** The frozen timeline canvas outranks individual source-media aspect ratios. */
+export function resolveVideoExportAspectRatio(
+  material: StoryMaterialState,
+  explicit?: VideoTargetAspectRatio
+): VideoTargetAspectRatio {
+  if (explicit) return explicit;
+  const migration = material.timeline.extensions?.chatCutMigration as
+    { canvas?: { width?: number; height?: number } } | undefined;
+  const canvas = migration?.canvas;
+  if (canvas && Number.isFinite(canvas.width) && Number.isFinite(canvas.height) &&
+      canvas.width! > 0 && canvas.height! > 0) {
+    const ratio = canvas.width! / canvas.height!;
+    if (Math.abs(ratio - 9 / 16) < 0.001) return "9:16";
+    if (Math.abs(ratio - 16 / 9) < 0.001) return "16:9";
+    if (Math.abs(ratio - 1) < 0.001) return "1:1";
+  }
+  const counts = new Map<string, number>();
+  for (const shot of material.shots) {
+    const ratio = shot.currentVideo?.aspectRatio;
+    if (ratio) counts.set(ratio, (counts.get(ratio) ?? 0) + 1);
+  }
+  const top = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+  return top === "1:1" || top === "9:16" ? top : "16:9";
+}
+
 export async function exportStoryTimeline(params: {
   storyId: number;
   userId: number;
@@ -1120,22 +1175,7 @@ export async function exportStoryTimeline(params: {
     };
   }
 
-  // 目标画幅缺省跟随多数镜头的当前视频。
-  const ratio =
-    params.targetAspectRatio ??
-    (() => {
-      const counts = new Map<string, number>();
-      for (const shot of material.shots) {
-        const ar = shot.currentVideo?.aspectRatio;
-        if (ar) counts.set(ar, (counts.get(ar) ?? 0) + 1);
-      }
-      const top = Array.from(counts.entries()).sort(
-        (a, b) => b[1] - a[1]
-      )[0]?.[0];
-      return (
-        top === "1:1" || top === "9:16" ? top : "16:9"
-      ) as VideoTargetAspectRatio;
-    })();
+  const ratio = resolveVideoExportAspectRatio(material, params.targetAspectRatio);
   const dims = VIDEO_TARGET_DIMENSIONS[ratio];
 
   const dir = localVideoDir();
@@ -1301,8 +1341,12 @@ export async function exportStoryTimeline(params: {
       assetFilePaths: legacyAudioPaths,
       projectedAssetIds: legacyAudioSources ? new Set(legacyAudioSources.map(source => source.assetId)) : undefined,
     });
+    const compositedMasterPath = await compositeTimelineImages({
+      storyId: params.storyId, userId: params.userId, workDir, visualMasterPath,
+      images: plan.compositeImages ?? [], dimensions: dims, totalFrames: plan.totalFrames,
+    });
     await composeTimelineMedia({
-      visualMasterPath,
+      visualMasterPath: compositedMasterPath,
       outputPath,
       workDir,
       totalFrames: plan.totalFrames,
@@ -1310,6 +1354,7 @@ export async function exportStoryTimeline(params: {
       subtitlePlan: buildSubtitleRenderPlan(subtitleState),
       audioPlan,
       resolvedAudioInputs,
+      timeoutMs: Math.min(30 * 60_000, Math.max(120_000, plan.totalSec * 5_000)),
     });
 
     // 成片长度就是解析出来的最大结束时间——空档和占位都占满了它们那份时间。

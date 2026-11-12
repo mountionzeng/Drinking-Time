@@ -68,6 +68,8 @@ type Message = {
   role: string;
   selectionQuote?: { storyId?: number | null; stableShotId?: string | null };
   imageRevision?: { storyId: number; stableShotId: string };
+  frameReferences?: Array<{ storyId: number; stableShotId: string }>;
+  frameReview?: { storyId: number; stableShotId: string };
 };
 /** Old assistant replies lack a quote; inherit only inside the same user turn. */
 export function shotConversationMessages<T extends Message>(
@@ -78,7 +80,7 @@ export function shotConversationMessages<T extends Message>(
 ): T[] {
   let belongs = false;
   return messages.filter(message => {
-    const target = message.selectionQuote ?? message.imageRevision;
+    const target = message.selectionQuote ?? message.frameReview ?? message.frameReferences?.[0] ?? message.imageRevision;
     if (message.role === "user")
       belongs = target
         ? target.storyId === storyId && target.stableShotId === stableShotId

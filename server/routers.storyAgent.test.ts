@@ -1,5 +1,15 @@
+const fluxMocks = vi.hoisted(() => ({ generate302FluxEdit: vi.fn(), resume302FluxEdit: vi.fn(), generate302FluxDevEdit:vi.fn(), resume302FluxResult:vi.fn() }));
+vi.mock("./services/fluxKontextEdit", () => fluxMocks);
+const mj302Mocks = vi.hoisted(() => ({ generate302MjEdit: vi.fn(), resume302MjEdit: vi.fn() }));
+vi.mock("./services/mj302Edit", () => mj302Mocks);
 const legnextMocks = vi.hoisted(() => ({ generateLegnextImage: vi.fn(), resumeLegnextImage: vi.fn(), isLegnextReceipt: (id: string) => id.startsWith("legnext:") }));
-vi.mock("./services/legnextImage", () => legnextMocks);
+vi.mock("./services/legnextImage", async importOriginal => ({ ...await importOriginal<typeof import("./services/legnextImage")>(), ...legnextMocks }));
+// Provider fixtures below use virtual URLs, not decodable image files. Pixel-level
+// dimension validation is exercised with real images in imageEditDimensions/task tests.
+vi.mock("./services/imageEditDimensions", () => ({
+  readImageDimensions: vi.fn(async () => ({width:960,height:960})),
+  normalizeImageEditResult: vi.fn(async (result: unknown) => ({result,checks:{}})),
+}));
 import { estimateStoryboardMaskedEditCost } from "../shared/imageRenderCost";
 import { formatComputeQuote } from "../shared/computeMoney";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -121,7 +131,10 @@ const imagePromptDirectorMocks = vi.hoisted(() => ({
   })),
 }));
 
-vi.mock("./services/imagePromptDirector", () => imagePromptDirectorMocks);
+vi.mock("./services/imagePromptDirector", async importOriginal => ({
+  ...await importOriginal<typeof import("./services/imagePromptDirector")>(),
+  ...imagePromptDirectorMocks,
+}));
 
 const promptRefundMocks = vi.hoisted(() => ({
   billings: [] as { operationId: string; chargeMinor: number }[],
@@ -189,6 +202,29 @@ function createAuthContext(userId = 42): TrpcContext {
 }
 
 describe("storyAgent tRPC router", () => {
+  it("uses the shared intent in the actual storyboard image provider request and exposes it in chat", async () => {
+    const { createStory } = await import("./repositories/stories");
+    const { saveCreationEmotion } = await import("./services/creationEmotion");
+    const userId = 6711;
+    const caller = appRouter.createCaller(createAuthContext(userId));
+    const story = await createStory({ userId, title: "情绪画面", body: { shots: [{ shotNo: 1, stableShotId: "emotion-cup", subject: "白瓷小茶杯", action: "放在桌面", styleRef: "细腻彩色像素" }] } });
+    for (const [index, raw] of ["温暖怀念", "压抑不安", "释然平静"].entries()) {
+      await saveCreationEmotion({ storyId: story.id, userId, expectedRevision: index, scope: { kind: "story" }, intent: { raw } });
+      legnextMocks.generateLegnextImage.mockImplementationOnce(async (_prompt, accepted) => {
+        await accepted(`legnext:emotion-${index}`);
+        return { status: "ok", imageUrl: `/api/images/emotion-${index}.png`, candidates: [{ imageUrl: `/api/images/emotion-${index}.png`, imageKey: `emotion-${index}.png` }] };
+      });
+      const result = await caller.storyAgent.generateForMobile({ storyId: story.id, shotNo: 1, imageProvider: "midjourney", prompt: "白瓷小茶杯放在桌面，细腻彩色像素", shotImageRequestId: crypto.randomUUID(), autoSelect: false });
+      expect(result, JSON.stringify(result)).toMatchObject({status:"ok"});
+      const sent = JSON.stringify(legnextMocks.generateLegnextImage.mock.calls.at(-1));
+      expect(sent).toContain(raw); expect(sent).toContain("白瓷小茶杯"); expect(sent).toContain("细腻彩色像素");
+    }
+    const reply = await caller.storyAgent.chat({ storyId: story.id, message: "查看作品情绪" });
+    expect(reply.reply).toContain("释然平静");
+    expect(reply.reply).toContain("图片 #");
+    expect(await caller.storyAgent.creationEmotion.get({ storyId: story.id })).toMatchObject({ revision: 3 });
+  });
+
   it("records two-image conversation outputs by stable shot without adopting, and rejects stale targets before rendering", async () => {
     const { createStory } = await import("./repositories/stories");
     const userId = 6111;
@@ -215,6 +251,9 @@ describe("storyAgent tRPC router", () => {
     const chapter = await insertChapter({ storyId: story.id, userId, content: {
       title: "纸船", layout: null, blocks: { body: "纸船", writingStyle: [{ id: "module-1", format: "text", lineCount: 1 }], blockIds: ["module-1"], containsAiText: false, settings: null, coverKey: null, bodyTextureKey: null, images: {}, illustrations: [] },
     } });
+    const { saveCreationEmotion } = await import("./services/creationEmotion");
+    await saveCreationEmotion({ storyId: story.id, userId, expectedRevision: 0, scope: { kind: "story" }, intent: { raw: "温暖怀念" } });
+    await saveCreationEmotion({ storyId: story.id, userId, expectedRevision: 1, scope: { kind: "chapter", id: String(chapter.id) }, intent: { raw: "最后释然平静" } });
     const scope = { storyId: story.id, chapterId: chapter.id, moduleId: "module-1" };
     legnextMocks.generateLegnextImage.mockImplementationOnce(async (...args: any[]) => {
       await args[1]("legnext:module-router-task");
@@ -222,6 +261,9 @@ describe("storyAgent tRPC router", () => {
     });
     const result = await caller.storyAgent.generateForMobile({ storyId: story.id, mode: "final", imageProvider: "midjourney", prompt: "纸船", moduleTarget: { chapterId: chapter.id, moduleId: "module-1", expectedText: "纸船", requestId: crypto.randomUUID() } });
     expect(result.status).toBe("error");
+    expect(legnextMocks.generateLegnextImage.mock.calls[0][0]).toContain("最后释然平静");
+    expect(legnextMocks.generateLegnextImage.mock.calls[0][0]).toContain("温暖怀念");
+    await saveCreationEmotion({ storyId: story.id, userId, expectedRevision: 2, scope: { kind: "chapter", id: String(chapter.id) }, intent: { raw: "压抑不安" } });
     expect(await caller.storyAgent.bookModuleImageTask(scope)).toMatchObject({ status: "accepted", providerTaskId: "legnext:module-router-task" });
     legnextMocks.resumeLegnextImage.mockResolvedValueOnce({ status: "ok", imageUrl: "https://storage.example/module.png", imageKey: "module.png" });
     expect(await caller.storyAgent.recoverBookModuleImage(scope)).toMatchObject({ status: "ok" });
@@ -1709,7 +1751,7 @@ describe("storyAgent tRPC router", () => {
     if (source.status !== "ok") throw new Error("Missing source");
     const before = await getStoryTimeline(story!.id, 6688);
     const result = await caller.storyAgent.generateForMobile({ storyId: story!.id, shotNo: 1, shotImageRequestId: crypto.randomUUID(), conversationRevision: true,
-      explicitInstruction: "只把脸变亮", imageProvider: "gpt-image", referenceRevision: true, renderReferences: { imageIds: [source.imageId!], assets: {} },
+      explicitInstruction: "Brighten only the face.", imageProvider: "gpt-image", referenceRevision: true, renderReferences: { imageIds: [source.imageId!], assets: {} },
       costConfirmation: { accepted: true, estimatedCny: estimateStoryboardMaskedEditCost().estimatedCny } });
     expect(result.status).toBe("ok");
     expect(await getStoryTimeline(story!.id, 6688)).toEqual(before);
@@ -3170,4 +3212,133 @@ describe("account image library boundary", () => {
     await expect(appRouter.createCaller({ ...createAuthContext(), user: null }).storyAgent.accountImages({})).rejects.toMatchObject({ code: "UNAUTHORIZED" });
     await expect(appRouter.createCaller(createAuthContext()).storyAgent.accountImages({ before: -1 })).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
+});
+
+it("MJ chat refinement uses only the selected original and current instruction, leaves timeline unchanged, and replays safely", async () => {
+  const userId=77112; const caller=appRouter.createCaller(createAuthContext(userId));
+  const story=await caller.storyAgent.storyUpsert({title:"frame refinement",body:{cards:[],shots:[{shotNo:3,stableShotId:"refine-3",subject:"invent a realistic city",videoPrompt:"dramatic shadows"}]}});
+  const source=await createGeneratedImage({userId,storyId:story!.id,shotNo:"SH03",shotIdentity:"refine-3",imageUrl:"https://storage.example/source.png",prompt:"video reference",isCurrent:false});
+  const { manageVisualPreference } = await import("./services/visualEditUnderstanding");
+  await manageVisualPreference({userId,storyId:story!.id,action:"save",scope:"story",text:"点彩需要细腻而极简"});
+  const timeline=await getStoryTimeline(story!.id,userId);
+  const input={storyId:story!.id,shotNo:3,shotImageRequestId:crypto.randomUUID(),conversationRevision:true,referenceRevision:true,imageProvider:"midjourney" as const,renderReferences:{imageIds:[source.id],assets:{}},explicitInstruction:"Refine the color transitions and nuances; preserve brightness and grayscale values."};
+  legnextMocks.generateLegnextImage.mockClear(); imagePromptDirectorMocks.directImagePrompt.mockClear();
+  expect(await caller.storyAgent.generateForMobile({...input,costConfirmation:{accepted:true,estimatedCny:0.68}})).toMatchObject({status:"error"});
+  expect(legnextMocks.generateLegnextImage).not.toHaveBeenCalled();
+  legnextMocks.generateLegnextImage.mockImplementationOnce(async (_prompt, accepted) => {await accepted("legnext:refinement");return {status:"error",providerTaskId:"legnext:refinement",errorCode:"timeout_pending"};});
+  const request={...input,shotImageRequestId:crypto.randomUUID(),costConfirmation:{accepted:true as const,estimatedCny:0.81}};
+  expect(await caller.storyAgent.generateForMobile(request)).toMatchObject({status:"error",providerTaskId:"legnext:refinement"});
+  const [prompt,,options]=legnextMocks.generateLegnextImage.mock.calls.at(-1)!;
+  expect(options).toEqual({referenceImageUrl:source.imageUrl,editMode:"retexture",inlinePoll:false});
+  // Retexture carries only the user's words plus the fixed keep-the-rest sentence, on one line.
+  expect(prompt).toBe(`${input.explicitInstruction} Unless explicitly targeted by this edit, preserve overall brightness, grayscale values, contrast, composition, abstraction, object shapes, sizes, positions and existing text exactly. Do not add unrequested objects, shadows or light effects.`);
+  expect(prompt).not.toMatch(/点彩需要细腻而极简|never override the current request|\n|--v/);
+  expect(prompt).not.toMatch(/invent a realistic city|dramatic shadows/);
+  const { getStoryById: readStory } = await import("./repositories/stories");
+  const storedTask=(((await readStory(story!.id,userId))!.body as Record<string,unknown>).storyboardImageTasks as Array<{requestId:string;meta:{prompt:string}}>).find(task=>task.requestId===request.shotImageRequestId);
+  expect(storedTask?.meta.prompt).toBe(prompt);
+  expect(imagePromptDirectorMocks.directImagePrompt).not.toHaveBeenCalled();
+  legnextMocks.resumeLegnextImage.mockResolvedValueOnce({status:"ok",imageUrl:"/refined.png",imageKey:"refined",candidates:[{imageUrl:"/refined.png",imageKey:"refined"}]});
+  expect(await caller.storyAgent.recoverStoryboardImage({storyId:story!.id,requestId:request.shotImageRequestId})).toMatchObject({status:"ok"});
+  expect(await caller.storyAgent.chatImageRevisions({storyId:story!.id})).toEqual(expect.arrayContaining([expect.objectContaining({sourceImageId:source.id,sourceImageUrl:source.imageUrl,editMode:"retexture",status:"succeeded"})]));
+  expect(await getGeneratedImageById(source.id)).toMatchObject({isCurrent:false});expect(await getStoryTimeline(story!.id,userId)).toEqual(timeline);
+  await caller.storyAgent.generateForMobile(request);expect(legnextMocks.generateLegnextImage).toHaveBeenCalledTimes(1);
+});
+
+
+it("sends the existing art director's Chinese-edit compilation through the real render gate to MJ", async () => {
+  const inference = await import("./_core/inferenceOrchestrator");
+  const assets = await import("./services/imageAssets");
+  const { inspectVisualEdit } = await import("./services/visualEditUnderstanding");
+  const compiled = "Increase tree-species variety using delicate pointillist color transitions. Preserve the paper airplane, UI text, shapes, composition, luminance and contrast.";
+  const vision = vi.spyOn(inference, "runInference").mockResolvedValueOnce({model:"test-vision",result:{choices:[{message:{content:JSON.stringify({observed:"纸飞机飞过森林",change:["更多树种"],preserve:["原有明暗和构图"],uncertain:[],editPromptEnglish:compiled})}}]}} as never);
+  const materialize = vi.spyOn(assets, "materializeImageInput").mockResolvedValue("data:image/png;base64,test-original");
+  try {
+    const userId=77113; const caller=appRouter.createCaller(createAuthContext(userId));
+    const recipe={version:1,updatedAt:1,sourceCandidateIds:[],style:["pointillism"],palette:[],light:[],composition:[],material:[],negative:[],system:{name:"微彩",englishPrompt:"Delicate colorful stippled surfaces.",objectRules:[],motionRules:[],continuityRules:[],referenceImageIds:[],confirmedAt:1}};
+    const story=await caller.storyAgent.storyUpsert({title:"Chinese art edit",body:{cards:[],shots:[{shotNo:3,stableShotId:"art-3",subject:"old unrelated scene"}],artDirection:{recipe,recipeVersions:[recipe]}}});
+    const source=await createGeneratedImage({userId,storyId:story!.id,shotNo:"SH03",shotIdentity:"art-3",imageUrl:"https://storage.example/forest.png",isCurrent:false});
+    const instruction="森林的树木品种太少了，要更多一些，其他不要变";
+    await inspectVisualEdit({userId,storyId:story!.id,stableShotId:"art-3",imageId:source.id,instruction,language:"zh"});
+    expect(vision).toHaveBeenCalledTimes(1);
+    const messages=vision.mock.calls[0][0].messages;
+    expect(messages[0].content).toContain("constrained-edit mode");
+    expect(JSON.stringify(messages[1].content)).toContain("Delicate colorful stippled surfaces.");
+    legnextMocks.generateLegnextImage.mockClear();
+    legnextMocks.generateLegnextImage.mockResolvedValueOnce({status:"error",error:"fixture: stop before provider"});
+    await caller.storyAgent.generateForMobile({storyId:story!.id,shotNo:3,shotImageRequestId:crypto.randomUUID(),conversationRevision:true,referenceRevision:true,imageProvider:"midjourney",renderReferences:{imageIds:[source.id],assets:{}},explicitInstruction:instruction,costConfirmation:{accepted:true,estimatedCny:0.81}});
+    expect(legnextMocks.generateLegnextImage).toHaveBeenCalledTimes(1);
+    const [sent,,options]=legnextMocks.generateLegnextImage.mock.calls[0];
+    expect(sent).toContain(compiled);
+    expect(sent).not.toContain(instruction);
+    expect(sent).not.toMatch(/old unrelated scene|no (?:text|logos)/i);
+    expect(options).toMatchObject({referenceImageUrl:source.imageUrl,editMode:"retexture"});
+    expect(vision).toHaveBeenCalledTimes(1);
+    expect((await getGeneratedImageById(source.id))?.isCurrent).toBe(false);
+  } finally {vision.mockRestore();materialize.mockRestore();}
+});
+
+it("routes an explicitly quoted 302 MJ edit to Edits, never Legnext or Imagine", async () => {
+  const userId=77115; const caller=appRouter.createCaller(createAuthContext(userId));
+  const story=await caller.storyAgent.storyUpsert({title:"302 edit",body:{cards:[],shots:[{shotNo:3,stableShotId:"302-shot"}]}});
+  const source=await createGeneratedImage({userId,storyId:story!.id,shotNo:"SH03",shotIdentity:"302-shot",imageUrl:"https://storage.example/original.png",isCurrent:false});
+  const input={storyId:story!.id,shotNo:3,shotImageRequestId:crypto.randomUUID(),conversationRevision:true,referenceRevision:true,imageProvider:"midjourney" as const,renderReferences:{imageIds:[source.id],assets:{}},explicitInstruction:"Use 302 MJ: finer existing colors only. Preserve luminance, grayscale, shapes and positions."};
+  legnextMocks.generateLegnextImage.mockClear(); mj302Mocks.generate302MjEdit.mockClear();
+  expect(await caller.storyAgent.generateForMobile({...input,costConfirmation:{accepted:true,estimatedCny:0.81}})).toMatchObject({status:"error"});
+  expect(mj302Mocks.generate302MjEdit).not.toHaveBeenCalled();
+  mj302Mocks.generate302MjEdit.mockImplementationOnce(async (_image,_prompt,accepted)=>{await accepted("123456789"); return {status:"error",providerTaskId:"123456789",errorCode:"timeout_pending"};});
+  const request={...input,shotImageRequestId:crypto.randomUUID(),costConfirmation:{accepted:true as const,estimatedCny:0.34}};
+  expect(await caller.storyAgent.generateForMobile(request)).toMatchObject({providerTaskId:"123456789"});
+  expect(mj302Mocks.generate302MjEdit).toHaveBeenCalledWith(source.imageUrl,expect.stringContaining("finer existing colors"),expect.any(Function));
+  expect(legnextMocks.generateLegnextImage).not.toHaveBeenCalled();
+  mj302Mocks.resume302MjEdit.mockResolvedValueOnce({status:"ok",imageUrl:"/302.png",imageKey:"302",candidates:[{imageUrl:"/302.png",imageKey:"302"}]});
+  expect(await caller.storyAgent.recoverStoryboardImage({storyId:story!.id,requestId:request.shotImageRequestId})).toMatchObject({status:"ok"});
+  await caller.storyAgent.generateForMobile(request); expect(mj302Mocks.generate302MjEdit).toHaveBeenCalledTimes(1);
+});
+
+it("quotes and recovers a cheaper Kontext edit without a second POST or timeline replacement", async () => {
+  const userId = 77116; const caller = appRouter.createCaller(createAuthContext(userId));
+  const story = await caller.storyAgent.storyUpsert({ title: "Kontext edit", body: { cards: [], shots: [{ shotNo: 3, stableShotId: "flux-shot" }] } });
+  const source = await createGeneratedImage({ userId, storyId: story!.id, shotNo: "SH03", shotIdentity: "flux-shot", imageUrl: "https://storage.example/original.png", isCurrent: false });
+  const before = await getStoryTimeline(story!.id, userId);
+  const input = { storyId: story!.id, shotNo: 3, shotImageRequestId: crypto.randomUUID(), conversationRevision: true, referenceRevision: true, imageProvider: "gpt-image" as const, renderReferences: { imageIds: [source.id], assets: {} }, explicitInstruction: "Use 302 FLUX Kontext Pro Edits. Refine existing colors only; preserve luminance, grayscale, shapes and positions." };
+  fluxMocks.generate302FluxEdit.mockClear(); imageGenMocks.editImage.mockClear();
+  expect(await caller.storyAgent.generateForMobile({ ...input, costConfirmation: { accepted: true, estimatedCny: 1.43 } })).toMatchObject({ status: "error" });
+  expect(fluxMocks.generate302FluxEdit).not.toHaveBeenCalled();
+  const id = "251c4e06-7bd1-4f68-8fa7-f89fa61a96e7";
+  fluxMocks.generate302FluxEdit.mockImplementationOnce(async (_image, _prompt, accepted) => { await accepted(id); return { status: "error", providerTaskId: id, errorCode: "timeout_pending" }; });
+  const request = { ...input, shotImageRequestId: crypto.randomUUID(), costConfirmation: { accepted: true as const, estimatedCny: 0.27 } };
+  expect(await caller.storyAgent.generateForMobile(request)).toMatchObject({ providerTaskId: id });
+  expect(fluxMocks.generate302FluxEdit).toHaveBeenCalledWith(source.imageUrl, expect.stringContaining("Refine existing colors only"), expect.any(Function));
+  expect(imageGenMocks.editImage).not.toHaveBeenCalled();
+  fluxMocks.resume302FluxEdit.mockResolvedValueOnce({ status: "ok", imageUrl: "/flux.png", imageKey: "flux" });
+  expect(await caller.storyAgent.recoverStoryboardImage({ storyId: story!.id, requestId: request.shotImageRequestId })).toMatchObject({ status: "ok" });
+  await caller.storyAgent.generateForMobile(request);
+  expect(fluxMocks.generate302FluxEdit).toHaveBeenCalledTimes(1);
+  expect(await getStoryTimeline(story!.id, userId)).toEqual(before);
+  expect(await caller.storyAgent.chatImageRevisions({ storyId: story!.id })).toEqual(expect.arrayContaining([expect.objectContaining({ sourceImageId: source.id, status: "succeeded" })]));
+});
+
+it("recovers a synchronous Dev edit and preserves the explicitly acknowledged unknown Pro request",async()=>{
+  const userId=77117;const caller=appRouter.createCaller(createAuthContext(userId));
+  const story=await caller.storyAgent.storyUpsert({title:"Dev original edit",body:{cards:[],shots:[{shotNo:3,stableShotId:"dev-shot"}]}});
+  const source=await createGeneratedImage({userId,storyId:story!.id,shotNo:"SH03",shotIdentity:"dev-shot",imageUrl:"https://storage.example/original.png",isCurrent:false});
+  const before=await getStoryTimeline(story!.id,userId);
+  const input={storyId:story!.id,shotNo:3,shotImageRequestId:crypto.randomUUID(),conversationRevision:true,referenceRevision:true,imageProvider:"gpt-image" as const,renderReferences:{imageIds:[source.id],assets:{}},explicitInstruction:"Use 302 FLUX Kontext Pro Edits. Refine colors only; preserve luminance and shape."};
+  fluxMocks.generate302FluxEdit.mockResolvedValueOnce({status:"error",submissionUncertain:true,message:"HTTP 500"});
+  await caller.storyAgent.generateForMobile({...input,costConfirmation:{accepted:true,estimatedCny:0.27}});
+  fluxMocks.generate302FluxDevEdit.mockClear();
+  const request={...input,shotImageRequestId:crypto.randomUUID(),explicitInstruction:input.explicitInstruction.replace("Pro","Dev"),costConfirmation:{accepted:true as const,estimatedCny:0.21}};
+  await caller.storyAgent.generateForMobile(request);expect(fluxMocks.generate302FluxDevEdit).not.toHaveBeenCalled();
+  fluxMocks.generate302FluxDevEdit.mockImplementationOnce(async(_image,_prompt,ready)=>{await ready("https://file.302.ai/dev.png");return {status:"error",providerResultUrl:"https://file.302.ai/dev.png",errorCode:"timeout_pending"};});
+  const approved={...request,costConfirmation:{...request.costConfirmation,continueAfterUnknownRequestId:input.shotImageRequestId}};
+  expect(await caller.storyAgent.generateForMobile(approved)).toMatchObject({status:"error",recoveryPending:true});
+  fluxMocks.resume302FluxResult.mockResolvedValueOnce({status:"ok",imageUrl:"/dev.png",imageKey:"dev-result"});
+  const recovered=await caller.storyAgent.recoverStoryboardImage({storyId:story!.id,requestId:request.shotImageRequestId});
+  expect(recovered).toMatchObject({status:"ok",imageUrl:"/dev.png"});
+  await caller.storyAgent.generateForMobile(approved);expect(fluxMocks.generate302FluxDevEdit).toHaveBeenCalledTimes(1);
+  expect(await getStoryTimeline(story!.id,userId)).toEqual(before);
+  expect(await caller.storyAgent.chatImageRevisions({storyId:story!.id})).toEqual(expect.arrayContaining([
+    expect.objectContaining({requestId:input.shotImageRequestId,status:"unknown"}),
+    expect.objectContaining({requestId:request.shotImageRequestId,status:"succeeded",sourceImageId:source.id})]));
 });

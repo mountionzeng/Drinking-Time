@@ -1,7 +1,11 @@
 import { beforeEach, expect, it, vi } from "vitest";
 import { randomUUID } from "node:crypto";
-const mock = vi.hoisted(() => ({ resume: vi.fn() }));
+const mock = vi.hoisted(() => ({ resume: vi.fn(), dimensions: vi.fn() }));
 vi.mock("./imageGen", () => ({ resume302GptImageTask: mock.resume }));
+vi.mock("./imageEditDimensions", () => ({
+  readImageDimensions: mock.dimensions,
+  normalizeImageEditResult: async (result: unknown) => ({result,checks:{}}),
+}));
 process.env.DATABASE_URL = "";
 const { createStory, getStoryById, updateStoryBodyIfRevision } = await import(
   "../repositories/stories"
@@ -38,6 +42,7 @@ let sourceId: number;
 beforeEach(async () => {
   resetMemoryStateForTesting();
   mock.resume.mockReset();
+  mock.dimensions.mockReset().mockResolvedValue({width:960,height:960});
   const story = await createStory({
     userId: 123,
     title: "chat edits",
@@ -182,6 +187,16 @@ it("keeps the original on decline and persists the choice across a new read", as
     await getStoryGeneratedImages(scope.storyId, scope.userId)
   ).toHaveLength(2);
 });
+it("refuses mismatched output dimensions without changing the timeline, current image or decision", async () => {
+  const imageId = await finish();
+  const before = await getStoryTimeline(scope.storyId, scope.userId);
+  mock.dimensions.mockImplementation(async (url: string) => url === "/new.png" ? {width:960,height:540} : {width:960,height:960});
+  await expect(decideChatImageRevision({...scope,kind:"replace",imageId})).rejects.toThrow(/尺寸/);
+  expect(await getStoryTimeline(scope.storyId,scope.userId)).toEqual(before);
+  expect((await readChatImageRevisions(scope.storyId,scope.userId))[0].decision).toBeUndefined();
+  expect((await getStoryGeneratedImages(scope.storyId,scope.userId)).find(i=>i.id===sourceId)?.isCurrent).toBe(true);
+  await decideChatImageRevision({...scope,kind:"keep"});
+});
 it("replaces only after an explicit decision and atomically retains clip timing, old image, frame roles and receipt", async () => {
   const imageId = await finish();
   const before = (await getStoryTimeline(scope.storyId, scope.userId))!;
@@ -292,4 +307,15 @@ it("transient GPT reads remain recoverable but provider-confirmed failure stops 
   expect(
     (await readChatImageRevisions(scope.storyId, scope.userId))[0].status
   ).toBe("failed");
+});
+
+it("approves an extracted-frame candidate without adding a still over the original video",async()=>{
+ const imageId=await finish();
+ const story=(await getStoryById(scope.storyId,scope.userId))!;const body=story.body as any;
+ body.storyboardImageTasks[0].meta.referenceOnly=true;body.storyboardImageTasks[0].meta.editMode="retexture";
+ await updateStoryBodyIfRevision({id:scope.storyId,userId:scope.userId,expectedRevision:body._revision,body:{...body,_revision:body._revision+1}});
+ const before=await getStoryTimeline(scope.storyId,scope.userId);
+ expect(await decideChatImageRevision({...scope,kind:"replace",imageId})).toMatchObject({kind:"replaced",referenceOnly:true,imageId});
+ expect(await getStoryTimeline(scope.storyId,scope.userId)).toEqual(before);
+ expect((await readChatImageRevisions(scope.storyId,scope.userId))[0].decision).toMatchObject({referenceOnly:true,imageId});
 });

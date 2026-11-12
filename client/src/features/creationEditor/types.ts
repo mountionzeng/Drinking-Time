@@ -15,6 +15,8 @@ export type CreationEditorImage = {
   shotNo: number | null;
   shotIdentity?: string | null;
   imageUrl: string;
+  /** Source-video inspection only; opt in explicitly before using as a storyboard frame. */
+  referenceOnly?: boolean;
   prompt?: string | null;
   status?: "selected" | "pending" | "rejected";
   isCurrent?: boolean;
@@ -49,6 +51,7 @@ export type CreationEditorError = {
 };
 
 export type ImportedStoryMaterialResult =
+  | {kind: "file"; file: import("@shared/warehouseFiles").WarehouseFile}
   | {
       kind: "image";
       imageId: number;

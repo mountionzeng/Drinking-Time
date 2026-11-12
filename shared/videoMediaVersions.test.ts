@@ -208,3 +208,26 @@ describe("film media version history", () => {
     expect(state).toEqual(before);
   });
 });
+
+it("versions subtitle placement changes independently of wording", () => {
+  const first = extensions();
+  const second = structuredClone(first);
+  second.subtitleTracks.tracks[0].placement = {
+    left: 0.05,
+    top: 0.8,
+    width: 0.9,
+    fontSize: 0.03,
+  };
+  const history = recordVideoMediaVersions({
+    previousBody: body(),
+    nextBody: body(),
+    previousExtensions: first,
+    nextExtensions: second,
+    savedAt: 1000,
+    userId: 5,
+  });
+  expect(history.entries.filter(e => e.kind === "subtitles")).toHaveLength(2);
+  expect(
+    history.entries.filter(e => e.kind === "subtitles").at(-1)?.value
+  ).toEqual(second.subtitleTracks);
+});

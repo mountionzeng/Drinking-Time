@@ -162,7 +162,7 @@ export function ChapterWriting({ chapter, scope, handle, save, onChange, disable
       const currentModule = module.current?.scope === contextScope ? module.current : undefined;
       const start = currentModule ? selection.current?.start ?? body.length : body.length;
       const end = selection.current?.end ?? start;
-      return { manuscriptKind: chapter.blocks.manuscriptKind ?? (draftRef.current.writingStyle?.some(block => block.format === "shot") ? "storyboard" : "text"), draft: body, module: currentModule, cursor: start, ...(currentModule && end > start ? { selection: { start, end } } : {}), scope: contextScope };
+      return { chapterId: String(chapter.id), manuscriptKind: chapter.blocks.manuscriptKind ?? (draftRef.current.writingStyle?.some(block => block.format === "shot") ? "storyboard" : "text"), draft: body, module: currentModule, cursor: start, ...(currentModule && end > start ? { selection: { start, end } } : {}), scope: contextScope };
     }} />
     <span role="status" className="sr-only">{saving ? _ui("正在自动保存") : dirty ? _ui("等待自动保存") : _ui("已保存")}</span>
     {titleEditor ?? <input aria-label={_ui("章节标题")} maxLength={200} disabled={disabled} className="w-full border-b bg-transparent py-2 text-xl outline-none" value={draft.title} onChange={e => update({ ...draft, title: e.target.value })} />}

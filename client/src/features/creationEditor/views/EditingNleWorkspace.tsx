@@ -1,3 +1,4 @@
+import { isFrameNavigationKey, isFrameNavigationTarget, PAUSED_FRAME_SHORTCUT_EVENT } from "../frameNavigation";
 import { shotConversationSelection } from "@/features/storyAgent/shotConversation";
 import { focusShotChat } from "@/features/storyAgent/shotChatFocus";
 import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
@@ -1136,6 +1137,7 @@ export default function EditingNleWorkspace({
   const subtitleBinding = useMemo<SubtitleTrackBinding>(
     () => ({
       versions: timelineMedia.mediaVersions,
+      tracks: timelineMedia.subtitleState.tracks,
       cues: timelineMedia.cues,
       selectedCueId: timelineMedia.selectedCueId,
       onSelectCue: timelineMedia.selectCue,
@@ -1275,6 +1277,20 @@ export default function EditingNleWorkspace({
     if (playbackClock.isPlaying) return;
     setSpinePlayheadMs(Math.max(0, Math.round(playbackClock.playheadMs)));
   }, [setSpinePlayheadMs, playbackClock.isPlaying, playbackClock.playheadMs]);
+  const setPausedPreviewFrame = useStorySpine(state => state.setPausedPreviewFrame);
+  const pausedTimelineVersion = creationEditor.materialState?.timeline.version;
+  useEffect(() => {
+    setPausedPreviewFrame(!playbackClock.isPlaying && !videoEditorTarget && !imageEditorTarget && !timelineWritePending && activeStoryId && pausedTimelineVersion != null ? {
+      storyId: activeStoryId,
+      timelineVersion: pausedTimelineVersion,
+      timelineFrame: Math.max(0, Math.round(playbackClock.playheadMs * 30 / 1000)),
+      hiddenVisualLayers: [...timelineVisualLayerState.hidden],
+      width: chatCutTimeline?.width ?? 1024,
+      height: chatCutTimeline?.height ?? 1024,
+    } : null);
+    return () => setPausedPreviewFrame(null);
+  }, [setPausedPreviewFrame, activeStoryId, pausedTimelineVersion, videoEditorTarget, imageEditorTarget, timelineWritePending, playbackClock.isPlaying,
+    playbackClock.playheadMs, timelineVisualLayerState.hidden, chatCutTimeline?.width, chatCutTimeline?.height]);
   /** 时间尺上要画的位置锚点，按绝对帧排好。 */
   const timelineAnchors = useMemo(
     () =>
@@ -1373,6 +1389,14 @@ export default function EditingNleWorkspace({
     () =>
       activeTimelineVisualFrame.kind === "image"
         ? {
+            opacity: (() => {
+              const { clip, startFrame } = activeTimelineVisualFrame.placement;
+              const c = clip.composition;
+              if (!c) return 1;
+              const local = playbackClock.playheadFrame - startFrame;
+              return c.opacity * Math.min(1, c.fadeInFrames ? local / c.fadeInFrames : 1,
+                c.fadeOutFrames ? (clip.durationFrames - local) / c.fadeOutFrames : 1);
+            })(),
             imageUrl: activeTimelineVisualFrame.placement.clip.imageUrl,
             transform: activeTimelineVisualFrame.placement.clip.transform,
             imageId: activeTimelineVisualFrame.placement.clip.imageId,
@@ -1380,7 +1404,7 @@ export default function EditingNleWorkspace({
             stableShotId: activeTimelineVisualFrame.placement.stableShotId,
           }
         : null,
-    [activeTimelineVisualFrame]
+    [activeTimelineVisualFrame, playbackClock.playheadFrame]
   );
   useEffect(() => {
     if (selectedShotNo == null && selectedShot) {
@@ -2676,6 +2700,28 @@ export default function EditingNleWorkspace({
     <div
       className="relative flex h-full min-h-0 flex-col"
       data-testid="editing-nle-workspace"
+      onKeyDownCapture={event => {
+        if (suspended || event.defaultPrevented || !isFrameNavigationKey(event) || !isFrameNavigationTarget(event.target as Element)) return;
+        event.preventDefault(); event.stopPropagation();
+        const frozen = playbackClock.pauseAtCurrentFrame();
+        if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+          playbackClock.seek(Math.max(0, frozen.timelineFrame + (event.key === "ArrowLeft" ? -1 : 1)) * 1000 / 30);
+          return;
+        }
+        if (event.repeat) return;
+        if (event.key === "ArrowDown") {
+          window.dispatchEvent(new CustomEvent(PAUSED_FRAME_SHORTCUT_EVENT, {detail: {kind: "clear", storyId: activeStoryId}})); return;
+        }
+        if (!activeStoryId || pausedTimelineVersion == null) return;
+        if (videoEditorTarget || imageEditorTarget || timelineWritePending) {
+          toast.info(_ui("请先保存当前剪辑调整，再引用这一帧 / Save current edits before referencing this frame")); return;
+        }
+        window.dispatchEvent(new CustomEvent(PAUSED_FRAME_SHORTCUT_EVENT, {detail: {kind: "capture", snapshot: {
+          storyId: activeStoryId, timelineVersion: pausedTimelineVersion, timelineFrame: frozen.timelineFrame,
+          hiddenVisualLayers: [...timelineVisualLayerState.hidden], width: chatCutTimeline?.width ?? 1024, height: chatCutTimeline?.height ?? 1024,
+          imageMode: "source",
+        }}}));
+      }}
     >
       <ResizablePanelGroup
         direction="horizontal"

@@ -12,6 +12,8 @@
     "auth:check-phone": "tsx scripts/check-phone-login.ts",
     "verify:merge": "pnpm env:check && pnpm migration:verify && pnpm miniprogram:check && pnpm check && pnpm feature:validate && pnpm test && pnpm build && pnpm env:check",
     "check:images": "tsx scripts/check-image-pipeline.ts",
+    "render:selfcheck": "tsx scripts/render-selfcheck.ts",
+    "render:smoke": "tsx scripts/render-smoke.ts --dry-run",
     "preview:3000": "PORT=3000 NODE_ENV=development tsx watch scripts/preview-server.ts",
     "verify:draft-safety": "vitest run client/src/features/publishingAlbum/chapterWritingDraft.test.ts client/src/features/publishingAlbum/ChapterWriting.test.tsx client/src/features/publishingAlbum/chapterTabSync.test.ts client/src/features/publishingAlbum/chapterSaveQueue.test.ts client/src/features/storyAgent/legacyStoryRecovery.test.ts client/src/features/storyAgent/views/LegacyStoryRecovery.test.tsx server/routers.chapters.test.ts",
     "build": "pnpm verify:draft-safety && vite build && esbuild server/_core/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",

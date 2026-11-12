@@ -602,6 +602,11 @@ function timelineImageClips(value: unknown): StoryTimelineImageClip[] {
         typeof clip.label === "string" && clip.label.trim()
           ? clip.label.trim().slice(0, 120)
           : `图片 ${normalized.length + 1}`,
+      ...(clip.composition && typeof clip.composition === "object" ? { composition: {
+        opacity: Math.max(0, Math.min(1, Number((clip.composition as any).opacity) || 0)),
+        fadeInFrames: Math.max(0, Math.round(Number((clip.composition as any).fadeInFrames) || 0)),
+        fadeOutFrames: Math.max(0, Math.round(Number((clip.composition as any).fadeOutFrames) || 0)),
+      } } : {}),
       offsetFrames,
       ...(timelineStartFrame == null ? {} : { timelineStartFrame }),
       durationFrames,

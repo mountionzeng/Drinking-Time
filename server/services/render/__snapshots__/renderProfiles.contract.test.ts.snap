@@ -1,0 +1,335 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`render profile contracts (mock fetch, request body snapshot) > image.flux-kontext-pro 1`] = `
+{
+  "body": {
+    "input_image": "[inline-image]",
+    "model": "flux-kontext-pro",
+    "n": 1,
+    "prompt": "Reference identity lock:
+Use the input image as the primary identity anchor, not merely as a style reference.
+This block describes identity only. It is not a framing instruction: this is an edit of the whole picture, so keep the reference's shot size, camera distance, subject scale and the position of every figure in frame. Never crop in, zoom in, or turn a wide or medium shot into a face close-up, and never drop figures that are present in the reference.
+Preserve the same visible person: face outline and proportions, jaw and chin shape, cheek volume, nose bridge/tip/nostrils, mouth and lip shape, philtrum, skin tone and texture, visible hair silhouette, and any cloth/accessory placement.
+Lower-face continuity is critical: match the reference chin taper, chin length, jaw width, lower-face oval/V shape, lip thickness, cupid's bow, mouth width, philtrum, and nose-to-mouth spacing.
+Reproduce the eye region exactly as the reference shows it: do not add, remove, or reposition anything covering the eyes.
+Background props, paintings, frames, and decorative eye motifs are not facial identity; never copy an eye symbol or prop onto the person's face.
+Do not recast the face, beautify into a different person, change age impression, or alter the person's facial structure.
+Avoid common identity drift: do not round, widen, square off, lengthen, or shorten the chin; do not inflate or redesign the lips; do not make the jaw heavier or softer than the reference.
+
+Scene prompt:
+a quiet harbour at dawn",
+    "size": "1024x1024",
+  },
+  "method": "POST",
+  "url": "https://api.302.test/v1/images/generations",
+}
+`;
+
+exports[`render profile contracts (mock fetch, request body snapshot) > image.flux-schnell-draft 1`] = `
+{
+  "body": {
+    "image_size": {
+      "height": 1024,
+      "width": 1024,
+    },
+    "num_inference_steps": 4,
+    "prompt": "a quiet harbour at dawn",
+  },
+  "method": "POST",
+  "url": "https://api.302.test/302/submit/flux-schnell",
+}
+`;
+
+exports[`render profile contracts (mock fetch, request body snapshot) > image.gpt-image.edit 1`] = `
+{
+  "body": {
+    "image": [
+      "[file image/png]",
+    ],
+    "model": [
+      "gpt-image-1.5",
+    ],
+    "n": [
+      "1",
+    ],
+    "output_format": [
+      "png",
+    ],
+    "prompt": [
+      "make it rain",
+    ],
+    "quality": [
+      "high",
+    ],
+    "size": [
+      "1024x1024",
+    ],
+  },
+  "method": "POST",
+  "url": "https://api.302.test/v1/images/edits?async=true",
+}
+`;
+
+exports[`render profile contracts (mock fetch, request body snapshot) > image.gpt-image.generate 1`] = `
+{
+  "body": {
+    "model": "gpt-image-1.5",
+    "moderation": "auto",
+    "n": 1,
+    "output_format": "png",
+    "prompt": "a quiet harbour at dawn",
+    "quality": "high",
+    "size": "1024x1024",
+  },
+  "method": "POST",
+  "url": "https://api.302.test/v1/images/generations?response_format=url&async=true",
+}
+`;
+
+exports[`render profile contracts (mock fetch, request body snapshot) > image.gpt-image.local-patch 1`] = `
+{
+  "body": {
+    "image[]": [
+      "[file image/png]",
+      "[file image/png]",
+    ],
+    "input_fidelity": [
+      "low",
+    ],
+    "mask": [
+      "[file image/png]",
+    ],
+    "model": [
+      "gpt-image-2",
+    ],
+    "n": [
+      "1",
+    ],
+    "output_format": [
+      "png",
+    ],
+    "prompt": [
+      "Edit image 1 only. It is a cropped detail with surrounding context. Keep its exact framing and positions; preserve any black padding.
+Image 2 is the whole original artwork, for style reference only. Never return image 2 or a collage.
+Change only the transparent area of the mask on image 1. Inherit the original medium, brushwork, grain, line weight, palette, lighting direction, contrast, perspective and object scale. Do not restyle or redesign the surrounding artwork.
+Return the edited crop on the same square canvas, not an isolated object. The application will extract a transparent patch using the confirmed mask and place it back in the original artwork.
+Requested local change: fix the cup",
+    ],
+    "quality": [
+      "low",
+    ],
+    "size": [
+      "1024x1024",
+    ],
+  },
+  "method": "POST",
+  "url": "https://api.302.test/v1/images/edits?async=true",
+}
+`;
+
+exports[`render profile contracts (mock fetch, request body snapshot) > image.gpt-image-2.5.edit 1`] = `
+{
+  "body": {
+    "image": [
+      "[file image/png]",
+    ],
+    "model": [
+      "gpt-image-2.5-sunburst",
+    ],
+    "n": [
+      "1",
+    ],
+    "output_format": [
+      "png",
+    ],
+    "prompt": [
+      "make it rain",
+    ],
+    "quality": [
+      "high",
+    ],
+    "size": [
+      "1024x1024",
+    ],
+  },
+  "method": "POST",
+  "url": "https://api.302.test/v1/images/edits?async=true",
+}
+`;
+
+exports[`render profile contracts (mock fetch, request body snapshot) > image.gpt-image-2.5.generate 1`] = `
+{
+  "body": {
+    "model": "gpt-image-2.5-sunburst",
+    "moderation": "auto",
+    "n": 1,
+    "output_format": "png",
+    "prompt": "a quiet harbour at dawn",
+    "quality": "high",
+    "size": "1024x1024",
+  },
+  "method": "POST",
+  "url": "https://api.302.test/v1/images/generations?async=true",
+}
+`;
+
+exports[`render profile contracts (mock fetch, request body snapshot) > image.gpt-image-2.edit 1`] = `
+{
+  "body": {
+    "image": [
+      "[file image/png]",
+    ],
+    "model": [
+      "gpt-image-2",
+    ],
+    "n": [
+      "1",
+    ],
+    "output_format": [
+      "png",
+    ],
+    "prompt": [
+      "make it rain",
+    ],
+    "quality": [
+      "high",
+    ],
+    "size": [
+      "1024x1024",
+    ],
+  },
+  "method": "POST",
+  "url": "https://api.302.test/v1/images/edits?async=true",
+}
+`;
+
+exports[`render profile contracts (mock fetch, request body snapshot) > image.legnext-v7-fast 1`] = `
+{
+  "body": {
+    "text": "a quiet harbour at dawn --v 7 --fast --ar 16:9",
+  },
+  "method": "POST",
+  "url": "https://api.legnext.ai/api/v1/diffusion",
+}
+`;
+
+exports[`render profile contracts (mock fetch, request body snapshot) > image.mj-302 1`] = `
+{
+  "body": {
+    "base64Array": [],
+    "botType": "MID_JOURNEY",
+    "notifyHook": "",
+    "prompt": "a quiet harbour at dawn
+Single-frame rule: compose one uninterrupted cinematic camera frame only, a single continuous shot frame, not a storyboard sheet. Show one moment from one camera angle; no collage, no contact sheet, no inset thumbnails, no split-screen, no side-by-side layout, no storyboard grid, no comic panel, no poster board, no multiple moments in one image. --no deformed hands, extra fingers, fused fingers, mutated hands, malformed limbs, extra limbs, bad anatomy, text, letters, words, numbers, typography, signage, logos, signatures, captions, glyphs, magazine cover, magazine, masthead, poster, book cover, album cover, newspaper, headline, barcode, QR code, watermark, username, user interface, screenshot, border, frame, paper margin, artist signature, stamp, seal, photorealism, photography, productphoto, stockphoto, 3drender, collage, contactsheet, splitscreen, panels, insets, thumbnails, grid, storyboard, comic, frames, poster, watermark --turbo",
+    "state": "",
+  },
+  "method": "POST",
+  "url": "https://api.302.test/mj/submit/imagine",
+}
+`;
+
+exports[`render profile contracts (mock fetch, request body snapshot) > image.mj-302-draft 1`] = `
+{
+  "body": {
+    "base64Array": [],
+    "botType": "MID_JOURNEY",
+    "notifyHook": "",
+    "prompt": "a quiet harbour at dawn
+Single-frame rule: compose one uninterrupted cinematic camera frame only, a single continuous shot frame, not a storyboard sheet. Show one moment from one camera angle; no collage, no contact sheet, no inset thumbnails, no split-screen, no side-by-side layout, no storyboard grid, no comic panel, no poster board, no multiple moments in one image. --no deformed hands, extra fingers, fused fingers, mutated hands, malformed limbs, extra limbs, bad anatomy, text, letters, words, numbers, typography, signage, logos, signatures, captions, glyphs, magazine cover, magazine, masthead, poster, book cover, album cover, newspaper, headline, barcode, QR code, watermark, username, user interface, screenshot, border, frame, paper margin, artist signature, stamp, seal, photorealism, photography, productphoto, stockphoto, 3drender, collage, contactsheet, splitscreen, panels, insets, thumbnails, grid, storyboard, comic, frames, poster, watermark --draft --v 7",
+    "state": "",
+  },
+  "method": "POST",
+  "url": "https://api.302.test/mj/submit/imagine",
+}
+`;
+
+exports[`render profile contracts (mock fetch, request body snapshot) > image.mj-302-relax (dedicated channels only) 1`] = `
+{
+  "body": {
+    "base64Array": [],
+    "botType": "MID_JOURNEY",
+    "notifyHook": "",
+    "prompt": "a quiet harbour at dawn
+Single-frame rule: compose one uninterrupted cinematic camera frame only, a single continuous shot frame, not a storyboard sheet. Show one moment from one camera angle; no collage, no contact sheet, no inset thumbnails, no split-screen, no side-by-side layout, no storyboard grid, no comic panel, no poster board, no multiple moments in one image. --relax --no deformed hands, extra fingers, fused fingers, mutated hands, malformed limbs, extra limbs, bad anatomy, text, letters, words, numbers, typography, signage, logos, signatures, captions, glyphs, magazine cover, magazine, masthead, poster, book cover, album cover, newspaper, headline, barcode, QR code, watermark, username, user interface, screenshot, border, frame, paper margin, artist signature, stamp, seal, photorealism, photography, productphoto, stockphoto, 3drender, collage, contactsheet, splitscreen, panels, insets, thumbnails, grid, storyboard, comic, frames, poster, watermark",
+    "state": "",
+  },
+  "method": "POST",
+  "url": "https://api.302.test/mj-relax/submit/imagine",
+}
+`;
+
+exports[`render profile contracts (mock fetch, request body snapshot) > image.mj-302-turbo (dedicated channels only) 1`] = `
+{
+  "body": {
+    "base64Array": [],
+    "botType": "MID_JOURNEY",
+    "notifyHook": "",
+    "prompt": "a quiet harbour at dawn
+Single-frame rule: compose one uninterrupted cinematic camera frame only, a single continuous shot frame, not a storyboard sheet. Show one moment from one camera angle; no collage, no contact sheet, no inset thumbnails, no split-screen, no side-by-side layout, no storyboard grid, no comic panel, no poster board, no multiple moments in one image. --turbo --no deformed hands, extra fingers, fused fingers, mutated hands, malformed limbs, extra limbs, bad anatomy, text, letters, words, numbers, typography, signage, logos, signatures, captions, glyphs, magazine cover, magazine, masthead, poster, book cover, album cover, newspaper, headline, barcode, QR code, watermark, username, user interface, screenshot, border, frame, paper margin, artist signature, stamp, seal, photorealism, photography, productphoto, stockphoto, 3drender, collage, contactsheet, splitscreen, panels, insets, thumbnails, grid, storyboard, comic, frames, poster, watermark",
+    "state": "",
+  },
+  "method": "POST",
+  "url": "https://api.302.test/mj-turbo/submit/imagine",
+}
+`;
+
+exports[`render profile contracts (mock fetch, request body snapshot) > video.302-configured 1`] = `
+{
+  "body": {
+    "aspect_ratio": "1:1",
+    "duration": 5,
+    "image_url": "https://cdn.example/frame.png",
+    "model": "contract-video-model",
+    "prompt": "slow push in",
+  },
+  "method": "POST",
+  "url": "https://api.302.test/contract/video/submit",
+}
+`;
+
+exports[`render profile contracts (mock fetch, request body snapshot) > video.mj-video 1`] = `
+{
+  "body": {
+    "image": "https://cdn.example/frame.png",
+    "motion": "low",
+    "prompt": "slow push in",
+  },
+  "method": "POST",
+  "url": "https://api.302.test/mj-turbo/submit/video",
+}
+`;
+
+exports[`render profile contracts (mock fetch, request body snapshot) > video.vidu-q2-pro-fast 1`] = `
+{
+  "body": {
+    "audio": false,
+    "duration": 5,
+    "images": [
+      "https://cdn.example/frame.png",
+    ],
+    "model": "viduq2-pro-fast",
+    "prompt": "slow push in",
+    "resolution": "720p",
+  },
+  "method": "POST",
+  "url": "https://api.302.test/vidu/ent/v2/img2video",
+}
+`;
+
+exports[`render profile contracts (mock fetch, request body snapshot) > video.vidu-q2-turbo-start-end 1`] = `
+{
+  "body": {
+    "duration": 2,
+    "images": [
+      "https://cdn.example/a.png",
+      "https://cdn.example/b.png",
+    ],
+    "model": "viduq2-turbo",
+    "movement_amplitude": "auto",
+    "prompt": "door opens",
+    "resolution": "720p",
+  },
+  "method": "POST",
+  "url": "https://api.302.test/vidu/ent/v2/start-end2video",
+}
+`;

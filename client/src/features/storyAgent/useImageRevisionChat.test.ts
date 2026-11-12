@@ -37,6 +37,7 @@ import { useImageRevisionChat } from "./useImageRevisionChat";
 beforeEach(() => {
   vi.clearAllMocks();
   m.state.activeStoryId = 1;
+  m.decide.mockResolvedValue({kind:"replaced"});
   m.fetch.mockResolvedValue([
     {
       requestId: "r",
@@ -97,4 +98,10 @@ it("rejects a late choice after the user switches stories", async () => {
   });
   await useImageRevisionChat()(1, "替换原图");
   expect(m.decide).not.toHaveBeenCalled();
+});
+
+it("confirms a reference frame without claiming the video was replaced",async()=>{
+ m.decide.mockResolvedValue({kind:"replaced",referenceOnly:true});
+ const result=await useImageRevisionChat()(1,"图片 #20 替换参考帧");
+ expect(result?.reply).toContain("已确认新的参考帧");expect(result?.reply).toContain("尚未生成视频");
 });

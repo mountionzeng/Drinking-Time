@@ -1,3 +1,8 @@
+import { SHOT_CHAT_FOCUS_EVENT } from "@/features/storyAgent/shotChatFocus";
+import { WarehouseRenderCards } from "./WarehouseRenderCards";
+import type { WarehouseRenderJob } from "../warehouseRenderActivity";
+import { WarehouseShotGroups, WarehouseShotMenu, useWarehouseShotGroups, warehouseMediaName } from "./WarehouseShotGroups";
+import { OPEN_SHOT_WAREHOUSE, type WarehouseMedia, type WarehouseShotGroup } from "../warehouseShotMedia";
 import { useStorySpine } from "@/features/storyAgent/spine/storySpine";
 import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { WarehouseBookMedia } from "./WarehouseBookMedia";
@@ -77,6 +82,7 @@ type PendingImportItem = {
   file: File;
   previewUrl: string;
   isVideo: boolean;
+  isFile: boolean;
   targetStableShotId: string | null;
   note: string;
 };
@@ -503,11 +509,15 @@ export default function MaterialWarehousePanel({
   onClose,
   videoActions = true,
   insertIntoLayout = false,
+  focusedShotId,
+  renderJobs = [],
 }: {
   variant?: "page" | "drawer";
   videoActions?: boolean;
   insertIntoLayout?: boolean;
   onClose?: () => void;
+  focusedShotId?: string | null;
+  renderJobs?: readonly WarehouseRenderJob[];
 } = {}) {
   const _ui = useDesktopUiText();
   const { setActiveSelection } = useStoryAgentActions();
@@ -547,7 +557,30 @@ export default function MaterialWarehousePanel({
   const closePreviewSoon = () => { cancelPreviewClose(); hoverClose.current = setTimeout(() => { if (!previewLocked.current) setPreviewImage(null); }, 220); };
   useEffect(() => () => cancelPreviewClose(), []);
 
-  const [drawerTab, setDrawerTab] = useState<"images" | "videos" | "assets" | "music" | "text">("images");
+  const [drawerTab, setDrawerTab] = useState<"shots" | "images" | "videos" | "assets" | "music" | "text">(focusedShotId ? "shots" : "images");
+  const [groupId, setGroupId] = useState<string | null>(focusedShotId ?? null);
+  const grouped = useWarehouseShotGroups(activeStoryId, shots, materialState);
+  const latestRender = renderJobs[renderJobs.length - 1];
+  const latestRenderSeen = useRef(0);
+  useEffect(() => {
+    if (!latestRender || latestRender.storyId !== activeStoryId || latestRender.startedAt <= latestRenderSeen.current) return;
+    latestRenderSeen.current = latestRender.startedAt;
+    setDrawerTab(latestRender.shotId && videoActions ? "shots" : latestRender.kind === "audio" ? "music" : latestRender.kind === "video" ? "videos" : "images");
+    if (latestRender.shotId) setGroupId(latestRender.shotId);
+  }, [latestRender?.id, activeStoryId, videoActions]);
+  useEffect(() => {
+    if (focusedShotId) { setGroupId(focusedShotId); setDrawerTab("shots"); setPreviewImage(null); }
+  }, [focusedShotId]);
+  useEffect(() => {
+    const open = (event: Event) => {
+      const detail = (event as CustomEvent<{ storyId: number; groupId?: string; stableShotId?: string }>).detail;
+      if (detail?.storyId !== activeStoryId) return;
+      setGroupId(detail.groupId ?? detail.stableShotId ?? null); setDrawerTab("shots"); setPreviewImage(null);
+    };
+    window.addEventListener(OPEN_SHOT_WAREHOUSE, open);
+    window.addEventListener(SHOT_CHAT_FOCUS_EVENT, open);
+    return () => { window.removeEventListener(OPEN_SHOT_WAREHOUSE, open); window.removeEventListener(SHOT_CHAT_FOCUS_EVENT, open); };
+  }, [activeStoryId]);
   // 导入暂存区：拖入的文件先在这里交代目标镜头 + 运动/场景/道具说明，再入库。
   const [pendingImports, setPendingImports] = useState<PendingImportItem[]>([]);
 
@@ -733,9 +766,12 @@ export default function MaterialWarehousePanel({
 
   // 拖入/选择的文件先进暂存区，交代目标镜头和运动/场景说明后再确认入库。
   const stageFiles = (files: FileList | File[]) => {
-    const list = Array.from(files).filter(file =>
-      /^(image|video)\//.test(fileMime(file))
-    );
+    const list = Array.from(files).filter(file => {
+      if (!/^(image|video)\//.test(fileMime(file)) && (!file.size || file.size > 25 * 1024 * 1024)) {
+        toast.error(`${file.name}：文件需为1字节至25MB / File must be 1 byte to 25 MB`); return false;
+      }
+      return true;
+    });
     if (list.length === 0) return;
     if (activeStoryId == null) {
       toast.error("请先打开一个故事");
@@ -748,6 +784,7 @@ export default function MaterialWarehousePanel({
         file,
         previewUrl: URL.createObjectURL(file),
         isVideo: fileMime(file).startsWith("video/"),
+        isFile: !/^(image|video)\//.test(fileMime(file)),
         targetStableShotId: videoActions ? currentStableShotId : null,
         note: "",
       })),
@@ -787,6 +824,7 @@ export default function MaterialWarehousePanel({
     setPanelError(null);
     let imageCount = 0;
     let videoCount = 0;
+    let fileCount = 0;
     try {
       for (const item of pendingImports) {
         const result = await importStoryMaterial({
@@ -798,13 +836,16 @@ export default function MaterialWarehousePanel({
         });
         if (result.kind === "image") imageCount += 1;
         if (result.kind === "video") videoCount += 1;
+        if (result.kind === "file") fileCount += 1;
         removePendingImport(item.id);
       }
       const parts = [
         imageCount > 0 ? `${imageCount} 张图片` : null,
         videoCount > 0 ? `${videoCount} 条视频` : null,
+        fileCount > 0 ? `${fileCount} 份文件 / files` : null,
       ].filter(Boolean);
       toast.success(`已导入 ${parts.join("、")}`);
+      if (fileCount) setDrawerTab("text");
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : "素材导入失败";
       setPanelError(message);
@@ -921,6 +962,8 @@ export default function MaterialWarehousePanel({
                           preload="metadata"
                           className="h-16 w-16 shrink-0 rounded object-cover"
                         />
+                      ) : item.isFile ? (
+                        <span className="flex h-16 w-16 shrink-0 items-center justify-center rounded bg-muted text-xs">{item.file.name.split(".").pop()?.toUpperCase() || "FILE"}</span>
                       ) : (
                         <img
                           src={item.previewUrl}
@@ -936,7 +979,7 @@ export default function MaterialWarehousePanel({
                           <span className="text-[10px] text-muted-foreground">
                             {(item.file.size / 1024 / 1024).toFixed(1)}MB
                           </span>
-                          {(videoActions || item.isVideo) && <select
+                          {!item.isFile && (videoActions || item.isVideo) && <select
                             value={item.targetStableShotId ?? ""}
                             onChange={event =>
                               updatePendingImport(item.id, {
@@ -1018,156 +1061,7 @@ export default function MaterialWarehousePanel({
               </div>
             ) : null;
 
-  if (variant === "drawer") {
-    const drawerItems =
-      drawerTab === "images" ? imageItems : drawerTab === "videos" ? videoItems : [];
-    const drawer = (
-      <FloatingWarehouse expanded={warehouseExpanded} compact={drawerTab === "images" && pendingImports.length === 0}>
-        <div className="flex min-h-11 shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-2">
-          <div className="flex min-w-0 items-center gap-2">
-            <button type="button" data-warehouse-handle aria-label={_ui("拖动仓库")} title={drawerTab === "images" ? _ui("拖动位置") : _ui("拖动位置，右下角调整大小")} className="flex touch-none cursor-grab items-center gap-2 py-1 active:cursor-grabbing">
-              <Archive className="h-4 w-4 text-primary" />
-              <span className="text-sm font-semibold">{_ui("仓库")}</span>
-            </button>
-            <div className="flex h-7 items-center gap-1 border-l border-border pl-2">
-              <button
-                type="button"
-                onClick={() => {setDrawerTab("images"); setPreviewImage(null);}}
-                aria-pressed={drawerTab === "images"}
-                className={`inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition ${drawerTab === "images" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
-              >
-                <ImageIcon className="h-3.5 w-3.5" /> {_ui("图片")}{" "}{imageItems.length}
-              </button>
-              <button
-                type="button"
-                onClick={() => {setDrawerTab("videos"); setPreviewImage(null);}}
-                aria-pressed={drawerTab === "videos"}
-                className={`inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition ${drawerTab === "videos" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
-              >
-                <Video className="h-3.5 w-3.5" /> {_ui("视频")}{" "}{videoItems.length}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setDrawerTab("assets");
-
-                }}
-                aria-pressed={drawerTab === "assets"}
-                className={`inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition ${drawerTab === "assets" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
-              >
-                <Layers3 className="h-3.5 w-3.5" /> {_ui("资产")}{" "}{visualAssetCount}
-              </button>
-              {([['music','音乐'],['text','文字']] as const).map(([kind,label])=><button key={kind} type="button" aria-pressed={drawerTab===kind} className={`h-7 rounded-md px-2 text-xs ${drawerTab===kind?'bg-primary/10 text-primary':'text-muted-foreground'}`} onClick={()=>{setDrawerTab(kind);setPreviewImage(null);}}>{_ui(label)}</button>)}
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            {drawerTab === "assets" ? (
-              <label className="flex items-center gap-2 text-xs">
-                {_ui("目标镜头")}<select
-                  aria-label={_ui("资产关联目标镜头")}
-                  value={currentShot?.shotNo ?? ""}
-                  onChange={event =>
-                    setSelectedShotNo(Number(event.currentTarget.value))
-                  }
-                  className="h-8 max-w-[140px] rounded-md border border-border bg-background px-2"
-                >
-                  <option value="" disabled>
-                    {_ui("选择镜头")}</option>
-                  {shots.map(shot => (
-                    <option key={shot.shotNo} value={shot.shotNo}>
-                      {shotLabel(shot)} · {(shot.dialogue || shot.action || "空镜头").slice(0, 32)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            ) : null}
-            <button
-              type="button"
-              onClick={() => setWarehouseExpanded(value => !value)}
-              aria-label={warehouseExpanded ? _ui("恢复仓库大小") : _ui("放大仓库")}
-              title={warehouseExpanded ? _ui("恢复大小") : _ui("放大")}
-              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-primary/40 px-3 text-xs text-primary"
-            >
-              {warehouseExpanded ? (
-                <Minimize2 className="h-4 w-4" />
-              ) : (
-                <Maximize2 className="h-4 w-4" />
-              )}
-            </button>
-            <button
-              hidden={drawerTab === "music" || drawerTab === "text"}
-              type="button"
-              onClick={() => inputRef.current?.click()}
-              disabled={importing}
-              className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border px-2.5 text-[11px] font-medium transition hover:border-primary/50 hover:text-primary disabled:opacity-50"
-            >
-              {importing ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Upload className="h-3.5 w-3.5" />
-              )}
-              {_ui("导入")}{" "}</button>
-            <input
-              ref={inputRef}
-              type="file"
-              multiple
-              accept="image/png,image/jpeg,image/webp,video/mp4,video/webm,video/quicktime,.mov,.m4v"
-              className="hidden"
-              onChange={event =>
-                event.currentTarget.files &&
-                stageFiles(event.currentTarget.files)
-              }
-            />
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex h-7 w-7 items-center justify-center rounded-md border border-border text-muted-foreground transition hover:bg-muted hover:text-foreground"
-              aria-label={_ui("收起素材仓库")}
-              title={_ui("收起素材仓库")}
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
-          </div>
-        </div>
-
-        <div className="min-h-0 flex-1 overflow-y-auto p-3 custom-scrollbar">
-          {panelError || error ? (
-            <div className="mb-2 text-xs text-destructive">
-              {panelError ?? error?.message}
-            </div>
-          ) : null}
-          {pendingImports.length > 0 ? importQueue : (drawerTab === "music" || drawerTab === "text") && activeStoryId ? <WarehouseBookMedia key={`${activeStoryId}:${drawerTab}`} storyId={activeStoryId} kind={drawerTab}/> : drawerTab === "assets" ? (
-            <>
-            <ArtSystemLibrary storyId={activeStoryId ?? null} images={visualAssetImages} />
-            {activeStoryId != null && <ArtPreviewGallery key={activeStoryId} storyId={activeStoryId} includePlans />}
-            <VisualAssetLibrary
-              storyId={activeStoryId ?? null}
-              images={visualAssetImages}
-              compact
-              spacious={warehouseExpanded}
-              currentShotLabel={shotLabel(currentShot ?? selectedShotNo)}
-              currentShotContext={{
-                imageUrl: currentMaterial?.currentImage?.imageUrl ?? currentShot?.imageUrl,
-                dialogue: currentShot?.dialogue,
-                action: currentShot?.action,
-                imagePrompt: currentShot?.imagePrompt || currentShot?.promptDraft,
-              }}
-              currentStableShotId={currentStableShotId}
-              onRequestImport={() => inputRef.current?.click()}
-            />
-            </>
-          ) : drawerItems.length === 0 ? (
-            <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
-              {isLoading
-                ? _ui("正在读取素材")
-                : drawerTab === "images"
-                  ? _ui("暂无图片素材")
-                  : _ui("暂无视频素材")}
-            </div>
-          ) : (
-            <div className={drawerTab === "images" ? "flex flex-nowrap gap-1.5 overflow-x-auto overflow-y-hidden pb-1 custom-scrollbar" : "grid grid-cols-[repeat(auto-fill,minmax(min(100%,84px),1fr))] gap-1.5"}>
-              {drawerTab === "images"
-                ? imageItems.map(item => {
+  const renderDrawerImage = (item: WarehouseImageItem, caption?: string) => {
                     const busy = busyKey === `image:${item.image.id}`;
                     const belongsToCurrent =
                       imageItemRelatesToShot(item, currentStableShotId);
@@ -1200,7 +1094,8 @@ export default function MaterialWarehousePanel({
                             loading="lazy"
                           />
                         </button></PopoverTrigger>
-                        <div className="absolute bottom-0 right-0 flex items-center bg-background/90 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100">
+                        {caption && <p className="line-clamp-2 py-1 text-[10px] leading-4" title={caption}>{caption}</p>}
+                        <div className="absolute top-14 right-0 flex items-center bg-background/90 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100">
                           <span className="sr-only">
                             {item.image.prompt?.trim() || (item.shotNo ? shotLabel(item) : _ui("图片 {0}", [item.image.id]))}
                           </span>
@@ -1246,7 +1141,180 @@ export default function MaterialWarehousePanel({
                       </PopoverContent>
                       </Popover>
                     );
-                  })
+  };
+  const renderGroupedImage = (media: WarehouseMedia, group: WarehouseShotGroup, name: string) => {
+    const existing = imageItems.find(item => item.image.id === media.id);
+    const shot = shots.find(s => (s.stableShotId ?? s.shotIdentity) === group.id);
+    const item: WarehouseImageItem = existing ?? {
+      image: { id: media.id, imageUrl: media.url!, storyId: activeStoryId, shotIdentity: shot ? group.id : null, prompt: null },
+      shotNo: shot?.shotNo ?? null, cueCode: shot?.cueCode ?? null, stableShotId: shot ? group.id : null,
+      relatedStableShotIds: [], isCurrent: false,
+    };
+    return renderDrawerImage(shot ? { ...item, stableShotId: group.id, shotNo: shot.shotNo, cueCode: shot.cueCode ?? null } : item, name);
+  };
+  const imageCaption = (id: number) => {
+    const group = grouped.groups.find(g => g.items.some(item => item.key === `image:${id}`));
+    const media = group?.items.find(item => item.key === `image:${id}`);
+    return group && media ? warehouseMediaName(group, media, _ui) : _ui("图片 {0}", [id]);
+  };
+
+  if (variant === "drawer") {
+    const visibleJobs = renderJobs.filter(job => job.storyId === activeStoryId &&
+      (drawerTab === "shots" ? (!job.shotId || job.shotId === (groupId ?? currentStableShotId))
+        : job.kind === (drawerTab === "music" ? "audio" : drawerTab === "videos" ? "video" : "image")) &&
+      // Once a take exists, its ordinary warehouse tile carries the live status.
+      !(job.kind === "video" && videoItems.some(item => item.take.id === job.takeId)));
+    const renderCards = visibleJobs.length ? <WarehouseRenderCards jobs={visibleJobs} shots={shots} inline /> : undefined;
+    const drawerItems =
+      drawerTab === "images" ? imageItems : drawerTab === "videos" ? videoItems : [];
+    const drawer = (
+      <FloatingWarehouse expanded={warehouseExpanded} compact={(drawerTab === "images" || drawerTab === "shots") && pendingImports.length === 0}>
+        <div data-warehouse-handle role="toolbar" tabIndex={0} aria-label={_ui("仓库工具栏 / Warehouse toolbar")}
+          title={_ui("拖动位置")} className="flex shrink-0 flex-nowrap items-center gap-1 border-b border-border p-1.5 cursor-grab active:cursor-grabbing">
+          <div className="flex min-w-0 items-center gap-0.5 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&>button]:shrink-0 [&>button]:whitespace-nowrap">
+              {videoActions && <WarehouseShotMenu groups={grouped.groups} groupId={groupId ?? currentStableShotId} active={drawerTab === "shots"}
+                onGroupChange={id => {setGroupId(id); setDrawerTab("shots"); setPreviewImage(null);}} />}
+              <button
+                type="button"
+                onClick={() => {setDrawerTab("images"); setPreviewImage(null);}}
+                aria-pressed={drawerTab === "images"}
+                className={`inline-flex h-7 items-center gap-1 rounded-md px-1.5 text-xs font-medium transition ${drawerTab === "images" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
+              >
+                <ImageIcon className="h-3.5 w-3.5" /> {_ui("图片")}{" "}{imageItems.length}
+              </button>
+              <button
+                type="button"
+                onClick={() => {setDrawerTab("videos"); setPreviewImage(null);}}
+                aria-pressed={drawerTab === "videos"}
+                className={`inline-flex h-7 items-center gap-1 rounded-md px-1.5 text-xs font-medium transition ${drawerTab === "videos" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
+              >
+                <Video className="h-3.5 w-3.5" /> {_ui("视频")}{" "}{videoItems.length}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setDrawerTab("assets");
+
+                }}
+                aria-pressed={drawerTab === "assets"}
+                className={`inline-flex h-7 items-center gap-1 rounded-md px-1.5 text-xs font-medium transition ${drawerTab === "assets" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
+              >
+                <Layers3 className="h-3.5 w-3.5" /> {_ui("资产")}{" "}{visualAssetCount}
+              </button>
+              {([['music','音乐'],['text','文字 / 文件']] as const).map(([kind,label])=><button key={kind} type="button" aria-pressed={drawerTab===kind} className={`h-7 rounded-md px-2 text-xs ${drawerTab===kind?'bg-primary/10 text-primary':'text-muted-foreground'}`} onClick={()=>{setDrawerTab(kind);setPreviewImage(null);}}>{_ui(label)}</button>)}
+            {drawerTab === "assets" ? (
+              <label className="flex shrink-0 items-center gap-1 text-xs">
+                {_ui("目标镜头")}<select
+                  aria-label={_ui("资产关联目标镜头")}
+                  value={currentShot?.shotNo ?? ""}
+                  onChange={event =>
+                    setSelectedShotNo(Number(event.currentTarget.value))
+                  }
+                  className="h-7 max-w-[140px] rounded-md border border-border bg-background px-1.5"
+                >
+                  <option value="" disabled>
+                    {_ui("选择镜头")}</option>
+                  {shots.map(shot => (
+                    <option key={shot.shotNo} value={shot.shotNo}>
+                      {shotLabel(shot)} · {(shot.dialogue || shot.action || "空镜头").slice(0, 32)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+          </div>
+          <div className="flex shrink-0 items-center gap-0.5">
+            <button
+              type="button"
+              onClick={() => setWarehouseExpanded(value => !value)}
+              aria-label={warehouseExpanded ? _ui("恢复仓库大小") : _ui("放大仓库")}
+              title={warehouseExpanded ? _ui("恢复大小") : _ui("放大")}
+              className="inline-flex h-7 w-7 items-center justify-center rounded-md text-primary hover:bg-muted"
+            >
+              {warehouseExpanded ? (
+                <Minimize2 className="h-4 w-4" />
+              ) : (
+                <Maximize2 className="h-4 w-4" />
+              )}
+            </button>
+            <button
+              hidden={drawerTab === "music"}
+              type="button"
+              onClick={() => inputRef.current?.click()}
+              disabled={importing}
+              className="inline-flex h-7 items-center gap-1 rounded-md px-1.5 text-[11px] font-medium whitespace-nowrap transition hover:bg-muted hover:text-primary disabled:opacity-50"
+            >
+              {importing ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Upload className="h-3.5 w-3.5" />
+              )}
+              {_ui("导入")}{" "}</button>
+            <input
+              ref={inputRef}
+              type="file"
+              multiple
+              accept="*/*"
+              className="hidden"
+              onChange={event =>
+                event.currentTarget.files &&
+                stageFiles(event.currentTarget.files)
+              }
+            />
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-foreground"
+              aria-label={_ui("收起素材仓库")}
+              title={_ui("收起素材仓库")}
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto p-1.5 custom-scrollbar">
+          {panelError || error ? (
+            <div className="mb-2 text-xs text-destructive">
+              {panelError ?? error?.message}
+            </div>
+          ) : null}
+          {pendingImports.length > 0 ? importQueue : drawerTab === "shots" ? <WarehouseShotGroups
+            leading={renderCards}
+            {...grouped} groupId={groupId ?? currentStableShotId}
+            renderImage={renderGroupedImage} onSelectVideo={id => {const item = videoItems.find(v => v.take.id === id); if (item) selectVideoMaterial(item);}} /> : (drawerTab === "music" || drawerTab === "text") && activeStoryId ? <WarehouseBookMedia key={`${activeStoryId}:${drawerTab}`} storyId={activeStoryId} kind={drawerTab} leading={drawerTab === "music" ? renderCards : undefined}/> : drawerTab === "assets" ? (
+            <>
+            <ArtSystemLibrary storyId={activeStoryId ?? null} images={visualAssetImages} />
+            {activeStoryId != null && <ArtPreviewGallery key={activeStoryId} storyId={activeStoryId} includePlans />}
+            <VisualAssetLibrary
+              storyId={activeStoryId ?? null}
+              images={visualAssetImages}
+              compact
+              spacious={warehouseExpanded}
+              currentShotLabel={shotLabel(currentShot ?? selectedShotNo)}
+              currentShotContext={{
+                imageUrl: currentMaterial?.currentImage?.imageUrl ?? currentShot?.imageUrl,
+                dialogue: currentShot?.dialogue,
+                action: currentShot?.action,
+                imagePrompt: currentShot?.imagePrompt || currentShot?.promptDraft,
+              }}
+              currentStableShotId={currentStableShotId}
+              onRequestImport={() => inputRef.current?.click()}
+            />
+            </>
+          ) : drawerItems.length === 0 && !visibleJobs.length ? (
+            <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
+              {isLoading
+                ? _ui("正在读取素材")
+                : drawerTab === "images"
+                  ? _ui("暂无图片素材")
+                  : _ui("暂无视频素材")}
+            </div>
+          ) : (
+            <div className={drawerTab === "images" ? "flex flex-nowrap gap-1.5 overflow-x-auto overflow-y-hidden pb-1 custom-scrollbar" : "grid grid-cols-[repeat(auto-fill,minmax(min(100%,84px),1fr))] gap-1.5"}>
+              {renderCards}
+              {drawerTab === "images"
+                ? imageItems.map(item => renderDrawerImage(item, imageCaption(item.image.id)))
                 : videoItems.map(item => {
                     const busy = busyKey === `video:${item.take.id}`;
                     const playable =
@@ -1288,8 +1356,9 @@ export default function MaterialWarehousePanel({
                               className="h-full w-full object-contain"
                             />
                           ) : (
-                            <span className="flex h-full items-center justify-center text-xs text-muted-foreground">
-                              {item.take.status}
+                            <span role="status" className="flex h-full flex-col items-center justify-center gap-2 text-xs text-muted-foreground">
+                              {["submitted", "processing"].includes(item.take.status) ? <Loader2 className="size-5 animate-spin motion-reduce:animate-none" /> : <Video className="size-5" />}
+                              {_ui(["submitted", "processing"].includes(item.take.status) ? "生成中 / Generating" : item.take.status === "failed" ? "生成失败 / Failed" : "状态待确认 / Checking")}
                             </span>
                           )}
                         </button>
@@ -1470,7 +1539,7 @@ export default function MaterialWarehousePanel({
                 ref={inputRef}
                 type="file"
                 multiple
-                accept="image/png,image/jpeg,image/webp,video/mp4,video/webm,video/quicktime,.mov,.m4v"
+                accept="*/*"
                 className="hidden"
                 onChange={event => {
                   if (event.currentTarget.files) {

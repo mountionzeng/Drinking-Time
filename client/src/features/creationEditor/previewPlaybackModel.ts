@@ -6,6 +6,7 @@ import {
 import {
   resolveSubtitleRenderPlanAtFrame,
   type SubtitleRenderPlan,
+  type SubtitlePlacement,
 } from "@shared/timelineSubtitleModel";
 
 import {
@@ -264,6 +265,7 @@ export function timelineVideoShouldHoldLastFrame(input: {
 }
 
 export type PreviewSubtitleLine = {
+  placement?: SubtitlePlacement;
   id: string;
   text: string;
   /**
@@ -296,6 +298,7 @@ export function previewSubtitleLines(input: {
     ).map(cue => ({
       id: cue.id,
       text: cue.text,
+      ...(cue.placement ? { placement: cue.placement } : {}),
       source: "timeline" as const,
     }));
   }

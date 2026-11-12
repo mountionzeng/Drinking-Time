@@ -1,3 +1,4 @@
+import { downloadWarehouseFile } from "./warehouseFileRoute";
 import { artSystemSkillDownload } from "./artSystemSkillDownload";
 import { handleChapterMedia } from "../chapterMediaStore";
 import { handleWechatImportMedia } from "./wechatImportMediaRoute";
@@ -25,6 +26,7 @@ import { localImageDir } from "../services/imageGen";
 import { isSafeImageFileName } from "./imageFileName";
 import { storageGet } from "../storage";
 import {
+  flushLocalPersistence,
   getDb,
   getStoryAudioAssetRow,
   getStoryById,
@@ -60,6 +62,8 @@ import {
   startPersonalMemoryJobRunner,
   stopPersonalMemoryJobRunner,
 } from "../services/personalMemoryJobRunner";
+import { createInFlightTracker, drainForShutdown, shutdownDrainTimeoutMs } from "./gracefulShutdown";
+import { localRenderHealthRoute } from "./localRenderHealthRoute";
 
 async function verifyProductionDatabaseConnection() {
   if (process.env.NODE_ENV !== "production") return;
@@ -94,16 +98,31 @@ async function startServer() {
   // 见 PersonalMemoryJobRunner.stop() 的说明。这是这个进程里第一个
   // SIGTERM/SIGINT 处理器，只负责这一件事，不影响其它退出路径。
   let shuttingDown = false;
+  const inFlight = createInFlightTracker();
+  let httpServer: ReturnType<typeof createServer> | undefined;
   const handleShutdownSignal = (signal: NodeJS.Signals) => {
-    if (shuttingDown) return;
+    if (shuttingDown) {
+      // Second signal: the operator wants out now.
+      console.warn(`[Server] 再次收到 ${signal}，立即退出`);
+      process.exit(1);
+    }
     shuttingDown = true;
     stopMediaBillingRecovery();
     stopImageTaskWorker();
     stopComputeStaleRelease();
-    console.log(`[Server] 收到 ${signal}，停止提炼 runner...`);
-    stopPersonalMemoryJobRunner()
-      .catch(error => console.error("[Server] 停止提炼 runner 失败：", error))
-      .finally(() => process.exit(0));
+    const timeoutMs = shutdownDrainTimeoutMs();
+    console.log(`[Server] 收到 ${signal}，停止接新请求，等待 ${inFlight.active} 个在途请求与本地落盘（最长 ${timeoutMs}ms）...`);
+    Promise.all([
+      stopPersonalMemoryJobRunner().catch(error =>
+        console.error("[Server] 停止提炼 runner 失败：", error)
+      ),
+      drainForShutdown({ server: httpServer, tracker: inFlight, flush: flushLocalPersistence, timeoutMs })
+        .then(result => {
+          if (result.timedOut)
+            console.warn(`[Server] 关停等待超时，仍有 ${result.inFlightAtTimeout} 个请求未完成`);
+        })
+        .catch(error => console.error("[Server] 关停收尾失败：", error)),
+    ]).finally(() => process.exit(0));
   };
   process.on("SIGTERM", handleShutdownSignal);
   process.on("SIGINT", handleShutdownSignal);
@@ -116,6 +135,16 @@ async function startServer() {
   const app = express();
   app.set("trust proxy", productionTrustProxy(process.env));
   const server = createServer(app);
+  httpServer = server;
+  // Count every request first so shutdown can wait for it.
+  app.use(inFlight.middleware);
+  app.use((_req, res, next) => {
+    if (!shuttingDown) return next();
+    res.setHeader("Connection", "close");
+    res.status(503).json({ error: "服务正在重启，请稍后重试" });
+  });
+  // Local-only render diagnostics for scripts/render-selfcheck.ts (no secrets).
+  app.get("/api/dev/render-health", localRenderHealthRoute);
   app.use(
     createSecurityHeadersMiddleware({
       isProduction: process.env.NODE_ENV === "production",
@@ -134,6 +163,7 @@ async function startServer() {
     express.urlencoded({ limit: "64kb", extended: false }),
     createAlipayNotifyRoute()
   );
+  app.get("/api/warehouse-files/:storyId/:fileId", downloadWarehouseFile);
   app.get("/api/chapter-media", handleChapterMedia);
   app.use("/api/material-captures", materialCaptureRoutes());
   app.use("/api/chapter-delivery/media", chapterDeliveryMediaRoutes());
