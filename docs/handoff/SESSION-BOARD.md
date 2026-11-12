@@ -24,7 +24,7 @@
 
 ## 当前在场
 
-2026-11-12 chat 01a1bedb 三天代码联合发布进行中：用户明确授权全部合main、push、部署；独占跨分支收敛与生产发布窗口。已只读核对其他近期对话均已结束，覆盖 main、book-video-workflow、additional-web-feature、next-feature-context、feat-chat-i2v-loop、render-isolation 与 billing-poll-snapshot 的代码差异。原始改动快照位于 /Users/yuandai/Documents/Codex/2026-11-09/drinking-time-workflow/release-20261112；保留所有.env、作品、素材及用户指定3001运行副本。先整合检查，再推送部署；不购买模型或迁移业务数据。
+2026-11-12 chat 01a1bedb 三天代码联合发布已完成，释放跨分支收敛与部署窗口：七处来源352路径已合main并push，应用源码0e27e2aa已上线drinkingtime.top，前端b9cc5a9c。7732全量、73 MySQL、215小程序、14 Python通过；生产278资源/14脚本/13模型哈希、HTTPS与鉴权验证通过。5个闲置工作树已清理；用户3001、env、作品、素材和outputs保留，原始源码快照在release-20261112。无付费生成或数据库迁移；供应商/美术/多帧缺口仍按账本保留。QA docs/qa/2026-11-12-joint-release.md。
 
 
 

@@ -34,3 +34,14 @@
 - env:status确认只有用户指定3001在运行。env:check仍报告非主工作树服务/数据，按用户此前要求保留该副本，未宣称环境门禁通过。
 - 云助手大段输出曾截断旧静态资源清单，预发布哈希校验发现后停止切换；改用压缩分片取回完整276项旧资源，重建后278项资源/14个support文件全部验证通过。
 - 模型采用私有16MiB分片传输，逐片及整体SHA256校验后安装13个固定模型文件；全部权重不入Git。
+
+## 正式发布结果
+
+- main源码提交 `2fed3d261e5d446e9d032a8336ccde4af560a579`，Linux依赖修复提交 `0e27e2aa383e8e99b0d9405bb934fbb11c11e15b`，均已push。共汇集352个源码/文档路径，七处来源没有遗漏文件；已提交代码与构建源码逐项一致。依赖补丁只改requirements与QA，前后端源码/产物未变化。
+- 正式站 `https://www.drinkingtime.top` 已部署0e27e2aa，前端发布版本 `b9cc5a9c-18f5-4b5c-b9bf-6c4a9bd78890`。清单 `/opt/Drinking-Time/dist.release-joint-release-20261112.json`；278项应用资源、14个support文件全部SHA256一致，旧版在 `/opt/Drinking-Time/dist.bak-joint-release-20261112`。重启期间就绪重试曾短暂连接拒绝，最终ready后才标成功，无回滚发生。
+- ECS经正式域名HTTPS验证healthz、readyz、editing、m、app-release均200，HTML和JS/CSS匹配发布哈希。美术体系、区域确认历史、仓库文件接口未登录均401；MySQL与authentication required就绪。.env、package、lock、schema、迁移journal哈希保持一致，无生产数据库迁移或业务数据写入。
+- 最终全量937文件7732项通过，25文件74项原配置跳过；MySQL73项通过/1跳过，小程序215项、Python区域处理14项通过，类型、账本99卡、迁移41条与构建通过。
+- 生产私有Python实际安装Pillow11.3.0、scipy1.13.1、transformers4.57.3、torchvision0.23.0+cpu，复用声音私有环境torch2.8.0+cpu/numpy2.0.2；两环境pip check无问题。13个离线模型文件逐项哈希通过；CLIPSeg真实worker冷启动81.41秒，SAM2推理4.95秒、进程峰值约894MiB。此结果只验证单次CPU运行，未做多帧/并发压力或美术质量验收。
+- SAM2最初烟测缺torchvision，补齐后烟测坐标维度有一处fixture错误（产品原本正确使用四层点坐标），修正fixture后实际推理通过；没有以模拟结果替代。中文OCR用虚构文字实测字符正确，Tesseract会插入字间空格。
+- 本机curl正式站仍有LibreSSL连接中断，公网HTTPS证据来自ECS经正式域名；没有宣称已做新的登录态浏览器或付费生成验收。
+- 5个已合并闲置工作树及其可删除分支已清理，原始未提交源码快照/patch保存在证据目录。用户指定3001工作树、运行服务、.env、作品与素材均保留；主仓仅剩原有outputs未跟踪目录。
