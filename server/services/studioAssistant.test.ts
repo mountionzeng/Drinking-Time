@@ -245,12 +245,56 @@ describe("interface assistant permission and real mailbox execution", () => {
     await expect(confirm(token)).rejects.toThrow();
     expect(memoryState.storyMailboxThreads).toHaveLength(0);
   });
+  it.each([
+    "打开邮箱",
+    "请帮我打开故事邮箱。",
+    "Open the mailbox",
+    "Please open mailbox.",
+  ])("opens the mailbox without a provider request for %s", async message => {
+    model.mockRejectedValue(new Error("provider unavailable"));
+    const result = await planStudioAssistant({
+      userId: 1,
+      message,
+      ui,
+      history: [],
+    });
+    expect(result.uiAction).toEqual({ type: "mailbox" });
+    expect(result.pending).toBeUndefined();
+    expect(model).not.toHaveBeenCalled();
+    expect(memoryState.storyMailboxThreads).toHaveLength(0);
+  });
+  it.each([
+    "不要打开邮箱",
+    "他说：打开邮箱",
+    "打开邮箱并发送故事",
+    "如果打开邮箱会怎样？",
+  ])(
+    "does not treat a compound or quoted request as direct navigation: %s",
+    async message => {
+      model.mockResolvedValue({ parsed: { tool: "none" } });
+      expect(
+        await planStudioAssistant({ userId: 1, message, ui, history: [] })
+      ).toEqual({ handled: false, reply: "" });
+      expect(model).toHaveBeenCalledOnce();
+    }
+  );
+  it("keeps ownership checks on direct navigation", async () => {
+    await expect(
+      planStudioAssistant({ userId: 2, message: "打开邮箱", ui, history: [] })
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(model).not.toHaveBeenCalled();
+  });
   it("never executes unknown model tools and preserves ordinary story fallback", async () => {
     model.mockResolvedValue({
       parsed: { tool: "execute_javascript", code: "danger" },
     });
     const call = () =>
-      planStudioAssistant({ userId: 1, message: "打开邮箱", ui, history: [] });
+      planStudioAssistant({
+        userId: 1,
+        message: "看一下朋友的来往",
+        ui,
+        history: [],
+      });
     expect((await call()).pending).toBeUndefined();
     model.mockResolvedValue({ parsed: { tool: "none" } });
     expect(await call()).toEqual({ handled: false, reply: "" });

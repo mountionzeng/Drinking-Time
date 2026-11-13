@@ -182,6 +182,14 @@ export async function planStudioAssistant(input: {
   history: Array<{ role: "user" | "assistant"; content: string }>;
 }): Promise<StudioAssistantResult> {
   const { userId, message, ui } = input;
+  // Exact navigation does not need inference. Keep compound, quoted, negated,
+  // and content-changing requests on the existing planning/confirmation path.
+  if (
+    /^(?:(?:请)?(?:帮我)?打开(?:故事)?邮箱|(?:please\s+)?open\s+(?:the\s+)?mailbox)[。.!！]?$/i.test(
+      message.trim()
+    )
+  )
+    return executeStudioPlan(userId, ui, { tool: "open_mailbox" });
   await validateStudioContext(userId, ui);
   const [people, stories] = await Promise.all([
     mailboxContacts(userId),

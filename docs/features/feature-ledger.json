@@ -31,7 +31,8 @@
         "docs/qa/2026-11-13-studio-assistant.md",
         "docs/features/studio-assistant-capabilities.md",
         "client/src/features/storyAgent/commandConversation.test.ts",
-        "docs/qa/2026-11-13-mailbox-selected-sharing.md"
+        "docs/qa/2026-11-13-mailbox-selected-sharing.md",
+        "docs/qa/2026-11-13-mailbox-live-acceptance.md"
       ],
       "invariants": [
         "UI快照为每轮的状态数据，不是截图或权限，不凭状态臆测画面；故事和联系人归属由服务端验证。",
@@ -69,6 +70,11 @@
           "date": "2026-11-13",
           "kind": "verification",
           "summary": "按用户指定云层优先顺序合main b569edfa，保留所有并发改动，148组合/类型/构建及102卡通过，4820树与分支已删除。原生8336555尚待集成；浏览器连接仅有空MCP Apps、无可操作网页标签，UI与真实手机验收未完成。未push/部署。"
+        },
+        {
+          "date": "2026-11-13",
+          "kind": "fix",
+          "summary": "真实主仓界面复现打开邮箱因模型401/500失败；精确邮箱导航免模型并保留统一归属校验，否定/引用/复合指令不快捷执行。74相关回归通过，正式/跨账号验收仍待完成。"
         }
       ]
     },
