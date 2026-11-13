@@ -103,6 +103,8 @@ export type StoryboardImageRerenderActionReference = {
 export type ImageRevision = { storyId: number; stableShotId: string; shotNo: number; imageId: number; imageUrl: string };
 
 export interface ChatMessage {
+  /** Navigation and mailbox operations are not manuscript content. */
+  interfaceAction?: true;
   bookRewrite?: import('@shared/bookRewrite').BookRewriteProposal;
   imageRevision?: ImageRevision;
   frameReferences?: ChatFrameReference[];
@@ -592,6 +594,7 @@ export function normalizeChatMessages(
         timestamp:
           typeof obj.timestamp === "number" ? obj.timestamp : Date.now() + i,
       };
+      if (obj.interfaceAction === true) message.interfaceAction = true;
       if (photoUrl) {
         message.photoUrl = photoUrl;
       }

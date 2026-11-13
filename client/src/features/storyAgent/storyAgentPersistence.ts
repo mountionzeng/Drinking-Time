@@ -373,11 +373,12 @@ export function loadState(projectId: number | null, userId: number | null): Pers
 
 // 「工作量」打分：卡片 / 镜头 / 剧本 / 对话 / 画布各有权重，用来比较哪个故事更「实」。
 export function storyWorkScore(state: PersistedState): number {
+  const storyMessages = state.messages.filter(message => !message.interfaceAction);
   return (
     state.cards.length * 100 +
     state.storyShots.length * 80 +
     state.scripts.length * 60 +
-    Math.max(state.messages.some(message => message.role === "user") ? 1 : 0, state.messages.length - 1) * 20 +
+    Math.max(storyMessages.some(message => message.role === "user") ? 1 : 0, storyMessages.length - 1) * 20 +
     (state.visualCanvasItems?.length ?? 0) * 40 +
     (state.artDirection?.candidates.length ?? 0) * 25 +
     (state.artDirection?.recipe ? 80 : 0) +
@@ -419,7 +420,7 @@ export function hasLiveStoryWork(state: {
     Object.keys(state.publishingBuffers ?? {}).length > 0 ||
     state.messages.some(
       message =>
-        message.role === "user" &&
+        message.role === "user" && !message.interfaceAction &&
         (message.content.trim().length > 0 || Boolean(message.photoUrl))
     )
   );

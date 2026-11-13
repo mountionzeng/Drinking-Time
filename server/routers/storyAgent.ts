@@ -1,3 +1,4 @@
+import { studioUiContextSchema, studioContextDescription } from "../../shared/studioAssistant";
 import { generate302FluxEdit, generate302FluxDevEdit } from "../services/fluxKontextEdit";
 import { generate302MjEdit } from "../services/mj302Edit";
 import { estimateMjOriginalEditCost, mjEditSupplier, fluxKontextEditModel, isFluxKontextEdit, estimateFluxKontextEditCost } from "../../shared/imageRenderCost";
@@ -286,6 +287,7 @@ export const storyAgentRouter = router({
     .input(
       z.object({
         message: z.string().min(1),
+        uiContext: studioUiContextSchema.optional(),
         writingContext: z.object({
           rewriteSource: z.string().min(1).max(12_000).optional(),
           module: layoutModuleContextSchema.optional(),
@@ -390,6 +392,7 @@ export const storyAgentRouter = router({
       await assertOptionalProjectOwner(input.projectId, ctx.user.id);
       const story = input.storyId ? await getStoryById(input.storyId, ctx.user.id) : null;
       if (input.storyId && !story) throw new TRPCError({ code: "NOT_FOUND", message: "故事不存在或无权访问" });
+      if (input.uiContext && input.uiContext.storyId !== (input.storyId ?? null)) throw new TRPCError({ code: "BAD_REQUEST", message: "界面上下文不属于当前故事 / Interface context belongs to another story" });
       if (story) {
         const emotionReply = await handleCreationEmotionChat({ storyId: story.id, userId: ctx.user.id, message: input.message });
         if (emotionReply) return emotionReply;
@@ -406,6 +409,7 @@ export const storyAgentRouter = router({
             history: input.history ?? [],
             writingContext: { ...input.writingContext, fullDraft: true },
             storyTitle: story.title,
+            uiContext: input.uiContext,
           }), configured: true };
         } catch (error) {
           if (error instanceof WritingCompanionInputError) throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
@@ -417,7 +421,7 @@ export const storyAgentRouter = router({
         message: input.message,
         history: input.history,
         existingCardCount: input.existingCardCount,
-        summary: input.summary,
+        summary: [input.summary, studioContextDescription(input.uiContext)].filter(Boolean).join("\n"),
         currentShots: input.currentShots as ShotDraft[] | undefined,
         similarCards: input.similarCards as
           | SimilarStoryCardPayload[]

@@ -1,3 +1,5 @@
+import { useStudioDraftState } from "../studioDraftState";
+import { isStudioAssistantRequest, studioConfirmation } from "@shared/studioAssistant";
 import { FrameReviewRecovery } from "./FrameReviewRecovery";
 import { isFrameRegionChat, latestFrameRegionReview, regionReviewDecision } from "@shared/frameRegionReview";
 import { ChatFrameRegionReview } from "./ChatFrameRegionReview";
@@ -350,6 +352,7 @@ export default function StoryAgentChat({
     Record<string, StoryboardImageRerenderResult>
   >({});
   const creationEditor = useOptionalCreationEditor();
+  useStudioDraftState(activeStoryId, Boolean(creationEditor?.isSaving || creationEditor?.timelineWritePending));
   const creationFlow = useCreationFlowChat(creationEditor?.refetch, Boolean(creationEditor?.isSaving || creationEditor?.timelineWritePending));
   const soundDirector = useStorySoundDirector(
     creationEditor?.activeStoryId ?? remoteStoryId ?? activeStoryId ?? null
@@ -966,6 +969,12 @@ export default function StoryAgentChat({
 
   const handleSubmit = async () => {
     const text = creationFlow.resolveVersionReply?.(input.trim()) ?? input.trim();
+    if ((isStudioAssistantRequest(text) || studioConfirmation(text)) && !isReplying && !pendingMedia.length && !voice.isBusy && !isImportingMedia) {
+      setInput("");
+      await sendMessage(text, undefined, undefined, { workspaceContext, writingContext: bookRewriteChatSnapshot(writingSession?.getSnapshot(), useBookModuleActions.getState().session) });
+      resizeAndFocusInput();
+      return;
+    }
     let review;
     try { review = latestFrameRegionReview(messages, activeStoryId ?? 0, text, activeSelection?.stableShotId); }
     catch (error) { if (isFrameReferenceChat(text)) { toast.info(error instanceof Error ? error.message : "Choose one shot"); return; } }

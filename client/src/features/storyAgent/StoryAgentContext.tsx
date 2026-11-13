@@ -1,3 +1,6 @@
+import { appendCommandConversation } from "./commandConversation";
+import { type StudioUiContext } from "@shared/studioAssistant";
+import type { StudioCommandOutcome } from "./useStudioAssistant";
 import type { GenerationProfileArg, StoryboardImageRerenderResult, StoryboardImageRerenderRunner } from "./types";
 export type { GenerationProfileArg, StoryboardImageRerenderResult, StoryboardImageRerenderRunner } from "./types";
 import { parseVisualUnderstandingChat } from "@shared/visualEditUnderstanding";
@@ -994,6 +997,8 @@ export function StoryAgentProvider({
   projectId,
   onActiveStoryChange,
   editingCommandRunner,
+  interfaceCommandRunner,
+  getInterfaceContext,
   interactionMode = "story",
   children,
 }: {
@@ -1007,6 +1012,8 @@ export function StoryAgentProvider({
    * handled=true 时直接用它的 reply 作为助手消息，不再进故事聊天流程。
    * 返回 null / handled=false / 抛错 → 一律回落普通聊聊聊天。
    */
+  interfaceCommandRunner?: (instruction: string, context?: StudioUiContext) => Promise<StudioCommandOutcome | null>;
+  getInterfaceContext?: () => StudioUiContext;
   editingCommandRunner?: (
     instruction: string,
     selectionContext?: Pick<
@@ -1798,6 +1805,7 @@ export function StoryAgentProvider({
           latest.storyLoadEpoch === current.storyLoadEpoch &&
           (latest.activeStoryId === activeStoryId || (activeStoryId === -1 && (latest.activeStoryId ?? 0) > 0));
       };
+      const submittedUi = getInterfaceContext?.();
       const trimmed = text.trim();
       if ((!trimmed && !photoBase64) || isReplying) return false;
       const emotionCommand = !warehouseFileChatIds(trimmed).length && !photoBase64 && parseCreationEmotionChat(trimmed);
@@ -1869,10 +1877,15 @@ export function StoryAgentProvider({
           ...(options?.workspaceContext === "video" && activeSelection && selectionBelongsToStory(activeSelection, activeStoryId)
             ? { selectionQuote: selectionQuoteFrom(activeSelection) } : {}),
         };
-        const nextMessages = [...messages, userMsg];
+        let nextMessages = [...messages, userMsg];
         setMessages(nextMessages);
 
-        const artCommand = !parseVisualUnderstandingChat(trimmed) && !warehouseFileChatIds(trimmed).length && !isFrameReferenceChat(trimmed) && !emotionCommand && !photoBase64 && !parseArtPreviewChat(trimmed) && parseArtSystemChat(trimmed, Boolean(artDirection.recipe?.system) && !activeSelection);
+        const interfaceOutcome: (StudioCommandOutcome & { frameReferences?: ChatMessage["frameReferences"]; frameReview?: ChatMessage["frameReview"]; transitionCandidate?: Omit<EditingTransitionCandidateReference, "status" | "error"> }) | null = !photoBase64 && interfaceCommandRunner ? await interfaceCommandRunner(trimmed, submittedUi) : null;
+        if (interfaceOutcome?.handled) {
+          nextMessages = nextMessages.map(m => m.id === userMsg.id ? { ...m, interfaceAction: true } : m);
+          setMessages(nextMessages);
+        }
+        const artCommand = !interfaceOutcome?.handled && !parseVisualUnderstandingChat(trimmed) && !warehouseFileChatIds(trimmed).length && !isFrameReferenceChat(trimmed) && !emotionCommand && !photoBase64 && !parseArtPreviewChat(trimmed) && parseArtSystemChat(trimmed, Boolean(artDirection.recipe?.system) && !activeSelection);
         if (artCommand) {
           return sendArtSystemChat({ command: artCommand, instruction: trimmed,
             storyId: resolvePersistedStoryId(activeStoryId, remoteStoryId),
@@ -1888,16 +1901,16 @@ export function StoryAgentProvider({
           activeSelection &&
           selectionBelongsToStory(activeSelection, requestStoryId) &&
           !activeSelection.selection && ["shot", "storyboard-image", "animatic-video"].includes(activeSelection.sourceType);
-        if (
+        if (interfaceOutcome?.handled || (
           editingCommandRunner &&
           !emotionCommand &&
           !options?.writingContext &&
           trimmed &&
           !photoBase64 &&
           (interactionMode === "story" || selectedVideoForEditing || options?.workspaceContext)
-        ) {
+        )) {
           try {
-            const outcome = await editingCommandRunner(
+            const outcome = interfaceOutcome?.handled ? interfaceOutcome : await editingCommandRunner!(
               trimmed,
               (selectedVideoForEditing || selectedVisualForProduction) && activeSelection
                 ? {
@@ -1922,6 +1935,7 @@ export function StoryAgentProvider({
                   id: newId("msg"),
                   role: "assistant",
                   content: outcome.reply,
+                  ...(interfaceOutcome?.handled ? { interfaceAction: true as const } : {}),
                   frameReferences: outcome.frameReferences,
                   frameReview: outcome.frameReview,
                   timestamp: Date.now(),
@@ -1935,27 +1949,8 @@ export function StoryAgentProvider({
                   activeStoryId,
                   remoteStoryId
                 );
-                if (conversationStoryId != null) {
-                  try {
-                    await appendConversationTurnMut.mutateAsync({
-                      storyId: conversationStoryId,
-                      userMessage: {
-                        clientMessageId: userMsg.id,
-                        content: userMsg.content,
-                        selection: userMsg.selectionQuote ? activeSelection : null,
-                      },
-                      assistantMessage: {
-                        clientMessageId: replyMsg.id,
-                        content: replyMsg.content,
-                      },
-                    });
-                  } catch (error) {
-                    console.warn(
-                      "[storyConversation] persist editing turn failed:",
-                      error
-                    );
-                  }
-                }
+                await appendCommandConversation(appendConversationTurnMut.mutateAsync,
+                  conversationStoryId, userMsg, replyMsg, activeSelection);
                 await saveArchiveStory({
                   messages: finalMessages,
                   cards,
@@ -1969,9 +1964,15 @@ export function StoryAgentProvider({
                   arc: storyArc,
                 });
               }
-              return isCurrent();
+              if (isCurrent() && "afterReply" in outcome && typeof outcome.afterReply === "function") outcome.afterReply();
+              return true;
             }
           } catch (err) {
+            if (interfaceOutcome?.handled) {
+              console.warn("[sendMessage] Interface result persistence failed:", err);
+              if (isCurrent()) interfaceOutcome.afterReply?.();
+              return true; // Never execute an already-handled action through a second agent.
+            }
             console.warn("[sendMessage] 剪辑指令通道失败，回落普通聊天:", err);
           }
         }
@@ -2026,6 +2027,7 @@ export function StoryAgentProvider({
         }
         const result = (await chatMut.mutateAsync({
           writingContext: options?.writingContext,
+          uiContext: submittedUi ? { ...submittedUi, storyId: requestStoryId && requestStoryId > 0 ? requestStoryId : null } : undefined,
           storyId: requestStoryId && requestStoryId > 0 ? requestStoryId : undefined,
           message: userContent,
           interactionMode,
@@ -2320,6 +2322,8 @@ export function StoryAgentProvider({
       uploadPhotoMut,
       recognizeIntentFromHistory,
       editingCommandRunner,
+      interfaceCommandRunner,
+      getInterfaceContext,
       interactionMode,
       setStoryTitle,
       utils.promptLineage.getStoryProjection,

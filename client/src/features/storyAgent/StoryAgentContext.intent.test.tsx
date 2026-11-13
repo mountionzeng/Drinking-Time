@@ -474,3 +474,35 @@ it('sends explicit shot emotion through the real context action without editing 
     expect(edit).toHaveBeenCalledTimes(1);
   } finally { subscription.mockRestore(); }
 });
+
+it('executes an interface action ahead of editing and retains UI and writing context on ordinary fallback', async () => {
+  const { StoryAgentProvider, useStoryAgent } = await import('./StoryAgentContext');
+  const spine = await import('./spine/storySpine');
+  const store = spine.storySpineStore;
+  store.getState().bindAccountScope(72);
+  store.getState().setActiveStoryId(1218);
+  store.getState().setRemoteStoryId(1218);
+  store.getState().setIsReplying(false);
+  const subscription = vi.spyOn(spine, 'useStorySpine').mockImplementation(
+    ((selector: (state: ReturnType<typeof store.getState>) => unknown) => selector(store.getState())) as typeof spine.useStorySpine,
+  );
+  const afterReply = vi.fn(() => { expect(store.getState().messages.at(-1)?.content).toBe('Opening mailbox'); });
+  const run = vi.fn<(instruction: string) => Promise<{ handled: boolean; reply: string; afterReply?: () => void } | null>>()
+    .mockResolvedValueOnce({ handled: true, reply: 'Opening mailbox', afterReply }).mockResolvedValue(null);
+  const edit = vi.fn(async () => ({ handled: true, reply: 'edited' }));
+  const ui = { storyId: 1218, workspace: 'publishing' as const, warehouseOpen: false, mailboxOpen: false, contactId: null, saveStatus: 'saved' as const, selection: null, language: 'en' as const };
+  let send!: ReturnType<typeof useStoryAgent>['sendMessage'];
+  function Capture() { send = useStoryAgent().sendMessage; return null; }
+  try {
+    renderToStaticMarkup(<StoryAgentProvider userId={72} projectId={null} interactionMode="publishing" interfaceCommandRunner={run} getInterfaceContext={() => ui} editingCommandRunner={edit}><Capture /></StoryAgentProvider>);
+    routingMocks.chat.mockClear();
+    expect(await send('Open mailbox')).toBe(true);
+    expect(run).toHaveBeenCalledWith('Open mailbox', ui);
+    expect(afterReply).toHaveBeenCalledOnce();
+    expect(edit).not.toHaveBeenCalled(); expect(routingMocks.chat).not.toHaveBeenCalled();
+    const writingContext = { scope: 'book', draft: 'A character opens a mailbox.', cursor: 3 };
+    await send('Polish this paragraph', undefined, undefined, { writingContext });
+    expect(routingMocks.chat).toHaveBeenCalledWith(expect.objectContaining({ uiContext: ui, writingContext }));
+    expect(edit).not.toHaveBeenCalled();
+  } finally { subscription.mockRestore(); }
+});

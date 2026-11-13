@@ -1,6 +1,66 @@
 {
   "features": [
     {
+      "id": "studio-aware-conversation-actions",
+      "name": "感知当前界面的对话操作",
+      "status": "observing",
+      "userValue": "在原聊天里了解当前故事和页面，直接打开工作区与邮箱、查看朋友修改并确认收发故事，无需寻找按钮。",
+      "entryPoints": [
+        "client/src/pages/EditingStudioPage.tsx",
+        "client/src/features/storyAgent/views/StoryAgentChat.tsx",
+        "server/routers/studioAssistant.ts"
+      ],
+      "owners": [
+        "shared/studioAssistant.ts",
+        "server/services/studioAssistant.ts",
+        "server/routers/studioAssistant.ts",
+        "client/src/features/storyAgent/useStudioAssistant.ts",
+        "client/src/features/storyAgent/studioDraftState.ts",
+        "client/src/features/storyAgent/StoryAgentContext.tsx",
+        "client/src/features/storyAgent/storyAgentPersistence.ts",
+        "client/src/features/storyAgent/commandConversation.ts"
+      ],
+      "evidence": [
+        "server/services/studioAssistant.test.ts",
+        "shared/studioAssistant.test.ts",
+        "client/src/features/storyAgent/useStudioAssistant.test.ts",
+        "client/src/features/storyAgent/studioDraftState.test.ts",
+        "client/src/features/storyAgent/StoryAgentContext.intent.test.tsx",
+        "client/src/features/storyAgent/storyAgentPersistence.test.ts",
+        "server/services/writingCompanion.test.ts",
+        "docs/qa/2026-11-13-studio-assistant.md",
+        "docs/features/studio-assistant-capabilities.md",
+        "client/src/features/storyAgent/commandConversation.test.ts"
+      ],
+      "invariants": [
+        "UI快照为每轮的状态数据，不是截图或权限，不凭状态臆测画面；故事和联系人归属由服务端验证。",
+        "模型只能选择有类型约束的动作，不能生成执行代码或自行授权；操作回执前不能声称成功。",
+        "发送/接收/停止联系沿用邮箱明确确认与独立接收规则，可在对话里确认；签名绑定账号/故事/目标/指纹/期限，重试幂等。",
+        "换账号、故事、页面或联系人使旧待确认失效，迟到响应不改变新工作区；错误不触发普通代理二次执行。",
+        "保留原文字选区、写作、剪辑、声音与付费报价/采用保护；界面指令不自动变成新故事。"
+      ],
+      "dependencies": [
+        "story-mailbox",
+        "publishing-module-chat-context",
+        "story-ownership"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "仅覆盖能力映射中列出的工作区/邮箱动作；不是全站按钮、账号设置或连续多步自动执行。",
+        "真实模型口语理解、浏览器并排交互和生产尚未验收；用户指定等云层编辑完成后再合主仓。",
+        "联系人源于已接收故事链接，不能搜索陌生账号；聊天查看最近30条来往，未实现旧历史翻页工具。",
+        "只发送保存版本，当前书稿与时间线有保存等待保护；其他编辑器和另一个设备未保存内容无法全部感知。",
+        "法语部分文案回退英文；本次不修改原生微信小程序。"
+      ],
+      "history": [
+        {
+          "date": "2026-11-13",
+          "kind": "feature",
+          "summary": "界面快照、类型化对话动作与真实邮箱服务接通；173项初步及182项最终定向通过，类型/构建/101卡通过。全量7795通过，1项旧FFmpeg超时后7项独立复跑通过。按用户顺序等待云层编辑完成再合入，真实模型/UI待验。"
+        }
+      ]
+    },
+    {
       "id": "warehouse-general-files",
       "name": "仓库通用文件保存与本地预览",
       "status": "working",
@@ -9363,6 +9423,11 @@
           "date": "2026-11-04",
           "kind": "verification",
           "summary": "聊天底部状态收拢后真实验证模块8点选→进入聊天保留目标→Esc恢复全文；排版记忆详情继续可用，未修改模块正文或上下文契约。30项相关回归与类型通过，本地未提交部署。详见chat-status-spacing QA。"
+        },
+        {
+          "date": "2026-11-13",
+          "kind": "enhancement",
+          "summary": "界面感知对话复用本功能；邮箱支持聊天内收发/停止联系，书稿保留当前模块与写作回退。证据 docs/qa/2026-11-13-studio-assistant.md，真实浏览器与合入待验。"
         }
       ]
     },
@@ -12912,6 +12977,11 @@
           "date": "2026-11-13",
           "kind": "implementation",
           "summary": "本地main 1b511e32：新增桌面邮箱、指定联系人发送/接收、作者变更记录、停止联系与旧来稿入口。7748全量、49最终定向、隔离MySQL、类型、构建、100卡及42迁移通过；主仓3000运行，用户批准停止3001且保留数据。浏览器工具被当前URL安全策略阻止，真实界面验收尚未完成，状态observing；未push/部署生产。"
+        },
+        {
+          "date": "2026-11-13",
+          "kind": "enhancement",
+          "summary": "界面感知对话复用本功能；邮箱支持聊天内收发/停止联系，书稿保留当前模块与写作回退。证据 docs/qa/2026-11-13-studio-assistant.md，真实浏览器与合入待验。"
         }
       ]
     }

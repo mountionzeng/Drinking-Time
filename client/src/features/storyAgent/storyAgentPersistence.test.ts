@@ -182,3 +182,15 @@ describe("storyAgent publishing persistence", () => {
     expect(storyWorkScore(withBuffer)).toBeGreaterThan(0);
   });
 });
+
+it("does not create a story from page navigation or mailbox conversation, including after reload", () => {
+  const snapshot = normalizePersisted({ ...emptyState(), messages: [
+    { id: "u", role: "user", content: "打开邮箱", timestamp: 1, interfaceAction: true },
+    { id: "a", role: "assistant", content: "正在打开", timestamp: 2, interfaceAction: true },
+  ] });
+  expect(shouldSaveArchiveStory(snapshot)).toBe(false);
+  expect(storyWorkScore(snapshot)).toBe(0);
+  expect(shouldSaveArchiveStory(snapshot, "explicit")).toBe(true);
+  snapshot.messages.push({ id: "story", role: "user", content: "小时候的纸船", timestamp: 3 });
+  expect(shouldSaveArchiveStory(snapshot)).toBe(true);
+});

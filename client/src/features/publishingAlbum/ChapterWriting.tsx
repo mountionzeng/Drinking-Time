@@ -1,3 +1,4 @@
+import { useStudioDraftState } from "@/features/storyAgent/studioDraftState";
 import { BookSoundMenu } from "./BookSoundMenu";
 import { newWritingBlock, restoreStyledBlocks, blockBody } from "./chapterBlockTree";
 import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
@@ -62,6 +63,7 @@ export function ChapterWriting({ chapter, scope, handle, save, onChange, disable
   const draftRef = useRef(draft); draftRef.current = draft;
   useEffect(() => registerDraftRecovery(() => ({ scope, chapterId: chapter.id, storyId: chapter.storyId, raw: JSON.stringify(draftRef.current) })), [scope, chapter.id, chapter.storyId]);
   const dirty = draft.title !== chapter.title || draft.body !== chapter.blocks.body || !sameWritingStyle(draft.writingStyle,chapter.blocks.writingStyle) || Boolean(draft.changeNote?.trim());
+  useStudioDraftState(chapter.storyId, dirty || saving || Boolean(error));
   function prepare(autosave = false): Promise<void> {
     if (pending.current) return pending.current.then(() => prepare(autosave));
     const current = draftRef.current;

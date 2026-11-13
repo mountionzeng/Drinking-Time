@@ -893,3 +893,16 @@ describe("layout companion keeps layout numbers private", () => {
     expect(system).toContain("用自然语言描述");
   });
 });
+
+it("keeps current UI state alongside the selected writing module without treating it as an image", async () => {
+  const invoke = fakeInvoke("I can open your mailbox.");
+  await replyAsWritingCompanion({ message: "What can you do here?", history: [],
+    writingContext: { draft: "Current draft", cursor: 0, module: layoutModule },
+    uiContext: { storyId: 7, workspace: "publishing", warehouseOpen: false, mailboxOpen: true, contactId: null, saveStatus: "pending", selection: { kind: "writing", label: "Current draft" }, language: "en" },
+  }, invoke);
+  const prompt = systemText(invoke);
+  expect(prompt).toContain('"mailboxOpen":true');
+  expect(prompt).toContain("不是截图");
+  expect(JSON.stringify(invoke.mock.calls[0][0])).toContain("当前修改过的文字");
+  expect(prompt).toContain("未获得工具成功回执不得声称已执行");
+});

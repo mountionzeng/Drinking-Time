@@ -24,6 +24,8 @@
 
 ## 当前在场
 
+2026-11-13 chat 01a1d3cc 界面感知与对话操作：codex/chat-ui-actions / 4820代码树，新增shared工作区上下文/能力契约、服务端界面助手与邮箱动作、客户端对话桥；触及EditingStudioPage、StoryAgentContext、StoryAgentChat、types/storyAgentPersistence（界面指令不生成空故事）、StoryMailbox、ChapterWriting被动保存状态、writingCompanion上下文及router注册/测试/功能卡。保留原选区编辑、费用确认、故事归属、邮箱独立接收与停止联系规则。只主仓3000运行；本轮未占合并发布窗口；代码/类型/构建/101卡和定向验证完成，全量7795通过、1旧FFmpeg超时复跑7项通过；用户明确等主仓云层编辑完成后再合入，保留4820树。
+
 2026-11-13 chat 01a1d3cc 故事邮箱已合本地main 1b511e32，释放合并窗口：7748全量、49最终定向、隔离MySQL、类型/构建/100卡/42迁移通过。主仓3000运行；用户允许暂停3001，其工作树和数据保留。浏览器安全策略阻止实点，邮箱状态observing，真实UI验收待续。无push/生产部署。4820工作树/分支已删除，历史outputs校验备份/tmp/story-mailbox-4820-outputs-20261113。QA docs/qa/2026-11-13-story-mailbox.md。
 
 

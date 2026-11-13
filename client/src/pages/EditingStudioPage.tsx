@@ -1,3 +1,8 @@
+import { hasPendingStudioDraft } from "@/features/storyAgent/studioDraftState";
+import { useDesktopWritingSession } from "@/features/writingCompanion/desktopWritingSession";
+import { useStudioAssistant } from "@/features/storyAgent/useStudioAssistant";
+import type { StudioUiContext, StudioUiAction } from "@shared/studioAssistant";
+import { useUiLanguage } from "@/features/uiLanguage/UiLanguage";
 import { StoryMailbox } from "@/features/storyMailbox/StoryMailbox";
 import { OPEN_STORY_MAILBOX } from "@shared/storyMailbox";
 import { Mail } from "lucide-react";
@@ -718,6 +723,7 @@ function EditingStudioBody({
 }
 
 export default function EditingStudioPage() {
+  const { language } = useUiLanguage();
   const _ui = useDesktopUiText();
   const { visualTheme } = useNayin();
   const { user } = useAuth();
@@ -796,6 +802,7 @@ export default function EditingStudioPage() {
   const [accountMemoriesOpen, setAccountMemoriesOpen] = useState(false);
   const [mailboxOpen, setMailboxOpen] = useState(false);
   const [mailboxSection,setMailboxSection]=useState<string|null>(null);
+  const [mailboxContactId, setMailboxContactId] = useState<string | null>(null);
   const pendingMailboxVersion=useRef<string|null>(null);
   useEffect(()=>{
     const open=(event:Event)=>{event.preventDefault();setMailboxSection((event as CustomEvent).detail?.section??null);setMailboxOpen(true);};
@@ -823,6 +830,28 @@ export default function EditingStudioPage() {
     workspace,
     confirmedIntent
   );
+  const getInterfaceContext = useCallback((): StudioUiContext => {
+    const state = storySpineStore.getState();
+    const selection = state.activeSelection;
+    const writing = useDesktopWritingSession.getState().session;
+    const writingSnapshot = (workspace === "publishing" || workspace === "images") && writing?.storyId === state.activeStoryId && writing.accountId === state.accountId && writing.epoch === state.storyScopeEpoch ? writing.getSnapshot() : null;
+    const selectedText = writingSnapshot?.selection ? writingSnapshot.draft.slice(writingSnapshot.selection.start, writingSnapshot.selection.end) : writingSnapshot?.module?.text;
+    const selectedModule = writingSnapshot?.module;
+    const moduleLabel = selectedModule ? (language === "zh" ? `第${selectedModule.page}页的${selectedModule.kind === "text" ? "文字" : "图片"}模块` : `${selectedModule.kind === "text" ? "Text" : "Image"} on page ${selectedModule.page}`) : null;
+    return { storyId: state.activeStoryId && state.activeStoryId > 0 ? state.activeStoryId : null,
+      workspace, warehouseOpen: materialVisible, mailboxOpen,
+      contactId: mailboxOpen ? mailboxContactId : null,
+      saveStatus: hasPendingStudioDraft(state.accountId, state.activeStoryId, state.storyScopeEpoch) ? "pending" : state.saveStatus === "saved" ? "saved" : state.saveStatus === "idle" ? "unknown" : "pending",
+      selection: selectedText ? { kind: "writing", label: selectedText.slice(0, 600) } : selectedModule && moduleLabel ? { kind: selectedModule.kind, label: moduleLabel } : selection && selection.storyId === state.activeStoryId ? { kind: selection.sourceType, label: (selection.fullText || selection.sourceId).slice(0, 600) } : null,
+      language };
+  }, [workspace, materialVisible, mailboxOpen, mailboxContactId, language]);
+  const applyInterfaceAction = useCallback((action: StudioUiAction) => {
+    if (action.type === "mailbox") { setMailboxSection(action.contactId ?? null); setMailboxOpen(true); }
+    else if (action.type === "story") { setMailboxOpen(false); openStory(action.storyId); }
+    else { setMailboxOpen(false); if (action.workspace === "materialWarehouse") setMaterialVisible(true); else { setMaterialVisible(false); changeWorkspace(action.workspace); } }
+  }, [changeWorkspace, openStory]);
+  const runInterfaceCommand = useStudioAssistant(getInterfaceContext, applyInterfaceAction);
+
 
   // 对话驱动剪辑：这句话先交给剪辑代理；接住就执行时间轴操作并刷新剪辑台，
   // 没接住（不是剪辑意图）返回 null，聊聊照常聊故事。
@@ -1010,7 +1039,7 @@ export default function EditingStudioPage() {
           window.dispatchEvent(new CustomEvent(STUDIO_TOUR_REPLAY_EVENT));
         }}
       />
-      <StoryMailbox initialSection={mailboxSection} open={mailboxOpen} onOpenChange={setMailboxOpen} userId={user?.id} currentStoryId={activeStoryId} shareBacks={shareBackNotices.notices} onOpenStory={(id,versionId)=>{pendingMailboxVersion.current=versionId??null;openStory(id);}} />
+      <StoryMailbox onContactChange={setMailboxContactId} initialSection={mailboxSection} open={mailboxOpen} onOpenChange={setMailboxOpen} userId={user?.id} currentStoryId={activeStoryId} shareBacks={shareBackNotices.notices} onOpenStory={(id,versionId)=>{pendingMailboxVersion.current=versionId??null;openStory(id);}} />
       <StudioTour blockedByOverlay={dailyLetterOpen || accountMemoriesOpen || mailboxOpen} />
       <DailyLetterWelcome
         suspended={accountMemoriesOpen || mailboxOpen}
@@ -1039,6 +1068,8 @@ export default function EditingStudioPage() {
           userId={user?.id ?? null}
           projectId={currentProjectId}
           editingCommandRunner={runEditingCommand}
+          interfaceCommandRunner={runInterfaceCommand}
+          getInterfaceContext={getInterfaceContext}
           interactionMode={interactionMode}
         >
           <EditingStudioBody

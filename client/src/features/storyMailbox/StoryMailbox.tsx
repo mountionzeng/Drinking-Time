@@ -1,3 +1,4 @@
+import { STUDIO_ASSISTANT_CHANGED } from "@shared/studioAssistant";
 import { useEffect, useRef, useState } from "react";
 import { Mail, RefreshCw, Send, UserMinus } from "lucide-react";
 import {
@@ -22,7 +23,9 @@ export function StoryMailbox({
   currentStoryId,
   onOpenStory,
   shareBacks,
+  onContactChange,
 }: {
+  onContactChange?: (id: string | null) => void;
   open: boolean;
   initialSection: string | null;
   onOpenChange: (open: boolean) => void;
@@ -33,10 +36,11 @@ export function StoryMailbox({
 }) {
   const t = useUiText();
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog modal={false} open={open} onOpenChange={onOpenChange}>
       <DialogContent
         id="story-mailbox"
-        className="flex h-[min(820px,90dvh)] w-[94vw] flex-col overflow-hidden p-0 sm:max-w-5xl"
+        className="flex h-[min(820px,85dvh)] w-[94vw] flex-col overflow-hidden p-0 sm:max-w-5xl lg:left-auto lg:right-4 lg:top-16 lg:w-[min(900px,calc(100vw_-_400px))] lg:translate-x-0 lg:translate-y-0"
+        onInteractOutside={event => event.preventDefault()}
       >
         <DialogHeader className="border-b px-6 py-5 pr-12">
           <DialogTitle className="flex items-center gap-2">
@@ -51,6 +55,7 @@ export function StoryMailbox({
           <MailboxContents
             key={`${userId}:${initialSection}`}
             initialSection={initialSection}
+            onContactChange={onContactChange}
             currentStoryId={currentStoryId}
             shareBacks={shareBacks}
             onOpenStory={(id, versionId) => {
@@ -70,7 +75,9 @@ export function MailboxContents({
   currentStoryId,
   onOpenStory,
   shareBacks,
+  onContactChange,
 }: {
+  onContactChange?: (id: string | null) => void;
   currentStoryId: number | null;
   initialSection?: string | null;
   onOpenStory: (id: number, versionId?: string) => void;
@@ -97,6 +104,13 @@ export function MailboxContents({
     [refreshing, setRefreshing] = useState(false);
   const selected = contacts.data?.find(c => c.id === selection),
     contactId = selected?.id ?? "";
+  useEffect(() => { onContactChange?.(contactId || null); return () => onContactChange?.(null); }, [contactId, onContactChange]);
+  useEffect(() => {
+    const changed = () => { void utils.storyMailbox.contacts.refetch(); if (contactId) { void utils.storyMailbox.history.invalidate({ contactId }); void utils.storyMailbox.threads.invalidate({ contactId }); } };
+    window.addEventListener(STUDIO_ASSISTANT_CHANGED, changed);
+    return () => window.removeEventListener(STUDIO_ASSISTANT_CHANGED, changed);
+  }, [contactId, utils]);
+
   const history = trpc.storyMailbox.history.useQuery(
     { contactId, cursor },
     { enabled: Boolean(selected), retry: false, refetchInterval: 15000 }

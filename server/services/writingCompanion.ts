@@ -1,3 +1,4 @@
+import { studioContextDescription, type StudioUiContext } from "../../shared/studioAssistant";
 /**
  * 聊聊 · 写不下去的时候。
  *
@@ -330,6 +331,7 @@ export async function replyAsWritingCompanion(
     history: Array<{ role: "user" | "assistant"; content: string }>;
     writingContext: WritingCompanionContext;
     storyTitle?: string | null;
+    uiContext?: StudioUiContext;
   },
   invoke: WritingCompanionInvoke = (messages, maxTokens) =>
     invokeAgent(
@@ -352,6 +354,7 @@ export async function replyAsWritingCompanion(
         {
           role: "system",
           content: [
+            studioContextDescription(input.uiContext),
             "你是聊聊，陪用户修改图文排版。用户所说的「这个」「这块」指本轮提供的选中模块；历史对话里的旧选区不作为本轮目标。",
             CREATIVE_EXPLORATION_RULE,
             line ? LINE_CONTEXT_GUIDANCE : "只有用户询问时才建议。围绕他的问题，给出一到三条简短、具体、容易执行的建议。文字可以给一版简短改写，保留原意，不编造经历、对白或动机。",
@@ -440,6 +443,7 @@ export async function replyAsWritingCompanion(
       role: "system",
       content: [
         COMPANION_RULES,
+        studioContextDescription(input.uiContext),
         "",
         ...(input.writingContext.fullDraft
           ? [
