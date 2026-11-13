@@ -3,7 +3,7 @@ import { TRPCError } from "@trpc/server";
 import { wechatLoginQrConfigured } from "../services/wechatLoginQr";
 import {
   getMailboxHandoff,
-  mailboxHandoffEnabled,
+  mailboxHandoffCanCreate,
   mailboxWechatBinding,
 } from "../repositories/storyMailboxHandoff";
 import { mailboxSelectionSchema } from "../../shared/storyMailboxSelection";
@@ -29,9 +29,9 @@ import { receiveMailboxStory } from "../repositories/storyMailboxImport";
 const contact = z.object({ contactId: z.string().length(43) });
 export const storyMailboxRouter = router({
   nativeStatus: protectedProcedure.query(async ({ ctx }) => ({
-    enabled: mailboxHandoffEnabled() && wechatLoginQrConfigured(),
+    enabled: mailboxHandoffCanCreate(ctx.user.id) && wechatLoginQrConfigured(),
     bound:
-      mailboxHandoffEnabled() &&
+      mailboxHandoffCanCreate(ctx.user.id) &&
       Boolean(await mailboxWechatBinding(ctx.user.id)),
   })),
   nativeCreate: protectedProcedure

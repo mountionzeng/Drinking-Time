@@ -1,14 +1,14 @@
 import { TRPCError } from "@trpc/server";
 import {
   createMailboxHandoff,
-  mailboxHandoffEnabled,
+  mailboxHandoffCanCreate,
 } from "../repositories/storyMailboxHandoff";
 import { createWechatLoginQr, wechatLoginQrConfigured } from "./wechatLoginQr";
 export async function prepareWechatMailboxHandoff(
   userId: number,
   input: Parameters<typeof createMailboxHandoff>[1]
 ) {
-  if (!mailboxHandoffEnabled() || !wechatLoginQrConfigured())
+  if (!mailboxHandoffCanCreate(userId) || !wechatLoginQrConfigured())
     throw new TRPCError({
       code: "PRECONDITION_FAILED",
       message: "小程序接收尚未启用 / Mini-program receiving is not enabled",

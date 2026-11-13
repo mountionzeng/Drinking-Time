@@ -28,6 +28,21 @@ import { validateMailboxReferences } from "../services/storyMailboxReferences";
 
 export const mailboxHandoffEnabled = () =>
   process.env.WECHAT_MAILBOX_ENABLED === "true";
+// Optional rollout gate for new receipts; existing receipts retain their owner checks.
+export function mailboxHandoffCanCreate(userId: number) {
+  if (!mailboxHandoffEnabled() || !Number.isSafeInteger(userId) || userId <= 0)
+    return false;
+  const configured = process.env.WECHAT_MAILBOX_ALLOWED_USER_IDS;
+  if (configured === undefined) return true;
+  const ids = configured.split(",").map(value => value.trim());
+  if (
+    ids.some(
+      value => !/^[1-9]\d*$/.test(value) || !Number.isSafeInteger(Number(value))
+    )
+  )
+    return false;
+  return ids.includes(String(userId));
+}
 export function handoffMac(value: string) {
   if (ENV.cookieSecret.length < 32)
     throw new Error("mailbox_handoff_not_configured");
