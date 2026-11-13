@@ -34,3 +34,17 @@
 - 原生云端候选在/tmp/mailbox-live-20261113/native-cloud-src，提交015ed242，源于891902e且包含main f53dbfe。只为发布冻结storyBooks/core/access/copyAssets为已下载线上字节，未修改其他开发工作树。标准打包后storyDesktopAccess对线上仅modules/storyDesktopAccess/index.js及webLoginQr.js不同；drinkingTimeBridge仅index.js和新增mailbox.js。10项专项通过，未部署。
 - 原生客户端对上次交付35e025c仅app.json、me.wxml及独立web-mailbox子包4文件不同；未上传，没有包含另一对话未交付的Logo/音频改动。
 - 自动审批第一次拦截OSS上传后，用户明确批准具体私有目录，网页发布完成。第二次拦截原生双函数发布准备，要求单独明确授权；已完成纯本地候选/差异后向用户询问，尚待回复。没有绕过审批执行云函数变更。
+
+
+## 原生云端已部署，客户端真实验收发现并修复两项问题
+
+- 用户随后明确授权双函数部署及客户端就绪后启用邮箱接收。标准部署源015ed242，于2026-11-13T13:29:49.545Z完成cloud1-d5ghzk30ve609f544的drinkingTimeBridge/storyDesktopAccess部署；部署前后均下载保存。桥接8份、打包授权函数15份业务源码逐字节匹配。证据native-deploy.log、native-code-verified.json、cloud-after，均在/tmp/mailbox-live-20261113。
+- 云发布候选只为保留线上storyBooks/core/access/copyAssets建立冻结副本，不能把这些旧依赖整包合回开发主线。没有部署storyAudio或其他函数，没有改登录、钱包或现有故事；三处WECHAT_MAILBOX_ENABLED仍关闭。原生云控制台实际列表显示两函数21:29部署时间，未在控制台修改配置。
+- 客户端候选基于另一原生会话最新已交付8221ba3，接入邮箱8336555，保留Logo/图片/朗读更新；隔离完整类型和1904项通过，依赖通过NODE_PATH定位既有sharp/jpeg-js。当前整合候选7b72bd0，位于/tmp/mailbox-live-20261113/native-client-src；不启动Web服务或写工作树业务数据。
+- 微信开发工具真实打开“我的→网页寄来的故事”，账号岱、15.00算力。发现同标签wx:else和wx:for引起WXML编译失败；d3a351a改外层block承接条件，官方wcc修复前exit2、修复后exit0，随后实际页面正常打开。
+- 实际调用因接收开关关闭返回mailbox_disabled，页面原先直接展示云端堆栈；9b91007将云调用失败统一成可重试文案。新增回归修复前失败、修复后13项及类型通过。最终真实页面显示“网页故事暂时无法读取，请稍后重试。”，点击重新读取后从加载恢复到提示和重试按钮，无编译错误、不一直转圈。
+- 本轮未新建原生测试内容、未发送朋友消息、未生成付费媒体。前一文字生成修复1e6059f6已线上生效，详见book-version-generation-repair独立QA；不将其算作邮箱收发或实际媒体验收。
+- 另一会话已上传内部体验0.1.1113a（源8221ba3），不含邮箱页。当前邮箱候选未上传/设体验/提审，不把旧登录码用于邮箱交付。未在客户端版本不匹配时开启公共接收。
+- 正式站独立agent-browser会话mailbox-prod-test-20261113仍匿名，21:56重新展示二维码并请求本人确认后再次到期。不能借用其他浏览器Cookie或把用户在别处登录当作本会话成功。
+
+待完成：真实网页双账号收发/更新/停止联系；邮箱客户端匹配版本；三处开关受控启用；本人私密接收、图/声音/视频真机播放、朋友查看和撤销。没有相应真实证据前功能保持observing。
