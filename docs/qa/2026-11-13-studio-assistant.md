@@ -44,3 +44,7 @@ JWT_SECRET=isolated-unit-test-secret-over-32-characters OPENAI_NEXT_API_KEY=unit
 - 热点文件 `StoryAgentContext.tsx` 4522行，低于4528冻结基线；没有调整架构门槛。
 - 日志在 `/tmp/studio-assistant-{regression,failed-rerun,full-tests-final,video-recheck,final-types,final-build,feature}.log`，审阅记录 `/tmp/compound-engineering/ce-code-review/studio-assistant-20261113/review.json`。
 - 主仓云层编辑还在操作与验收，未占其合并窗口；此分支暂保留，不能提前删除工作树，也未发布到3000或生产。
+
+## 19:45 合入更新
+
+已按云层优先顺序随 b569edfa 合本地main，四个重叠文件保留双方增量，148组合回归、类型/构建通过。4820树与分支已删除；当前浏览器连接没有可操作的网页标签，真实UI/模型验收仍未完成。见 `2026-11-13-mailbox-selected-sharing.md`。
