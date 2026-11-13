@@ -434,6 +434,7 @@ export async function proposeManuscriptConversion(
         source: conversionSource(source.chapters),
       },
       maxTokens: 12000,
+      failureMode: "throw",
     });
     const chapters = applyConversion(
       source.chapters,
@@ -448,16 +449,19 @@ export async function proposeManuscriptConversion(
       return { result: current };
     });
   } catch (error) {
+    const failure = error instanceof z.ZodError
+      ? new TRPCError({ code: "BAD_GATEWAY", message: "生成服务返回的稿件结构不完整，本次未建立新版本。原稿与历史已保留。", cause: error })
+      : error instanceof TRPCError
+        ? error
+        : new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "新版本生成未完成，原稿与历史已保留。请先核对任务状态再继续。", cause: error });
     await mutateBookWorkflow(input, ({ state }) => {
       const current = state.conversions.find(d => d.id === input.id)!;
       current.status = "failed";
-      current.error = "转换未完成，原稿与历史保留。请核对后重新发起。";
+      current.error = failure.message;
       current.revision++;
       return { result: current };
     });
-    if (error instanceof z.ZodError)
-      throw bad("未能生成完整的新版本，原稿和历史已保留，请重试。");
-    throw error;
+    throw failure;
   }
 }
 

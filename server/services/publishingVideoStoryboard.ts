@@ -19,7 +19,8 @@ import {
 } from "../../shared/narrativeRhythm";
 import { ENV } from "../_core/env";
 import { parseJsonLoose } from "../_core/llmJson";
-import { runInference } from "../_core/inferenceOrchestrator";
+import { InferenceError, runInference } from "../_core/inferenceOrchestrator";
+import { TRPCError } from "@trpc/server";
 import { resolveComputeCandidates } from "../_core/textComputeProvider";
 import {
   articleVideoSupplementSchema,
@@ -377,11 +378,17 @@ export async function runPublishingVideoStoryboardTextCompute(input: {
   referenceImages?: Array<{ id: string; imageInput: string }>;
   maxTokens?: number;
   deadlineMs?: number;
+  /** Version conversion needs a real result; legacy previews may fill missing fields locally. */
+  failureMode?: "fallback" | "throw";
 }): Promise<{ parsed: unknown; modelLabel: string }> {
   const candidates = resolveComputeCandidates("text", {
     fallback302Model: ENV.videoPrompt302Model,
   });
   if (candidates.length === 0) {
+    if (input.failureMode === "throw") throw new TRPCError({
+      code: "SERVICE_UNAVAILABLE",
+      message: "生成服务尚未配置，暂时无法生成新版本。原稿与历史已保留。",
+    });
     return {
       parsed: null,
       modelLabel: "文本算力未配置（本地保底补全）",
@@ -416,15 +423,18 @@ export async function runPublishingVideoStoryboardTextCompute(input: {
                   },
                 ]),
               ]
-            : `请按要求逐段生成剧本、图片提示词与视频提示词。上下文：${JSON.stringify(input.context)}`,
+            : (input.failureMode === "throw"
+                  ? `请按系统要求和用户指定的目标稿件生成 JSON。上下文：${JSON.stringify(input.context)}`
+                  : `请按要求逐段生成剧本、图片提示词与视频提示词。上下文：${JSON.stringify(input.context)}`),
         },
       ],
       candidates: { fallback302Model: ENV.videoPrompt302Model },
       maxTokens: input.maxTokens ?? 4_500,
       reasoningEffort: "low",
       responseFormat: { type: "json_object" },
-      // 转写是纯生成，没有工具调用也没有业务写入，可以安全重发。
-      replaySafe: true,
+      // Strict conversions can fall back after rejection, never after unknown submission.
+      replaySafe: input.failureMode !== "throw",
+      retryRejected: input.failureMode === "throw",
       deadlineMs: input.deadlineMs ?? positiveInteger(
         ENV.publishingVideoStoryboard302TimeoutMs,
         90_000
@@ -433,11 +443,14 @@ export async function runPublishingVideoStoryboardTextCompute(input: {
 
     const data = outcome.result as CompletionResponse;
     try {
-      return {
-        parsed: parseJsonLoose<unknown>(completionText(data)),
-        modelLabel: data.model || outcome.model,
-      };
+      const parsed = parseJsonLoose<unknown>(completionText(data));
+      if (input.failureMode === "throw" && parsed == null) throw new Error("Empty JSON result");
+      return { parsed, modelLabel: data.model || outcome.model };
     } catch {
+      if (input.failureMode === "throw") throw new TRPCError({
+        code: "BAD_GATEWAY",
+        message: "生成服务返回的内容格式不完整，本次未建立新版本。原稿与历史已保留。",
+      });
       // 模型答错格式是业务问题，不是供应商故障——保持原有的本地补全语义。
       return {
         parsed: null,
@@ -445,6 +458,20 @@ export async function runPublishingVideoStoryboardTextCompute(input: {
       };
     }
   } catch (error) {
+    if (input.failureMode === "throw") {
+      if (error instanceof TRPCError) throw error;
+      const unknown = error instanceof InferenceError && error.attempts.some(a => a.acceptanceUnknown);
+      const configuration = error instanceof InferenceError && ["auth", "invalid_request"].includes(error.category);
+      throw new TRPCError({
+        code: unknown ? "TIMEOUT" : "SERVICE_UNAVAILABLE",
+        message: unknown
+          ? "生成服务未返回明确结果，请先核对任务和算力，勿重复提交。原稿与历史已保留。"
+          : configuration
+            ? "生成服务配置异常，暂时无法生成新版本。原稿与历史已保留。"
+            : "生成服务暂时不可用，本次未建立新版本。原稿与历史已保留。",
+        cause: error,
+      });
+    }
     return {
       parsed: null,
       modelLabel: `${label} 转写失败：${

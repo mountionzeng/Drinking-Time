@@ -3,6 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import { TRPCError } from "@trpc/server";
 import type { ManuscriptContent } from "../../shared/bookWorkflow";
 const compute = vi.hoisted(() => vi.fn());
 vi.mock("./publishingVideoStoryboard", () => ({
@@ -397,4 +398,33 @@ it("can turn an adopted storyboard back into a separate text version", async () 
   expect(result.number).toBe(2);
   expect(result.source?.id).toBe(adopted.id);
   expect((await chapters.listChapters(input.storyId, 61, "storyboard"))[0].blocks.body).toBe(storyboard.blocks.body);
+});
+
+it.each(["text", "storyboard"] as const)("preserves the original after failure then adopts a new %s version", async target => {
+  const input = await fixture();
+  const before = await service.getBookWorkflow(input);
+  const failure = new TRPCError({ code: "SERVICE_UNAVAILABLE", message: "生成服务配置异常，暂时无法生成新版本。原稿与历史已保留。" });
+  compute.mockRejectedValueOnce(failure);
+  const request = { ...input, id: randomUUID(), sourceId: input.version.id, target, intent, regenerate: true, request: "生成新版本" };
+  await expect(service.proposeManuscriptConversion(request)).rejects.toBe(failure);
+  const failed = await service.getBookWorkflow(input);
+  expect(failed.state.versions).toEqual(before.state.versions);
+  expect(failed.state.conversions[0]).toMatchObject({ status: "failed", error: failure.message });
+  expect(failed.drafts.text.fingerprint).toBe(before.drafts.text.fingerprint);
+  expect((await service.proposeManuscriptConversion(request)).status).toBe("failed");
+  expect(compute).toHaveBeenCalledTimes(1);
+  if (target === "text") compute.mockResolvedValueOnce({ parsed: { chapters: [{ title: "新版原文", modules: [
+    { format: "heading1", text: "第一章", parent: null },
+    { format: "text", text: "用新的叙事保留原文事实", parent: 0 },
+    { format: "text", text: "", parent: 0, media: 0 },
+  ] }] } });
+  const next = await service.proposeManuscriptConversion({ ...request, id: randomUUID() });
+  expect(next.status).toBe("review");
+  expect(compute).toHaveBeenLastCalledWith(expect.objectContaining({ failureMode: "throw" }));
+  const adopted = await service.adoptManuscriptConversion({ ...input, id: next.id, revision: next.revision });
+  expect(adopted.kind).toBe(target);
+  const after = await service.getBookWorkflow(input);
+  expect(after.state.versions.find(v => v.id === input.version.id)).toEqual(input.version);
+  if (target === "storyboard") expect((await chapters.listChapters(input.storyId, 61, "text"))[0].blocks.body).toBe(source.blocks.body);
+  expect((await chapters.listChapters(input.storyId, 61, target))[0].blocks.body).toContain("/api/images/original.png");
 });

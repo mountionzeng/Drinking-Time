@@ -11989,7 +11989,8 @@
         "scripts/transcribe-video-book.py",
         "server/services/videoBookLocalText.ts",
         "scripts/read-video-text.swift",
-        "client/src/features/publishingAlbum/VideoBookHistory.tsx"
+        "client/src/features/publishingAlbum/VideoBookHistory.tsx",
+        "server/services/publishingVideoStoryboard.ts"
       ],
       "evidence": [
         "server/services/bookWorkflow.test.ts",
@@ -12003,7 +12004,9 @@
         "docs/qa/2026-11-12-video-to-book.md",
         "server/services/videoBookLocalText.test.ts",
         "client/src/features/publishingDraft/VideoTextDraft.test.tsx",
-        "client/src/features/publishingAlbum/VideoBookHistory.test.tsx"
+        "client/src/features/publishingAlbum/VideoBookHistory.test.tsx",
+        "docs/qa/2026-11-13-book-version-generation-repair.md",
+        "server/services/publishingVideoStoryboard.strict.test.ts"
       ],
       "invariants": [
         "文字/分镜分别编号；自动保存只更新草稿，正式保存/采用/恢复或用户明确把当前分镜做成视频时才建立必要的来源版本。",
@@ -12061,6 +12064,11 @@
           "date": "2026-11-12",
           "kind": "verification",
           "summary": "续修版本不可见：新增0算力本地原片文字路径、可编辑预览与采用后安全载入、正式版本全文及失败记录分开显示；修复来源快照序列化匹配。3001故事1219实测21段字幕校对并采用文字V1，刷新后两页正文和来源V3可见；剪辑/账务不变，旧operation255仍未知。52独立相关测试/类型/diff/冻结哈希通过，未提交部署，细节见QA续测。"
+        },
+        {
+          "date": "2026-11-13",
+          "kind": "fix",
+          "summary": "修复新版本服务失败被吞成空结果并误报原稿/历史错误：严格错误传递、失败记录安全原因、未知受理不重发；文字/分镜失败后新请求采用并保留原文素材回归通过。线上127转换及operation84只读核对，已释放且0扣费；原首选401、旧备用400。DeepSeek虚构真实216token结果通过稿件校验，正式站整条UI/媒体渲染验收仍待续。见QA。"
         }
       ]
     },
