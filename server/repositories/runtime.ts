@@ -19,6 +19,8 @@ import {
   FeedbackPost,
   AccountMemorySpace,
   StoryMailboxContact,
+  StoryMailboxHandoff,
+  StoryMailboxWechatBinding,
   StoryMailboxThread,
   StoryMailboxEntry,
   AccessSession,
@@ -106,6 +108,8 @@ function createEmptyMemoryCollections() {
     materialCaptureTokens: [] as MaterialCaptureToken[],
     adminUserLabels: [] as AdminUserLabel[],
     accountMemorySpaces: [] as AccountMemorySpace[],
+    storyMailboxHandoffs: [] as StoryMailboxHandoff[],
+    storyMailboxWechatBindings: [] as StoryMailboxWechatBinding[],
     storyMailboxContacts: [] as StoryMailboxContact[],
     storyMailboxThreads: [] as StoryMailboxThread[],
     storyMailboxEntries: [] as StoryMailboxEntry[],
@@ -384,6 +388,8 @@ function normalizeLoadedState(raw: Partial<MemoryState>) {
   memoryState.accountMemorySpaces = (raw.accountMemorySpaces ?? []).map(item => ({
     ...item, createdAt: toDate(item.createdAt), updatedAt: toDate(item.updatedAt),
   }));
+  memoryState.storyMailboxHandoffs = (raw.storyMailboxHandoffs ?? []).map(item => ({ ...item, createdAt: toDate(item.createdAt), expiresAt: toDate(item.expiresAt), confirmedAt: item.confirmedAt ? toDate(item.confirmedAt) : null }));
+  memoryState.storyMailboxWechatBindings = (raw.storyMailboxWechatBindings ?? []).map(item => ({ ...item, createdAt: toDate(item.createdAt) }));
   memoryState.storyMailboxContacts = (raw.storyMailboxContacts ?? []).map(item => ({ ...item, removedAt: item.removedAt ? toDate(item.removedAt) : null }));
   memoryState.storyMailboxThreads = (raw.storyMailboxThreads ?? []).map(item => ({ ...item, createdAt: toDate(item.createdAt) }));
   memoryState.storyMailboxEntries = (raw.storyMailboxEntries ?? []).map(item => ({ ...item, createdAt: toDate(item.createdAt), readAt: item.readAt ? toDate(item.readAt) : null }));

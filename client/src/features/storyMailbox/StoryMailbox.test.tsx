@@ -33,6 +33,11 @@ vi.mock("@/lib/trpc", () => {
         },
         threads: { useQuery: () => ({ data: [] }) },
         stories: { useQuery: () => ({ data: [] }) },
+        nativeStatus: {
+          useQuery: () => ({ data: { enabled: false, bound: false } }),
+        },
+        nativeCreate: mutation,
+        parts: { useQuery: () => ({ data: [] }) },
         preview: { useQuery: () => ({ data: undefined }) },
         send: mutation,
         receive: mutation,

@@ -1,3 +1,8 @@
+import {
+  WechatMailboxReceipt,
+  type WechatMailboxReceiptValue,
+} from "./WechatMailboxReceipt";
+import { MailboxPartPicker } from "./MailboxPartPicker";
 import { STUDIO_ASSISTANT_CHANGED } from "@shared/studioAssistant";
 import { useEffect, useRef, useState } from "react";
 import { Mail, RefreshCw, Send, UserMinus } from "lucide-react";
@@ -24,7 +29,13 @@ export function StoryMailbox({
   onOpenStory,
   shareBacks,
   onContactChange,
+  nativeReceipt,
+  onDraftChange,
 }: {
+  onDraftChange?: (
+    draft: import("@shared/studioAssistant").StudioUiContext["mailboxDraft"]
+  ) => void;
+  nativeReceipt?: WechatMailboxReceiptValue | null;
   onContactChange?: (id: string | null) => void;
   open: boolean;
   initialSection: string | null;
@@ -53,7 +64,9 @@ export function StoryMailbox({
         </DialogHeader>
         {open && userId ? (
           <MailboxContents
-            key={`${userId}:${initialSection}`}
+            key={`${userId}:${initialSection}:${nativeReceipt?.id ?? ""}`}
+            nativeReceipt={nativeReceipt}
+            onDraftChange={onDraftChange}
             initialSection={initialSection}
             onContactChange={onContactChange}
             currentStoryId={currentStoryId}
@@ -76,7 +89,13 @@ export function MailboxContents({
   onOpenStory,
   shareBacks,
   onContactChange,
+  nativeReceipt,
+  onDraftChange,
 }: {
+  onDraftChange?: (
+    draft: import("@shared/studioAssistant").StudioUiContext["mailboxDraft"]
+  ) => void;
+  nativeReceipt?: WechatMailboxReceiptValue | null;
   onContactChange?: (id: string | null) => void;
   currentStoryId: number | null;
   initialSection?: string | null;
@@ -95,18 +114,50 @@ export function MailboxContents({
     ),
     [compose, setCompose] = useState(false),
     [remove, setRemove] = useState(false);
+  const [destination, setDestination] = useState<"web" | "wechat">("web"),
+    [receipt, setReceipt] = useState(nativeReceipt ?? null);
+  const nativeStatus = trpc.storyMailbox.nativeStatus.useQuery(undefined, {
+    enabled: compose,
+    retry: false,
+  });
+  const nativeCreate = trpc.storyMailbox.nativeCreate.useMutation({
+    retry: false,
+  });
+  const [partial, setPartial] = useState(false),
+    [partKeys, setPartKeys] = useState<string[]>([]);
+  const contentSelection =
+    partial && partKeys.length
+      ? { version: 1 as const, keys: partKeys }
+      : undefined;
   const [storyId, setStoryId] = useState(currentStoryId ?? 0),
     [note, setNote] = useState(""),
     [error, setError] = useState("");
+  useEffect(() => {
+    onDraftChange?.(
+      compose && storyId > 0
+        ? { storyId, destination, partial, selection: contentSelection }
+        : null
+    );
+  }, [compose, storyId, destination, partial, partKeys, onDraftChange]);
+  useEffect(() => () => onDraftChange?.(null), [onDraftChange]);
   const [cursor, setCursor] = useState<
       { at: string; id: string } | undefined
     >(),
     [refreshing, setRefreshing] = useState(false);
   const selected = contacts.data?.find(c => c.id === selection),
     contactId = selected?.id ?? "";
-  useEffect(() => { onContactChange?.(contactId || null); return () => onContactChange?.(null); }, [contactId, onContactChange]);
   useEffect(() => {
-    const changed = () => { void utils.storyMailbox.contacts.refetch(); if (contactId) { void utils.storyMailbox.history.invalidate({ contactId }); void utils.storyMailbox.threads.invalidate({ contactId }); } };
+    onContactChange?.(contactId || null);
+    return () => onContactChange?.(null);
+  }, [contactId, onContactChange]);
+  useEffect(() => {
+    const changed = () => {
+      void utils.storyMailbox.contacts.refetch();
+      if (contactId) {
+        void utils.storyMailbox.history.invalidate({ contactId });
+        void utils.storyMailbox.threads.invalidate({ contactId });
+      }
+    };
     window.addEventListener(STUDIO_ASSISTANT_CHANGED, changed);
     return () => window.removeEventListener(STUDIO_ASSISTANT_CHANGED, changed);
   }, [contactId, utils]);
@@ -123,9 +174,17 @@ export function MailboxContents({
     enabled: compose,
     retry: false,
   });
-  const preview = trpc.storyMailbox.preview.useQuery(
+  const parts = trpc.storyMailbox.parts.useQuery(
     { storyId },
-    { enabled: compose && storyId > 0, retry: false, staleTime: 0 }
+    { enabled: compose && partial && storyId > 0, retry: false }
+  );
+  const preview = trpc.storyMailbox.preview.useQuery(
+    { storyId, selection: contentSelection },
+    {
+      enabled: compose && storyId > 0 && (!partial || partKeys.length > 0),
+      retry: false,
+      staleTime: 0,
+    }
   );
   const send = trpc.storyMailbox.send.useMutation({ retry: false }),
     receive = trpc.storyMailbox.receive.useMutation({ retry: false }),
@@ -134,7 +193,11 @@ export function MailboxContents({
     });
   const sendAttempt = useRef<{ key: string; id: string } | null>(null),
     inFlight = useRef(false);
-  const busy = send.isPending || receive.isPending || removeContact.isPending;
+  const busy =
+    nativeCreate.isPending ||
+    send.isPending ||
+    receive.isPending ||
+    removeContact.isPending;
   const unreadIds = (history.data?.entries ?? [])
     .filter(e => e.unread)
     .map(e => e.id)
@@ -203,7 +266,13 @@ export function MailboxContents({
     setError("");
   }
   async function submit() {
-    if (!selected || selected.removed || !preview.data || inFlight.current)
+    if (
+      (destination === "web" && (!selected || selected.removed)) ||
+      !preview.data ||
+      (partial && !partKeys.length) ||
+      preview.isFetching ||
+      inFlight.current
+    )
       return;
     inFlight.current = true;
     setError("");
@@ -212,15 +281,32 @@ export function MailboxContents({
       storyId,
       note,
       preview.data.fingerprint,
+      contentSelection,
+      destination,
     ]);
     if (sendAttempt.current?.key !== key)
       sendAttempt.current = { key, id: crypto.randomUUID() };
     try {
+      if (destination === "wechat") {
+        const result = await nativeCreate.mutateAsync({
+          storyId,
+          selection: contentSelection,
+          fingerprint: preview.data.fingerprint,
+          requestId: sendAttempt.current.id,
+        });
+        if (alive.current) {
+          setReceipt(result);
+          setCompose(false);
+        }
+        sendAttempt.current = null;
+        return;
+      }
       await send.mutateAsync({
         contactId,
         storyId,
         note,
         fingerprint: preview.data.fingerprint,
+        selection: contentSelection,
         requestId: sendAttempt.current.id,
       });
       setCompose(false);
@@ -230,8 +316,10 @@ export function MailboxContents({
       await invalidate();
     } catch (e) {
       setError(t("发送未完成，请重试。故事已变化时，请先重新预览。"));
-      if ((e as { data?: { code?: string } }).data?.code === "CONFLICT")
+      if ((e as { data?: { code?: string } }).data?.code === "CONFLICT") {
+        if (destination === "wechat") sendAttempt.current = null;
         void preview.refetch();
+      }
     } finally {
       inFlight.current = false;
     }
@@ -256,6 +344,19 @@ export function MailboxContents({
         aria-label={t("故事联系人")}
         className="max-h-44 overflow-y-auto border-b bg-muted/20 p-3 sm:max-h-none sm:border-b-0 sm:border-r"
       >
+        <button
+          type="button"
+          className={`${button} mb-3 w-full justify-start`}
+          disabled={busy}
+          onClick={() => {
+            setCompose(true);
+            setError("");
+            setReceipt(null);
+          }}
+        >
+          <Send className="h-4 w-4" />
+          {t("发送故事")}
+        </button>
         <button
           type="button"
           disabled={busy}
@@ -307,6 +408,189 @@ export function MailboxContents({
         ))}
       </nav>
       <section className="min-h-0 overflow-y-auto px-5 py-5 sm:px-7">
+        {compose ? (
+          <form
+            className="mb-6 space-y-4 rounded-md border p-4"
+            onSubmit={e => {
+              e.preventDefault();
+              void submit();
+            }}
+          >
+            <label className="block text-sm">
+              {t("选择故事")}
+              <select
+                className="mt-2 w-full rounded-md border bg-background p-2"
+                value={storyId}
+                onChange={e => {
+                  setStoryId(Number(e.target.value));
+                  setPartKeys([]);
+                }}
+                disabled={busy}
+              >
+                <option value={0}>{t("请选择故事")}</option>
+                {stories.data?.map(s => (
+                  <option key={s.id} value={s.id}>
+                    {s.title}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block text-sm">
+              {t("发送内容")}
+              <select
+                className="mt-2 w-full rounded-md border bg-background p-2"
+                disabled={busy}
+                value={partial ? "selected" : "all"}
+                onChange={e => {
+                  setPartial(e.target.value === "selected");
+                  setPartKeys([]);
+                }}
+              >
+                <option value="all">{t("完整故事")}</option>
+                <option value="selected">{t("选择部分内容")}</option>
+              </select>
+            </label>
+            {partial && storyId > 0 ? (
+              <>
+                {parts.isError ? (
+                  <button
+                    type="button"
+                    className={button}
+                    onClick={() => void parts.refetch()}
+                  >
+                    {t("重新读取内容")}
+                  </button>
+                ) : (
+                  <MailboxPartPicker
+                    parts={parts.data ?? []}
+                    value={partKeys}
+                    onChange={setPartKeys}
+                    disabled={busy || parts.isFetching}
+                    continuous={destination === "web"}
+                  />
+                )}
+              </>
+            ) : null}
+            {stories.isError ? (
+              <p role="alert" className="text-sm">
+                {t("故事列表暂时无法读取，请重试。")}
+              </p>
+            ) : null}
+            {storyId > 0 && preview.isFetching ? (
+              <p role="status" className="text-sm">
+                {t("正在核对故事内容…")}
+              </p>
+            ) : null}
+            {preview.error ? (
+              <p role="alert" className="text-sm">
+                {t("无法完整发送这篇故事，请检查素材是否就绪后重试。")}
+              </p>
+            ) : null}
+            {preview.data && (!partial || partKeys.length > 0) ? (
+              <div className="text-sm">
+                <p className="font-medium">{t("本次包含")}</p>
+                <p className="mt-1 leading-6">
+                  {inventoryText(preview.data.inventory, t)}
+                </p>
+              </div>
+            ) : null}
+            <label className="block text-sm">
+              {t("发送到")}
+              <select
+                className="mt-2 w-full rounded-md border bg-background p-2"
+                value={destination}
+                disabled={busy}
+                onChange={e => {
+                  setDestination(e.target.value as "web" | "wechat");
+                  setReceipt(null);
+                }}
+              >
+                <option value="web">{t("网页联系人")}</option>
+                <option value="wechat">{t("我的微信小程序")}</option>
+              </select>
+            </label>
+            {destination === "web" ? (
+              <label className="block text-sm">
+                {t("收件人")}
+                <select
+                  className="mt-2 w-full rounded-md border bg-background p-2"
+                  value={contactId}
+                  disabled={busy}
+                  onChange={e => setSelection(e.target.value)}
+                >
+                  <option value="">{t("选择一位朋友")}</option>
+                  {contacts.data
+                    ?.filter(c => !c.removed)
+                    .map(c => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                </select>
+              </label>
+            ) : (
+              <p className="text-sm leading-6">
+                {t(
+                  nativeStatus.data?.enabled
+                    ? nativeStatus.data.bound
+                      ? "已关联小程序接收身份。扫码确认后保存到自己的账号，再由你选择微信好友。"
+                      : "先用本人的微信扫码关联接收身份；原有账号、故事和余额不变。"
+                    : "小程序接收尚未启用，原有网页发送仍可使用。"
+                )}
+              </p>
+            )}
+            {destination === "web" && (
+              <label className="block text-sm">
+                {t("附言")}
+                <textarea
+                  className="mt-2 min-h-20 w-full rounded-md border bg-background p-2"
+                  maxLength={2000}
+                  value={note}
+                  onChange={e => setNote(e.target.value)}
+                  disabled={busy}
+                />
+              </label>
+            )}
+            <p className="text-xs leading-5 text-muted-foreground">
+              {t(
+                destination === "wechat"
+                  ? "小程序接收的是本次所选内容的独立副本。其他内容保持私密；后续修改需要再次发送。"
+                  : partial
+                    ? "只共享勾选部分及其后续修改。其他段落、新增内容、旧版本和剪辑线保持私密。"
+                    : "发送已保存的内容及现有版本。对方接收后可独立编辑，双方继续共享保存后的变化，直到移除联系。"
+              )}
+            </p>
+            <button
+              type="submit"
+              className={button}
+              disabled={
+                busy ||
+                (destination === "web"
+                  ? !selected || selected.removed
+                  : !nativeStatus.data?.enabled) ||
+                (partial && !partKeys.length) ||
+                !preview.data ||
+                preview.isFetching ||
+                preview.isError ||
+                storyId <= 0
+              }
+            >
+              {t(
+                busy
+                  ? "正在发送…"
+                  : destination === "wechat"
+                    ? "准备小程序接收二维码"
+                    : "确认发送"
+              )}
+            </button>
+          </form>
+        ) : null}
+        {receipt ? <WechatMailboxReceipt value={receipt} /> : null}
+        {!selected && error ? (
+          <p role="alert" className="my-3 text-sm text-destructive">
+            {error}
+          </p>
+        ) : null}
         {selection === "legacy" ? (
           <LegacyMailbox shareBacks={shareBacks} onOpenStory={onOpenStory} />
         ) : !selected ? (
@@ -394,83 +678,6 @@ export function MailboxContents({
                   </button>
                 </div>
               </div>
-            ) : null}
-            {compose ? (
-              <form
-                className="mb-6 space-y-4 rounded-md border p-4"
-                onSubmit={e => {
-                  e.preventDefault();
-                  void submit();
-                }}
-              >
-                <label className="block text-sm">
-                  {t("选择故事")}
-                  <select
-                    className="mt-2 w-full rounded-md border bg-background p-2"
-                    value={storyId}
-                    onChange={e => setStoryId(Number(e.target.value))}
-                    disabled={busy}
-                  >
-                    <option value={0}>{t("请选择故事")}</option>
-                    {stories.data?.map(s => (
-                      <option key={s.id} value={s.id}>
-                        {s.title}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                {stories.isError ? (
-                  <p role="alert" className="text-sm">
-                    {t("故事列表暂时无法读取，请重试。")}
-                  </p>
-                ) : null}
-                {storyId > 0 && preview.isFetching ? (
-                  <p role="status" className="text-sm">
-                    {t("正在核对故事内容…")}
-                  </p>
-                ) : null}
-                {preview.error ? (
-                  <p role="alert" className="text-sm">
-                    {t("无法完整发送这篇故事，请检查素材是否就绪后重试。")}
-                  </p>
-                ) : null}
-                {preview.data ? (
-                  <div className="text-sm">
-                    <p className="font-medium">{t("本次包含")}</p>
-                    <p className="mt-1 leading-6">
-                      {inventoryText(preview.data.inventory, t)}
-                    </p>
-                  </div>
-                ) : null}
-                <label className="block text-sm">
-                  {t("附言")}
-                  <textarea
-                    className="mt-2 min-h-20 w-full rounded-md border bg-background p-2"
-                    maxLength={2000}
-                    value={note}
-                    onChange={e => setNote(e.target.value)}
-                    disabled={busy}
-                  />
-                </label>
-                <p className="text-xs leading-5 text-muted-foreground">
-                  {t(
-                    "发送已保存的内容及现有版本。对方接收后可独立编辑，双方继续共享保存后的变化，直到移除联系。"
-                  )}
-                </p>
-                <button
-                  type="submit"
-                  className={button}
-                  disabled={
-                    busy ||
-                    !preview.data ||
-                    preview.isFetching ||
-                    preview.isError ||
-                    storyId <= 0
-                  }
-                >
-                  {t(send.isPending ? "正在发送…" : "确认发送")}
-                </button>
-              </form>
             ) : null}
             {error ? (
               <p role="alert" className="mb-4 text-sm text-destructive">

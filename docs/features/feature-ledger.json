@@ -30,14 +30,16 @@
         "server/services/writingCompanion.test.ts",
         "docs/qa/2026-11-13-studio-assistant.md",
         "docs/features/studio-assistant-capabilities.md",
-        "client/src/features/storyAgent/commandConversation.test.ts"
+        "client/src/features/storyAgent/commandConversation.test.ts",
+        "docs/qa/2026-11-13-mailbox-selected-sharing.md"
       ],
       "invariants": [
         "UI快照为每轮的状态数据，不是截图或权限，不凭状态臆测画面；故事和联系人归属由服务端验证。",
         "模型只能选择有类型约束的动作，不能生成执行代码或自行授权；操作回执前不能声称成功。",
         "发送/接收/停止联系沿用邮箱明确确认与独立接收规则，可在对话里确认；签名绑定账号/故事/目标/指纹/期限，重试幂等。",
         "换账号、故事、页面或联系人使旧待确认失效，迟到响应不改变新工作区；错误不触发普通代理二次执行。",
-        "保留原文字选区、写作、剪辑、声音与付费报价/采用保护；界面指令不自动变成新故事。"
+        "保留原文字选区、写作、剪辑、声音与付费报价/采用保护；界面指令不自动变成新故事。",
+        "对话读取邮箱当前勾选范围与目的地，局部请求缺少明确选区时不得回退发送整篇；改变范围或目的地使旧确认失效。"
       ],
       "dependencies": [
         "story-mailbox",
@@ -50,13 +52,18 @@
         "真实模型口语理解、浏览器并排交互和生产尚未验收；用户指定等云层编辑完成后再合主仓。",
         "联系人源于已接收故事链接，不能搜索陌生账号；聊天查看最近30条来往，未实现旧历史翻页工具。",
         "只发送保存版本，当前书稿与时间线有保存等待保护；其他编辑器和另一个设备未保存内容无法全部感知。",
-        "法语部分文案回退英文；本次不修改原生微信小程序。"
+        "法语部分文案回退英文；网页对话可准备小程序接收二维码，手机接收与选择微信好友仍由本人完成。"
       ],
       "history": [
         {
           "date": "2026-11-13",
           "kind": "feature",
           "summary": "界面快照、类型化对话动作与真实邮箱服务接通；173项初步及182项最终定向通过，类型/构建/101卡通过。全量7795通过，1项旧FFmpeg超时后7项独立复跑通过。按用户顺序等待云层编辑完成再合入，真实模型/UI待验。"
+        },
+        {
+          "date": "2026-11-13",
+          "kind": "feature",
+          "summary": "新增list_story_parts/send_to_wechat及当前邮箱选区上下文，签名确认固定内容，保留已有保存/账号/目标校验。16服务端及13Hook回归通过；真实模型口语理解、跨端与合入未验收。"
         }
       ]
     },
@@ -7347,6 +7354,11 @@
           "date": "2026-09-17",
           "kind": "refactor",
           "summary": "与电脑桥共用 shiguangBridgeSignature 签名协议实现，保留旧导出入口。可选 undefined 对象字段统一按协议省略，实际 JSON 请求签名不变；旧邮箱桥固定向量、共享验签边界与篡改用例、两桥 HTTP 测试覆盖兼容性。账号归属、默认关闭配置、独立限流及 nonce 存储不变，真实部署和 MySQL 验收仍待完成。"
+        },
+        {
+          "date": "2026-11-13",
+          "kind": "feature",
+          "summary": "新增邮箱到本人小程序的独立内容接收绑定，详见wechat-mailbox-private-handoff；原邮箱OTP账号关联/故事导入不替换、不自动合并登录身份或余额。"
         }
       ]
     },
@@ -9978,6 +9990,11 @@
           "date": "2026-11-02",
           "kind": "fix",
           "summary": "用户确认已将0.1.1102qr2设为体验版后，将storyDesktopAccess的WEB_LOGIN_QR_ENV_VERSION从develop改为trial，保存后单独展示该非密钥值确认trial。未改凭据和其他开关；等待新二维码真机确认。"
+        },
+        {
+          "date": "2026-11-13",
+          "kind": "feature",
+          "summary": "已有出码服务新增可选purpose=mailbox及独立开关、固定wm_页面；无purpose仍为原登录协议。原生回归覆盖用途/关闭开关/固定页面；未部署本次增量。"
         }
       ]
     },
@@ -12921,7 +12938,7 @@
       "id": "story-mailbox",
       "name": "故事邮箱与联系人持续互传",
       "status": "observing",
-      "userValue": "从仓库旁的邮箱向已连接朋友发送故事现有文字、图像、成片、剪辑线与版本，查看谁修改了什么，独立接收并随时停止后续共享。",
+      "userValue": "从仓库旁的邮箱向已连接朋友发送完整故事或明确选中的文字、图片、视频、声音，查看谁修改了什么；局部来稿只持续共享原选范围，独立接收并可停止后续共享。",
       "entryPoints": [
         "client/src/pages/EditingStudioPage.tsx",
         "client/src/features/storyMailbox/StoryMailbox.tsx",
@@ -12940,14 +12957,19 @@
         "client/src/features/storyMailbox/StoryMailbox.tsx",
         "client/src/features/storyMailbox/LegacyMailbox.tsx",
         "client/src/features/storyMailbox/mailboxPresentation.ts",
-        "drizzle/0041_story_mailbox.sql"
+        "drizzle/0041_story_mailbox.sql",
+        "shared/storyMailboxSelection.ts",
+        "server/repositories/storyMailboxSelection.ts",
+        "client/src/features/storyMailbox/MailboxPartPicker.tsx"
       ],
       "evidence": [
         "server/routers.storyMailbox.test.ts",
         "server/integration/storyMailbox.mysql.test.ts",
         "server/repositories/stateCompatibility.test.ts",
         "client/src/features/storyMailbox/StoryMailbox.test.tsx",
-        "docs/qa/2026-11-13-story-mailbox.md"
+        "docs/qa/2026-11-13-story-mailbox.md",
+        "client/src/features/storyMailbox/MailboxPartPicker.test.tsx",
+        "docs/qa/2026-11-13-mailbox-selected-sharing.md"
       ],
       "invariants": [
         "只发送实际已有且已保存的故事内容和版本；不发送记忆、聊天、生成提示词、供应商回执或凭据。",
@@ -12955,7 +12977,9 @@
         "发送及接收有明确提示并建立持续共享；查看邮箱时读取最新保存状态形成带作者的不可变记录，不自动覆盖双方原稿。",
         "接收为独立故事，重新绑定受保护视频、音频及剪辑线素材身份；幂等重试不重复建副本，失败不留下半份故事。",
         "任一方停止联系后双方都不能继续发送、接收或刷新共享；旧记录及已收到作品保留。",
-        "原章节收件箱与分享回稿通过已有来稿进入；没有桌面邮箱宿主时原收件箱入口仍可用。"
+        "原章节收件箱与分享回稿通过已有来稿进入；没有桌面邮箱宿主时原收件箱入口仍可用。",
+        "局部发送由服务器按稳定内容身份投影，后续刷新和独立接收继承固定范围；未选内容、新增内容、整篇历史与剪辑线不随局部来稿外发。",
+        "旧无稳定段落身份的正文用内容摘要选择，正文改变后需重选，不以段落序号替换成邻居。"
       ],
       "dependencies": [
         "shared-story-collaboration",
@@ -12968,9 +12992,11 @@
         "联系人来自已接收故事链接建立的关系；不支持按任意邮箱、手机号或昵称搜索陌生账号。",
         "邮箱开启时每15秒检查共享故事的最新保存状态，不是逐击键协同，也不保证记录关闭期间的每一次中间保存。",
         "单故事快照12MiB、每条往来500记录/128MiB、每账号200条往来；达到上限保留旧数据并明确失败。",
-        "原生微信小程序成片观看及剪辑线接入不在本轮；尚未发布生产或应用生产数据库迁移。",
         "第三方远端素材沿用现有URL，远端链接失效不保证可用；受管音频和本站视频保留独立文件。",
-        "主仓3000真实界面验收未完成：电脑操作工具被当前浏览器URL的安全策略阻止，自动化通过不代替人工交互验证。"
+        "主仓3000真实界面验收未完成：电脑操作工具被当前浏览器URL的安全策略阻止，自动化通过不代替人工交互验证。",
+        "局部可选段落/插图/图片/就绪视频/声音/成片；剪辑线与旧版本不能单独勾选，整篇发送保持原有完整内容。",
+        "本轮局部发送仍在4820工作树，等待云层编辑释放主仓集成窗口；未发布生产或执行生产数据库迁移。",
+        "小程序独立接收与观看另见wechat-mailbox-private-handoff，尚未真实跨端验收。"
       ],
       "history": [
         {
@@ -12982,6 +13008,72 @@
           "date": "2026-11-13",
           "kind": "enhancement",
           "summary": "界面感知对话复用本功能；邮箱支持聊天内收发/停止联系，书稿保留当前模块与写作回退。证据 docs/qa/2026-11-13-studio-assistant.md，真实浏览器与合入待验。"
+        },
+        {
+          "date": "2026-11-13",
+          "kind": "feature",
+          "summary": "实现用户确认的只共享原选部分：固定身份投影、接收后身份重映射、私人增量隔离和旧文摘要回退。19邮箱回归、61最终定向和11持久化通过；整篇完整内容/停止联系保留。真实UI与合入待验，详见docs/qa/2026-11-13-mailbox-selected-sharing.md。"
+        }
+      ]
+    },
+    {
+      "id": "wechat-mailbox-private-handoff",
+      "name": "邮箱所选故事私密接收到本人微信小程序",
+      "status": "observing",
+      "userValue": "在网页邮箱选择完整故事或部分内容，用本人微信扫码确认后私密接收，在小程序阅读和播放已有媒体，再主动分享给微信朋友。",
+      "entryPoints": [
+        "client/src/features/storyMailbox/StoryMailbox.tsx",
+        "server/routers/storyMailbox.ts",
+        "server/_core/storyMailboxNative.ts",
+        "git:shiguang-jiayi-hackathon:miniprogram/packages/web-mailbox/pages/index/index.ts",
+        "git:shiguang-jiayi-hackathon:miniprogram/pages/me/me.wxml"
+      ],
+      "owners": [
+        "server/repositories/storyMailboxHandoff.ts",
+        "server/services/storyMailboxHandoff.ts",
+        "server/services/storyMailboxNativeView.ts",
+        "server/_core/storyMailboxNative.ts",
+        "client/src/features/storyMailbox/WechatMailboxReceipt.tsx",
+        "drizzle/0042_story_mailbox_handoff.sql",
+        "git:shiguang-jiayi-hackathon:cloudfunctions/drinkingTimeBridge/mailbox.js",
+        "git:shiguang-jiayi-hackathon:cloudfunctions/storyDesktopAccess/webLoginQr.js"
+      ],
+      "evidence": [
+        "server/repositories/storyMailboxHandoff.test.ts",
+        "server/_core/storyMailboxNative.test.ts",
+        "server/integration/storyMailbox.mysql.test.ts",
+        "server/repositories/stateCompatibility.test.ts",
+        "docs/qa/2026-11-13-mailbox-selected-sharing.md",
+        "git:shiguang-jiayi-hackathon:tests/web-mailbox.test.js",
+        "git:shiguang-jiayi-hackathon:tests/web-mailbox-page.test.ts",
+        "git:shiguang-jiayi-hackathon:tests/web-login-qr.test.js"
+      ],
+      "invariants": [
+        "所选内容投影由服务器核实，未选正文/历史/剪辑线不得外发；本次接收为独立不可变副本，新版需另寄。",
+        "可信微信主体来自云函数APPID/OPENID，签名/持久nonce/限流保护；浏览器和手机不能自行指定身份。",
+        "扫码只预览，本人明确确认才绑定接收身份；不合并登录账号、原故事或余额，冲突保留旧绑定并拒绝。",
+        "默认私密，仅本人可读；显式分享后持链接的微信用户才可读，撤销使旧链接失效，再次开启使用新链接。",
+        "同一请求幂等，SQL行锁与本地聚合事务保护；失败清理暂存文件，不留下半份接收状态。",
+        "独立开关默认关闭，旧登录/导入/钱包/章节投递不变；新增入口和单元测试不等于已部署或手机验收。"
+      ],
+      "dependencies": [
+        "story-mailbox",
+        "wechat-web-code-login",
+        "story-ownership"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "两端工作树代码已完成，未合主仓、未部署云函数/网页/手机包，WECHAT_MAILBOX_ENABLED默认关闭；真实扫码、双方查看与媒体播放/撤销未验收。",
+        "小程序入口为“我的→网页寄来的故事”的独立只读来稿，未接入原生书稿编辑或剪辑线编辑；不自动同步后续网页版本。",
+        "每网页账号最多200份来稿（含过期请求）、单包900KiB；尚无删除来稿/解除绑定入口，超限明确失败。",
+        "受管音视频独立留存，媒体能力20分钟过期且撤销失效；远端媒体可失效、非HTTPS图片不展示，合法媒体域名须真实配置核验。",
+        "好友链接可转发；撤销不能收回已看见、已下载或截图的内容。"
+      ],
+      "history": [
+        {
+          "date": "2026-11-13",
+          "kind": "feature",
+          "summary": "新增独立绑定与私密来稿两表、复用已有出码路由、桥接动作和小程序只读页面。Web61最终定向/11持久化/隔离MySQL2项、原生1872项通过；真实入口验收与发布未完成。契约1.8.0同步，证据docs/qa/2026-11-13-mailbox-selected-sharing.md。"
         }
       ]
     }

@@ -157,4 +157,144 @@ describeMysql("story mailbox MySQL transactions", () => {
       }
     });
   }, 120_000);
+  it("persists private handoff, serializes binding across processes and revokes native friend access", async () => {
+    await withMysqlTestDatabase(async ({ databaseUrl }) => {
+      const db = await mysql.createConnection(databaseUrl);
+      try {
+        const [user] = await db.execute<mysql.ResultSetHeader>(
+          "INSERT INTO users (openId,name) VALUES ('native-mail-owner','Owner')"
+        );
+        const [story] = await db.execute<mysql.ResultSetHeader>(
+          "INSERT INTO stories (userId,title,body) VALUES (?, 'Paper boat', '{}')",
+          [user.insertId]
+        );
+        const blocks = {
+          body: "Chosen prose\n\nPRIVATE NOTE",
+          blockIds: ["chosen", "private"],
+          containsAiText: false,
+          settings: null,
+          coverKey: null,
+          bodyTextureKey: null,
+          images: {},
+          illustrations: [],
+        };
+        const [chapter] = await db.execute<mysql.ResultSetHeader>(
+          "INSERT INTO story_chapters (storyId,userId,position,title,blocks,version) VALUES (?,?,0,'Chapter',?,1)",
+          [story.insertId, user.insertId, JSON.stringify(blocks)]
+        );
+        const selection = {
+            version: 1,
+            keys: [`paragraph:${chapter.insertId}:chosen`],
+          },
+          subject = `shiguang:${"a".repeat(64)}`,
+          friend = `shiguang:${"b".repeat(64)}`;
+        const run = async (input: Record<string, unknown>) => {
+          const { stdout } = await spawnMysqlTestWorker({
+            databaseUrl,
+            script: path.resolve(
+              "server/integration/storyMailboxMysqlWorker.ts"
+            ),
+            args: [
+              Buffer.from(
+                JSON.stringify({
+                  userId: user.insertId,
+                  peerId: user.insertId + 1,
+                  storyId: story.insertId,
+                  selection,
+                  ...input,
+                })
+              ).toString("base64url"),
+            ],
+          }).completion;
+          return JSON.parse(
+            stdout
+              .split("\n")
+              .find(l => l.startsWith("MYSQL_WORKER_RESULT:"))!
+              .slice("MYSQL_WORKER_RESULT:".length)
+          );
+        };
+        const preview = await run({ action: "preview" }),
+          requestId = randomUUID();
+        const first = await run({
+          action: "handoff",
+          fingerprint: preview.fingerprint,
+          requestId,
+        });
+        expect(first.id).toBe(requestId);
+        expect(
+          (
+            await run({
+              action: "handoff",
+              fingerprint: preview.fingerprint,
+              requestId,
+            })
+          ).id
+        ).toBe(requestId);
+        expect(await run({ action: "nativeList", subject })).toEqual([]);
+        const confirmations = await Promise.all([
+          run({
+            action: "nativeConfirm",
+            subject,
+            code: first.code,
+            startAt: Date.now() + 800,
+          }),
+          run({
+            action: "nativeConfirm",
+            subject,
+            code: first.code,
+            startAt: Date.now() + 800,
+          }),
+        ]);
+        expect(confirmations.filter(r => r.repeated === false)).toHaveLength(1);
+        const inbox = await run({ action: "nativeList", subject });
+        expect(inbox).toHaveLength(1);
+        expect(inbox[0]).toMatchObject({ id: first.id });
+        expect(typeof inbox[0].title).toBe("string");
+        expect(inbox[0]).not.toHaveProperty("snapshot");
+        const read = await run({ action: "nativeRead", subject, id: first.id });
+        expect(read.mine).toBe(true);
+        expect(JSON.stringify(read)).not.toContain("PRIVATE NOTE");
+        expect(
+          (await run({ action: "nativeRead", subject: friend, id: first.id }))
+            .error
+        ).toBe("NOT_FOUND");
+        const link = await run({
+          action: "nativeShare",
+          subject,
+          id: first.id,
+        });
+        expect(
+          (await run({ action: "nativeShare", subject, id: first.id })).token
+        ).toBe(link.token);
+        expect(
+          (
+            await run({
+              action: "nativeRead",
+              subject: friend,
+              id: first.id,
+              token: link.token,
+            })
+          ).mine
+        ).toBe(false);
+        await run({
+          action: "nativeShare",
+          subject,
+          id: first.id,
+          revoke: true,
+        });
+        expect(
+          (
+            await run({
+              action: "nativeRead",
+              subject: friend,
+              id: first.id,
+              token: link.token,
+            })
+          ).error
+        ).toBe("NOT_FOUND");
+      } finally {
+        await db.end();
+      }
+    });
+  });
 });

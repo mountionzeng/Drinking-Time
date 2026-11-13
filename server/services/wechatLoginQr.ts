@@ -13,13 +13,14 @@ export const wechatLoginQrConfigured = () =>
 export async function createWechatLoginQr(
   code: string,
   expiresAt: Date,
-  request = authorityRequest
+  request = authorityRequest,
+  purpose?: "mailbox"
 ) {
   if (!/^[A-F0-9]{28}$/.test(code) || expiresAt.getTime() <= Date.now())
     throw new Error("wechat_qr_request_invalid");
   const response = await request(
     "/v1/web-login/qr",
-    { code, expiresAt: expiresAt.getTime() },
+    { code, expiresAt: expiresAt.getTime(), ...(purpose ? { purpose } : {}) },
     {
       enabled: wechatLoginQrConfigured(),
       maxResponseBytes: 1_500_000,

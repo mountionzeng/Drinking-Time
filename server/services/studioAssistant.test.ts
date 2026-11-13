@@ -288,3 +288,83 @@ describe("interface assistant permission and real mailbox execution", () => {
     expect(model).not.toHaveBeenCalled();
   });
 });
+
+describe("conversation partial sharing", () => {
+  it("uses the current mailbox selection and destination without expanding to a whole story", async () => {
+    memoryState.storyChapters[0].blocks.body = "Chosen line\n\nPRIVATE NOTE";
+    memoryState.storyChapters[0].blocks.blockIds = ["one", "private"];
+    ui.mailboxDraft = {
+      storyId,
+      destination: "web",
+      partial: true,
+      selection: { version: 1, keys: ["paragraph:10:one"] },
+    };
+    const proposal = await run({
+      tool: "send_story",
+      contactName: "岱",
+      useMailboxSelection: true,
+    });
+    expect(proposal.reply).toContain("Chosen line");
+    expect(proposal.reply).not.toContain("PRIVATE NOTE");
+    await confirm(proposal.pending!.token);
+    expect(
+      JSON.stringify(memoryState.storyMailboxEntries[0].snapshot)
+    ).not.toContain("PRIVATE NOTE");
+    ui.mailboxDraft = { ...ui.mailboxDraft, destination: "wechat" };
+    memoryState.storyMailboxContacts = [];
+    const native = await run({ tool: "send_story", useMailboxSelection: true });
+    expect(native.pending?.kind).toBe("send");
+    vi.stubEnv("WECHAT_MAILBOX_ENABLED", "false");
+    await expect(confirm(native.pending!.token)).rejects.toMatchObject({
+      code: "PRECONDITION_FAILED",
+    });
+    ui.mailboxDraft = { ...ui.mailboxDraft, selection: undefined };
+    expect(
+      (await run({ tool: "send_to_wechat", useMailboxSelection: true })).pending
+    ).toBeUndefined();
+  });
+  it("lists actual owned parts, signs the exact selection and limits confirmed sending", async () => {
+    memoryState.storyChapters[0].blocks.body = "Public line\n\nPRIVATE NOTE";
+    memoryState.storyChapters[0].blocks.blockIds = ["one", "private"];
+    const listed = await run({ tool: "list_story_parts" });
+    expect(listed.reply).toContain("paragraph:10:one");
+    const proposal = await run({
+      tool: "send_story",
+      contactName: "岱",
+      selection: { version: 1, keys: ["paragraph:10:one"] },
+    });
+    expect(proposal.reply).toContain("Public line");
+    expect(proposal.reply).not.toContain("PRIVATE NOTE");
+    await confirm(proposal.pending!.token);
+    expect(
+      JSON.stringify(memoryState.storyMailboxEntries[0].snapshot)
+    ).not.toContain("PRIVATE NOTE");
+  });
+  it("does not expand a partial natural-language request when model omits the selection", async () => {
+    model.mockResolvedValueOnce({
+      parsed: { tool: "send_story", contactName: "岱" },
+    });
+    const result = await planStudioAssistant({
+      userId: 1,
+      message: "只把第一章发给岱",
+      ui,
+      history: [],
+    });
+    expect(result.pending).toBeUndefined();
+    expect(memoryState.storyMailboxEntries).toHaveLength(0);
+  });
+  it("prepares native receipt without requiring a web contact or moving a login identity", async () => {
+    memoryState.storyMailboxContacts = [];
+    const proposal = await run({
+      tool: "send_to_wechat",
+      selection: { version: 1, keys: ["paragraph:10:one"] },
+    });
+    expect(proposal.pending?.kind).toBe("send");
+    expect(memoryState.storyMailboxHandoffs).toHaveLength(0);
+    expect(memoryState.accountIdentities).toHaveLength(0);
+    vi.stubEnv("WECHAT_MAILBOX_ENABLED", "false");
+    await expect(confirm(proposal.pending!.token)).rejects.toMatchObject({
+      code: "PRECONDITION_FAILED",
+    });
+  });
+});

@@ -48,13 +48,11 @@ beforeEach(() => {
     storyLoadEpoch: 1,
     messages: [],
   });
-  m.chat
-    .mockReset()
-    .mockResolvedValue({
-      handled: true,
-      reply: "Ready",
-      pending: { kind: "send", token: "signed-request" },
-    });
+  m.chat.mockReset().mockResolvedValue({
+    handled: true,
+    reply: "Ready",
+    pending: { kind: "send", token: "signed-request" },
+  });
   m.confirm.mockReset().mockResolvedValue({ handled: true, reply: "Sent" });
   m.apply.mockReset();
   vi.stubGlobal("window", new EventTarget());
@@ -105,20 +103,33 @@ describe("conversation interface bridge", () => {
       expect(m.confirm).not.toHaveBeenCalled();
     }
   );
-  it.each(["account", "story", "page", "contact"])(
-    "rejects a confirmation after changing %s",
-    async change => {
-      const run = render();
-      await run("把故事发给岱");
-      if (change === "account") m.state.accountId = 2;
-      if (change === "story") m.state.storyScopeEpoch++;
-      if (change === "page") ui.workspace = "editing";
-      if (change === "contact") ui.contactId = "x".repeat(43);
-      render();
-      await run("confirm send");
-      expect(m.confirm).not.toHaveBeenCalled();
-    }
-  );
+  it.each([
+    "account",
+    "story",
+    "page",
+    "contact",
+    "mailboxSelection",
+    "destination",
+  ])("rejects a confirmation after changing %s", async change => {
+    const run = render();
+    await run("把故事发给岱");
+    if (change === "account") m.state.accountId = 2;
+    if (change === "story") m.state.storyScopeEpoch++;
+    if (change === "page") ui.workspace = "editing";
+    if (change === "contact") ui.contactId = "x".repeat(43);
+    if (change === "mailboxSelection")
+      ui.mailboxDraft = {
+        storyId: 7,
+        destination: "web",
+        partial: true,
+        selection: { version: 1, keys: ["paragraph:7:a"] },
+      };
+    if (change === "destination")
+      ui.mailboxDraft = { storyId: 7, destination: "wechat", partial: false };
+    render();
+    await run("confirm send");
+    expect(m.confirm).not.toHaveBeenCalled();
+  });
   it("does not apply late navigation after a render changes page", async () => {
     let resolve!: (result: unknown) => void;
     m.chat.mockImplementation(

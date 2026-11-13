@@ -36,7 +36,7 @@ export function useStudioAssistant(
     const scopeKey = () => {
       const s = storySpineStore.getState(),
         ui = latest.current.getContext();
-      return `${s.accountId}:${s.activeStoryId}:${s.storyScopeEpoch}:${s.storyLoadEpoch}:${ui.workspace}:${ui.warehouseOpen}:${ui.mailboxOpen}:${ui.contactId}`;
+      return `${s.accountId}:${s.activeStoryId}:${s.storyScopeEpoch}:${s.storyLoadEpoch}:${ui.workspace}:${ui.warehouseOpen}:${ui.mailboxOpen}:${ui.contactId}:${JSON.stringify(ui.mailboxDraft ?? null)}`;
     };
     const scope = scopeKey();
     if (pending.current?.scope !== scope) pending.current = null;
@@ -90,12 +90,10 @@ export function useStudioAssistant(
         : await chat.mutateAsync({
             message,
             ui,
-            history: history
-              .slice(-8)
-              .map(m => ({
-                role: m.role as "user" | "assistant",
-                content: m.content.slice(0, 3000),
-              })),
+            history: history.slice(-8).map(m => ({
+              role: m.role as "user" | "assistant",
+              content: m.content.slice(0, 3000),
+            })),
           });
       if (scope !== scopeKey())
         return {

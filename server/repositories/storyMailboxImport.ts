@@ -1,4 +1,8 @@
 import {
+  receivedMailboxSelection,
+  selectMailboxPackage,
+} from "./storyMailboxSelection";
+import {
   copyMailboxVideos,
   discardMailboxVideos,
 } from "../services/storyMailboxVideo";
@@ -388,7 +392,14 @@ export async function receiveMailboxStory(userId: number, entryId: string) {
           if (!sql) localCopyId = id;
         }
       );
-      const baseline = await captureMailboxPackage(storyId, userId, sql);
+      const fullBaseline = await captureMailboxPackage(storyId, userId, sql);
+      const baseline = selectMailboxPackage(
+        fullBaseline,
+        entry.snapshot.selection
+          ? receivedMailboxSelection(fullBaseline)
+          : undefined,
+        false
+      );
       if (sql) {
         await sql
           .update(s.storyMailboxEntries)

@@ -1,3 +1,4 @@
+import { storyMailboxNativeRoutes, storyMailboxNativeMediaRoutes } from "./storyMailboxNative";
 import { downloadWarehouseFile } from "./warehouseFileRoute";
 import { artSystemSkillDownload } from "./artSystemSkillDownload";
 import { handleChapterMedia } from "../chapterMediaStore";
@@ -172,6 +173,8 @@ async function startServer() {
   app.use("/api/minigame", minigameRoutes());
   // 拾光家忆云函数用 HMAC 调用，不依赖浏览器 Cookie，也不受浏览器 Origin 门禁。
   app.use("/api/shiguang", shiguangDesktopBridgeRoutes());
+  app.use("/api/shiguang", storyMailboxNativeRoutes());
+  app.use("/api/mailbox-native-media", storyMailboxNativeMediaRoutes());
   app.use("/api/shiguang", shiguangComputeBridgeRoutes());
   app.use("/api/shiguang", shiguangBridgeRoutes());
   app.use(

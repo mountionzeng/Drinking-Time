@@ -14138,5 +14138,93 @@
   "故事内容": {
     "en": "Story content",
     "fr": "Contenu de l’histoire"
+  },
+  "勾选要发送的部分": {
+    "en": "Choose the parts to send",
+    "fr": "Choisir les parties à envoyer"
+  },
+  "只共享勾选部分及其后续修改。其他段落、新增内容、旧版本和剪辑线保持私密。": {
+    "en": "Only selected parts and their later edits are shared. Other paragraphs, new content, prior versions and the timeline stay private.",
+    "fr": "Seules les parties choisies et leurs modifications sont partagées. Les autres paragraphes, ajouts, anciennes versions et le montage restent privés."
+  },
+  "已选择 {0} 项": {
+    "en": "{0} items selected",
+    "fr": "{0} éléments sélectionnés"
+  },
+  "发送内容": {
+    "en": "Content to send",
+    "fr": "Contenu à envoyer"
+  },
+  "完整故事": {
+    "en": "Complete story",
+    "fr": "Récit complet"
+  },
+  "选择部分内容": {
+    "en": "Select parts",
+    "fr": "Choisir des parties"
+  },
+  "重新读取内容": {
+    "en": "Reload content",
+    "fr": "Recharger le contenu"
+  },
+  "已接收到你的小程序账号。可在“我的 → 网页寄来的故事”查看，再选择转给微信朋友。": {
+    "en": "Received in your mini-program account. Open Me → Stories from the web, then choose whether to share with WeChat friends.",
+    "fr": "Reçu dans votre compte mini-programme. Ouvrez Moi → Récits du web, puis choisissez vos amis WeChat."
+  },
+  "接收二维码已过期，请重新准备。": {
+    "en": "The receipt QR code has expired. Prepare a new one.",
+    "fr": "Le code QR de réception a expiré. Préparez-en un nouveau."
+  },
+  "用本人的微信扫码，关联小程序接收身份并确认接收。": {
+    "en": "Scan with your own WeChat to link your receiving identity and confirm receipt.",
+    "fr": "Scannez avec votre propre WeChat pour associer votre identité et confirmer la réception."
+  },
+  "小程序接收二维码": {
+    "en": "Mini-program receipt QR code",
+    "fr": "Code QR de réception mini-programme"
+  },
+  "接收后仅自己可见，不会自动发送给微信好友。": {
+    "en": "Received content is private. Nothing is automatically sent to WeChat friends.",
+    "fr": "Le contenu reçu reste privé. Aucun envoi automatique aux amis WeChat."
+  },
+  "发送到": {
+    "en": "Send to",
+    "fr": "Envoyer à"
+  },
+  "网页联系人": {
+    "en": "Web contact",
+    "fr": "Contact web"
+  },
+  "我的微信小程序": {
+    "en": "My WeChat mini-program",
+    "fr": "Mon mini-programme WeChat"
+  },
+  "收件人": {
+    "en": "Recipient",
+    "fr": "Destinataire"
+  },
+  "选择一位朋友": {
+    "en": "Choose a friend",
+    "fr": "Choisir un ami"
+  },
+  "已关联小程序接收身份。扫码确认后保存到自己的账号，再由你选择微信好友。": {
+    "en": "Receiving identity linked. Scan to save to your own account, then choose WeChat friends.",
+    "fr": "Identité associée. Scannez pour enregistrer dans votre compte, puis choisissez vos amis WeChat."
+  },
+  "先用本人的微信扫码关联接收身份；原有账号、故事和余额不变。": {
+    "en": "First scan with your own WeChat to link your receiving identity. Existing accounts, stories and balances are preserved.",
+    "fr": "Scannez avec votre WeChat pour associer votre identité de réception. Comptes, récits et soldes existants sont conservés."
+  },
+  "小程序接收尚未启用，原有网页发送仍可使用。": {
+    "en": "Mini-program receiving is not enabled yet. Web sending remains available.",
+    "fr": "La réception mini-programme n’est pas encore activée. L’envoi web reste disponible."
+  },
+  "准备小程序接收二维码": {
+    "en": "Prepare mini-program receipt QR",
+    "fr": "Préparer le QR de réception"
+  },
+  "小程序接收的是本次所选内容的独立副本。其他内容保持私密；后续修改需要再次发送。": {
+    "en": "The mini-program receives an independent copy of this selection. Other content stays private; send again to share later changes.",
+    "fr": "Le mini-programme reçoit une copie indépendante de cette sélection. Le reste reste privé ; envoyez à nouveau pour partager les modifications ultérieures."
   }
 }

@@ -77,6 +77,24 @@ describe("local state schema compatibility", () => {
     expect(runtime.memoryState.storyMailboxEntries[0]).toMatchObject({ ...rows.storyMailboxEntries[0], createdAt: new Date(date), readAt: new Date(date) });
     expect(runtime.memoryState.storyMailboxThreads[0].copyFingerprint).toBe("copy");
   });
+  it("reloads private WeChat receipts with expiry, binding and sharing generation intact", async () => {
+    vi.resetModules();
+    const file = persistPath + ".mailbox-native";
+    vi.stubEnv("LOCAL_PERSIST_PATH", file);
+    vi.stubEnv("DATABASE_URL", "");
+    const date = "2026-11-13T10:00:00.123Z";
+    const rows = {
+      storyMailboxWechatBindings: [{userId: 8, subject: "shiguang:test", createdAt: date}],
+      storyMailboxHandoffs: [{id: "receipt", userId: 8, sourceStoryId: 7, codeHash: "code", requestHash: "request", recipientSubject: "shiguang:test", snapshot: {selection: {version: 1, keys: ["paragraph:7:a"]}}, shareHash: "generation", createdAt: date, expiresAt: date, confirmedAt: date}],
+    };
+    await writeFile(file, JSON.stringify(rows));
+    const runtime = await import("./runtime");
+    await runtime.ensureMemoryLoaded();
+    expect(runtime.memoryState.storyMailboxWechatBindings[0].createdAt).toEqual(new Date(date));
+    expect(runtime.memoryState.storyMailboxHandoffs[0]).toMatchObject({...rows.storyMailboxHandoffs[0], createdAt: new Date(date), expiresAt: new Date(date), confirmedAt: new Date(date)});
+    await runtime.persistMemoryState();
+    expect(JSON.parse(await readFile(file, "utf8"))).toMatchObject(rows);
+  });
   it("reloads administrator labels and their audit metadata", async () => {
     vi.resetModules();
     const file = persistPath + ".admin-labels";
@@ -206,7 +224,7 @@ describe("local state schema compatibility", () => {
       );
       expect(Object.keys(runtime.memoryState).filter(key =>
         Array.isArray(runtime.memoryState[key as keyof typeof runtime.memoryState])
-      ).sort()).toEqual([...legacyCollections.map(([, collection]) => collection), "storyContextShares", "storyContextShareImports", "phoneLoginChallenges", "memoryCards", "downstreamRegenerationCandidates", "artworkShares", "feedbackPosts", "accountMemorySpaces", "adminUserLabels", "chapterExports", "chapterImports", "chapterPackages", "chapterDeliveries", "materialCaptures", "materialCaptureTokens", "storyMailboxContacts", "storyMailboxThreads", "storyMailboxEntries"].sort());
+      ).sort()).toEqual([...legacyCollections.map(([, collection]) => collection), "storyContextShares", "storyContextShareImports", "phoneLoginChallenges", "memoryCards", "downstreamRegenerationCandidates", "artworkShares", "feedbackPosts", "accountMemorySpaces", "adminUserLabels", "chapterExports", "chapterImports", "chapterPackages", "chapterDeliveries", "materialCaptures", "materialCaptureTokens", "storyMailboxContacts", "storyMailboxThreads", "storyMailboxEntries", "storyMailboxHandoffs", "storyMailboxWechatBindings"].sort());
 
       for (const [index, [key, collection]] of legacyCollections.entries()) {
         expect(JSON.parse(JSON.stringify(runtime.memoryState[collection]))).toMatchObject(rows[collection]);

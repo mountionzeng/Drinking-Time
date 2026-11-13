@@ -1,3 +1,10 @@
+import {
+  createMailboxHandoff,
+  confirmMailboxHandoff,
+  listNativeMailbox,
+  readNativeMailbox,
+  shareNativeMailbox,
+} from "../repositories/storyMailboxHandoff";
 import { storyMailboxRouter } from "../routers/storyMailbox";
 import { mailboxContactId } from "../repositories/storyMailbox";
 import type { TrpcContext } from "../_core/context";
@@ -14,8 +21,26 @@ try {
     );
   let result: unknown;
   const contactId = mailboxContactId(input.userId, input.peerId);
-  if (input.action === "preview")
-    result = await caller.preview({ storyId: input.storyId });
+  if (input.action === "handoff")
+    result = await createMailboxHandoff(input.userId, {
+      storyId: input.storyId,
+      selection: input.selection,
+      fingerprint: input.fingerprint,
+      requestId: input.requestId,
+    });
+  else if (input.action === "nativeConfirm")
+    result = await confirmMailboxHandoff(input.subject, input.code);
+  else if (input.action === "nativeList")
+    result = await listNativeMailbox(input.subject);
+  else if (input.action === "nativeRead")
+    result = await readNativeMailbox(input.subject, input.id, input.token);
+  else if (input.action === "nativeShare")
+    result = await shareNativeMailbox(input.subject, input.id, input.revoke);
+  else if (input.action === "preview")
+    result = await caller.preview({
+      storyId: input.storyId,
+      selection: input.selection,
+    });
   else if (input.action === "send")
     result = await caller.send({
       storyId: input.storyId,
@@ -23,6 +48,7 @@ try {
       requestId: input.requestId,
       fingerprint: input.fingerprint,
       note: input.note ?? "",
+      selection: input.selection,
     });
   else if (input.action === "receive")
     result = await caller.receive({ entryId: input.entryId });

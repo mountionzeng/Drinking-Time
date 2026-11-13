@@ -3201,3 +3201,25 @@ export const imageGenerationTasks = mysqlTable("image_generation_tasks", {
   index("image_task_kind_idx").on(table.mediaKind, table.status),
 ]);
 export type ImageGenerationTaskRow = typeof imageGenerationTasks.$inferSelect;
+
+/** Mini-program content channel binding; deliberately separate from login identities/wallets. */
+export const storyMailboxWechatBindings = mysqlTable("story_mailbox_wechat_bindings", {
+  userId: int("userId").primaryKey(),
+  subject: varchar("subject", { length: 73 }).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+export type StoryMailboxWechatBinding = typeof storyMailboxWechatBindings.$inferSelect;
+export const storyMailboxHandoffs = mysqlTable("story_mailbox_handoffs", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  userId: int("userId").notNull(),
+  sourceStoryId: int("sourceStoryId").notNull(),
+  codeHash: varchar("codeHash", { length: 64 }).notNull(),
+  requestHash: varchar("requestHash", { length: 64 }).notNull(),
+  recipientSubject: varchar("recipientSubject", { length: 73 }),
+  snapshot: json("snapshot").$type<import("../server/repositories/storyMailboxPackage").MailboxPackage>().notNull(),
+  shareHash: varchar("shareHash", { length: 64 }),
+  expiresAt: timestamp("expiresAt").notNull(),
+  confirmedAt: timestamp("confirmedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, t => [uniqueIndex("mailbox_handoff_code").on(t.codeHash), index("mailbox_handoff_owner").on(t.userId), index("mailbox_handoff_recipient").on(t.recipientSubject)]);
+export type StoryMailboxHandoff = typeof storyMailboxHandoffs.$inferSelect;

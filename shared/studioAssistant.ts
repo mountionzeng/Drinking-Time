@@ -1,3 +1,4 @@
+import { mailboxSelectionSchema } from "./storyMailboxSelection";
 import { z } from "zod";
 
 export const studioViewSchema = z.enum([
@@ -21,6 +22,15 @@ export const studioUiContextSchema = z
     selection: z
       .object({ kind: z.string().max(50), label: z.string().max(600) })
       .nullable(),
+    mailboxDraft: z
+      .object({
+        storyId: z.number().int().positive(),
+        destination: z.enum(["web", "wechat"]),
+        partial: z.boolean(),
+        selection: mailboxSelectionSchema.optional(),
+      })
+      .nullable()
+      .optional(),
     language: z.enum(["zh", "en", "fr"]).default("zh"),
   })
   .strict();
@@ -34,7 +44,12 @@ export const STUDIO_CAPABILITIES = [
   { tool: "list_contacts", label: "查看故事联系人" },
   { tool: "open_mailbox", label: "打开邮箱或某位联系人的来往" },
   { tool: "read_correspondence", label: "刷新并查看朋友发来或修改了什么" },
-  { tool: "send_story", label: "发送已保存的完整故事，聊天确认后执行" },
+  {
+    tool: "send_to_wechat",
+    label: "将完整故事或所选部分放到本人小程序，确认后显示接收二维码",
+  },
+  { tool: "list_story_parts", label: "查看故事可分享的段落、图片、视频与声音" },
+  { tool: "send_story", label: "发送完整故事或明确选中的部分，聊天确认后执行" },
   { tool: "receive_version", label: "独立接收指定来稿，聊天确认后执行" },
   { tool: "remove_contact", label: "停止联系并保留旧作品，聊天确认后执行" },
 ] as const;
@@ -50,13 +65,24 @@ export const studioPlanSchema = z
     entryId: z.string().uuid().optional(),
     latest: z.boolean().optional(),
     note: z.string().max(2000).optional(),
+    selection: mailboxSelectionSchema.optional(),
+    useMailboxSelection: z.boolean().optional(),
   })
   .strict();
 export type StudioPlan = z.infer<typeof studioPlanSchema>;
 export type StudioUiAction =
   | { type: "workspace"; workspace: z.infer<typeof studioViewSchema> }
   | { type: "mailbox"; contactId?: string }
-  | { type: "story"; storyId: number };
+  | { type: "story"; storyId: number }
+  | {
+      type: "wechatHandoff";
+      receipt: {
+        id: string;
+        confirmed: boolean;
+        expiresAt: string;
+        qrDataUrl: string | null;
+      };
+    };
 export type StudioAssistantResult = {
   handled: boolean;
   reply: string;
@@ -67,7 +93,7 @@ export const STUDIO_ASSISTANT_CHANGED = "dt:studio-assistant-mailbox-changed";
 
 /** Eligibility only: the server model selects a validated tool; this never authorizes a write. */
 export function isStudioAssistantRequest(text: string): boolean {
-  return /邮箱|收件箱|联系人|界面|页面|寄给|发给|发送.*故事|接收.*(?:故事|版本|来稿)|停止联系|移除.*(?:好友|朋友)|朋友.*(?:改|发)|(?:打开|切换|切到|进入|查看|看看).*(?:仓库|故事|书页|视频|分镜)|(?:有哪些|列出).*(?:故事|朋友)|(?:在哪|在做什么|选中了什么)|好友.*(?:改|发)|好友列表|确认(?:发送|接收|停止联系)|取消(?:发送|接收|停止联系|操作)|\b(?:mailbox|inbox|contact|interface|screen|send .* to|receive .* story|accept .*version|stop sharing|(?:open|switch to|show|list) .*(?:book|video|warehouse|stor(?:y|ies)|friends)|where am i|what.*selected|confirm (?:send|receive|remove)|cancel action)\b|boîte|courrier|contact|ouvrir|envoyer|recevoir|arrêter le partage|où suis-je/i.test(
+  return /小程序|微信|wechat|mini.program|邮箱|收件箱|联系人|界面|页面|寄给|发给|发送.*故事|接收.*(?:故事|版本|来稿)|停止联系|移除.*(?:好友|朋友)|朋友.*(?:改|发)|(?:打开|切换|切到|进入|查看|看看).*(?:仓库|故事|书页|视频|分镜)|(?:有哪些|列出).*(?:故事|朋友)|(?:在哪|在做什么|选中了什么)|好友.*(?:改|发)|好友列表|确认(?:发送|接收|停止联系)|取消(?:发送|接收|停止联系|操作)|\b(?:mailbox|inbox|contact|interface|screen|send .* to|receive .* story|accept .*version|stop sharing|(?:open|switch to|show|list) .*(?:book|video|warehouse|stor(?:y|ies)|friends)|where am i|what.*selected|confirm (?:send|receive|remove)|cancel action)\b|boîte|courrier|contact|ouvrir|envoyer|recevoir|arrêter le partage|où suis-je/i.test(
     text
   );
 }

@@ -23,6 +23,7 @@ import { decodeStoryTimelinePayload } from "./timelineCodec";
 /** Server-only immutable package. APIs return an inventory, never these rows. */
 export type MailboxPackage = {
   schemaVersion: 1;
+  selection?: import("../../shared/storyMailboxSelection").MailboxSelection;
   title: string;
   body: Record<string, unknown>;
   chapters: schema.StoryChapter[];

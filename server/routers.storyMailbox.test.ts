@@ -707,3 +707,171 @@ describe("private full-story mailbox", () => {
     expect(memoryState.stories.filter(s => s.userId === 2)).toHaveLength(0);
   });
 });
+
+describe("fixed partial story sharing", () => {
+  it("uses content identities for legacy prose and never shifts onto later private paragraphs", async () => {
+    const id = await story();
+    const chapter = memoryState.storyChapters[0];
+    chapter.blocks.body = "Legacy shared\n\nPRIVATE LEGACY";
+    chapter.blocks.blockIds = [];
+    const parts = await api(1).parts({ storyId: id });
+    const selection = {
+      version: 1 as const,
+      keys: [parts.find(p => p.label === "Legacy shared")!.key],
+    };
+    const preview = await api(1).preview({ storyId: id, selection });
+    const result = await api(1).send({
+      storyId: id,
+      selection,
+      fingerprint: preview.fingerprint,
+      contactId: mailboxContactId(1, 2),
+      requestId: randomUUID(),
+    });
+    chapter.blocks.body = "NEW PRIVATE\n\nLegacy shared\n\nPRIVATE LEGACY";
+    await api(2).history({ contactId: mailboxContactId(2, 1) });
+    expect(
+      memoryState.storyMailboxEntries.filter(
+        e => e.threadId === result.threadId
+      )
+    ).toHaveLength(1);
+    chapter.blocks.body = "NEW PRIVATE\n\nCHANGED LEGACY\n\nPRIVATE LEGACY";
+    await api(2).history({ contactId: mailboxContactId(2, 1) });
+    const snapshots = memoryState.storyMailboxEntries.filter(
+      e => e.threadId === result.threadId
+    );
+    expect(JSON.stringify(snapshots)).not.toContain("PRIVATE");
+    expect(JSON.stringify(snapshots)).not.toContain("CHANGED LEGACY");
+  });
+  async function partial() {
+    const id = await story();
+    const chapter = memoryState.storyChapters[0];
+    chapter.blocks.body = "Shared paragraph\n\nPRIVATE OTHER PARAGRAPH";
+    chapter.blocks.blockIds = ["shared", "private"];
+    const selection = { version: 1 as const, keys: [`paragraph:101:shared`] };
+    const preview = await api(1).preview({ storyId: id, selection });
+    const sent = await api(1).send({
+      storyId: id,
+      selection,
+      fingerprint: preview.fingerprint,
+      contactId: mailboxContactId(1, 2),
+      requestId: randomUUID(),
+    });
+    return { id, chapter, selection, sent };
+  }
+  it("projects only selected prose, excluding private paragraphs, mirrors and old history", async () => {
+    const { sent } = await partial();
+    const snapshot = memoryState.storyMailboxEntries.find(
+      e => e.threadId === sent.threadId
+    )!.snapshot;
+    expect(snapshot.chapters[0].blocks.body).toBe("Shared paragraph");
+    expect(snapshot.chapterVersions).toEqual([]);
+    expect(JSON.stringify(snapshot)).not.toContain("PRIVATE");
+    expect(JSON.stringify(snapshot)).not.toContain("旧章正文");
+    expect(JSON.stringify(snapshot)).not.toContain("旧正文");
+    expect(snapshot.timeline).toBeNull();
+  });
+  it("ignores private edits and new paragraphs, but records changes to the same selected paragraph", async () => {
+    const { chapter, sent } = await partial();
+    chapter.blocks.body = "Shared paragraph\n\nPRIVATE CHANGED\n\nPRIVATE NEW";
+    chapter.blocks.blockIds.push("new");
+    chapter.version++;
+    expect(await api(2).refresh({ threadId: sent.threadId })).toEqual({
+      added: 0,
+    });
+    chapter.blocks.body = "Shared edit\n\nPRIVATE CHANGED\n\nPRIVATE NEW";
+    expect(await api(2).refresh({ threadId: sent.threadId })).toEqual({
+      added: 1,
+    });
+    const latest = memoryState.storyMailboxEntries.at(-1)!.snapshot;
+    expect(latest.chapters[0].blocks.body).toBe("Shared edit");
+    expect(JSON.stringify(latest)).not.toContain("PRIVATE");
+  });
+  it("keeps receiver additions private and remaps the selected scope when accepting a return", async () => {
+    const { sent } = await partial();
+    const first = memoryState.storyMailboxEntries[0];
+    const received = await api(2).receive({ entryId: first.id });
+    const copy = memoryState.storyChapters.find(
+      c => c.storyId === received.storyId
+    )!;
+    copy.blocks.body = "Friend edit\n\nPRIVATE FRIEND NOTE";
+    copy.blocks.blockIds.push("friend-private");
+    expect(await api(1).refresh({ threadId: sent.threadId })).toEqual({
+      added: 1,
+    });
+    const update = memoryState.storyMailboxEntries.at(-1)!;
+    expect(update.snapshot.chapters[0].blocks.body).toBe("Friend edit");
+    const back = await api(1).receive({ entryId: update.id });
+    const returned = memoryState.storyChapters.find(
+      c => c.storyId === back.storyId
+    )!;
+    returned.blocks.body = "Returned edit\n\nPRIVATE AGAIN";
+    returned.blocks.blockIds.push("return-private");
+    expect(await api(2).refresh({ threadId: sent.threadId })).toEqual({
+      added: 1,
+    });
+    expect(
+      JSON.stringify(memoryState.storyMailboxEntries.at(-1)!.snapshot)
+    ).not.toContain("PRIVATE");
+  });
+  it("does not shift selection onto a neighbour after a paragraph is removed", async () => {
+    const { chapter, sent } = await partial();
+    chapter.blocks.body = "PRIVATE OTHER PARAGRAPH";
+    chapter.blocks.blockIds = ["private"];
+    await api(2).refresh({ threadId: sent.threadId });
+    const latest = memoryState.storyMailboxEntries.at(-1)!.snapshot;
+    expect(latest.chapters).toEqual([]);
+    expect(JSON.stringify(latest)).not.toContain("PRIVATE");
+  });
+  it("rejects foreign or stale selections, empty selections and stale selected text", async () => {
+    const { id, chapter, selection } = await partial();
+    await expect(api(2).parts({ storyId: id })).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+    await expect(
+      api(1).preview({
+        storyId: id,
+        selection: { version: 1, keys: ["paragraph:999:shared"] },
+      })
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    await expect(
+      api(1).preview({ storyId: id, selection: { version: 1, keys: [] } })
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    const preview = await api(1).preview({ storyId: id, selection });
+    chapter.blocks.body = "Changed after preview\n\nPRIVATE";
+    await expect(
+      api(1).send({
+        storyId: id,
+        selection,
+        fingerprint: preview.fingerprint,
+        contactId: mailboxContactId(1, 2),
+        requestId: randomUUID(),
+      })
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+  });
+  it("selects one video without including its private source image, timeline or versions", async () => {
+    const id = await completeStory();
+    const selection = { version: 1 as const, keys: ["video:501"] };
+    const preview = await api(1).preview({ storyId: id, selection });
+    expect(preview.inventory).toMatchObject({
+      images: 0,
+      videos: 1,
+      chapters: 0,
+      timelineItems: 0,
+      bookVersions: 0,
+    });
+    await api(1).send({
+      storyId: id,
+      selection,
+      fingerprint: preview.fingerprint,
+      contactId: mailboxContactId(1, 2),
+      requestId: randomUUID(),
+    });
+    const entry = memoryState.storyMailboxEntries.at(-1)!;
+    expect(entry.snapshot.videos[0].sourceImageId).toBeNull();
+    const result = await api(2).receive({ entryId: entry.id });
+    const copy = await captureMailboxPackage(result.storyId, 2);
+    expect(copy.videos).toHaveLength(1);
+    expect(copy.images).toHaveLength(0);
+    expect(copy.chapters).toHaveLength(0);
+  });
+});

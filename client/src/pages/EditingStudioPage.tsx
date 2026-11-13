@@ -1,3 +1,4 @@
+import type { WechatMailboxReceiptValue } from "@/features/storyMailbox/WechatMailboxReceipt";
 import { hasPendingStudioDraft } from "@/features/storyAgent/studioDraftState";
 import { useDesktopWritingSession } from "@/features/writingCompanion/desktopWritingSession";
 import { useStudioAssistant } from "@/features/storyAgent/useStudioAssistant";
@@ -800,7 +801,10 @@ export default function EditingStudioPage() {
   const runVisualUnderstandingChat = useVisualUnderstandingChat();
   const runWarehouseFileChat = useWarehouseFileChat();
   const [accountMemoriesOpen, setAccountMemoriesOpen] = useState(false);
+  const [mailboxDraft,setMailboxDraft]=useState<StudioUiContext["mailboxDraft"]>(null);
+  const [mailboxNativeReceipt,setMailboxNativeReceipt]=useState<(WechatMailboxReceiptValue & {ownerId:number})|null>(null);
   const [mailboxOpen, setMailboxOpen] = useState(false);
+  useEffect(()=>{setMailboxNativeReceipt(null);setMailboxDraft(null);setMailboxOpen(false);},[user?.id]);
   const [mailboxSection,setMailboxSection]=useState<string|null>(null);
   const [mailboxContactId, setMailboxContactId] = useState<string | null>(null);
   const pendingMailboxVersion=useRef<string|null>(null);
@@ -841,15 +845,17 @@ export default function EditingStudioPage() {
     return { storyId: state.activeStoryId && state.activeStoryId > 0 ? state.activeStoryId : null,
       workspace, warehouseOpen: materialVisible, mailboxOpen,
       contactId: mailboxOpen ? mailboxContactId : null,
+      mailboxDraft: mailboxOpen ? mailboxDraft : null,
       saveStatus: hasPendingStudioDraft(state.accountId, state.activeStoryId, state.storyScopeEpoch) ? "pending" : state.saveStatus === "saved" ? "saved" : state.saveStatus === "idle" ? "unknown" : "pending",
       selection: selectedText ? { kind: "writing", label: selectedText.slice(0, 600) } : selectedModule && moduleLabel ? { kind: selectedModule.kind, label: moduleLabel } : selection && selection.storyId === state.activeStoryId ? { kind: selection.sourceType, label: (selection.fullText || selection.sourceId).slice(0, 600) } : null,
       language };
-  }, [workspace, materialVisible, mailboxOpen, mailboxContactId, language]);
+  }, [workspace, materialVisible, mailboxOpen, mailboxContactId, mailboxDraft, language]);
   const applyInterfaceAction = useCallback((action: StudioUiAction) => {
-    if (action.type === "mailbox") { setMailboxSection(action.contactId ?? null); setMailboxOpen(true); }
+    if (action.type === "wechatHandoff") { setMailboxNativeReceipt(user?.id ? {...action.receipt,ownerId:user.id} : null);setMailboxSection(null);setMailboxOpen(true); }
+    else if (action.type === "mailbox") { setMailboxSection(action.contactId ?? null); setMailboxOpen(true); }
     else if (action.type === "story") { setMailboxOpen(false); openStory(action.storyId); }
     else { setMailboxOpen(false); if (action.workspace === "materialWarehouse") setMaterialVisible(true); else { setMaterialVisible(false); changeWorkspace(action.workspace); } }
-  }, [changeWorkspace, openStory]);
+  }, [changeWorkspace, openStory, user?.id]);
   const runInterfaceCommand = useStudioAssistant(getInterfaceContext, applyInterfaceAction);
 
 
@@ -1039,7 +1045,7 @@ export default function EditingStudioPage() {
           window.dispatchEvent(new CustomEvent(STUDIO_TOUR_REPLAY_EVENT));
         }}
       />
-      <StoryMailbox onContactChange={setMailboxContactId} initialSection={mailboxSection} open={mailboxOpen} onOpenChange={setMailboxOpen} userId={user?.id} currentStoryId={activeStoryId} shareBacks={shareBackNotices.notices} onOpenStory={(id,versionId)=>{pendingMailboxVersion.current=versionId??null;openStory(id);}} />
+      <StoryMailbox onDraftChange={setMailboxDraft} nativeReceipt={mailboxNativeReceipt?.ownerId === user?.id ? mailboxNativeReceipt : null} onContactChange={setMailboxContactId} initialSection={mailboxSection} open={mailboxOpen} onOpenChange={setMailboxOpen} userId={user?.id} currentStoryId={activeStoryId} shareBacks={shareBackNotices.notices} onOpenStory={(id,versionId)=>{pendingMailboxVersion.current=versionId??null;openStory(id);}} />
       <StudioTour blockedByOverlay={dailyLetterOpen || accountMemoriesOpen || mailboxOpen} />
       <DailyLetterWelcome
         suspended={accountMemoriesOpen || mailboxOpen}

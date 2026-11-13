@@ -1,3 +1,5 @@
+import type { MailboxSelection } from "../../shared/storyMailboxSelection";
+import { mailboxParts, selectMailboxPackage } from "./storyMailboxSelection";
 import {
   retainMailboxVideos,
   discardMailboxVideos,
@@ -38,11 +40,18 @@ async function author(sql: MailboxSql | null, userId: number) {
     : memoryState.users.filter(u => u.id === userId);
   return user?.name?.trim().slice(0, 100) || "朋友";
 }
-export async function previewMailboxStory(userId: number, storyId: number) {
+export async function previewMailboxStory(
+  userId: number,
+  storyId: number,
+  selection?: MailboxSelection
+) {
   if (!(await getStoryById(storyId, userId))) throw mailboxGone();
-  const pkg = await captureMailboxPackage(storyId, userId);
+  const full = await captureMailboxPackage(storyId, userId);
+  const pkg = selectMailboxPackage(full, selection);
   validateMailboxReferences(pkg);
   return {
+    parts: mailboxParts(full),
+    selection: pkg.selection,
     title: pkg.title,
     inventory: pkg.inventory,
     fingerprint: pkg.fingerprint,
@@ -56,6 +65,7 @@ export async function sendMailboxStory(
     requestId: string;
     fingerprint: string;
     note: string;
+    selection?: MailboxSelection;
   }
 ) {
   const contact = await resolveMailboxContact(userId, input.contactId);
@@ -101,7 +111,10 @@ export async function sendMailboxStory(
             message: "故事往来已达容量，现有记录保留",
           });
       }
-      const pkg = await captureMailboxPackage(input.storyId, userId, sql);
+      const pkg = selectMailboxPackage(
+        await captureMailboxPackage(input.storyId, userId, sql),
+        input.selection
+      );
       if (pkg.fingerprint !== input.fingerprint) throw conflict();
       validateMailboxReferences(pkg);
       const audioSnapshot = await retainMailboxAudio(pkg, staged);
@@ -162,20 +175,6 @@ export async function refreshMailboxThread(userId: number, threadId: string) {
         [current.recipientId, current.copyStoryId],
       ] as const) {
         if (!storyId) continue;
-        const pkg = await captureMailboxPackage(storyId, owner, sql).catch(
-          e => {
-            if (e instanceof TRPCError && e.code === "NOT_FOUND") return null;
-            throw e;
-          }
-        );
-        if (!pkg) continue;
-        if (
-          pkg.fingerprint ===
-          (owner === current.senderId
-            ? current.sourceFingerprint
-            : current.copyFingerprint)
-        )
-          continue;
         const [last] = sql
           ? await sql
               .select()
@@ -194,6 +193,21 @@ export async function refreshMailboxThread(userId: number, threadId: string) {
           : memoryState.storyMailboxEntries
               .filter(e => e.threadId === threadId && e.senderId === owner)
               .slice(-1);
+        const full = await captureMailboxPackage(storyId, owner, sql).catch(
+          e => {
+            if (e instanceof TRPCError && e.code === "NOT_FOUND") return null;
+            throw e;
+          }
+        );
+        if (!full) continue;
+        const pkg = selectMailboxPackage(full, last?.snapshot.selection, false);
+        if (
+          pkg.fingerprint ===
+          (owner === current.senderId
+            ? current.sourceFingerprint
+            : current.copyFingerprint)
+        )
+          continue;
         if (last?.fingerprint === pkg.fingerprint) continue;
         validateMailboxReferences(pkg);
         const audioSnapshot = await retainMailboxAudio(

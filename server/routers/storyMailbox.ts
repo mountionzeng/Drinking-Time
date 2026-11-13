@@ -1,3 +1,14 @@
+import { prepareWechatMailboxHandoff } from "../services/storyMailboxHandoff";
+import { TRPCError } from "@trpc/server";
+import { wechatLoginQrConfigured } from "../services/wechatLoginQr";
+import {
+  getMailboxHandoff,
+  mailboxHandoffEnabled,
+  mailboxWechatBinding,
+} from "../repositories/storyMailboxHandoff";
+import { mailboxSelectionSchema } from "../../shared/storyMailboxSelection";
+import { captureMailboxPackage } from "../repositories/storyMailboxPackage";
+import { mailboxParts } from "../repositories/storyMailboxSelection";
 import { z } from "zod";
 import { router, protectedProcedure } from "../_core/trpc";
 import {
@@ -17,6 +28,41 @@ import {
 import { receiveMailboxStory } from "../repositories/storyMailboxImport";
 const contact = z.object({ contactId: z.string().length(43) });
 export const storyMailboxRouter = router({
+  nativeStatus: protectedProcedure.query(async ({ ctx }) => ({
+    enabled: mailboxHandoffEnabled() && wechatLoginQrConfigured(),
+    bound:
+      mailboxHandoffEnabled() &&
+      Boolean(await mailboxWechatBinding(ctx.user.id)),
+  })),
+  nativeCreate: protectedProcedure
+    .input(
+      z.object({
+        storyId: z.number().int().positive(),
+        selection: mailboxSelectionSchema.optional(),
+        fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+        requestId: z.string().uuid(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      return prepareWechatMailboxHandoff(ctx.user.id, input);
+    }),
+  nativePoll: protectedProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const row = await getMailboxHandoff(input.id);
+      if (!row || row.userId !== ctx.user.id)
+        throw new TRPCError({ code: "NOT_FOUND" });
+      return {
+        confirmed: Boolean(row.confirmedAt),
+        expired: !row.confirmedAt && row.expiresAt.getTime() <= Date.now(),
+      };
+    }),
+
+  parts: protectedProcedure
+    .input(z.object({ storyId: z.number().int().positive() }))
+    .query(async ({ ctx, input }) =>
+      mailboxParts(await captureMailboxPackage(input.storyId, ctx.user.id))
+    ),
   contacts: protectedProcedure.query(async ({ ctx }) =>
     (await mailboxContacts(ctx.user.id)).map(c => c.public)
   ),
@@ -48,14 +94,22 @@ export const storyMailboxRouter = router({
       }));
   }),
   preview: protectedProcedure
-    .input(z.object({ storyId: z.number().int().positive() }))
-    .query(({ ctx, input }) => previewMailboxStory(ctx.user.id, input.storyId)),
+    .input(
+      z.object({
+        storyId: z.number().int().positive(),
+        selection: mailboxSelectionSchema.optional(),
+      })
+    )
+    .query(({ ctx, input }) =>
+      previewMailboxStory(ctx.user.id, input.storyId, input.selection)
+    ),
   send: protectedProcedure
     .input(
       contact.extend({
         storyId: z.number().int().positive(),
         requestId: z.string().uuid(),
         fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+        selection: mailboxSelectionSchema.optional(),
         note: z.string().trim().max(2000).default(""),
       })
     )

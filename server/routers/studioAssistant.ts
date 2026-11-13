@@ -28,7 +28,7 @@ export const studioAssistantRouter = router({
   confirm: protectedProcedure
     .input(
       z.object({
-        token: z.string().max(12000),
+        token: z.string().max(750000),
         message: z.string().max(100),
         ui: studioUiContextSchema,
       })
