@@ -8795,7 +8795,7 @@
     {
       "id": "shared-story-collaboration",
       "name": "分享权限、朋友改写候选与独立创作",
-      "status": "observing",
+      "status": "partial",
       "userValue": "分享时控制接收者是否协助改写或另建故事，朋友改写由作者确认后采用，不泄露记忆。",
       "entryPoints": [
         "client/src/features/storyAgent/views/StoryContextShare.tsx",
@@ -8839,7 +8839,8 @@
         "docs/qa/2026-10-20-share-back-reminder.md",
         "docs/qa/2026-10-20-exploration-release.md",
         "server/routers.displayName.test.ts",
-        "docs/qa/2026-10-21-display-name-sharing.md"
+        "docs/qa/2026-10-21-display-name-sharing.md",
+        "docs/qa/2026-11-13-two-account-story-sharing.md"
       ],
       "invariants": [
         "新分享默认只读，两项权限仅由分享者创建时明确授予；任一权限都可「拿来一起改」得到接收者副本，只有改写权限允许从副本「分享回给作者」。2026-10-19 经用户批准合并旧「帮作者改写」文本框入口，旧接口保留兼容。",
@@ -8862,7 +8863,9 @@
         "排版一起改：副本按本机快捷排版继承，已有本机排版设置的设备不自动覆盖；分享来的封面图暂不进入封面候选列表，只作为插图/底图素材可选；视频共创未开始。",
         "分享回来提醒：只扫描作者最近更新的40个故事；「已看过」只记在本机浏览器，换设备会重新出现红点；两项设计限制未修改。",
         "2026-10-20正式站双账号文字与单页文字模块排版回传、桌面红点/列表、手机卡片/未读、忽略排版/采用文字后提醒消失均通过。手机使用390×844浏览器视口；真机、4条以上列表上限、多页含图片排版仍未完整验收；桌面模块编辑态回传按钮禁用，本轮经手机预览出口完成回传。",
-        "MySQL原提醒发布和本收尾轮未跑（未配置TEST_MYSQL_DATABASE_URL）；同日后续发布记录已有隔离临时MySQL的17文件64项全通过证据，临时实例已停止。"
+        "MySQL原提醒发布和本收尾轮未跑（未配置TEST_MYSQL_DATABASE_URL）；同日后续发布记录已有隔离临时MySQL的17文件64项全通过证据，临时实例已停止。",
+        "2026-11-13正式站双账号复测：文字分享与独立接收通过，但接收后电脑进入手机模块编辑器；模块新增正文已保存，旧文字阅读仍显示原稿。回传成功且作者收到提醒，但新版章节版本列表无候选、无法完成采用。shareBackFork读取旧publishing草稿，章节候选走另一链路；本次候选实际正文未查生产库。详见本日QA，历史验收不代表当前闭环可用。",
+        "2026-11-13本地邮箱集成修复回传正文并接入旧候选入口；正式站仍保持上述缺口直到后续部署验收。"
       ],
       "history": [
         {
@@ -8909,6 +8912,16 @@
           "date": "2026-10-21",
           "kind": "verification",
           "summary": "自选名字及文章署名3c651e3a已推送部署：46项账号/分享回归、类型/构建/66卡校验及390px页面检查通过；95文件哈希、公网页面健康200和匿名改名401通过。无迁移和配置改动，保留回滚；正式双账号新署名体验待用户验收。"
+        },
+        {
+          "date": "2026-11-13",
+          "kind": "verification",
+          "summary": "正式网页邮箱账号与微信账号岱使用新建虚构测试稿验收，用户明确批准链接权限；分享/独立接收通过，回传提示及作者通知通过，但模块正文与旧阅读不一致，作者新版章节版本列表无法看到候选。状态改partial，未修运行代码、未部署、未调用付费生成。小程序网页成片观看及剪辑线共享未验收。证据docs/qa/2026-11-13-two-account-story-sharing.md。"
+        },
+        {
+          "date": "2026-11-13",
+          "kind": "fix",
+          "summary": "shareBackFork优先读取现有已保存文字章节，回传不再发送过期publishing镜像；邮箱已有来稿接入旧回传提醒。新回归验证正文与作者提醒，原权限/作者确认采用保持；生产未部署。"
         }
       ]
     },
@@ -10444,6 +10457,11 @@
           "date": "2026-11-10",
           "kind": "fix",
           "summary": "联合网页发布50de687f已上线，版本9c3613ce-f740-418b-bdbb-4c59552052be；7116全量/215小程序/73真实MySQL及生产276产物、support worker、HTTPS健康与登录保护通过。声音私有运行时离线自检通过；真实付费素材质量和用户作品听感缺口保留。详见docs/qa/2026-11-10-conversation-release.md。"
+        },
+        {
+          "date": "2026-11-13",
+          "kind": "implementation",
+          "summary": "桌面查看来稿及收件箱接入故事邮箱已有来稿，复用原鉴权读取/独立接收/候选解析；无桌面邮箱宿主时保留原收件箱，未改云端协议或小程序权限。"
         }
       ]
     },
@@ -12833,8 +12851,70 @@
           "summary": "联合main已push并部署0e27e2aa；全量7732、MySQL73、小程序215与Python14项通过，生产HTTPS/哈希/鉴权验证完成。Linux私有CPU依赖补齐，真实离线推理通过；保留原有partial及供应商、美术、多帧验收缺口，未提交付费生成。证据：docs/qa/2026-11-12-joint-release.md。"
         }
       ]
+    },
+    {
+      "id": "story-mailbox",
+      "name": "故事邮箱与联系人持续互传",
+      "status": "observing",
+      "userValue": "从仓库旁的邮箱向已连接朋友发送故事现有文字、图像、成片、剪辑线与版本，查看谁修改了什么，独立接收并随时停止后续共享。",
+      "entryPoints": [
+        "client/src/pages/EditingStudioPage.tsx",
+        "client/src/features/storyMailbox/StoryMailbox.tsx",
+        "server/routers/storyMailbox.ts"
+      ],
+      "owners": [
+        "shared/storyMailbox.ts",
+        "server/repositories/storyMailbox.ts",
+        "server/repositories/storyMailboxActions.ts",
+        "server/repositories/storyMailboxImport.ts",
+        "server/repositories/storyMailboxPackage.ts",
+        "server/services/storyMailboxReferences.ts",
+        "server/services/storyMailboxAudio.ts",
+        "server/services/storyMailboxVideo.ts",
+        "server/services/storyMailboxLegacy.ts",
+        "client/src/features/storyMailbox/StoryMailbox.tsx",
+        "client/src/features/storyMailbox/LegacyMailbox.tsx",
+        "client/src/features/storyMailbox/mailboxPresentation.ts",
+        "drizzle/0041_story_mailbox.sql"
+      ],
+      "evidence": [
+        "server/routers.storyMailbox.test.ts",
+        "server/integration/storyMailbox.mysql.test.ts",
+        "server/repositories/stateCompatibility.test.ts",
+        "client/src/features/storyMailbox/StoryMailbox.test.tsx",
+        "docs/qa/2026-11-13-story-mailbox.md"
+      ],
+      "invariants": [
+        "只发送实际已有且已保存的故事内容和版本；不发送记忆、聊天、生成提示词、供应商回执或凭据。",
+        "身份来自登录会话，联系人使用不透明ID；不可读取其他账号、第三人的来稿或素材。",
+        "发送及接收有明确提示并建立持续共享；查看邮箱时读取最新保存状态形成带作者的不可变记录，不自动覆盖双方原稿。",
+        "接收为独立故事，重新绑定受保护视频、音频及剪辑线素材身份；幂等重试不重复建副本，失败不留下半份故事。",
+        "任一方停止联系后双方都不能继续发送、接收或刷新共享；旧记录及已收到作品保留。",
+        "原章节收件箱与分享回稿通过已有来稿进入；没有桌面邮箱宿主时原收件箱入口仍可用。"
+      ],
+      "dependencies": [
+        "shared-story-collaboration",
+        "chapter-delivery",
+        "story-ownership",
+        "story-chapters"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "联系人来自已接收故事链接建立的关系；不支持按任意邮箱、手机号或昵称搜索陌生账号。",
+        "邮箱开启时每15秒检查共享故事的最新保存状态，不是逐击键协同，也不保证记录关闭期间的每一次中间保存。",
+        "单故事快照12MiB、每条往来500记录/128MiB、每账号200条往来；达到上限保留旧数据并明确失败。",
+        "原生微信小程序成片观看及剪辑线接入不在本轮；尚未发布生产或应用生产数据库迁移。",
+        "第三方远端素材沿用现有URL，远端链接失效不保证可用；受管音频和本站视频保留独立文件。"
+      ],
+      "history": [
+        {
+          "date": "2026-11-13",
+          "kind": "implementation",
+          "summary": "新增桌面邮箱、指定联系人发送/接收与作者变更记录、联系人移除、旧来稿入口；本地回归7748项、隔离MySQL并发/鉴权/迁移验证通过，主仓3000界面验收进行中。"
+        }
+      ]
     }
   ],
   "schemaVersion": 1,
-  "updatedAt": "2026-11-12"
+  "updatedAt": "2026-11-13"
 }

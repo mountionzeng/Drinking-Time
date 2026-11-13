@@ -18,6 +18,9 @@ import {
   AdminUserLabel,
   FeedbackPost,
   AccountMemorySpace,
+  StoryMailboxContact,
+  StoryMailboxThread,
+  StoryMailboxEntry,
   AccessSession,
   Project,
   Reference,
@@ -103,6 +106,9 @@ function createEmptyMemoryCollections() {
     materialCaptureTokens: [] as MaterialCaptureToken[],
     adminUserLabels: [] as AdminUserLabel[],
     accountMemorySpaces: [] as AccountMemorySpace[],
+    storyMailboxContacts: [] as StoryMailboxContact[],
+    storyMailboxThreads: [] as StoryMailboxThread[],
+    storyMailboxEntries: [] as StoryMailboxEntry[],
     feedbackPosts: [] as FeedbackPost[],
     memoryCards: [] as MemoryCard[],
     downstreamRegenerationCandidates: [] as DownstreamRegenerationCandidateRow[],
@@ -378,6 +384,9 @@ function normalizeLoadedState(raw: Partial<MemoryState>) {
   memoryState.accountMemorySpaces = (raw.accountMemorySpaces ?? []).map(item => ({
     ...item, createdAt: toDate(item.createdAt), updatedAt: toDate(item.updatedAt),
   }));
+  memoryState.storyMailboxContacts = (raw.storyMailboxContacts ?? []).map(item => ({ ...item, removedAt: item.removedAt ? toDate(item.removedAt) : null }));
+  memoryState.storyMailboxThreads = (raw.storyMailboxThreads ?? []).map(item => ({ ...item, createdAt: toDate(item.createdAt) }));
+  memoryState.storyMailboxEntries = (raw.storyMailboxEntries ?? []).map(item => ({ ...item, createdAt: toDate(item.createdAt), readAt: item.readAt ? toDate(item.readAt) : null }));
 
   memoryState.feedbackPosts = (raw.feedbackPosts ?? []).map(item => ({
     ...item,

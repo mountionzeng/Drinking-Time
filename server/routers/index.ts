@@ -1,3 +1,4 @@
+import { storyMailboxRouter } from "./storyMailbox";
 import { bookVideoRouter } from "./bookVideo";
 import { bookWorkflowRouter } from "./bookWorkflow";
 import { videoWorkflowRouter } from "./videoWorkflow";
@@ -303,6 +304,7 @@ function mergeGuestAnalysisSeed({
 // ─── Router ──────────────────────────────────────────────────────────────
 
 export const appRouter = router({
+  storyMailbox: storyMailboxRouter,
   materialCapture: materialCaptureRouter,
   system: systemRouter,
 

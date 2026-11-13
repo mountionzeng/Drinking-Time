@@ -2970,6 +2970,46 @@ export const accountMemorySpaces = mysqlTable("account_memory_spaces", {
 });
 export type AccountMemorySpace = typeof accountMemorySpaces.$inferSelect;
 
+/** Private story correspondence. Removal is durable and never deletes received work. */
+export const storyMailboxContacts = mysqlTable("story_mailbox_contacts", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  ownerId: int("ownerId").notNull(),
+  peerId: int("peerId").notNull(),
+  removedAt: timestamp("removedAt"),
+}, t => [uniqueIndex("mailbox_contact_owner_peer").on(t.ownerId, t.peerId)]);
+export type StoryMailboxContact = typeof storyMailboxContacts.$inferSelect;
+export const storyMailboxThreads = mysqlTable("story_mailbox_threads", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  senderId: int("senderId").notNull(),
+  recipientId: int("recipientId").notNull(),
+  sourceStoryId: int("sourceStoryId").notNull(),
+  copyStoryId: int("copyStoryId"),
+  sourceFingerprint: varchar("sourceFingerprint", { length: 64 }).notNull(),
+  copyFingerprint: varchar("copyFingerprint", { length: 64 }),
+  requestHash: varchar("requestHash", { length: 64 }).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, t => [index("mailbox_threads_sender").on(t.senderId), index("mailbox_threads_recipient").on(t.recipientId)]);
+export type StoryMailboxThread = typeof storyMailboxThreads.$inferSelect;
+export const storyMailboxEntries = mysqlTable("story_mailbox_entries", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  threadId: varchar("threadId", { length: 36 }).notNull(),
+  senderId: int("senderId").notNull(),
+  recipientId: int("recipientId").notNull(),
+  kind: mysqlEnum("kind", ["sent", "updated", "received"]).notNull(),
+  authorName: varchar("authorName", { length: 100 }).notNull(),
+  note: text("note").notNull(),
+  sourceStoryId: int("sourceStoryId").notNull(),
+  receivedStoryId: int("receivedStoryId"),
+  fingerprint: varchar("fingerprint", { length: 64 }).notNull(),
+  title: varchar("title", { length: 255 }).notNull(),
+  inventory: json("inventory").$type<import("../shared/storyMailbox").MailboxInventory>().notNull(),
+  snapshot: json("snapshot").$type<import("../server/repositories/storyMailboxPackage").MailboxPackage>().notNull(),
+  changes: json("changes").$type<import("../shared/storyMailbox").MailboxChange[]>().notNull(),
+  createdAt: timestamp("createdAt", { fsp: 3 }).defaultNow().notNull(),
+  readAt: timestamp("readAt"),
+}, t => [index("mailbox_entries_thread").on(t.threadId, t.createdAt), index("mailbox_entries_recipient").on(t.recipientId, t.createdAt)]);
+export type StoryMailboxEntry = typeof storyMailboxEntries.$inferSelect;
+
 /**
  * Chapters of a story. Kept out of `stories.body` on purpose: that column once
  * grew until the server ran out of memory. Images are referenced by storage key.

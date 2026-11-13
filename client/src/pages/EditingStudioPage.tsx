@@ -1,3 +1,6 @@
+import { StoryMailbox } from "@/features/storyMailbox/StoryMailbox";
+import { OPEN_STORY_MAILBOX } from "@shared/storyMailbox";
+import { Mail } from "lucide-react";
 import { useWarehouseFileChat } from "@/features/storyAgent/useWarehouseFileChat";
 import { useVisualUnderstandingChat } from "@/features/storyAgent/useVisualUnderstandingChat";
 import { useFrameRegionReviewChat } from "@/features/storyAgent/useFrameRegionReviewChat";
@@ -791,6 +794,20 @@ export default function EditingStudioPage() {
   const runVisualUnderstandingChat = useVisualUnderstandingChat();
   const runWarehouseFileChat = useWarehouseFileChat();
   const [accountMemoriesOpen, setAccountMemoriesOpen] = useState(false);
+  const [mailboxOpen, setMailboxOpen] = useState(false);
+  const [mailboxSection,setMailboxSection]=useState<string|null>(null);
+  const pendingMailboxVersion=useRef<string|null>(null);
+  useEffect(()=>{
+    const open=(event:Event)=>{event.preventDefault();setMailboxSection((event as CustomEvent).detail?.section??null);setMailboxOpen(true);};
+    window.addEventListener(OPEN_STORY_MAILBOX,open);
+    return ()=>window.removeEventListener(OPEN_STORY_MAILBOX,open);
+  },[]);
+  useEffect(()=>{
+    if(pendingStoryRequestId===null&&pendingMailboxVersion.current){
+      const versionId=pendingMailboxVersion.current;pendingMailboxVersion.current=null;
+      window.dispatchEvent(new CustomEvent("dt:open-text-version-history",{detail:{versionId}}));
+    }
+  },[pendingStoryRequestId]);
   const [materialVisible, setMaterialVisible] = useState(false);
   const [dailyLetterOpen, setDailyLetterOpen] = useState(() =>
     /^\d{4}-\d{2}-\d{2}$/.test(
@@ -965,6 +982,10 @@ export default function EditingStudioPage() {
             ) : null}
             <span className="shiguang-nav-label">{_ui("仓库")}</span>
           </button>
+          <button type="button" aria-label={_ui("打开邮箱")} aria-haspopup="dialog" aria-expanded={mailboxOpen} aria-controls="story-mailbox" data-testid="topbar-mailbox-toggle"
+            className="shiguang-toolbar-button inline-flex min-h-[32px] items-center gap-1.5 rounded-sm px-2.5 font-sans text-[12px] font-bold tracking-[0.08em] transition-colors hover:brightness-110 focus-visible:outline-primary sm:min-w-[92px]"
+            style={visualTheme === "nayin" ? { color: "var(--nayin-accent-dim)" } : undefined}
+            onClick={()=>{setMailboxSection(null);setMailboxOpen(true);}}><Mail className="h-4 w-4" aria-hidden="true"/><span className="shiguang-nav-label">{_ui("邮箱")}</span></button>
           </>
         }
         panelToggles={STUDIO_WORKSPACE_OPTIONS.map(option => ({
@@ -989,9 +1010,10 @@ export default function EditingStudioPage() {
           window.dispatchEvent(new CustomEvent(STUDIO_TOUR_REPLAY_EVENT));
         }}
       />
-      <StudioTour blockedByOverlay={dailyLetterOpen || accountMemoriesOpen} />
+      <StoryMailbox initialSection={mailboxSection} open={mailboxOpen} onOpenChange={setMailboxOpen} userId={user?.id} currentStoryId={activeStoryId} shareBacks={shareBackNotices.notices} onOpenStory={(id,versionId)=>{pendingMailboxVersion.current=versionId??null;openStory(id);}} />
+      <StudioTour blockedByOverlay={dailyLetterOpen || accountMemoriesOpen || mailboxOpen} />
       <DailyLetterWelcome
-        suspended={accountMemoriesOpen}
+        suspended={accountMemoriesOpen || mailboxOpen}
         forceOpen={dailyLetterOpen}
         onRequestClose={() => setDailyLetterOpen(false)}
         onStartVisualConversation={message => {

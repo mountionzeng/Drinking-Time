@@ -1,3 +1,4 @@
+import { OPEN_STORY_MAILBOX } from "@shared/storyMailbox";
 import { VideoBookHistory } from "./VideoBookHistory";
 import type { ManuscriptKind } from "@shared/bookWorkflow";
 import { requestNewVersion } from "@/features/publishingDraft/newVersionRequest";
@@ -430,7 +431,7 @@ export function ChapterWorkspace({
           </div>}
           {deliveryInbox.data?.some(row => row.status === 'pending') && <div role="status" className="flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3 text-sm">
             <span>{_ui("收件箱有 {0} 份待接收稿件{1}。", [deliveryInbox.data.filter(row => row.status === 'pending').length, deliveryInbox.data.some(row => row.status === 'pending' && row.kind === 'return') ? _ui("，包含别人发回的修改") : ''])}</span>
-            <button className={button} onClick={() => setDeliveryPanel('inbox')}>{_ui("查看来稿")}</button>
+            <button className={button} onClick={() => { if (window.dispatchEvent(new CustomEvent(OPEN_STORY_MAILBOX, { cancelable: true, detail: { section: "legacy" } }))) setDeliveryPanel("inbox"); }}>{_ui("查看来稿")}</button>
           </div>}
           {historyOpen && <section aria-label={_ui("版本列表")} className="space-y-3 border-y py-3">
             {workflow.data && <>
@@ -542,7 +543,7 @@ export function ChapterWorkspace({
                 setPlatformShare({ scope: shareScope, title, body: draft.body, platform });
               })} delivery={deliveryEnabled.data?.enabled ? {
                 onCreateLink: () => { setDeliveryPanel("send"); setSelectedDelivery(null); setClaimLink(""); },
-                onInbox: () => { setDeliveryPanel("inbox"); setSelectedDelivery(null); void deliveryInbox.refetch(); },
+                onInbox: () => { if (window.dispatchEvent(new CustomEvent(OPEN_STORY_MAILBOX, { cancelable: true, detail: { section: "legacy" } }))) { setDeliveryPanel("inbox"); setSelectedDelivery(null); void deliveryInbox.refetch(); } },
                 ...(active.blocks.lineage?.parentPackageId ? { onReturn: () => setDeliveryPanel("send") } : {}),
               } : undefined} />}
               scope={`${props.accountId ?? "current"}:${props.storyId}`} handle={writing}

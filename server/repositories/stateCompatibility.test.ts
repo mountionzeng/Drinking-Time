@@ -52,6 +52,31 @@ const persistPath = process.env.LOCAL_PERSIST_PATH!;
 afterEach(() => vi.unstubAllEnvs());
 
 describe("local state schema compatibility", () => {
+  it("reloads mailbox removal, snapshots, baselines and read receipts", async () => {
+    vi.resetModules();
+    const file = persistPath + ".mailbox";
+    vi.stubEnv("LOCAL_PERSIST_PATH", file);
+    vi.stubEnv("DATABASE_URL", "");
+    const date = "2026-11-13T10:00:00.123Z";
+    const rows = {
+      storyMailboxContacts: [{ ownerId: 8, peerId: 9, removedAt: date }],
+      storyMailboxThreads: [{ id: "thread", senderId: 8, recipientId: 9, sourceStoryId: 7, copyStoryId: 10, sourceFingerprint: "source", copyFingerprint: "copy", requestHash: "request", createdAt: date }],
+      storyMailboxEntries: [{ id: "entry", threadId: "thread", senderId: 8, recipientId: 9, kind: "sent", authorName: "作者", note: "来稿", title: "故事", sourceStoryId: 7, receivedStoryId: 10, snapshot: { chapters: [{ blocks: { body: "正文" } }] }, inventory: { chapters: 1 }, changes: [], createdAt: date, readAt: date }],
+    };
+    await writeFile(file, JSON.stringify(rows));
+    let runtime = await import("./runtime");
+    await runtime.ensureMemoryLoaded();
+    expect(runtime.memoryState.storyMailboxContacts[0].removedAt).toEqual(new Date(date));
+    expect(runtime.memoryState.storyMailboxThreads[0].createdAt).toEqual(new Date(date));
+    expect(runtime.memoryState.storyMailboxEntries[0].readAt).toEqual(new Date(date));
+    await runtime.persistMemoryState();
+    expect(JSON.parse(await readFile(file, "utf8"))).toMatchObject(rows);
+    vi.resetModules();
+    runtime = await import("./runtime");
+    await runtime.ensureMemoryLoaded();
+    expect(runtime.memoryState.storyMailboxEntries[0]).toMatchObject({ ...rows.storyMailboxEntries[0], createdAt: new Date(date), readAt: new Date(date) });
+    expect(runtime.memoryState.storyMailboxThreads[0].copyFingerprint).toBe("copy");
+  });
   it("reloads administrator labels and their audit metadata", async () => {
     vi.resetModules();
     const file = persistPath + ".admin-labels";
@@ -181,7 +206,7 @@ describe("local state schema compatibility", () => {
       );
       expect(Object.keys(runtime.memoryState).filter(key =>
         Array.isArray(runtime.memoryState[key as keyof typeof runtime.memoryState])
-      ).sort()).toEqual([...legacyCollections.map(([, collection]) => collection), "storyContextShares", "storyContextShareImports", "phoneLoginChallenges", "memoryCards", "downstreamRegenerationCandidates", "artworkShares", "feedbackPosts", "accountMemorySpaces", "adminUserLabels", "chapterExports", "chapterImports", "chapterPackages", "chapterDeliveries", "materialCaptures", "materialCaptureTokens"].sort());
+      ).sort()).toEqual([...legacyCollections.map(([, collection]) => collection), "storyContextShares", "storyContextShareImports", "phoneLoginChallenges", "memoryCards", "downstreamRegenerationCandidates", "artworkShares", "feedbackPosts", "accountMemorySpaces", "adminUserLabels", "chapterExports", "chapterImports", "chapterPackages", "chapterDeliveries", "materialCaptures", "materialCaptureTokens", "storyMailboxContacts", "storyMailboxThreads", "storyMailboxEntries"].sort());
 
       for (const [index, [key, collection]] of legacyCollections.entries()) {
         expect(JSON.parse(JSON.stringify(runtime.memoryState[collection]))).toMatchObject(rows[collection]);

@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { TrpcContext } from "./_core/context";
 import * as runtime from "./repositories/runtime";
 import { createStory } from "./repositories/stories";
+import { insertChapter } from "./repositories/chapters";
 import { artworkShareRouter } from "./routers/artworkShare";
 import { storyContextShareRouter } from "./routers/storyContextShare";
 import { storeImageBytes } from "./services/imageGen";
@@ -91,10 +92,13 @@ beforeEach(() => {
 });
 
 async function textShareBack() {
-  const publishing = upsertPublishingPlatformDraft(emptyPublishingDraftState(), {
-    platform: "xiaohongshu",
-    content: { title: "海边的朋友", body: "甲和乙一起长大。", tags: [] },
-  });
+  const publishing = upsertPublishingPlatformDraft(
+    emptyPublishingDraftState(),
+    {
+      platform: "xiaohongshu",
+      content: { title: "海边的朋友", body: "甲和乙一起长大。", tags: [] },
+    }
+  );
   const { id } = await createStory({
     userId: 10,
     title: "海边",
@@ -111,11 +115,14 @@ async function textShareBack() {
   const copy = runtime.memoryState.stories.find(row => row.id === storyId)!;
   const body = copy.body as Record<string, unknown>;
   body.publishing = canonicalizePublishingDraftState(
-    upsertPublishingPlatformDraft(normalizePublishingDraftState(body.publishing), {
-      platform: "xiaohongshu",
-      content: { title: "海边的朋友", body: "乙改过的海边。", tags: [] },
-      activate: true,
-    })
+    upsertPublishingPlatformDraft(
+      normalizePublishingDraftState(body.publishing),
+      {
+        platform: "xiaohongshu",
+        content: { title: "海边的朋友", body: "乙改过的海边。", tags: [] },
+        activate: true,
+      }
+    )
   );
   await story(20).shareBack({ storyId, operationToken: randomUUID() });
   return { authorStoryId: id, copyId: storyId };
@@ -130,7 +137,12 @@ async function layoutShareBack() {
     title: "秋天的茶",
     pages: [await picture("#efe6cf")],
     permissions: { rewrite: true, fork: true },
-    work: { title: "秋天的茶", body: "第一段。", tags: [], platform: "xiaohongshu" },
+    work: {
+      title: "秋天的茶",
+      body: "第一段。",
+      tags: [],
+      platform: "xiaohongshu",
+    },
     layout: await layout("秋天的茶"),
   });
   const { storyId } = await artwork(20).accept({ token });
@@ -143,6 +155,47 @@ async function layoutShareBack() {
 }
 
 describe("share-back reminder for the author", () => {
+  it("shares back saved chapters instead of the obsolete publishing draft", async () => {
+    const { authorStoryId, copyId } = await textShareBack();
+    await insertChapter({
+      storyId: copyId,
+      userId: 20,
+      content: {
+        title: "新章节",
+        blocks: {
+          body: "这是在新版章节编辑器保存的正文。",
+          manuscriptKind: "text",
+          blockIds: [],
+          containsAiText: false,
+          settings: null,
+          coverKey: null,
+          bodyTextureKey: null,
+          images: {},
+          illustrations: [],
+        },
+        layout: null,
+      },
+    });
+    await story(20).shareBack({
+      storyId: copyId,
+      operationToken: randomUUID(),
+    });
+    const author = runtime.memoryState.stories.find(
+      row => row.id === authorStoryId
+    )!;
+    const versions = (author.body as any).textDraftHistory.versions;
+    expect(
+      versions.some(
+        (version: any) =>
+          version.generated.body === "这是在新版章节编辑器保存的正文。"
+      )
+    ).toBe(true);
+    expect((await story(10).shareBackInbox()).notices).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ storyId: authorStoryId, authorName: "小周" }),
+      ])
+    );
+  });
   it("lists text and layout share-backs only to the author, without private ids", async () => {
     const text = await textShareBack();
     const art = await layoutShareBack();
@@ -199,7 +252,11 @@ describe("share-back reminder for the author", () => {
   it("survives a damaged draft history and names untitled stories", () => {
     expect(
       collectShareBacks([
-        { id: 1, title: " ", body: { textDraftHistory: { versions: "broken" } } },
+        {
+          id: 1,
+          title: " ",
+          body: { textDraftHistory: { versions: "broken" } },
+        },
         { id: 2, title: "", body: null },
       ])
     ).toEqual([]);

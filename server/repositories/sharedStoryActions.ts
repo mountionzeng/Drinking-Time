@@ -1,3 +1,4 @@
+import { listChapters } from "./chapters";
 import { readMemoryActivity } from "./memorySpace";
 import { createHash } from "node:crypto";
 import { and, eq } from "drizzle-orm";
@@ -402,7 +403,13 @@ export async function shareBackFork(input: {
     (input.body as Record<string, unknown> | null)?.publishing
   );
   const draft = publishing.drafts[publishing.activePlatform];
-  if (!draft?.content.body.trim())
+  const savedChapters=await listChapters(input.storyId,input.userId,"text");
+  const content=savedChapters.length?{
+    title:draft?.content.title||savedChapters[0].title,
+    body:savedChapters.map(chapter=>chapter.blocks.body).join("\n\n"),
+    tags:draft?.content.tags??[],
+  }:draft?.content;
+  if (!content?.body.trim())
     throw new TRPCError({
       code: "BAD_REQUEST",
       message: "请先写好并保存正文，再分享回给作者",
@@ -414,9 +421,9 @@ export async function shareBackFork(input: {
     authorName: input.authorName,
     operationToken: input.operationToken,
     content: textDraftContentSchema.parse({
-      title: draft.content.title,
-      body: draft.content.body,
-      tags: [...draft.content.tags],
+      title: content.title,
+      body: content.body,
+      tags: [...content.tags],
     }),
   });
 }

@@ -288,6 +288,13 @@
       "when": 1793683584628,
       "tag": "0040_image_generation_tasks",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "5",
+      "when": 1794559851907,
+      "tag": "0041_story_mailbox",
+      "breakpoints": true
     }
   ]
 }

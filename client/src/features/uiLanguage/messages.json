@@ -13906,5 +13906,237 @@
   "章节草稿修订": {
     "en": "Chapter draft revision",
     "fr": "Révision du brouillon du chapitre"
+  },
+  "打开邮箱": {
+    "en": "Open mailbox",
+    "fr": "Ouvrir le courrier"
+  },
+  "把故事寄给朋友，一起看见它的变化。": {
+    "en": "Send a story to a friend and follow its changes together.",
+    "fr": "Envoyez une histoire à un ami et suivez son évolution ensemble."
+  },
+  "故事联系人": {
+    "en": "Story contacts",
+    "fr": "Contacts des histoires"
+  },
+  "已有来稿": {
+    "en": "Earlier submissions",
+    "fr": "Envois antérieurs"
+  },
+  "重新读取联系人": {
+    "en": "Reload contacts",
+    "fr": "Recharger les contacts"
+  },
+  "已停止联系": {
+    "en": "Contact removed",
+    "fr": "Contact supprimé"
+  },
+  "{0} 条未读": {
+    "en": "{0} unread",
+    "fr": "{0} non lus"
+  },
+  "让故事有来有往": {
+    "en": "Stories to share",
+    "fr": "Des histoires à partager"
+  },
+  "选择一位朋友，查看来往或发送故事。": {
+    "en": "Choose a friend to view your history or send a story.",
+    "fr": "Choisissez un ami pour voir vos échanges ou envoyer une histoire."
+  },
+  "还没有已连接的朋友。先把故事分享链接发给对方，对方接收后会出现在这里。": {
+    "en": "No connected friends yet. Share a story link; after your friend accepts it, they will appear here.",
+    "fr": "Aucun ami connecté. Partagez un lien vers une histoire ; votre ami apparaîtra ici après l’avoir acceptée."
+  },
+  "后续修改不再共享，之前的来稿与作品保留。": {
+    "en": "Future changes are no longer shared. Earlier messages and stories are kept.",
+    "fr": "Les modifications ne sont plus partagées. Les anciens messages et histoires sont conservés."
+  },
+  "已共享故事保存后的变化会显示在这里。": {
+    "en": "Saved changes to shared stories appear here.",
+    "fr": "Les modifications enregistrées des histoires partagées apparaissent ici."
+  },
+  "发送故事": {
+    "en": "Send a story",
+    "fr": "Envoyer une histoire"
+  },
+  "移除联系人": {
+    "en": "Remove contact",
+    "fr": "Supprimer le contact"
+  },
+  "移除后，双方停止共享后续修改；已经收到的故事和来往记录保留。": {
+    "en": "Removing this contact stops future updates in both directions. Received stories and past messages are kept.",
+    "fr": "Supprimer ce contact arrête les mises à jour dans les deux sens. Les histoires reçues et les échanges sont conservés."
+  },
+  "停止联系": {
+    "en": "Stop sharing with contact",
+    "fr": "Arrêter le partage"
+  },
+  "移除未完成，请重试。": {
+    "en": "The contact could not be removed. Try again.",
+    "fr": "Impossible de supprimer ce contact. Réessayez."
+  },
+  "请选择故事": {
+    "en": "Select a story",
+    "fr": "Sélectionnez une histoire"
+  },
+  "本次包含": {
+    "en": "Included in this story",
+    "fr": "Contenu de cet envoi"
+  },
+  "附言": {
+    "en": "Message",
+    "fr": "Message"
+  },
+  "发送已保存的内容及现有版本。对方接收后可独立编辑，双方继续共享保存后的变化，直到移除联系。": {
+    "en": "Send saved content and existing versions. Your friend can edit an independent copy after accepting. Saved updates remain shared until the contact is removed.",
+    "fr": "Envoyez le contenu enregistré et ses versions. Votre ami pourra modifier sa copie. Les mises à jour restent partagées jusqu’à la suppression du contact."
+  },
+  "确认发送": {
+    "en": "Confirm and send",
+    "fr": "Confirmer l’envoi"
+  },
+  "正在发送…": {
+    "en": "Sending…",
+    "fr": "Envoi…"
+  },
+  "来往记录": {
+    "en": "Correspondence",
+    "fr": "Échanges"
+  },
+  "还没有来往，发送一篇故事开始。": {
+    "en": "No correspondence yet. Send a story to begin.",
+    "fr": "Aucun échange pour le moment. Envoyez une histoire pour commencer."
+  },
+  "接收了故事": {
+    "en": "accepted the story",
+    "fr": "a accepté l’histoire"
+  },
+  "更新了故事": {
+    "en": "updated the story",
+    "fr": "a modifié l’histoire"
+  },
+  "发送了故事": {
+    "en": "sent the story",
+    "fr": "a envoyé l’histoire"
+  },
+  "打开我的故事": {
+    "en": "Open my story",
+    "fr": "Ouvrir mon histoire"
+  },
+  "打开已接收版本": {
+    "en": "Open received version",
+    "fr": "Ouvrir la version reçue"
+  },
+  "接收这个版本": {
+    "en": "Accept this version",
+    "fr": "Accepter cette version"
+  },
+  "正在接收…": {
+    "en": "Receiving…",
+    "fr": "Réception…"
+  },
+  "接收为独立故事，保留自己的原稿；接收后的修改会共享给这位朋友。": {
+    "en": "Receive an independent story and keep your original. Your saved edits to this copy will be shared with this friend.",
+    "fr": "Recevez une copie indépendante en conservant votre original. Vos modifications enregistrées seront partagées avec cet ami."
+  },
+  "最新记录": {
+    "en": "Latest messages",
+    "fr": "Derniers échanges"
+  },
+  "更早记录": {
+    "en": "Earlier messages",
+    "fr": "Échanges précédents"
+  },
+  "故事列表暂时无法读取，请重试。": {
+    "en": "Stories could not be loaded. Try again.",
+    "fr": "Impossible de charger les histoires. Réessayez."
+  },
+  "正在核对故事内容…": {
+    "en": "Checking story contents…",
+    "fr": "Vérification du contenu…"
+  },
+  "无法完整发送这篇故事，请检查素材是否就绪后重试。": {
+    "en": "This story cannot be sent in full yet. Check that its media is ready, then try again.",
+    "fr": "Cette histoire ne peut pas encore être envoyée en entier. Vérifiez ses médias, puis réessayez."
+  },
+  "部分更新暂时无法读取，旧来稿仍保留。请稍后刷新。": {
+    "en": "Some updates could not be loaded. Earlier messages are safe. Refresh to try again.",
+    "fr": "Certaines mises à jour sont indisponibles. Les échanges précédents sont conservés. Actualisez pour réessayer."
+  },
+  "发送未完成，请重试。故事已变化时，请先重新预览。": {
+    "en": "Sending did not complete. Try again; if the story changed, review its contents first.",
+    "fr": "L’envoi n’a pas abouti. Réessayez après avoir revu le contenu si l’histoire a changé."
+  },
+  "接收未完成，原有作品保留，请重试。": {
+    "en": "Receiving did not complete. Existing stories are safe. Try again.",
+    "fr": "La réception n’a pas abouti. Vos histoires sont conservées. Réessayez."
+  },
+  "来往记录暂时无法读取，请重试。": {
+    "en": "Correspondence could not be loaded. Try again.",
+    "fr": "Impossible de charger les échanges. Réessayez."
+  },
+  "发送给故事联系人": {
+    "en": "Send to a story contact",
+    "fr": "Envoyer à un contact"
+  },
+  "来稿处理失败，已有内容保留，请重试。": {
+    "en": "The submission could not be processed. Existing content is safe. Try again.",
+    "fr": "Impossible de traiter cet envoi. Le contenu existant est conservé. Réessayez."
+  },
+  "打开原故事与版本": {
+    "en": "Open original story and versions",
+    "fr": "Ouvrir l’histoire et ses versions"
+  },
+  "章节版本": {
+    "en": "Chapter versions",
+    "fr": "Versions des chapitres"
+  },
+  "书稿版本": {
+    "en": "Manuscript versions",
+    "fr": "Versions du manuscrit"
+  },
+  "影片版本": {
+    "en": "Film versions",
+    "fr": "Versions du film"
+  },
+  "视频素材": {
+    "en": "Video assets",
+    "fr": "Médias vidéo"
+  },
+  "声音素材": {
+    "en": "Audio assets",
+    "fr": "Médias audio"
+  },
+  "剪辑片段": {
+    "en": "Timeline clips",
+    "fr": "Clips de montage"
+  },
+  "成片": {
+    "en": "Finished videos",
+    "fr": "Vidéos finales"
+  },
+  "{0} 份{1}": {
+    "en": "{0} {1}",
+    "fr": "{0} {1}"
+  },
+  "空故事": {
+    "en": "Empty story",
+    "fr": "Histoire vide"
+  },
+  "新增 {0} 份{1}": {
+    "en": "Added {0} {1}",
+    "fr": "Ajout de {0} {1}"
+  },
+  "移除 {0} 份{1}": {
+    "en": "Removed {0} {1}",
+    "fr": "Suppression de {0} {1}"
+  },
+  "修改了{0}": {
+    "en": "Changed {0}",
+    "fr": "Modification : {0}"
+  },
+  "故事内容": {
+    "en": "Story content",
+    "fr": "Contenu de l’histoire"
   }
 }
