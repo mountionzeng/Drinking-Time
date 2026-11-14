@@ -214,13 +214,24 @@ const modelSchema = z.object({
         title: z.string().trim().min(1).max(200),
         modules: z
           .array(
-            z.object({
-              format: z.enum(["text", "heading1", "heading2", "scene", "shot"]),
-              text: z.string().max(12000),
-              parent: z.number().int().nonnegative().nullable(),
-              media: z.number().int().nonnegative().optional(),
-              dialogue: z.boolean().optional(),
-            })
+            z.preprocess(
+              value => {
+                // Referenced media supplies its own content; no generated text is needed.
+                if (value && typeof value === "object" && !Array.isArray(value)) {
+                  const module = value as Record<string, unknown>;
+                  if (module.format === "text" && module.media !== undefined && module.text === undefined)
+                    return { ...module, text: "" };
+                }
+                return value;
+              },
+              z.object({
+                format: z.enum(["text", "heading1", "heading2", "scene", "shot"]),
+                text: z.string().max(12000),
+                parent: z.number().int().nonnegative().nullable(),
+                media: z.number().int().nonnegative().optional(),
+                dialogue: z.boolean().optional(),
+              })
+            )
           )
           .min(1)
           .max(1000),
@@ -229,6 +240,43 @@ const modelSchema = z.object({
     .min(1)
     .max(100),
 });
+// Models sometimes count only scenes and shots rather than all preceding modules.
+// Repair only invalid parent types using the current sequential scene/shot. A scene
+// with text but no shot gets a structural placeholder, never invented story content.
+function normalizeStoryboardParents(modules: z.infer<typeof modelSchema>["chapters"][number]["modules"]) {
+  const result: typeof modules = [];
+  const remap: number[] = [];
+  let scene: number | null = null;
+  let shot: number | null = null;
+  for (const [index, module] of modules.entries()) {
+    if (module.parent !== null && module.parent >= index)
+      throw bad("转换稿层级顺序无效");
+    const mappedParent = module.parent === null ? null : remap[module.parent];
+    let parent = mappedParent;
+    if (module.format === "scene") {
+      if (module.parent !== null) throw bad("分镜内容必须归属场和镜");
+      scene = result.length;
+      shot = null;
+    } else if (module.format === "shot") {
+      if (parent === undefined || parent === null || result[parent]?.format !== "scene") parent = scene;
+      if (parent === null) throw bad("分镜内容必须归属场和镜");
+      shot = result.length;
+    } else if (module.format === "text") {
+      if (parent === undefined || parent === null || result[parent]?.format !== "shot") {
+        if (scene === null) throw bad("分镜内容必须归属场和镜");
+        if (shot === null) {
+          shot = result.length;
+          result.push({ format: "shot", text: "镜头", parent: scene });
+        }
+        parent = shot;
+      }
+    }
+    if (parent === undefined) throw bad("转换稿层级顺序无效");
+    remap.push(result.length);
+    result.push({ ...module, parent });
+  }
+  return result;
+}
 const mediaText = (text: string) =>
   Boolean(readBookImage(text) || readBookAudio(text));
 export function conversionSource(chapters: ManuscriptContent[]) {
@@ -279,7 +327,8 @@ export function applyConversion(
       used = new Set<number>();
     const style: BookWritingStyle = [],
       texts: string[] = [];
-    chapter.modules.forEach((module, i) => {
+    const modules = target === "storyboard" ? normalizeStoryboardParents(chapter.modules) : chapter.modules;
+    modules.forEach((module, i) => {
       if (
         (target === "text" && ["scene", "shot"].includes(module.format)) ||
         (target === "storyboard" &&

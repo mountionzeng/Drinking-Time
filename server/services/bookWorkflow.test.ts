@@ -82,6 +82,64 @@ async function fixture() {
   });
   return { ...owner, chapter, version };
 }
+it("accepts a media reference without redundant text while retaining the original image", () => {
+  const modules = generated.chapters[0].modules.map(module => ({ ...module }));
+  const { text: _unused, ...mediaReference } = modules[3];
+  modules[3] = mediaReference as typeof modules[number];
+  const result = service.applyConversion([source], "storyboard", {
+    chapters: [{ ...generated.chapters[0], modules }],
+  });
+  expect(result[0].blocks.body).toContain("![图片](/api/images/original.png)");
+  expect(source.blocks.body).toBe("原文事实\n![图片](/api/images/original.png)");
+});
+
+it("repairs invalid storyboard parent indexes within each scene without changing content or media", () => {
+  const modules = [
+    { format: "scene", text: "第一场", parent: null },
+    { format: "shot", text: "镜头一", parent: 0 },
+    { format: "text", text: "旁白一", parent: 1 },
+    { format: "shot", text: "镜头二", parent: 0 },
+    { format: "text", text: "旁白二", parent: 2, dialogue: true },
+    { format: "scene", text: "第二场", parent: null },
+    { format: "shot", text: "镜头三", parent: 4 },
+    { format: "text", text: "旁白三", parent: 5 },
+    { format: "scene", text: "第三场", parent: null },
+    { format: "text", parent: 7, media: 0 },
+    { format: "text", text: "结尾旁白", parent: 7, dialogue: true },
+  ];
+  const [result] = service.applyConversion([source], "storyboard", { chapters: [{ title: "分镜", modules }] });
+  const style = result.blocks.writingStyle!;
+  const rows = result.blocks.body.split("\n");
+  expect(rows.filter(x => x === "![图片](/api/images/original.png)")).toHaveLength(1);
+  expect(rows).toContain("结尾旁白");
+  for (const row of style) {
+    const parent = style.find(candidate => candidate.id === row.parentId);
+    if (row.format === "scene") expect(row.parentId).toBeNull();
+    if (row.format === "shot") expect(parent?.format).toBe("scene");
+    if (row.format === "text") expect(parent?.format).toBe("shot");
+  }
+  expect(style.filter(row => row.format === "shot")).toHaveLength(4);
+});
+
+it("rejects missing ordinary text and invalid media references", () => {
+  const modules = generated.chapters[0].modules.map(module => ({ ...module }));
+  const { text: _unused, ...ordinary } = modules[2];
+  modules[2] = ordinary as typeof modules[number];
+  expect(() => service.applyConversion([source], "storyboard", {
+    chapters: [{ ...generated.chapters[0], modules }],
+  })).toThrow();
+  const forward = generated.chapters[0].modules.map(module => ({ ...module }));
+  forward[2] = { ...forward[2], parent: 3 };
+  expect(() => service.applyConversion([source], "storyboard", {
+    chapters: [{ ...generated.chapters[0], modules: forward }],
+  })).toThrow("层级顺序");
+  const invalid = generated.chapters[0].modules.map(module => ({ ...module }));
+  invalid[3] = { format: "text", parent: 1, media: 9 } as typeof invalid[number];
+  expect(() => service.applyConversion([source], "storyboard", {
+    chapters: [{ ...generated.chapters[0], modules: invalid }],
+  })).toThrow("素材");
+});
+
 it("saves immutable independently numbered versions; ordinary edits only dirty the draft", async () => {
   const input = await fixture();
   await chapters.saveChapterContent({
