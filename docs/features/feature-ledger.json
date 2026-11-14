@@ -2869,6 +2869,14 @@
           "evidence": [
             "docs/qa/2026-11-14-wechat-render-reference.md"
           ]
+        },
+        {
+          "date": "2026-11-14",
+          "kind": "verification",
+          "summary": "用户明确批准后3f30a49e已部署，重建前后哈希及281文件/ready通过；线上原图签名读取完整、无签名拒绝。未重发付费任务，真实供应商取图和浏览器渲染未验收。",
+          "evidence": [
+            "docs/qa/2026-11-14-wechat-render-reference.md"
+          ]
         }
       ]
     },
@@ -11420,6 +11428,14 @@
           "date": "2026-11-14",
           "kind": "fix",
           "summary": "私密微信图片渲染预检携带本人身份，经校验后为供应商生成限时签名地址，不公开原图；授权/越权/签名/模拟供应商及线上只读检查通过。完整路由6项失败与基线一致；自动审批阻止新补丁生产部署，尚未上线或真实付费验收。",
+          "evidence": [
+            "docs/qa/2026-11-14-wechat-render-reference.md"
+          ]
+        },
+        {
+          "date": "2026-11-14",
+          "kind": "verification",
+          "summary": "用户明确批准后3f30a49e已部署，重建前后哈希及281文件/ready通过；线上原图签名读取完整、无签名拒绝。未重发付费任务，真实供应商取图和浏览器渲染未验收。",
           "evidence": [
             "docs/qa/2026-11-14-wechat-render-reference.md"
           ]
