@@ -93,6 +93,32 @@ it("accepts a media reference without redundant text while retaining the origina
   expect(source.blocks.body).toBe("原文事实\n![图片](/api/images/original.png)");
 });
 
+it("preserves an original image attached by the model to a shot", () => {
+  const modules = [
+    { format: "scene", text: "第一场", parent: null },
+    { format: "shot", text: "镜头画面", parent: 0, media: 0 },
+    { format: "text", text: "旁白内容", parent: 1, dialogue: true },
+  ];
+  const [result] = service.applyConversion([source], "storyboard", { chapters: [{ title: "分镜", modules }] });
+  const rows = result.blocks.body.split("\n");
+  expect(rows).toContain("镜头画面");
+  expect(rows).toContain("旁白内容");
+  expect(rows.filter(x => x === "![图片](/api/images/original.png)")).toHaveLength(1);
+  const style = result.blocks.writingStyle!;
+  const shot = style.find(x => x.format === "shot")!;
+  expect(style.filter(x => x.parentId === shot.id && x.format === "text")).toHaveLength(2);
+});
+
+it("rejects an invalid or duplicated image attached to a shot", () => {
+  const modules = [
+    { format: "scene", text: "第一场", parent: null },
+    { format: "shot", text: "镜头", parent: 0, media: 9 },
+  ];
+  expect(() => service.applyConversion([source], "storyboard", { chapters: [{ title: "分镜", modules }] })).toThrow("素材");
+  const duplicated = [modules[0], { ...modules[1], media: 0 }, { format: "text", text: "", parent: 1, media: 0 }];
+  expect(() => service.applyConversion([source], "storyboard", { chapters: [{ title: "分镜", modules: duplicated }] })).toThrow("素材");
+});
+
 it("repairs invalid storyboard parent indexes within each scene without changing content or media", () => {
   const modules = [
     { format: "scene", text: "第一场", parent: null },

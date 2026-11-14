@@ -273,7 +273,15 @@ function normalizeStoryboardParents(modules: z.infer<typeof modelSchema>["chapte
     }
     if (parent === undefined) throw bad("转换稿层级顺序无效");
     remap.push(result.length);
-    result.push({ ...module, parent });
+    if (module.format === "shot" && module.media !== undefined) {
+      // A shot's image is stored as its child; keep the shot description intact.
+      const { media, ...shotModule } = module;
+      const shotIndex = result.length;
+      result.push({ ...shotModule, parent });
+      result.push({ format: "text", text: "", parent: shotIndex, media });
+    } else {
+      result.push({ ...module, parent });
+    }
   }
   return result;
 }
