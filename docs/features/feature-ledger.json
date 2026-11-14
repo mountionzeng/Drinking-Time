@@ -2504,7 +2504,8 @@
         "docs/qa/2026-11-10-unused-workflow-cleanup.md",
         "docs/qa/2026-11-10-conversation-release.md",
         "docs/qa/2026-11-10-shot03-live-rerender.md",
-        "docs/qa/2026-11-14-wechat-image-video.md"
+        "docs/qa/2026-11-14-wechat-image-video.md",
+        "docs/qa/2026-11-14-wechat-render-reference.md"
       ],
       "invariants": [
         "预览不得修改正式镜头。",
@@ -2859,6 +2860,14 @@
           "summary": "用户确认补丁上传后f6a2ce67后端上线，281文件/ready及线上本人权限、跨账号隔离、原图哈希只读核验通过；虚构故事完整导入通过，未替用户写素材或进行付费生成，真实浏览器验收受限。",
           "evidence": [
             "docs/qa/2026-11-14-wechat-image-video.md"
+          ]
+        },
+        {
+          "date": "2026-11-14",
+          "kind": "fix",
+          "summary": "私密微信图片渲染预检携带本人身份，经校验后为供应商生成限时签名地址，不公开原图；授权/越权/签名/模拟供应商及线上只读检查通过。完整路由6项失败与基线一致；自动审批阻止新补丁生产部署，尚未上线或真实付费验收。",
+          "evidence": [
+            "docs/qa/2026-11-14-wechat-render-reference.md"
           ]
         }
       ]
@@ -11346,7 +11355,8 @@
         "client/src/features/storyAgent/views/pollStoryboardImage.test.ts",
         "client/src/features/storyAgent/views/useShotImageRender.test.tsx",
         "server/services/storyboardImageTask.test.ts",
-        "docs/qa/2026-11-09-other-worktree-integration.md"
+        "docs/qa/2026-11-09-other-worktree-integration.md",
+        "docs/qa/2026-11-14-wechat-render-reference.md"
       ],
       "invariants": [
         "已有任务号或请求已发出无响应的任务绝不重新提交；后台只调用查询型 resume 接口。",
@@ -11405,6 +11415,14 @@
           "date": "2026-11-09",
           "kind": "fix",
           "summary": "MJ成功后文件下载失败返回已有任务号与待恢复状态，复用原任务而不重新提交。无任务号封面预占按用户选择维持原自动释放规则。"
+        },
+        {
+          "date": "2026-11-14",
+          "kind": "fix",
+          "summary": "私密微信图片渲染预检携带本人身份，经校验后为供应商生成限时签名地址，不公开原图；授权/越权/签名/模拟供应商及线上只读检查通过。完整路由6项失败与基线一致；自动审批阻止新补丁生产部署，尚未上线或真实付费验收。",
+          "evidence": [
+            "docs/qa/2026-11-14-wechat-render-reference.md"
+          ]
         }
       ]
     },
