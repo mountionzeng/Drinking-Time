@@ -2852,6 +2852,14 @@
           "evidence": [
             "docs/qa/2026-11-14-wechat-image-video.md"
           ]
+        },
+        {
+          "date": "2026-11-14",
+          "kind": "verification",
+          "summary": "用户确认补丁上传后f6a2ce67后端上线，281文件/ready及线上本人权限、跨账号隔离、原图哈希只读核验通过；虚构故事完整导入通过，未替用户写素材或进行付费生成，真实浏览器验收受限。",
+          "evidence": [
+            "docs/qa/2026-11-14-wechat-image-video.md"
+          ]
         }
       ]
     },
@@ -12106,6 +12114,14 @@
           "date": "2026-11-14",
           "kind": "fix",
           "summary": "微信导入私密原图本人归属及文件完整性核验后按用户确认建立视频素材索引，原私密URL与原稿保留；虚构完整导入/幂等/越权拒绝和相关回归通过。f6a2ce67本地完成，自动审批拒绝补丁上传，未上线。",
+          "evidence": [
+            "docs/qa/2026-11-14-wechat-image-video.md"
+          ]
+        },
+        {
+          "date": "2026-11-14",
+          "kind": "verification",
+          "summary": "用户确认补丁上传后f6a2ce67后端上线，281文件/ready及线上本人权限、跨账号隔离、原图哈希只读核验通过；虚构故事完整导入通过，未替用户写素材或进行付费生成，真实浏览器验收受限。",
           "evidence": [
             "docs/qa/2026-11-14-wechat-image-video.md"
           ]
