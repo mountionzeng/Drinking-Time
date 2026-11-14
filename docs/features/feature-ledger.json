@@ -12083,6 +12083,14 @@
           "evidence": [
             "docs/qa/2026-11-14-film-generation-connection.md"
           ]
+        },
+        {
+          "date": "2026-11-14",
+          "kind": "fix",
+          "summary": "线上回包另出现镜头直接引用原图、字符串编号及已关闭场景父索引；拆分引用并修正结构，严格校验来源及重复。44项和最新真实回包脱敏结构回放通过；d8eaefa5部署并校验281文件/ready，浏览器实测受限。",
+          "evidence": [
+            "docs/qa/2026-11-14-film-generation-connection.md"
+          ]
         }
       ]
     },
