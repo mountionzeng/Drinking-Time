@@ -1,3 +1,4 @@
+import { isWechatImportImage, wechatProviderReference } from "../services/wechatVideoImage";
 import { studioUiContextSchema, studioContextDescription } from "../../shared/studioAssistant";
 import { generate302FluxEdit, generate302FluxDevEdit } from "../services/fluxKontextEdit";
 import { generate302MjEdit } from "../services/mj302Edit";
@@ -2405,11 +2406,27 @@ export const storyAgentRouter = router({
           prompt += "\n【已确定画面的连续性】所附图片是本片已经确定的视觉依据：沿用对应物体的造型、材质、线条与色调。本镜的内容、构图和动作仍按本镜要求；未在本镜出现的物体不搬过来，不把参考图直接当成本镜首帧。";
         }
         let referenceImageInput: string | undefined;
+        let providerReferenceImage = referenceImage;
+        let providerInputReference = input.referenceImageUrl;
+        let providerIdentityReference = input.referenceIdentityImageUrl;
+        let providerStyleReference = input.storyStyleReferenceImageUrl;
+        let providerContextReferences = input.referenceContextImageUrls ?? [];
         if (referenceImage) {
           try {
-            referenceImageInput = await materializeImageInput(referenceImage);
+            referenceImageInput = await materializeImageInput(referenceImage, ctx.user.id);
+            const cache = new Map<string, Promise<string>>();
+            const providerReference = (url: string) => {
+              if (!cache.has(url)) cache.set(url, wechatProviderReference(url, ctx.user.id));
+              return cache.get(url)!;
+            };
+            providerReferenceImage = await providerReference(referenceImage);
+            providerInputReference = input.referenceImageUrl ? await providerReference(input.referenceImageUrl) : undefined;
+            providerIdentityReference = input.referenceIdentityImageUrl ? await providerReference(input.referenceIdentityImageUrl) : undefined;
+            providerStyleReference = input.storyStyleReferenceImageUrl ? await providerReference(input.storyStyleReferenceImageUrl) : undefined;
+            providerContextReferences = await Promise.all(providerContextReferences.map(providerReference));
           } catch (error) {
-            if (referencePlan.usesStoryboardFrames || referencePlan.usesStoryStyleReference) {
+            if (referencePlan.usesStoryboardFrames || referencePlan.usesStoryStyleReference ||
+                [referenceImage, input.referenceImageUrl, input.referenceIdentityImageUrl, input.storyStyleReferenceImageUrl, ...(input.referenceContextImageUrls ?? [])].some(url => url && isWechatImportImage(url))) {
               return {
                 status: "error" as const,
                 error:
@@ -2424,7 +2441,7 @@ export const storyAgentRouter = router({
         }
         const injection = input.renderReferences
           ? input.renderReferences.imagePurpose === "scene-style" && referenceImage && !input.referenceRevision
-            ? { styleRef: referenceImage }
+            ? { styleRef: providerReferenceImage }
             : {}
           : lockedAssets
           ? {
@@ -2441,9 +2458,9 @@ export const storyAgentRouter = router({
           : referencePlan.usesStoryboardFrames ||
               referencePlan.usesStoryStyleReference
             ? await deriveStoryboardReferenceInjection(story, {
-                identityImageUrl: input.referenceIdentityImageUrl,
-                sceneImageUrl: referencePlan.primaryImage,
-                styleImageUrl: input.storyStyleReferenceImageUrl,
+                identityImageUrl: providerIdentityReference,
+                sceneImageUrl: providerReferenceImage,
+                styleImageUrl: providerStyleReference,
                 analysis: input.sceneAnalysis,
                 allowSceneIdentity:
                   referencePlan.referencePurpose !== "scene-style",
@@ -2686,8 +2703,8 @@ export const storyAgentRouter = router({
           );
           if (storyboardImage && fluxEdit) {
             return storyboardImage((accepted, ready) => fluxKontextEditModel(input.explicitInstruction) === "dev"
-              ? generate302FluxDevEdit(referenceImage!, renderedFinalPrompt, ready)
-              : generate302FluxEdit(referenceImage!, renderedFinalPrompt, accepted), {
+              ? generate302FluxDevEdit(providerReferenceImage!, renderedFinalPrompt, ready)
+              : generate302FluxEdit(providerReferenceImage!, renderedFinalPrompt, accepted), {
               prompt: renderedFinalPrompt, shotNo: canonicalizeShotNo(input.shotNo)!, promptCompilationId,
               generationType: "inpaint", provider: fluxKontextEditModel(input.explicitInstruction) === "dev" ? "flux-kontext-dev" : "flux-kontext-pro", parentImageId: input.renderReferences!.imageIds[0],
               conversationRevision: true, instruction: input.explicitInstruction });
@@ -2697,7 +2714,7 @@ export const storyAgentRouter = router({
               provider: "gpt-image" as const, referenceRevision: true, gptImageModel: "gpt-image-2" as const, gptSubmitOnly: true,
               renderProfileId: "image.gpt-image-2.edit" as const,
             };
-            return storyboardImage(accepted => editMobileImage(referenceImage!, renderedFinalPrompt, {
+            return storyboardImage(accepted => editMobileImage(providerReferenceImage!, renderedFinalPrompt, {
               ...revisionOptions,
               onProviderTaskAccepted: accepted,
             }), { prompt: renderedFinalPrompt, shotNo: canonicalizeShotNo(input.shotNo)!, promptCompilationId,
@@ -2709,13 +2726,13 @@ export const storyAgentRouter = router({
             // Use the existing art gate's compiled result; do not bypass it with raw chat text.
             const retexturePrompt = renderedFinalPrompt;
             if (mjEditSupplier(input.explicitInstruction) === "302") {
-              return storyboardImage(accepted => generate302MjEdit(referenceImage!, retexturePrompt, accepted), {
+              return storyboardImage(accepted => generate302MjEdit(providerReferenceImage!, retexturePrompt, accepted), {
                 prompt: legnextRetexturePrompt(retexturePrompt), shotNo: canonicalizeShotNo(input.shotNo)!, promptCompilationId,
                 generationType: "inpaint", editMode: "retexture", provider: "302-mj-edit", referenceOnly,
                 parentImageId: input.renderReferences!.imageIds[0], conversationRevision: true, instruction: input.explicitInstruction,
               });
             }
-            const retextureOptions = { referenceImageUrl: referenceImage, editMode: "retexture" as const, inlinePoll: false };
+            const retextureOptions = { referenceImageUrl: providerReferenceImage, editMode: "retexture" as const, inlinePoll: false };
             return storyboardImage(accepted => submitRender("image.legnext-retexture", { prompt: legnextRetexturePrompt(retexturePrompt), onAccepted: accepted, options: retextureOptions }), { prompt: legnextRetexturePrompt(retexturePrompt), shotNo: canonicalizeShotNo(input.shotNo)!, promptCompilationId,
               renderProfile: buildRenderSnapshot("image.legnext-retexture", { params: retextureOptions, promptChars: legnextRetexturePrompt(retexturePrompt).length }),
               generationType: "inpaint", editMode: "retexture", referenceOnly, parentImageId: input.renderReferences!.imageIds[0],
@@ -2723,13 +2740,13 @@ export const storyAgentRouter = router({
           }
           if (storyboardImage) {
             const legnextOptions = {
-              ...injection, referenceImageUrl: referenceImage,
+              ...injection, referenceImageUrl: providerReferenceImage,
               referenceContextImageUrls: Array.from(new Set([
-                ...(input.referenceContextImageUrls ?? []),
+                ...providerContextReferences,
                 ...(input.renderReferences ? Object.values(lockedAssets?.dimensions ?? {}).map(d => d.providerReferenceUrl) : []),
                 ...(lockedAssets?.sceneRef ? [lockedAssets.sceneRef] : []),
                 ...(lockedAssets?.petRef ? [lockedAssets.petRef] : []),
-              ])).filter(url => url !== referenceImage).slice(0, 3),
+              ])).filter(url => url !== providerReferenceImage).slice(0, 3),
               imageWeight, aspectRatio: "16:9", inlinePoll: false,
             };
             return storyboardImage(accepted => submitRender("image.legnext-v7-fast", { prompt: renderedFinalPrompt, onAccepted: accepted, options: legnextOptions }),
@@ -2740,7 +2757,7 @@ export const storyAgentRouter = router({
             return submitRender("image.legnext-v7-fast", { prompt: renderedFinalPrompt, onAccepted: moduleImage.onMidjourneyTaskAccepted, options: { inlinePoll: !moduleImage.asyncSubmit } });
           }
           return referenceImage
-            ? editMobileImage(referenceImage, renderedFinalPrompt, {
+            ? editMobileImage(providerReferenceImage!, renderedFinalPrompt, {
                 ...(moduleImage ? { onMidjourneyTaskAccepted: moduleImage.onMidjourneyTaskAccepted, onProviderTaskAccepted: moduleImage.onProviderTaskAccepted } : {}),
                 ...(moduleImage && (input.imageProvider ?? "midjourney") === "midjourney" ? { mjVersion: "7" as const } : {}),
                 provider: input.imageProvider ?? "midjourney",
@@ -2748,18 +2765,18 @@ export const storyAgentRouter = router({
                 preferStructuralEdit: input.remixEdit && input.imageProvider === "gpt-image",
                 ...injection,
                 imageWeight,
-                referenceImageUrl: input.referenceImageUrl,
-                referenceIdentityImageUrl: input.referenceIdentityImageUrl,
+                referenceImageUrl: providerInputReference,
+                referenceIdentityImageUrl: providerIdentityReference,
                 referenceContextImageUrls: Array.from(
                   new Set([
-                    ...(input.referenceContextImageUrls ?? []),
-                    ...(input.renderReferences ? Object.values(lockedAssets?.dimensions ?? {}).map(dimension => dimension.providerReferenceUrl).filter(url => url !== referenceImage) : []),
+                    ...providerContextReferences,
+                    ...(input.renderReferences ? Object.values(lockedAssets?.dimensions ?? {}).map(dimension => dimension.providerReferenceUrl).filter(url => url !== providerReferenceImage) : []),
                     ...(lockedAssets?.sceneRef &&
-                    lockedAssets.sceneRef !== referenceImage
+                    lockedAssets.sceneRef !== providerReferenceImage
                       ? [lockedAssets.sceneRef]
                       : []),
                     ...(lockedAssets?.petRef &&
-                    lockedAssets.petRef !== referenceImage
+                    lockedAssets.petRef !== providerReferenceImage
                       ? [lockedAssets.petRef]
                       : []),
                   ])

@@ -4,7 +4,8 @@ import { generatedImages, stories } from "../../drizzle/schema";
 import { readBookImage } from "../../shared/bookImageBlock";
 import { writingModuleTexts } from "../../shared/bookWritingStyle";
 import type { StoryChapter } from "../../drizzle/schema";
-import { readChapterMedia } from "../chapterMediaStore";
+import { chapterMediaUrl, readChapterMedia } from "../chapterMediaStore";
+import { ENV } from "../_core/env";
 import { ownsWechatImportImage } from "../repositories/wechatBookImport";
 import {
   getDb,
@@ -80,15 +81,13 @@ export async function indexWechatStoryboardImages(input: {
           )
           .limit(1);
         if (!existing.length)
-          await tx
-            .insert(generatedImages)
-            .values({
-              storyId: input.storyId,
-              userId: input.userId,
-              imageUrl: url,
-              isCurrent: false,
-              generationType: "initial",
-            });
+          await tx.insert(generatedImages).values({
+            storyId: input.storyId,
+            userId: input.userId,
+            imageUrl: url,
+            isCurrent: false,
+            generationType: "initial",
+          });
       }
     });
     return;
@@ -142,3 +141,30 @@ export async function indexWechatStoryboardImages(input: {
   });
 }
 export const isWechatImportImage = (url: string) => wechatPath.test(url);
+
+/** A private original is shared with the image provider only by a short-lived signed URL. */
+export async function wechatProviderReference(
+  url: string,
+  userId: number
+): Promise<string> {
+  const match = wechatPath.exec(url);
+  if (!match) return url;
+  if (!(await readOwnedWechatImage(url, userId)))
+    throw new Error("无权读取微信导入的图片或图片已失效");
+  let origin: URL;
+  try {
+    origin = new URL(ENV.appOrigin);
+  } catch {
+    throw new Error("图片服务地址未配置");
+  }
+  if (
+    origin.protocol !== "https:" ||
+    origin.username ||
+    origin.password ||
+    origin.pathname !== "/" ||
+    origin.search ||
+    origin.hash
+  )
+    throw new Error("图片服务地址无效");
+  return `${origin.origin}${chapterMediaUrl(`chapters/${userId}/${match[1]}`)}`;
+}

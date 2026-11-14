@@ -22,6 +22,16 @@ it("sends all uploaded book references to Legnext in exactly one paid request", 
   expect(prompt).toContain("https://files.example.com/first.png https://files.example.com/second.png");
   expect(prompt).toContain("--v 7 --fast --ar 16:9");
 });
+it("passes an expiring signed image URL to the provider without removing its query", async () => {
+  vi.stubEnv("LEGNEXT_API_KEY", "test");
+  const signed = "https://example.test/api/chapter-media?key=fictional&e=9999999999999&token=fictional";
+  m.publicUrl.mockImplementation(async (source: string) => source);
+  const fetcher = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ job_id: id }) });
+  vi.stubGlobal("fetch", fetcher);
+  await generateLegnextImage("paper boat", vi.fn(), { inlinePoll: false, referenceImageUrl: signed });
+  expect(fetcher).toHaveBeenCalledOnce();
+  expect(JSON.parse(fetcher.mock.calls[0][1].body).text).toContain(signed);
+});
 it("does not submit or silently drop references when one upload fails", async () => {
   vi.stubEnv("LEGNEXT_API_KEY", "test");
   m.publicUrl.mockResolvedValueOnce("https://files.example.com/first.png").mockResolvedValueOnce(undefined);

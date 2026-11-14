@@ -8,7 +8,10 @@ const mocks = vi.hoisted(() => ({ owns: vi.fn(), read: vi.fn() }));
 vi.mock("../repositories/wechatBookImport", () => ({
   ownsWechatImportImage: mocks.owns,
 }));
-vi.mock("../chapterMediaStore", () => ({ readChapterMedia: mocks.read }));
+vi.mock("../chapterMediaStore", async importOriginal => ({
+  ...(await importOriginal<typeof import("../chapterMediaStore")>()),
+  readChapterMedia: mocks.read,
+}));
 const dir = await mkdtemp(path.join(os.tmpdir(), "wechat-video-image-"));
 const previous = {
   db: process.env.DATABASE_URL,
@@ -97,6 +100,30 @@ it("rejects an unowned, missing or altered image without indexing it", async () 
     expect(await getStoryGeneratedImages(story.id, 32)).toHaveLength(0);
   }
 });
+it("offers an owned private reference only through an expiring signed provider link", async () => {
+  const { ENV } = await import("../_core/env");
+  const { wechatProviderReference } = await import("./wechatVideoImage");
+  const previous = { origin: ENV.appOrigin, secret: ENV.cookieSecret };
+  ENV.appOrigin = "https://example.test";
+  ENV.cookieSecret = "fictional-signing-secret";
+  try {
+    const signed = new URL(await wechatProviderReference(url, 31));
+    expect(signed.origin).toBe("https://example.test");
+    expect(signed.pathname).toBe("/api/chapter-media");
+    expect(signed.searchParams.get("key")).toBe(`chapters/31/${digest}.png`);
+    expect(Number(signed.searchParams.get("e"))).toBeGreaterThan(Date.now());
+    expect(signed.searchParams.get("token")).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    mocks.owns.mockResolvedValue(false);
+    await expect(wechatProviderReference(url, 32)).rejects.toThrow();
+    expect(
+      await wechatProviderReference("https://example.test/ordinary.png", 31)
+    ).toBe("https://example.test/ordinary.png");
+  } finally {
+    ENV.appOrigin = previous.origin;
+    ENV.cookieSecret = previous.secret;
+  }
+});
+
 it("never reads a private image without an authorized account", async () => {
   await expect(materializeImageInput(url)).rejects.toThrow();
   mocks.owns.mockResolvedValue(false);

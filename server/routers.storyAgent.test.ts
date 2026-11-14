@@ -1888,6 +1888,42 @@ describe("storyAgent tRPC router", () => {
     expect(imageGenMocks.generateImage).not.toHaveBeenCalled();
   });
 
+  it("renders an owned imported reference with authenticated reading and an expiring provider URL", async () => {
+    const userId = 7397;
+    const caller = appRouter.createCaller(createAuthContext(userId));
+    const story = await caller.storyAgent.storyUpsert({ title: "虚构故事", body: { cards: [], shots: [{ shotNo: 1, stableShotId: "private-ref-shot", subject: "纸船" }] } });
+    const raw = `/api/wechat-import/media/${"a".repeat(64)}.png`;
+    const signed = "https://example.test/api/chapter-media?key=fictional&e=9999999999999&token=fictional";
+    const assets = await import("./services/imageAssets");
+    const wechat = await import("./services/wechatVideoImage");
+    const read = vi.spyOn(assets, "materializeImageInput").mockResolvedValue("data:image/png;base64,dGVzdA==");
+    const provider = vi.spyOn(wechat, "wechatProviderReference").mockImplementation(async value => value === raw ? signed : value);
+    legnextMocks.generateLegnextImage.mockClear();
+    legnextMocks.generateLegnextImage.mockResolvedValueOnce({ status: "error", message: "模拟终止，不提交" });
+    try {
+      await caller.storyAgent.generateForMobile({ storyId: story!.id, shotNo: 1, prompt: "纸船在河上", imageProvider: "midjourney", shotImageRequestId: crypto.randomUUID(), referenceImageUrl: raw, referenceIdentityImageUrl: raw });
+      expect(read).toHaveBeenCalledWith(raw, userId);
+      expect(provider).toHaveBeenCalledWith(raw, userId);
+      expect(legnextMocks.generateLegnextImage).toHaveBeenCalledTimes(1);
+      expect(legnextMocks.generateLegnextImage.mock.calls[0][2]).toMatchObject({ referenceImageUrl: signed });
+    } finally { read.mockRestore(); provider.mockRestore(); }
+  });
+
+  it("never submits a render when a private reference is not owned", async () => {
+    const userId = 7396;
+    const caller = appRouter.createCaller(createAuthContext(userId));
+    const story = await caller.storyAgent.storyUpsert({ title: "虚构故事", body: { cards: [], shots: [{ shotNo: 1, stableShotId: "unowned-ref-shot" }] } });
+    const raw = `/api/wechat-import/media/${"b".repeat(64)}.png`;
+    const assets = await import("./services/imageAssets");
+    const read = vi.spyOn(assets, "materializeImageInput").mockRejectedValue(new Error("无权读取"));
+    legnextMocks.generateLegnextImage.mockClear();
+    try {
+      const result = await caller.storyAgent.generateForMobile({ storyId: story!.id, shotNo: 1, prompt: "纸船", imageProvider: "midjourney", shotImageRequestId: crypto.randomUUID(), referenceImageUrl: raw });
+      expect(result).toMatchObject({ status: "error", error: expect.stringContaining("本次未提交付费生成") });
+      expect(legnextMocks.generateLegnextImage).not.toHaveBeenCalled();
+    } finally { read.mockRestore(); }
+  });
+
   it("故事版本地参考图已经丢失时停止，不提交付费生成", async () => {
     imageGenMocks.toPublicImageUrl.mockResolvedValue(undefined);
     const caller = appRouter.createCaller(createAuthContext(398));
