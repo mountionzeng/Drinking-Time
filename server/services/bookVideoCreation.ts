@@ -1,3 +1,4 @@
+import { indexWechatStoryboardImages } from "./wechatVideoImage";
 import { chapterEnabled } from "../../shared/chapterStore";
 import { readBookVideoSource } from "./bookVideoSource";
 import { getBookWorkflow, saveManuscriptVersion } from "./bookWorkflow";
@@ -38,6 +39,7 @@ export async function importBookStoryboard(input: Owner & { id: string; chapterI
   if (!chapters.some(chapter => chapter.id === input.chapterId) ||
       workflow.drafts.storyboard.fingerprint !== input.expectedFingerprint)
     throw new TRPCError({ code: "CONFLICT", message: "当前分镜已有变化，请回到书页重新导入。" });
+  await indexWechatStoryboardImages({ ...input, chapters });
   const source = await readBookVideoSource(input);
   if (!source?.layout.bookScenes?.length || source.layout.bookScenes.some(row => !("sourceKind" in row) || row.sourceKind !== "shot"))
     throw new TRPCError({ code: "PRECONDITION_FAILED", message: "当前稿件还没有完整的场和镜头，请先转为分镜版。" });

@@ -647,6 +647,7 @@ export async function generateAndPersistPublishingVideoPreview(input: {
     const generated = await (
       input.generate ?? generatePublishingVideoStoryboardPreview
     )({
+      userId: input.userId,
       body: claim.context.draft.content.body,
       platform: claim.context.version.activePlatform,
       core: claim.context.core,

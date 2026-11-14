@@ -1,3 +1,4 @@
+import { isWechatImportImage, readOwnedWechatImage } from "./wechatVideoImage";
 import { access, readFile } from "node:fs/promises";
 import path from "node:path";
 import type { GeneratedImage, ImageSignal } from "../../drizzle/schema";
@@ -298,7 +299,13 @@ export async function resolveImageAvailability(
   }
 }
 
-export async function materializeImageInput(imageUrl: string): Promise<string> {
+export async function materializeImageInput(imageUrl: string, userId?: number): Promise<string> {
+  if (isWechatImportImage(imageUrl)) {
+    const bytes = userId ? await readOwnedWechatImage(imageUrl, userId) : null;
+    if (!bytes) throw new Error("无权读取微信导入的图片或图片已失效");
+    const extension = imageUrl.slice(imageUrl.lastIndexOf(".") + 1);
+    return `data:image/${extension === "jpg" ? "jpeg" : extension};base64,${bytes.toString("base64")}`;
+  }
   const localPath = localImagePathForUrl(imageUrl);
   if (!localPath) return imageUrl;
   const bytes = await readFile(localPath);

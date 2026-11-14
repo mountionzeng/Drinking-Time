@@ -611,13 +611,14 @@ export async function startShotVideoJob(
   );
   const isMjVideo = shotVideoPriceProfile(providerStatus.submitPath) === "mj-turbo";
   const identityImageInput = input.characterReferenceImageUrl
-    ? await materializeImageInput(input.characterReferenceImageUrl)
+    ? await materializeImageInput(input.characterReferenceImageUrl, userId)
     : undefined;
   let storyStyleImageInput: string | undefined;
   if (input.storyStyleReferenceImageUrl) {
     try {
       storyStyleImageInput = await materializeImageInput(
-        input.storyStyleReferenceImageUrl
+        input.storyStyleReferenceImageUrl,
+        userId
       );
     } catch (error) {
       console.warn(
@@ -725,7 +726,7 @@ export async function startShotVideoJob(
   }
   let providerStarted = false;
   try {
-    const sourceImage = await materializeImageInput(asset.imageUrl);
+    const sourceImage = await materializeImageInput(asset.imageUrl, userId);
     const promptDirector: VideoSubmissionPromptDirectorResult =
       input.directorPromptApproved
         ? {

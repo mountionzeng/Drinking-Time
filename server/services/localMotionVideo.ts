@@ -1,3 +1,4 @@
+import { materializeImageInput } from "./imageAssets";
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import fs from "node:fs";
@@ -256,7 +257,7 @@ export async function createLocalMotionVideoTake(input: {
   let prepared: Awaited<ReturnType<typeof prepareImagePath>> | null = null;
   try {
     await fs.promises.mkdir(localVideoDir(), { recursive: true });
-    prepared = await prepareImagePath(input.sourceImage.imageUrl);
+    prepared = await prepareImagePath(await materializeImageInput(input.sourceImage.imageUrl, input.userId));
     await runFfmpeg(
       buildLocalMotionFfmpegArgs({
         imagePath: prepared.imagePath,

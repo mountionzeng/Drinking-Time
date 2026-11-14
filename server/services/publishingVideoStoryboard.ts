@@ -482,6 +482,7 @@ export async function runPublishingVideoStoryboardTextCompute(input: {
 }
 
 export async function generatePublishingVideoStoryboardPreview(input: {
+  userId?: number;
   body: string;
   creativeIntent?: string;
   platform: PublishingPlatformId;
@@ -551,7 +552,7 @@ export async function generatePublishingVideoStoryboardPreview(input: {
           ...(row.referenceImages ?? []).map((image, index) => ({id: `${row.id} 参考图${index + 1}`, imageUrl: image.imageUrl})),
         ]).map(async image => ({
             id: image.id,
-            imageInput: await materializeImageInput(image.imageUrl),
+            imageInput: await materializeImageInput(image.imageUrl, input.userId),
           }))
       ),
     });
