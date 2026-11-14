@@ -12006,7 +12006,8 @@
         "client/src/features/publishingDraft/VideoTextDraft.test.tsx",
         "client/src/features/publishingAlbum/VideoBookHistory.test.tsx",
         "docs/qa/2026-11-13-book-version-generation-repair.md",
-        "server/services/publishingVideoStoryboard.strict.test.ts"
+        "server/services/publishingVideoStoryboard.strict.test.ts",
+        "docs/qa/2026-11-14-film-generation-connection.md"
       ],
       "invariants": [
         "文字/分镜分别编号；自动保存只更新草稿，正式保存/采用/恢复或用户明确把当前分镜做成视频时才建立必要的来源版本。",
@@ -12074,6 +12075,14 @@
           "date": "2026-11-13",
           "kind": "verification",
           "summary": "正式站仅后端修复已上线1e6059f6，VIDEO_PROMPT_302_MODEL=deepseek-v3.2；隔离类型/构建、110项回归、281产物哈希、ready与匿名稿件401通过。本地虚构1220两版文字刷新读回并已软删除。未执行用户正式账号完整生成采用或媒体渲染，保留partial。"
+        },
+        {
+          "date": "2026-11-14",
+          "kind": "fix",
+          "summary": "真实分镜回包原媒体引用缺少冗余text及错误父索引；只补媒体占位并按场景顺序修复无效归属，保留媒体/历史校验、预览确认和前向索引拒绝。39项及类型通过，f9742ac6后端上线、281哈希及ready通过；真实重生成待验收。",
+          "evidence": [
+            "docs/qa/2026-11-14-film-generation-connection.md"
+          ]
         }
       ]
     },
