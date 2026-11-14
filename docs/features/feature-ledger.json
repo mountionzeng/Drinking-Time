@@ -2503,7 +2503,8 @@
         "docs/qa/2026-11-10-playback-ui.md",
         "docs/qa/2026-11-10-unused-workflow-cleanup.md",
         "docs/qa/2026-11-10-conversation-release.md",
-        "docs/qa/2026-11-10-shot03-live-rerender.md"
+        "docs/qa/2026-11-10-shot03-live-rerender.md",
+        "docs/qa/2026-11-14-wechat-image-video.md"
       ],
       "invariants": [
         "预览不得修改正式镜头。",
@@ -2843,6 +2844,14 @@
           "date": "2026-11-10",
           "kind": "fix",
           "summary": "第03镜3000真实对话重渲染：显式抽帧首帧通过归属校验，新增镜头谱系只追加保留历史，修复提交回执尚未返回时刷新误报失败。27专项及58关联测试、类型通过；只购买授权的一条Vidu视频Take1611/V02/8秒/1.50算力，原Take1610及剪辑修订18保持。实测可播放但点彩效果未验收；MJ改帧确认再原视频编辑尚待实现。详见docs/qa/2026-11-10-shot03-live-rerender.md。"
+        },
+        {
+          "date": "2026-11-14",
+          "kind": "fix",
+          "summary": "微信导入私密原图本人归属及文件完整性核验后按用户确认建立视频素材索引，原私密URL与原稿保留；虚构完整导入/幂等/越权拒绝和相关回归通过。f6a2ce67本地完成，自动审批拒绝补丁上传，未上线。",
+          "evidence": [
+            "docs/qa/2026-11-14-wechat-image-video.md"
+          ]
         }
       ]
     },
@@ -12007,7 +12016,8 @@
         "client/src/features/publishingAlbum/VideoBookHistory.test.tsx",
         "docs/qa/2026-11-13-book-version-generation-repair.md",
         "server/services/publishingVideoStoryboard.strict.test.ts",
-        "docs/qa/2026-11-14-film-generation-connection.md"
+        "docs/qa/2026-11-14-film-generation-connection.md",
+        "docs/qa/2026-11-14-wechat-image-video.md"
       ],
       "invariants": [
         "文字/分镜分别编号；自动保存只更新草稿，正式保存/采用/恢复或用户明确把当前分镜做成视频时才建立必要的来源版本。",
@@ -12090,6 +12100,14 @@
           "summary": "线上回包另出现镜头直接引用原图、字符串编号及已关闭场景父索引；拆分引用并修正结构，严格校验来源及重复。44项和最新真实回包脱敏结构回放通过；d8eaefa5部署并校验281文件/ready，浏览器实测受限。",
           "evidence": [
             "docs/qa/2026-11-14-film-generation-connection.md"
+          ]
+        },
+        {
+          "date": "2026-11-14",
+          "kind": "fix",
+          "summary": "微信导入私密原图本人归属及文件完整性核验后按用户确认建立视频素材索引，原私密URL与原稿保留；虚构完整导入/幂等/越权拒绝和相关回归通过。f6a2ce67本地完成，自动审批拒绝补丁上传，未上线。",
+          "evidence": [
+            "docs/qa/2026-11-14-wechat-image-video.md"
           ]
         }
       ]
