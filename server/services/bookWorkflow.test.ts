@@ -93,6 +93,40 @@ it("accepts a media reference without redundant text while retaining the origina
   expect(source.blocks.body).toBe("原文事实\n![图片](/api/images/original.png)");
 });
 
+it("replays the latest sanitized production response and retains the original media", () => {
+  const response = JSON.parse('{"chapters":[{"title":"测试章节","modules":[{"format":"text","parent":null,"media":"0","text":"虚构画面"},{"format":"scene","parent":null,"text":"虚构画面"},{"format":"shot","parent":1,"text":"虚构画面"},{"format":"shot","parent":1,"text":"虚构画面"},{"format":"shot","parent":1,"text":"虚构画面"},{"format":"scene","parent":null,"text":"虚构画面"},{"format":"shot","parent":3,"text":"虚构画面"},{"format":"scene","parent":null,"text":"虚构画面"},{"format":"shot","parent":5,"text":"虚构画面"},{"format":"scene","parent":null,"text":"虚构画面"},{"format":"shot","parent":7,"text":"虚构画面"},{"format":"shot","parent":7,"text":"虚构画面"}]}]}');
+  const [result] = service.applyConversion([source], "storyboard", response);
+  expect(result.blocks.body).toContain("![图片](/api/images/original.png)");
+  expect(result.blocks.writingStyle?.some(row => row.format === "shot")).toBe(true);
+});
+
+it("preserves an original image listed before the first scene with a numeric-string index", () => {
+  const modules = [
+    { format: "text", text: "", parent: null, media: "0" },
+    { format: "scene", text: "雨后的清晨", parent: null },
+    { format: "shot", text: "窗边近景", parent: 1 },
+  ];
+  const [result] = service.applyConversion([source], "storyboard", { chapters: [{ title: "分镜", modules }] });
+  const rows = result.blocks.body.split("\n");
+  expect(rows.filter(x => x === "![图片](/api/images/original.png)")).toHaveLength(1);
+  expect(rows).toContain("窗边近景");
+  const style = result.blocks.writingStyle!;
+  for (const row of style) {
+    const parent = style.find(candidate => candidate.id === row.parentId);
+    if (row.format === "scene") expect(row.parentId).toBeNull();
+    if (row.format === "shot") expect(parent?.format).toBe("scene");
+    if (row.format === "text") expect(parent?.format).toBe("shot");
+  }
+});
+
+it("rejects ambiguous, malformed or out-of-range string media indexes", () => {
+  for (const media of ["01", "0.0", "-1", "9", "https://example.com/image"]) {
+    const modules = [ { format: "scene", text: "场景", parent: null },
+      { format: "shot", text: "镜头", parent: 0 }, { format: "text", text: "", parent: 1, media } ];
+    expect(() => service.applyConversion([source], "storyboard", { chapters: [{ title: "分镜", modules }] })).toThrow();
+  }
+});
+
 it("preserves an original image attached by the model to a shot", () => {
   const modules = [
     { format: "scene", text: "第一场", parent: null },

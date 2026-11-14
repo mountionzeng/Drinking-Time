@@ -219,8 +219,12 @@ const modelSchema = z.object({
                 // Referenced media supplies its own content; no generated text is needed.
                 if (value && typeof value === "object" && !Array.isArray(value)) {
                   const module = value as Record<string, unknown>;
-                  if (module.format === "text" && module.media !== undefined && module.text === undefined)
-                    return { ...module, text: "" };
+                  const media = typeof module.media === "string" && /^(0|[1-9]\d*)$/.test(module.media)
+                    ? Number(module.media)
+                    : module.media;
+                  if (module.format === "text" && media !== undefined && module.text === undefined)
+                    return { ...module, media, text: "" };
+                  if (media !== module.media) return { ...module, media };
                 }
                 return value;
               },
@@ -258,11 +262,16 @@ function normalizeStoryboardParents(modules: z.infer<typeof modelSchema>["chapte
       scene = result.length;
       shot = null;
     } else if (module.format === "shot") {
-      if (parent === undefined || parent === null || result[parent]?.format !== "scene") parent = scene;
+      if (parent === undefined || parent === null || result[parent]?.format !== "scene" || parent !== scene) parent = scene;
       if (parent === null) throw bad("分镜内容必须归属场和镜");
       shot = result.length;
     } else if (module.format === "text") {
-      if (parent === undefined || parent === null || result[parent]?.format !== "shot") {
+      if (parent === undefined || parent === null || result[parent]?.format !== "shot" || parent !== shot) {
+        if (scene === null && module.media !== undefined) {
+          // A leading original image precedes the first generated scene.
+          scene = result.length;
+          result.push({ format: "scene", text: "开场", parent: null });
+        }
         if (scene === null) throw bad("分镜内容必须归属场和镜");
         if (shot === null) {
           shot = result.length;
