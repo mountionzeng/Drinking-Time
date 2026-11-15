@@ -317,7 +317,8 @@
         "docs/qa/2026-11-15-warehouse-newest-first.md",
         "client/src/features/creationEditor/views/WarehouseConnectionStatus.test.tsx",
         "client/src/features/creationEditor/useWarehouseRenderActivity.test.ts",
-        "docs/qa/2026-11-15-warehouse-multiselect.md"
+        "docs/qa/2026-11-15-warehouse-multiselect.md",
+        "docs/qa/2026-11-15-warehouse-release.md"
       ],
       "invariants": [
         "保留横滑浮窗、原图预览/拖放/选择与原始资产，不因浏览分组而采用、复制、改名或解除素材。",
@@ -381,6 +382,11 @@
           "date": "2026-11-15",
           "kind": "fix",
           "summary": "恢复唯一主仓3000，仓库网络错误合并为一个状态，只重试读取；接连续视频占位、账号/故事回执及完成通知。58专项+60视频/素材回归、类型及构建通过；3000真实多选、报价、取消与原图片编辑通过。未付费生成/采用/提交/部署。"
+        },
+        {
+          "date": "2026-11-15",
+          "kind": "verification",
+          "summary": "2026-11-15 main 9c2bc032 已推送并部署 warehouse-sequence-20261115；仅5个增量编译产物、288文件哈希及公网ready/mysql/required/匿名401通过，HTTP301正确跳转HTTPS。正式站实点第04镜按23→22多选，顺序和非方图保护正确；取消后原页面恢复。无付费生成或采用，连续视频真实供应商成片仍待验收。发布QA见 docs/qa/2026-11-15-warehouse-release.md。"
         }
       ]
     },
@@ -13391,7 +13397,8 @@
         "client/src/features/creationEditor/views/WarehouseImageSelection.test.tsx",
         "client/src/features/creationEditor/views/WarehouseVideoSequenceDialog.test.tsx",
         "client/src/features/creationEditor/useWarehouseRenderActivity.test.ts",
-        "docs/qa/2026-11-15-warehouse-multiselect.md"
+        "docs/qa/2026-11-15-warehouse-multiselect.md",
+        "docs/qa/2026-11-15-warehouse-release.md"
       ],
       "invariants": [
         "点击顺序就是视频顺序，不遗漏中间图片；跨故事/分组不得沿用旧选择或报价。",
@@ -13418,6 +13425,11 @@
           "date": "2026-11-15",
           "kind": "feature",
           "summary": "实现顺序多选、编辑要求/时长、报价确认、幂等分段与父合成候选。3000真实选2112→2114→2115，8秒报价4.12算力；改时长清报价、取消及原单图编辑通过。58专项+60旧回归、类型、构建含77草稿项通过；未付费，状态partial。"
+        },
+        {
+          "date": "2026-11-15",
+          "kind": "verification",
+          "summary": "2026-11-15 main 9c2bc032 已推送并部署 warehouse-sequence-20261115；仅5个增量编译产物、288文件哈希及公网ready/mysql/required/匿名401通过，HTTP301正确跳转HTTPS。正式站实点第04镜按23→22多选，顺序和非方图保护正确；取消后原页面恢复。无付费生成或采用，连续视频真实供应商成片仍待验收。发布QA见 docs/qa/2026-11-15-warehouse-release.md。"
         }
       ]
     }

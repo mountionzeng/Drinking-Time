@@ -16,4 +16,12 @@
 
 ## 部署记录
 
-待记录提交、哈希与正式站验收。生产只更新变化编译产物，保留旧hash资源；不修改.env、依赖、数据库、nginx或证书。部署前备份旧产物并设置失败回滚。
+- 代码提交：`9c2bc0323f81dc89c84f00321901d64d318f59fd`，已在main并push到origin/main。
+- 生产发布：`warehouse-sequence-20261115`；manifest：`/opt/Drinking-Time/dist.release-warehouse-sequence-20261115.json`；回滚备份：`/opt/Drinking-Time/backups/warehouse-sequence-20261115`。
+- 仅替换5个变化编译产物，保留旧hash资源；部署后及公网复验共288个线上文件SHA一致。新前端`index-B1Khzkag.js`，app-release版本`509863b4-dd2b-48c5-84f5-b713411b4413`，HTML与4个公网资源内容一致。
+- `/healthz`正常，`/readyz`为ready/mysql/required，新warehouseVideoSequence.status匿名返回401。HTTP `/m`实际为301并精确跳转同域HTTPS；初次脚本误断言308导致检查失败，已纠正校验，不是线上跳转故障。
+- `.env`、package.json、pnpm-lock.yaml哈希未变；未修改数据库、nginx或证书。本地仍只有主仓3000服务。
+- 正式站浏览器：故事“满城”第04镜按图片23→22选择，弹窗顺序正确；免费报价对非方图明确提示画幅不支持、不静默裁切。已取消多选、收起仓库并关闭本轮临时tab，没有购买、采用或修改作品。
+- 正式站截图：`/Users/yuandai/Documents/Codex/2026-11-15/warehouse-multiselect/production-warehouse.png`和`production-quote-limit.png`。
+- 发布源码、补丁、测试/部署日志与产物位于`/tmp/dt-warehouse-release-20261115`。主仓原111个未提交文件逐一内容哈希保护；未验收森林/云层等工作保持原样。没有新建git工作树或dev服务。
+- 连续视频功能仍为partial：真实供应商生成、接缝与运动质量未付费验收；此前既有测试失败已基线复现，不能称全量测试全绿。

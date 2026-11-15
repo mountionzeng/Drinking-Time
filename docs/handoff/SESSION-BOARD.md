@@ -741,3 +741,5 @@
 2026-11-15 chat 01a1d3cc 图片400/文字聊天修复完成并释放代码/发布窗口：6784f11e已main/push/上线，4增量编译产物/286哈希及公网ready/mysql/required/新版前端/匿名401通过。真实虚构参考一次MJ4图及下载、正式chat路由自然中文回复通过；211初始回归、最终123服务回归、类型/构建/102卡与真实hook失败UI通过。纯文字启用现有302服务凭据+DeepSeek，主Next401/附图聊天及JSON格式探测限制保留；旧未知预占不动，未写用户作品/采用。临时生产模块和浏览器已清理。权威源码/tmp/dt-render-chat-failure-20261115/src，manifest=dist.release-render-chat-failure-20261115.json，QA docs/qa/2026-11-15-render-chat-failure.md。其他会话修改及主仓3000保留。
 
 2026-11-15 chat 01a1bedb 仓库多选发布：用户已授权合main、push、部署。以fc8cb7d3/线上render-chat-failure隔离仓库、多选与必要源帧引用依赖；其余美术修改保留本地，未付费生成。不改环境/数据库/冻结文件；验证见docs/qa/2026-11-15-warehouse-release.md，发布完成后释放窗口。
+
+2026-11-15 chat 01a1bedb 仓库多选发布完成，释放代码/main合并/生产窗口：2026-11-15 main 9c2bc032 已推送并部署 warehouse-sequence-20261115；仅5个增量编译产物、288文件哈希及公网ready/mysql/required/匿名401通过，HTTP301正确跳转HTTPS。正式站实点第04镜按23→22多选，顺序和非方图保护正确；取消后原页面恢复。无付费生成或采用，连续视频真实供应商成片仍待验收。发布QA见 docs/qa/2026-11-15-warehouse-release.md。未验收美术改动保留，未新增dev服务或工作树；后续生产基线以本次manifest为准。
