@@ -745,3 +745,5 @@
 2026-11-15 chat 01a1bedb 仓库多选发布完成，释放代码/main合并/生产窗口：2026-11-15 main 9c2bc032 已推送并部署 warehouse-sequence-20261115；仅5个增量编译产物、288文件哈希及公网ready/mysql/required/匿名401通过，HTTP301正确跳转HTTPS。正式站实点第04镜按23→22多选，顺序和非方图保护正确；取消后原页面恢复。无付费生成或采用，连续视频真实供应商成片仍待验收。发布QA见 docs/qa/2026-11-15-warehouse-release.md。未验收美术改动保留，未新增dev服务或工作树；后续生产基线以本次manifest为准。
 
 2026-11-15 chat 01a1bedb: main/deployment window reserved for release-gap repair (Storyboard gestures, chat acknowledgement, clause routing, release-scope audit). Pending region editing remains local and is enumerated in docs/qa/2026-11-15-release-gap-audit.md.
+
+2026-11-15 chat 01a1bedb 发布完成，释放代码/main合并/生产窗口：2026-11-15 补发0c40a9d3已main/push/上线，release=storyboard-gestures-20261115。仅3前端资源，289产物哈希及公网ready/mysql/required/HTTPS301/匿名401通过；后端、依赖、环境和数据库不改。正式站新版缩放step0.1、双指提示、缩放及原生横滑0→279.5→0通过，纵向0/剪辑修订2不变，已恢复原简化显示并关闭临时tab。物理Mac捏合无法由工具模拟，保留人工手感验证限制。未付费/生成/采用。剩余区域编辑与显示联动仍明确暂缓，见release-gap-audit QA。

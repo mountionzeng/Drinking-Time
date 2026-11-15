@@ -31,3 +31,7 @@
 权威代码：`StoryboardReviewBoard.tsx`、`StoryboardTimelineRuler.tsx`、`storyboardViewportGestures.ts`、`useStoryboardViewportGestures.ts`。没有改生成/计费冻结文件。
 
 修改已同步主仓3000，未提交、推送或部署。暂存、基线与本轮增量补丁保存在 `/Users/yuandai/Documents/Codex/2026-11-14/storyboard-gestures`；日志同目录。原有未提交工作保留。
+
+## 后续正式发布
+
+2026-11-15 补发0c40a9d3已main/push/上线，release=storyboard-gestures-20261115。仅3前端资源，289产物哈希及公网ready/mysql/required/HTTPS301/匿名401通过；后端、依赖、环境和数据库不改。正式站新版缩放step0.1、双指提示、缩放及原生横滑0→279.5→0通过，纵向0/剪辑修订2不变，已恢复原简化显示并关闭临时tab。物理Mac捏合无法由工具模拟，保留人工手感验证限制。未付费/生成/采用。剩余区域编辑与显示联动仍明确暂缓，见release-gap-audit QA。

@@ -32,4 +32,13 @@
 - 新版前端app-release为bb74731a-8c31-46dc-a122-c76f2080a999，JS为index-umQQKKyQ.js。正式页面补发前缩放slider的step=1且无手势提示，和遗漏源码一致。
 - 发布范围首次检查按预期拒绝102项未说明差异；逐项核对后18个本地改动完整包含、102项为带精确双侧SHA的明确暂缓（含52份非部署验收附件）。报告及暂缓清单保留在/tmp/dt-gesture-release-20261115和本机Codex验收目录。实际变更源码21个文件，仅StoryAgentChat及两份公共记录为部分整合；原工作区内容保持。
 
-部署结果待记录；不得将以上构建证据当成正式站已更新。
+部署结果见下节。
+
+
+## 正式站补发结果
+
+- 代码：`0c40a9d357db939882a9acd47de78b5e81567013`，已合main并push。发布`storyboard-gestures-20261115`，manifest位于`/opt/Drinking-Time/dist.release-storyboard-gestures-20261115.json`，回滚备份位于`/opt/Drinking-Time/backups/storyboard-gestures-20261115`。
+- 仅3前端资源；保留旧hash文件，共289文件SHA通过。未重启后端；后端产物、.env、package.json、锁文件哈希均保持，未修改数据库/nginx。公网HTML/新JS/app-release一致，ready/mysql/required、匿名401与HTTP301正确HTTPS目标通过。
+- 正式站“满城”实际操作：缩放slider由step1/无提示更新为step0.1/双指提示；右键盘一步0→0.1%，两次放大后原生横向滑动scrollLeft 0→279.5，scrollTop保持0；左滑返回0，Home复位，简化显示恢复原开启。剪辑修订始终2，未修改故事或发送生成请求。
+- 截图：`/Users/yuandai/Documents/Codex/2026-11-15/release-gap/production-storyboard.png`。Mac物理双指捏合无法由本工具模拟，Chrome wheel/Safari GestureEvent及缩放锚点由专项测试覆盖，不宣称实际硬件手感已验证。
+- 上传前再次执行范围检查通过；提交的21个文件逐字节匹配构建源码，120个工作区改动文件提交前后SHA保持。发布报告和102项精确暂缓记录保存在`/Users/yuandai/Documents/Codex/2026-11-15/release-gap/`。这份记录不代表所有本地功能已上线。
