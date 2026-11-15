@@ -11364,7 +11364,8 @@
         "client/src/features/storyAgent/views/useShotImageRender.test.tsx",
         "server/services/storyboardImageTask.test.ts",
         "docs/qa/2026-11-09-other-worktree-integration.md",
-        "docs/qa/2026-11-14-wechat-render-reference.md"
+        "docs/qa/2026-11-14-wechat-render-reference.md",
+        "docs/qa/2026-11-15-render-receipt-recovery.md"
       ],
       "invariants": [
         "已有任务号或请求已发出无响应的任务绝不重新提交；后台只调用查询型 resume 接口。",
@@ -11438,6 +11439,14 @@
           "summary": "用户明确批准后3f30a49e已部署，重建前后哈希及281文件/ready通过；线上原图签名读取完整、无签名拒绝。未重发付费任务，真实供应商取图和浏览器渲染未验收。",
           "evidence": [
             "docs/qa/2026-11-14-wechat-render-reference.md"
+          ]
+        },
+        {
+          "date": "2026-11-15",
+          "kind": "fix",
+          "summary": "线上本人故事单次MJ受理、四候选恢复入仓和公网读取通过，原采用不变，历史unknown未重发；错误HTTP响应有效job_id先持久化，113项及类型通过。2883c8dd已上线，281文件/ready/鉴权通过；后台实测，不冒充UI点击，历史无回执仍待供应商对账。",
+          "evidence": [
+            "docs/qa/2026-11-15-render-receipt-recovery.md"
           ]
         }
       ]
