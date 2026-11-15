@@ -731,3 +731,9 @@
 2026-11-15 chat 01a1d3cc 三项续修阶段完成并释放生产/代码窗口：09184dee/f24246d8已push并上线，282哈希/ready/mysql/鉴权/新前端通过，215相关测试/类型/构建/102卡通过。原片补回3处屏幕文字，原13字幕和剪辑、原图采用保留；首个确定画面继承和聊天说明已上线。两轮各一次MJ、共8候选未自动采用，实际仍有书页/文字样版式，画风质量未通过，不再购买；等待用户选择独立全片画风参考或仅文字规则。不能将本轮声称为全部问题修好。QA docs/qa/2026-11-15-film-style-continuity-captions.md；保留其他会话未提交修改，未新增dev服务。
 
 2026-11-15 chat 01a1d3cc 独立全片画风本轮完成并释放代码/生产窗口：04aad47b/bddb3582已push及上线，283哈希/ready/鉴权/新前端通过；独立sref、免费聊天更换/停用和已显示版本校验通过，说明已保存到故事对话。两笔MJ各一次、共8候选未采用，原书稿/字幕/剪辑/采用及旧unknown保持；第二笔隔离旁白制作说明后伪字改善，但细边框/签名及时代忠实度仍待改进，功能partial。不再追加付费，临时导出模块删除，回执备份保留。QA docs/qa/2026-11-15-film-style-reference.md。权威隔离源/tmp/dt-film-style-reference-20261115/src，manifest=dist.release-film-style-frame-20261115.json。其他会话未提交改动保留，无新增dev服务。
+
+2026-11-15 chat 01a1d3cc 生成编辑面板：用户要求编辑报价描述、内嵌图片缩略标签/悬停信息、同屏仓库点击插入。占用useShotImageRender及测试、新ImageGenerationComposer/InlineImagePrompt与共享序列化、shotImageRender schema、confirmedStoryboardImagePrompt/storyAgent正式出图局部、filmStyleReference和对应测试/文案。保留既有费用确认、本人素材校验、单镜最多4内容参考、独立全片画风、候选不自动采用和unknown不重购。隔离源码修改，不改他会话StoryAgentChat/StoryboardReviewBoard/仓库热点；验证不购买模型。尚未占发布窗口。
+
+2026-11-15 chat 01a1d3cc 生成编辑面板占用发布窗口：10个范围内源文件已同步主仓，保留其他会话全部未提交修改；142回归+4正式路由、类型/构建、真实编辑组件/hook无付费浏览器验收通过。基线线上bddb3582及283哈希确认，准备仅发布本次编译变化；不购买模型、不修改用户故事或采用。QA docs/qa/2026-11-15-image-generation-composer.md。
+
+2026-11-15 chat 01a1d3cc 生成编辑面板完成并释放代码/发布窗口：ed81283e已main/push/上线；可编辑描述、缩略图标签/悬停详情、仓库光标插入、删除取消本次引用及独立画风保留。142回归+4路由、类型/构建/102卡、真实组件和hook浏览器验收通过；5更新产物/285哈希、公网ready/mysql/required/新版前端/匿名401通过。无模型购买、无故事或采用写入；正式账号完整付费出图本轮未重测。QA docs/qa/2026-11-15-image-generation-composer.md；源/tmp/dt-image-compose-20261115/src。其他会话未提交改动保留，无新dev服务。

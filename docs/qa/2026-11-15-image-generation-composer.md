@@ -23,4 +23,4 @@
 
 ## 发布
 
-待本次代码提交后记录正式站版本与哈希验收。
+代码 `ed81283e` 已合入main、push并部署。正式清单 `dist.release-image-compose-20261115.json`，5个更新编译产物、总285个文件哈希全部通过。公网ready/mysql/required、HTML与app-release一致、新前端index-BD2683aa.js及匿名请求401通过。旧资源保留，环境配置/依赖哈希不变；服务器保留原版本备份与失败回滚脚本。
