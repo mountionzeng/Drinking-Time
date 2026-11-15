@@ -124,7 +124,7 @@ export function changeRenderReference(
 function earlierEstablishedImages(material: StoryMaterialState | null | undefined, stableShotId: string) {
   const index = material?.shots.findIndex(shot => shot.stableShotId === stableShotId) ?? -1;
   return index > 0
-    ? material!.shots.slice(0, index).reverse().flatMap(shot => {
+    ? material!.shots.slice(0, index).flatMap(shot => {
         const image = shot.imageVersions?.find(image => image.isPrimary && image.selectionSource === "explicit")
           ?? shot.currentImage ?? shot.imageGenerationReference ?? shot.imageGenerationReferences?.[0];
         return image?.imageUrl && image.status !== "rejected" && image.availability !== "missing" ? [image] : [];
@@ -179,8 +179,8 @@ export function loadShotRenderSettings(
     : material?.visualAssets?.defaultPet
       ? { pet: material.visualAssets.defaultPet }
       : {};
-  // Match the existing neighbour-continuity rule: only an adopted earlier
-  // image can establish the look. Unchosen generated candidates are not facts.
+  // The first established shot anchors later shots. A nearer shot must not
+  // silently replace it; explicit choices and bound assets still take priority.
   const established = !Object.values(assets).some(Boolean)
     ? earlierEstablishedImages(material, stableShotId)[0]
     : undefined;

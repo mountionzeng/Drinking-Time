@@ -50,6 +50,16 @@ describe("shot render control", () => {
     expect(loadShotRenderSettings(1, "target", material).references.imageIds).toEqual([]);
     vi.unstubAllGlobals();
   });
+  it("uses the first established shot even when a nearer one has an adopted image", () => {
+    vi.stubGlobal("localStorage", { getItem: () => null });
+    const material = { shots: [
+      { stableShotId: "first", currentImage: { id: 10, imageUrl: "/first.png" } },
+      { stableShotId: "near", currentImage: { id: 20, imageUrl: "/near.png" } },
+      { stableShotId: "target", currentImage: null },
+    ] } as unknown as StoryMaterialState;
+    expect(loadShotRenderSettings(1, "target", material).references.imageIds).toEqual([10]);
+    vi.unstubAllGlobals();
+  });
   it("prefills every book-act reference, while an explicit saved empty selection stays empty", () => {
     const material = { shots: [{ stableShotId: "act-1", imageGenerationReferences: [{id: 1}, {id: 2}] }] } as unknown as StoryMaterialState;
     expect(loadShotRenderSettings(1, "act-1", material).references.imageIds).toEqual([1, 2]);

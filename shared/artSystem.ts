@@ -17,7 +17,12 @@ export function activeArtSystemRecipe(body: Record<string, unknown>): StoryArtRe
 }
 export function artSystemPrompt(body: Record<string, unknown>) {
   const recipe = activeArtSystemRecipe(body);
-  if (!recipe?.system) return "";
+  if (!recipe?.system) {
+    const direction = normalizeStoryArtDirection(body.artDirection);
+    // A legacy locked recipe is still the film's style after image references are removed.
+    return direction.phase === "locked" && direction.recipe && !direction.recipe.system
+      ? `【本片已确认画风 V${direction.recipe.version}】\n${artRecipePrompt(direction.recipe)}` : "";
+  }
   return [`【本片美术体系 V${recipe.version}：${recipe.system.name}】`,
     recipe.system.englishPrompt, artRecipePrompt(recipe),
     `物体规则：${recipe.system.objectRules.join("；")}`,

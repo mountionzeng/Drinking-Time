@@ -19,6 +19,7 @@ import {
   projectStoryTimelineDocument,
 } from "./storyMaterials";
 import { updateStoryAndTimelineAtomic } from "../repositories/timelines";
+import { generatedScreenTextTrack } from "../../shared/bookScreenText";
 import { generatedSubtitleSpans } from "../../shared/generatedSubtitles";
 import { emptyAudioState } from "../../shared/timelineAudioModel";
 import type { PreparedBookVideoAudio } from "../../shared/bookVideoAudio";
@@ -192,6 +193,7 @@ export async function preserveVideoWhileReplacing(
       const shots = (next.shots ?? []) as Array<{
         stableShotId: string;
         dialogue?: string;
+        scriptText?: string;
         publishingVideo?: { draftShotId?: string };
       }>;
       const prepared = input.preparedAudio;
@@ -234,6 +236,10 @@ export async function preserveVideoWhileReplacing(
         ),
       });
       if (subtitles.status !== "ok") throw new Error(subtitles.message);
+      const screen = generatedScreenTextTrack({ shots, revision: input.expectedRevision + 1, nextId: randomUUID,
+        spans: timeline.items.map(item => ({ stableShotId: item.stableShotId, startFrame: item.timelineStartFrame ?? 0, durationFrames: item.durationFrames ?? 1 })),
+      });
+      if (screen) subtitles.state = { tracks: [...subtitles.state.tracks, screen] };
       const saved = await updateStoryAndTimelineAtomic({
         ...input,
         expectedStoryRevision: input.expectedRevision,

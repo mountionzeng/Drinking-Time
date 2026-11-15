@@ -286,6 +286,7 @@ export type StoryVisualAssetMaterialState = {
 export type StoryMaterialState = {
   storyId: number;
   /** Explicitly confirmed art-system baseline; not a shot adoption. */
+  artSystemStyle?: { version: number; name: string };
   artSystemReference?: { version: number; name: string; image: ImageAsset };
   timeline: TimelineDocument;
   shots: ShotMaterialState[];

@@ -1063,6 +1063,7 @@ export async function getStoryMaterialState(
 
   return {
     storyId,
+    ...(artRecipe?.system ? { artSystemStyle: { version: artRecipe.version, name: artRecipe.system.name } } : {}),
     ...(artReference && artRecipe?.system ? { artSystemReference: { version: artRecipe.version, name: artRecipe.system.name, image: artReference } } : {}),
     timeline,
     // Covers (including illustration/texture candidates), style references and

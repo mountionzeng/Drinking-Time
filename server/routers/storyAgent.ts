@@ -2403,7 +2403,7 @@ export const storyAgentRouter = router({
         const strictReferenceFidelity = Boolean(referenceImage) &&
           (input.conversationRevision && input.referenceRevision || requestsStrictReferenceFidelity(input.explicitInstruction ?? ""));
         if (confirmedFramePrompt && referenceImage && referencePlan.referencePurpose === "scene-style") {
-          prompt += "\n【已确定画面的连续性】所附图片是本片已经确定的视觉依据：沿用对应物体的造型、材质、线条与色调。本镜的内容、构图和动作仍按本镜要求；未在本镜出现的物体不搬过来，不把参考图直接当成本镜首帧。";
+          prompt += "\n【已确定画面的连续性】所附图片是本片已经确定的视觉依据：同一人物沿用可见的脸型、发型、服装与身份；沿用对应物体的造型、材质、线条与色调。本镜的内容、构图和动作仍按本镜要求；未在本镜出现的物体不搬过来，不把参考图直接当成本镜首帧。";
         }
         let referenceImageInput: string | undefined;
         let providerReferenceImage = referenceImage;
@@ -2548,7 +2548,7 @@ export const storyAgentRouter = router({
           creationEmotion: storyEmotion(story.body, { chapterId: input.moduleTarget ? String(input.moduleTarget.chapterId) : undefined, shotId: shotIdentity ?? undefined }),
           prompt,
           strictReferenceFidelity,
-          userInstructions: input.explicitInstruction
+          userInstructions: confirmedFramePrompt && !strictReferenceFidelity ? [] : input.explicitInstruction
             ? [retexture ? `只修改下面用户明确提出的内容；未明确要求改变时，保留原图的整体明暗、灰度关系、对比度、主色调、构图、画幅、物体形状与相对位置，保留已有界面、Logo和文字。不要加入新的物体、景物、光效或另一个美术风格。色彩更丰富不等于提高曝光、反差或整体饱和度。\n${prompt}` : input.explicitInstruction]
             : undefined,
           // gpt-image 没有 MJ 的 3500 字上限；不放开的话，参考图清单加连续性规格

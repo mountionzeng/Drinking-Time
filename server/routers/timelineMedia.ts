@@ -85,7 +85,7 @@ const generatedAudioKind = z.enum(["music", "ambience", "sfx"]);
 
 const subtitleProvenanceInput: z.ZodType<SubtitleProvenance> = z.union([
   z.object({
-    kind: z.literal("shot-dialogue"),
+    kind: z.enum(["shot-dialogue", "shot-screen-text"]),
     stableShotId: z.string().min(1).max(200),
   }),
   z.object({

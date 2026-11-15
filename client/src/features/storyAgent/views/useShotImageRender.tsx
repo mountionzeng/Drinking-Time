@@ -14,6 +14,7 @@ import {
   shotRenderReferenceOptions,
   selectedReferenceKeys,
 } from "./ShotImageRenderControl";
+import { shotImageContinuityNotice } from "./shotImageContinuityNotice";
 import { storyboardExplicitImageInstruction } from "./storyboardReviewModel";
 import { useState, useRef, useEffect, useCallback } from "react";
 import {
@@ -225,10 +226,11 @@ export function useShotImageRender(
         llmLine = `\n读图理解最多 ${formatComputeQuote(llm.estimatedCny)}，与图片合计最多 ${formatComputeQuote(estimatedCny + llm.estimatedCny)}。读图失败时不会提交图片生成。`;
       } catch { return { status: "error" as const, message: "暂时无法核对读图费用，尚未读图或生成。" }; }
     }
+    const continuityNotice = !isRevision && material ? shotImageContinuityNotice(material, settings.references, language) : "";
     const confirmed = (!isRevision && input.skipCostConfirmation) || (isRevision && conversationRevision && input.preconfirmedRevision) || await confirmImageCost(
       retexture
         ? `${label} · 原图编辑（${mjEditSupplier(input.revisionInstruction) === "302" ? "302 MJ Edits" : "Legnext MJ Retexture"}）\n原图：${names.join("、")} · 预计 ${formatComputeQuote(estimatedCny)}\n\n保留未提出修改的明暗、灰度、对比度、构图和物体位置。先看新旧图对比，确认后再继续视频。\n\n${input.revisionInstruction}\n\nMJ 仍可能改变细节，需看图确认；结果全部保存在仓库。${llmLine}`
-        : `${label} · ${isGptRevision ? `重新生成图（${originalImageEditLabel(input.revisionInstruction ?? "", provider)}）` : retexture ? "原图精修（MJ Retexture）" : isRevision ? "重新生成图（MJ）" : "生成4张图（MJ）"}\n${isRevision ? "原图" : "参考素材"}：${names.join("、") || "无"}\n\n${isRevision ? input.revisionInstruction : instruction}\n\n${fidelityNotice}${isGptRevision ? "按要求修改原图，返回1张新版；原图保留。\n" : retexture ? "只修改你点名的内容，默认保留明暗、灰度、对比度、构图和物体位置。返回结果将与原图并排展示，确认前不替换，也不自动生成视频。MJ仍可能改变细节，需要逐张确认。\n" : isRevision ? "参考原图重绘4张候选，细节可能变化；原图保留。\n" : ""}预计费用 ${formatComputeQuote(estimatedCny).replace(/算力$/, _ui("算力"))}，最终以服务商实际扣费为准。${llmLine}`
+        : `${label} · ${isGptRevision ? `重新生成图（${originalImageEditLabel(input.revisionInstruction ?? "", provider)}）` : retexture ? "原图精修（MJ Retexture）" : isRevision ? "重新生成图（MJ）" : "生成4张图（MJ）"}\n${isRevision ? "原图" : "参考素材"}：${names.join("、") || "无"}\n\n${isRevision ? input.revisionInstruction : instruction}\n\n${continuityNotice ? `${continuityNotice}\n\n` : ""}${fidelityNotice}${isGptRevision ? "按要求修改原图，返回1张新版；原图保留。\n" : retexture ? "只修改你点名的内容，默认保留明暗、灰度、对比度、构图和物体位置。返回结果将与原图并排展示，确认前不替换，也不自动生成视频。MJ仍可能改变细节，需要逐张确认。\n" : isRevision ? "参考原图重绘4张候选，细节可能变化；原图保留。\n" : ""}预计费用 ${formatComputeQuote(estimatedCny).replace(/算力$/, _ui("算力"))}，最终以服务商实际扣费为准。${llmLine}`
     );
     if (!confirmed || scope !== imageBatchScope.current || !input.canStart())
       return { status: "cancelled" as const, message: "已取消，未提交生成" };

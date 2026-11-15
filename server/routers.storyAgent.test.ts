@@ -358,7 +358,7 @@ describe("storyAgent tRPC router", () => {
     } });
     legnextMocks.generateLegnextImage.mockResolvedValueOnce({ status: "error", message: "test stops before submission" });
     await caller.storyAgent.generateForMobile({ storyId: story.id, shotNo: 2, imageProvider: "midjourney",
-      prompt: "untrusted cached dark cinematic prompt", explicitInstruction: "图片要求：保留网页手绘线条与暖白色背景", shotImageRequestId: crypto.randomUUID(),
+      prompt: "untrusted cached dark cinematic prompt", explicitInstruction: "图片要求：保留网页手绘线条与暖白色背景。字幕：「纸船邮局」。", shotImageRequestId: crypto.randomUUID(),
       renderReferences: { imageIds: [], assets: {} }, costConfirmation: { accepted: true, estimatedCny: 0.68 } });
     expect(legnextMocks.generateLegnextImage).toHaveBeenCalledTimes(1);
     const [prompt] = legnextMocks.generateLegnextImage.mock.calls[0];
@@ -371,6 +371,7 @@ describe("storyAgent tRPC router", () => {
     expect(prompt).not.toContain("cinematic camera frame");
     expect(prompt).toContain("Render the interface artwork itself");
     expect(prompt).not.toContain("霓虹科幻");
+    expect(prompt).not.toContain("纸船邮局");
     expect(prompt).not.toContain("故事级封面风格参考（如有）");
     expect(prompt).not.toContain("【艺术跃迁】");
     expect(prompt).toContain("静态图片无字硬约束");

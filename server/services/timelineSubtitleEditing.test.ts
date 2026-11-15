@@ -696,3 +696,21 @@ describe("timelineSubtitleEditing narrow commands", () => {
     expect(result).toMatchObject({ status: "error", errorKind: "invalid" });
   });
 });
+
+
+it("initializes explicit screen lettering beside dialogue and never resurrects an intentionally empty slice", async () => {
+  const story = await createStory({ userId: USER_ID, title: "纸船", body: { _revision: 1, shots: [
+    { stableShotId: "letter", shotNo: 1, durationMs: 5000, dialogue: "终于回到家了。", scriptText: "字幕淡入：「纸船邮局」。镜头缓慢推近。", publishingVideo: { groupId: "g", draftShotId: "d" } },
+  ] } });
+  const input = { storyId: story.id, userId: USER_ID, generationId: "screen-preview" };
+  expect(await initializeGeneratedSubtitlesForStory(input)).toMatchObject({ status: "ok", changed: true });
+  const row = (await getStoryTimeline(story.id, USER_ID))!;
+  const tracks = (row.extensions?.subtitleTracks as any).tracks;
+  expect(tracks[0].cues.map((cue: any) => cue.text).join("")).toBe("终于回到家了。");
+  expect(tracks[1].cues[0]).toMatchObject({ text: "纸船邮局", startFrame: 0, durationFrames: 150 });
+  await initializeGeneratedSubtitlesForStory(input);
+  expect(await getStoryTimeline(story.id, USER_ID)).toEqual(row);
+  await updateStoryTimeline({ storyId: story.id, userId: USER_ID, expectedVersion: row.version, items: row.items, extensions: { ...row.extensions, subtitleTracks: { tracks: [{ id: "subtitle", cues: [] }] } } });
+  expect(await initializeGeneratedSubtitlesForStory({ ...input, generationId: "another-preview" })).toMatchObject({ status: "ok", changed: false });
+  expect(await subtitleCues(story.id)).toEqual([]);
+});

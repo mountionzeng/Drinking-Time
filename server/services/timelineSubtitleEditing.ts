@@ -13,6 +13,7 @@
  */
 import { createHash, randomUUID } from "node:crypto";
 import { buildTimelineLayout } from "../../shared/timelineLayout";
+import { generatedScreenTextTrack } from "../../shared/bookScreenText";
 import { generatedSubtitleSpans } from "../../shared/generatedSubtitles";
 import type { VisualEditOperationRef } from "../../shared/visualEditReceipt";
 import type { VisualEditReceipt } from "../../shared/visualEditReceipt";
@@ -402,10 +403,12 @@ export function initializeGeneratedSubtitlesForStory(input: {
         shots?: unknown;
         _revision?: number;
       } | null;
+      const screenShots: Parameters<typeof generatedScreenTextTrack>[0]["shots"] = [];
       const shots = new Map<string, string>();
       for (const raw of Array.isArray(body?.shots) ? body.shots : []) {
         if (!raw || typeof raw !== "object") continue;
-        const shot = raw as { stableShotId?: string; dialogue?: string };
+        const shot = raw as { stableShotId?: string; dialogue?: string; scriptText?: string; publishingVideo?: unknown };
+        if (typeof shot.stableShotId === "string") screenShots.push({ ...shot, stableShotId: shot.stableShotId });
         if (
           typeof shot.stableShotId === "string" &&
           typeof shot.dialogue === "string"
@@ -413,7 +416,7 @@ export function initializeGeneratedSubtitlesForStory(input: {
           shots.set(shot.stableShotId, shot.dialogue);
       }
       const projected = projectStoryTimelineDocument(aggregate.story, timeline);
-      return initializeSubtitleCues(state, {
+      const initialized = initializeSubtitleCues(state, {
         candidates: buildTimelineLayout(
           projected.items.filter(item => item.included !== false)
         ).flatMap(row => {
@@ -435,6 +438,13 @@ export function initializeGeneratedSubtitlesForStory(input: {
             : [];
         }),
       });
+      if (initialized.status !== "ok") return initialized;
+      const screen = generatedScreenTextTrack({ shots: screenShots, revision: body?._revision ?? 0, nextId: ids.next,
+        spans: buildTimelineLayout(projected.items.filter(item => item.included !== false)).map(row => ({
+          stableShotId: row.item.stableShotId, startFrame: row.startFrame, durationFrames: row.durationFrames,
+        })),
+      });
+      return screen ? { status: "ok", changed: true, state: { tracks: [...initialized.state.tracks, screen] } } : initialized;
     },
     { initializeMissingTimeline: true, preserveExistingTrack: true }
   );

@@ -26,6 +26,7 @@ export const MIN_SUBTITLE_CUE_FRAMES = 1;
 /** How a cue's text was first seeded. `manual` cues have no upstream source. */
 export type SubtitleProvenance =
   | { kind: "shot-dialogue"; stableShotId: string }
+  | { kind: "shot-screen-text"; stableShotId: string }
   | { kind: "chatcut-cue"; cueCode: string }
   | { kind: "manual" };
 
@@ -217,10 +218,10 @@ function normalizeProvenance(value: unknown): SubtitleProvenance {
   if (value && typeof value === "object") {
     const record = value as Record<string, unknown>;
     if (
-      record.kind === "shot-dialogue" &&
+      (record.kind === "shot-dialogue" || record.kind === "shot-screen-text") &&
       typeof record.stableShotId === "string"
     ) {
-      return { kind: "shot-dialogue", stableShotId: record.stableShotId };
+      return { kind: record.kind, stableShotId: record.stableShotId };
     }
     if (record.kind === "chatcut-cue" && typeof record.cueCode === "string") {
       return { kind: "chatcut-cue", cueCode: record.cueCode };
@@ -269,7 +270,7 @@ export function subtitleCueEndFrame(cue: SubtitleCue): number {
 /** Are two provenances the same upstream source (mergeable)? */
 function sameProvenance(a: SubtitleProvenance, b: SubtitleProvenance): boolean {
   if (a.kind !== b.kind) return false;
-  if (a.kind === "shot-dialogue" && b.kind === "shot-dialogue")
+  if ((a.kind === "shot-dialogue" || a.kind === "shot-screen-text") && (b.kind === "shot-dialogue" || b.kind === "shot-screen-text"))
     return a.stableShotId === b.stableShotId;
   if (a.kind === "chatcut-cue" && b.kind === "chatcut-cue")
     return a.cueCode === b.cueCode;

@@ -426,7 +426,7 @@ it('imports the current storyboard directly without AI, preserves its source and
     newWritingBlock(bookAudioText(input.storyId,music.id,'整书配乐','music')),
     {...newWritingBlock('雨中'),id:'scene',format:'scene' as const},
     {...newWritingBlock('开伞','scene'),id:'shot',format:'shot' as const},
-    {...newWritingBlock('分镜草案 · 0–13秒（13秒）\n开场画面：伞的近景。\n画面运动：慢慢拉远。\n结束画面：完整雨街。\n声音建议：雨声。','shot'),id:'description'},
+    {...newWritingBlock('分镜草案 · 0–13秒（13秒）\n开场画面：伞的近景。\n画面运动：慢慢拉远。\n结束画面：完整雨街。\n屏幕文字：「雨停以后」。\n声音建议：雨声。','shot'),id:'description'},
     {...newWritingBlock('这把伞，还能陪我们很久。','shot'),id:'dialogue',videoRole:'dialogue' as const},
     newWritingBlock(`![图片](${image.imageUrl})`,'shot'),
   ];
@@ -476,6 +476,7 @@ it('imports the current storyboard directly without AI, preserves its source and
   expect(JSON.stringify(material.timeline.extensions?.subtitleTracks)).toContain('这把伞，还能陪我们很久。');
   expect(JSON.stringify(material.timeline.extensions?.subtitleTracks)).not.toContain('旧版字幕');
   expect((material.timeline.extensions?.subtitleTracks as any).tracks[0].cues).toEqual([expect.objectContaining({text:'这把伞，还能陪我们很久。',startFrame:45,durationFrames:270})]);
+  expect((material.timeline.extensions?.subtitleTracks as any).tracks[1].cues[0]).toMatchObject({text:'雨停以后',startFrame:0,durationFrames:390,provenance:{kind:'shot-screen-text'}});
   expect((material.timeline.extensions?.audioTracks as any).tracks.find((track:any)=>track.kind==='music').clips).toEqual([expect.objectContaining({assetId:derivedMusic.id,durationFrames:390,timelineStartFrame:0})]);
   expect((material.timeline.extensions?.audioTracks as any).tracks.find((track:any)=>track.kind==='narration').clips).toEqual([expect.objectContaining({assetId:audio.id,durationFrames:390,timelineStartFrame:0})]);
   const afterImport = await db.getStoryTimeline(input.storyId,31);
