@@ -32,7 +32,8 @@
         "docs/features/studio-assistant-capabilities.md",
         "client/src/features/storyAgent/commandConversation.test.ts",
         "docs/qa/2026-11-13-mailbox-selected-sharing.md",
-        "docs/qa/2026-11-13-mailbox-live-acceptance.md"
+        "docs/qa/2026-11-13-mailbox-live-acceptance.md",
+        "docs/qa/2026-11-15-release-gap-audit.md"
       ],
       "invariants": [
         "UI快照为每轮的状态数据，不是截图或权限，不凭状态臆测画面；故事和联系人归属由服务端验证。",
@@ -80,6 +81,11 @@
           "date": "2026-11-13",
           "kind": "verification",
           "summary": "Web db3a3585正式部署并验证281资源、ready/鉴权及43迁移；完整数据库备份保留。真实本地选择公开段落、微信目的地禁用和导航路径已实点，测试1219软删除。真实账号登录待本人确认；原生双函数015ed242候选已保留线上依赖且10项通过，自动审批要求具体授权待答，三开关仍关闭，尚未跨账号/手机闭环。"
+        },
+        {
+          "date": "2026-11-15",
+          "kind": "fix",
+          "summary": "Release gap repair: Storyboard gestures, processing acknowledgement and clause-scoped navigation. Exact workspace/release SHA audit prevents silent omissions. See docs/qa/2026-11-15-release-gap-audit.md"
         }
       ]
     },
@@ -3941,7 +3947,9 @@
         "client/src/features/creationEditor/views/ShotPreview.tsx",
         "client/src/features/storyAgent/views/StoryboardReviewBoard.tsx",
         "client/src/features/storyAgent/views/StoryboardTimelineRuler.tsx",
-        "client/src/features/creationEditor/storyboardSelectionFollow.ts"
+        "client/src/features/creationEditor/storyboardSelectionFollow.ts",
+        "client/src/features/storyAgent/views/storyboardViewportGestures.ts",
+        "client/src/features/storyAgent/views/useStoryboardViewportGestures.ts"
       ],
       "evidence": [
         "shared/timelineLayout.test.ts",
@@ -3963,7 +3971,11 @@
         "docs/qa/2026-11-07-unified-video-storyboard.md",
         "client/src/features/creationEditor/storyboardSelectionFollow.test.ts",
         "docs/qa/2026-11-10-playback-ui.md",
-        "docs/qa/2026-11-10-system-unused-code-cleanup.md"
+        "docs/qa/2026-11-10-system-unused-code-cleanup.md",
+        "client/src/features/storyAgent/views/storyboardViewportGestures.test.ts",
+        "client/src/features/storyAgent/views/useStoryboardViewportGestures.test.ts",
+        "docs/qa/2026-11-14-storyboard-gestures.md",
+        "docs/qa/2026-11-15-release-gap-audit.md"
       ],
       "invariants": [
         "所有结构性时间统一走 30fps 整数帧，毫秒只是显示投影。",
@@ -3980,7 +3992,8 @@
         "position 仍然只表示故事顺序，批量移动不改它。",
         "音轨不随视觉镜头批量移动。",
         "完整故事板的镜头列按时间线绝对起点排序，列起点必须与剪辑块起点一致；重叠导致列过窄时，点击镜头自动缩小其他列并展开当前可编辑列。",
-        "普通视频拖动中的镜头信息列只使用瞬态 timing 预览并继续复用起手时 viewport；预览不得落库、改变图片位置或绕过 moveVisualClip 唯一写入口。"
+        "普通视频拖动中的镜头信息列只使用瞬态 timing 预览并继续复用起手时 viewport；预览不得落库、改变图片位置或绕过 moveVisualClip 唯一写入口。",
+        "Storyboard双指捏合/横滑只改时间视口，不改播放头、选中镜头、素材、剪辑位置或剪辑修订；缩放锁定鼠标下的时间，文本编辑和片段拖动不抢手势，切故事/离开视图取消待执行缩放。"
       ],
       "dependencies": [
         "publishing-video-storyboard",
@@ -3991,7 +4004,8 @@
         "素材切换时的原子事务（兼容素材 rebind 锚点、不兼容时先确认再一次事务删除并激活）尚未实现。",
         "叠放优先级接近安全整数上限时只报错，不做整表压缩。",
         "聊天剪辑代理尚未暴露绝对帧单镜移动、滚动剪辑和取消吸附原语，也没有磁吸拓扑上下文。",
-        "缩放与简化显示已通过顺序五镜播放验证；重叠同起点、未放置镜头的整片适配及末端刻度溢出修复仍待完整浏览器复验。"
+        "缩放与简化显示已通过顺序五镜播放验证；重叠同起点、未放置镜头的整片适配及末端刻度溢出修复仍待完整浏览器复验。",
+        "2026-11-14触控板捏合已覆盖wheel/Safari事件与React提交自动测试，3000真实横向/纵向滚动通过；浏览器工具无原生pinch接口，Mac物理双指手感仍待人工复验。手势仅用于完整Storyboard时间表，简读/书稿不接管。"
       ],
       "history": [
         {
@@ -4083,6 +4097,16 @@
           "date": "2026-11-10",
           "kind": "refactor",
           "summary": "移除无引用的边界/帧转换/锚点包装函数，保留权威布局、锚点、30fps时间模型与播放跟随。 引用核对/验证和保留缺口见全系统冗余清理QA；未提交、未部署。"
+        },
+        {
+          "date": "2026-11-14",
+          "kind": "feature",
+          "summary": "完整Storyboard加入触控板捏合缩放与双指左右平移；沿用对数缩放上下限，鼠标时间锚点、rAF合并、Safari累计比例和重复wheel保护；原滑杆保留，不增加按钮。21项相关回归、类型、构建含77项草稿安全回归通过；3000真实横滑往返/竖滑通过，剪辑修订28与累计算力27.21保持。工具不能真实发起Mac捏合，保留实机手感缺口。详见docs/qa/2026-11-14-storyboard-gestures.md。未提交/发布。"
+        },
+        {
+          "date": "2026-11-15",
+          "kind": "fix",
+          "summary": "Release gap repair: Storyboard gestures, processing acknowledgement and clause-scoped navigation. Exact workspace/release SHA audit prevents silent omissions. See docs/qa/2026-11-15-release-gap-audit.md"
         }
       ]
     },
@@ -12812,7 +12836,8 @@
         "client/src/features/creationEditor/storyboardSelectionFollow.test.ts",
         "docs/qa/2026-11-10-playback-ui.md",
         "docs/qa/2026-11-10-unused-workflow-cleanup.md",
-        "docs/qa/2026-11-10-conversation-release.md"
+        "docs/qa/2026-11-10-conversation-release.md",
+        "docs/qa/2026-11-15-release-gap-audit.md"
       ],
       "invariants": [
         "历史按故事与稳定镜头身份筛选，不能按当前镜号推断旧记录归属。",
@@ -12858,6 +12883,11 @@
           "date": "2026-11-10",
           "kind": "fix",
           "summary": "联合网页发布50de687f已上线，版本9c3613ce-f740-418b-bdbb-4c59552052be；7116全量/215小程序/73真实MySQL及生产276产物、support worker、HTTPS健康与登录保护通过。声音私有运行时离线自检通过；真实付费素材质量和用户作品听感缺口保留。详见docs/qa/2026-11-10-conversation-release.md。"
+        },
+        {
+          "date": "2026-11-15",
+          "kind": "fix",
+          "summary": "Release gap repair: Storyboard gestures, processing acknowledgement and clause-scoped navigation. Exact workspace/release SHA audit prevents silent omissions. See docs/qa/2026-11-15-release-gap-audit.md"
         }
       ]
     },

@@ -18,10 +18,17 @@ describe("interface assistant contract", () => {
     "show my stories",
     "where am I",
     "ouvrir le courrier",
+    "打开视频，再调整云层",
+    "先看范围；然后打开仓库",
   ])("routes %s to the semantic planner", text =>
     expect(isStudioAssistantRequest(text)).toBe(true)
   );
-  it.each(["改第03镜的音乐", "把这段写得更短", "你好", "采用这个图片"])(
+  it.each(["改第03镜的音乐", "把这段写得更短", "你好", "采用这个图片",
+    "我先查看这一帧的范围，暂不生成图片或视频。",
+    "看看森林的范围。先不动视频。",
+    "Show this frame's region. Do not generate video.",
+    "Show the cloud region; keep the video unchanged.",
+  ])(
     "leaves existing editing routes in place: %s",
     text => expect(isStudioAssistantRequest(text)).toBe(false)
   );

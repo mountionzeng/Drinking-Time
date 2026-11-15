@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { framePx, msToPx, pxToMs } from "@shared/timelineViewport";
-import { storyboardZoomViewport } from "./StoryboardTimelineRuler";
+import { storyboardZoomViewport, storyboardZoomForScale } from "./StoryboardTimelineRuler";
 
 describe("storyboard zoom", () => {
   it("fits the entire film exactly in narrow and wide panels", () => {
@@ -22,4 +22,15 @@ describe("storyboard zoom", () => {
     expect(widths).toEqual([...widths].sort((a, b) => a - b));
     expect(Number.isFinite(storyboardZoomViewport(0, 0, 100).scale)).toBe(true);
   });
+});
+
+it("round-trips gesture scale through the existing logarithmic zoom slider", () => {
+  for (const total of [0, 1000/30, 68000, 600000]) for (const width of [240,720,1400]) {
+    for (const zoom of [0,0.25,12.5,50,100]) {
+      const viewport = storyboardZoomViewport(total,width,zoom);
+      const restored = storyboardZoomViewport(total,width,storyboardZoomForScale(total,width,viewport.scale));
+      expect(restored.scale).toBeCloseTo(viewport.scale);
+    }
+  }
+  expect(storyboardZoomForScale(68000,500,NaN)).toBe(0);
 });

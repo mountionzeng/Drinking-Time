@@ -2644,7 +2644,8 @@ export default function StoryAgentChat({
           /> : <ChatAssistantAvatar visualTheme={visualTheme} element={element}
               mood={isReplying ? "thinking" : undefined} notificationKey={lastAssistantId} animated={isReplying} />}
           <section aria-label={layoutContext ? _ui("当前模块上下文") : _ui("当前文字上下文")} className="min-w-0 flex-1">
-            <ChatCompanionStatus key={videoProgressScope} messages={companionMessages} />
+            <ChatCompanionStatus key={videoProgressScope} messages={companionMessages}
+              priority={isReplying ? _ui("已收到，正在处理 · 可以继续输入") : undefined} />
             {writingSnapshot?.layoutMemory && <LayoutMemoryDetails memory={writingSnapshot.layoutMemory} accountId={accountId} />}
           </section>
         </div>

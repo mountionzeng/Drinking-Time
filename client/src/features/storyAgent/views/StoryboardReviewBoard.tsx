@@ -1,3 +1,4 @@
+import { useStoryboardViewportGestures } from "./useStoryboardViewportGestures";
 import { prepareVideoFrame } from "./prepareVideoFrame";
 import { estimateStoryboardMaskedEditCost } from "@shared/imageRenderCost";
 import { StoryboardPreflightTimeout, withStoryboardPreflightTimeout } from "./storyboardPreflightTimeout";
@@ -1701,6 +1702,17 @@ export function StoryboardReviewBoard({
         Math.max(1, shots.length * 72 + (expandedShotNo == null ? 0 : matrixShotColumnWidth - 72)), 0)
     : zoomedStoryboardViewport,
     [presentation, boardAvailableWidth, simplifiedDisplay, shotTimingPreview, storyboardTimelineDurationMs, shots.length, expandedShotNo, matrixShotColumnWidth, zoomedStoryboardViewport]);
+  useStoryboardViewportGestures({
+    scroller: boardScrollRef,
+    scope: storyId,
+    enabled: Boolean(shouldShow && shots.length && viewMode === "full" && presentation !== "manuscript"),
+    blocked: Boolean(shotTimingPreview),
+    viewport: storyboardViewport,
+    availableWidth: boardAvailableWidth,
+    headerWidth: STORYBOARD_TRACK_HEADER_WIDTH,
+    onZoom: next => { setTimelineScale(next); setCompactShots(false); setSimplifiedDisplay(false); },
+    onInteraction: () => { manualBoardScrollUntilRef.current = Date.now() + MANUAL_BOARD_SCROLL_GRACE_MS; },
+  });
   useLayoutEffect(() => {
     if (!simplifiedDisplay || expandedShotNo == null) return;
     const scroller = boardScrollRef.current;
@@ -3372,7 +3384,8 @@ export function StoryboardReviewBoard({
                 }
               }}
               className="min-h-0 flex-1 overflow-auto custom-scrollbar"
-              style={{ scrollPaddingLeft: STORYBOARD_TRACK_HEADER_WIDTH }}
+              style={{ scrollPaddingLeft: STORYBOARD_TRACK_HEADER_WIDTH, overscrollBehaviorX: "contain" }}
+              data-testid="storyboard-scroll-viewport"
             >
               <div
                 role="table"

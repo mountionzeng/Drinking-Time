@@ -32,6 +32,14 @@ export function storyboardZoomViewport(totalMs: number, availableWidth: number, 
   return { totalMs: Math.max(0, totalMs), scale, contentWidth: duration * scale / 1000 };
 }
 
+/** Inverse of the existing logarithmic slider, used by pointer-anchored gestures. */
+export function storyboardZoomForScale(totalMs: number, availableWidth: number, scale: number): number {
+  const min = storyboardZoomViewport(totalMs, availableWidth, 0).scale;
+  const max = storyboardZoomViewport(totalMs, availableWidth, 100).scale;
+  if (!Number.isFinite(scale) || max <= min) return 0;
+  return Math.max(0, Math.min(100, 100 * Math.log(Math.max(min, scale) / min) / Math.log(max / min)));
+}
+
 export function useStoryboardTimelineViewport(totalMs: number, availableWidth = 720) {
   const [scale, setScale] = useState(0);
   const viewport = useMemo(
@@ -80,12 +88,13 @@ export function StoryboardTimelineZoomBar({
         type="range"
         min={0}
         max={100}
-        step={1}
+        step={0.1}
         value={scale}
         onChange={event => onScaleChange(Number(event.currentTarget.value))}
         className="w-24 accent-[var(--primary)]"
         aria-label={_ui("分镜表缩放")}
-        aria-valuetext={scale === 0 ? _ui("整片适应窗口") : scale === 100 ? _ui("一帧完整信息") : `${scale}%`}
+        title="双指捏合缩放，双指左右滑动 / Pinch to zoom, swipe to pan"
+        aria-valuetext={scale === 0 ? _ui("整片适应窗口") : scale === 100 ? _ui("一帧完整信息") : `${Number(scale.toFixed(1))}%`}
       />
       <button
         type="button"

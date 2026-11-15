@@ -1,12 +1,12 @@
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 
 /** One quiet line for concurrent activity and context, without repeated live announcements. */
-export function ChatCompanionStatus({ messages }: { messages: string[] }) {
+export function ChatCompanionStatus({ messages, priority }: { messages: string[]; priority?: string }) {
   const reducedMotion = useReducedMotion();
   const [index, setIndex] = useState(0);
   const [paused, setPaused] = useState(false);
-  const items = [...new Set(messages.filter(Boolean))];
+  const items = priority ? [priority] : [...new Set(messages.filter(Boolean))];
   const signature = JSON.stringify(items);
   useEffect(() => {
     setIndex(0);

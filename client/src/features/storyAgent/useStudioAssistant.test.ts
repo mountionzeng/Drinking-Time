@@ -69,6 +69,12 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 describe("conversation interface bridge", () => {
+  it("leaves a frame-region check local when video generation is explicitly deferred", async () => {
+    expect(await render()("我先查看这一帧的范围，暂不生成图片或视频。")).toBeNull();
+    expect(m.chat).not.toHaveBeenCalled();
+    expect(m.confirm).not.toHaveBeenCalled();
+    expect(m.apply).not.toHaveBeenCalled();
+  });
   it("uses the submitted snapshot and omits the duplicated current user message from history", async () => {
     m.state.messages = [
       { role: "assistant", content: "Earlier" },
