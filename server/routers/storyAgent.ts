@@ -111,7 +111,7 @@ import {
   deriveStoryboardReferenceInjection,
 } from "../services/imageInjection";
 import { synthesizeShotPrompt } from "../services/synthesizeShotPrompt";
-import { confirmedStoryboardImagePrompt } from "../services/confirmedStoryboardImagePrompt";
+import { confirmedStoryboardImagePrompt, unreferencedArtFramePrompt } from "../services/confirmedStoryboardImagePrompt";
 import { directImagePrompt } from "../services/imagePromptDirector";
 import { planImageGenerationReferences } from "../services/imageGenerationReference";
 import { readModuleImageTask, recoverModuleImageTask, runModuleImageTask, type ModuleImageHooks } from "../services/bookModuleImageRecovery";
@@ -2284,8 +2284,11 @@ export const storyAgentRouter = router({
           ? confirmedStoryboardImagePrompt({ body: storyBody, shot: storyShot,
               title: story.title, instruction: input.explicitInstruction })
           : null;
+        const unreferencedFramePrompt = confirmedFramePrompt && input.renderReferences &&
+          input.renderReferences.imageIds.length === 0 && Object.keys(input.renderReferences.assets).length === 0
+          ? unreferencedArtFramePrompt({ body: storyBody, shot: storyShot, instruction: input.explicitInstruction }) : null;
         if (confirmedFramePrompt) {
-          prompt = confirmedFramePrompt;
+          prompt = unreferencedFramePrompt || confirmedFramePrompt;
         } else if (
           promptContext &&
           !input.referenceRevision &&
@@ -2572,7 +2575,7 @@ export const storyAgentRouter = router({
           shotNo: input.shotNo != null ? String(input.shotNo) : undefined,
           projectId: input.referenceRevision ? undefined : story.projectId ?? undefined,
           storyId: story.id,
-          preservePrompt: !confirmedFramePrompt && Boolean(coverArtDirection),
+          preservePrompt: Boolean(unreferencedFramePrompt) || (!confirmedFramePrompt && Boolean(coverArtDirection)),
           outputPurpose: "story-frame" as const,
           // 首次正式出图的候选不该只是同一居中画面的换色。已有画面、用户精确指令
           // 和锁定资产都由各自的连续性约束接管，不能在这里强行分叉。

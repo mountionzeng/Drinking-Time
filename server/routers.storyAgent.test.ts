@@ -390,7 +390,7 @@ describe("storyAgent tRPC router", () => {
     await caller.storyAgent.generateForMobile({ storyId: story.id, shotNo: 1, imageProvider: "midjourney", prompt: "cached cinematic prompt",
       explicitInstruction: "茶壶近景", shotImageRequestId: crypto.randomUUID(), renderReferences: { imageIds: [], assets: {} }, costConfirmation: { accepted: true, estimatedCny: 0.68 } });
     const [prompt] = legnextMocks.generateLegnextImage.mock.calls[0];
-    expect(prompt).toContain("美术体系 V4"); expect(prompt).toContain("Delicate ink wash"); expect(prompt).toContain("茶壶近景");
+    expect(prompt).not.toMatch(/【|美术体系 V4|无字硬约束|annotation|labels/); expect(prompt).toContain("Delicate ink wash"); expect(prompt).toContain("茶壶近景");
     expect(prompt).not.toContain("cached cinematic"); expect(imagePromptDirectorMocks.directImagePrompt).not.toHaveBeenCalled();
   });
   it("sends the established image as a continuity reference without locking another shot's composition", async () => {

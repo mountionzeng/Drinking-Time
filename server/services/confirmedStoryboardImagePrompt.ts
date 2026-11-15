@@ -1,11 +1,36 @@
 import { stripExplicitScreenText } from "../../shared/bookScreenText";
 import { artSystemPrompt } from "../../shared/artSystem";
+import { activeArtSystemRecipe } from "../../shared/artSystem";
 function record(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown> : {};
 }
 function text(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
+}
+
+/** With a confirmed recipe and no images, feed MJ visual prose, not the
+ * editorial document (headings and prohibitions can become printed artwork). */
+export function unreferencedArtFramePrompt(input: {
+  body: Record<string, unknown>;
+  shot: Record<string, unknown> | undefined;
+  instruction?: string;
+}): string | null {
+  const recipe = activeArtSystemRecipe(input.body);
+  if (!recipe?.system || !input.shot) return null;
+  const scene = stripExplicitScreenText(text(input.instruction) || text(input.shot.promptDraft))
+    .replace(/(?:图片要求(?:（最高优先级）)?|画面动作|画面描述|开场画面|结束画面)[：:]/gu, "")
+    .replace(/【[^】]+】/gu, "").replace(/\s+/gu, " ").trim();
+  if (!scene) return null;
+  return [
+    recipe.system.englishPrompt,
+    scene,
+    ...[input.shot.subject, input.shot.location, input.shot.timeLight, input.shot.colorPalette, input.shot.materialTexture]
+      .map(value => stripExplicitScreenText(text(value))).filter(value => value && !scene.includes(value)),
+    ...recipe.system.objectRules,
+    ...recipe.system.continuityRules,
+    "One continuous illustration filling the entire canvas edge to edge. Plain unmarked surfaces.",
+  ].filter(Boolean).join(" ");
 }
 
 /** Adopted storyboard requirements already describe the picture. Do not ask a
