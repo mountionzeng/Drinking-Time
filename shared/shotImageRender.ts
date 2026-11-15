@@ -16,10 +16,12 @@ const versionRef = z
     versionId: z.string().min(1).max(160),
   })
   .strict();
-/** A complete selection. An empty selection explicitly disables all inherited references. */
+/** Complete shot content selection. Independent film style is quoted separately. */
 export const shotRenderReferencesSchema = z
   .object({
     imageIds: z.array(z.number().int().positive()).max(4),
+    /** Confirmed film style version shown in the quote, or zero when disabled. */
+    filmStyleVersion: z.number().int().nonnegative().optional(),
     /** An established earlier frame supplies objects/materials/palette, not this shot's composition. */
     imagePurpose: z.literal("scene-style").optional(),
     assets: z

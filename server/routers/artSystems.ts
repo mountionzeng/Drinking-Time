@@ -17,7 +17,7 @@ export const artSystemsRouter = router({
   }),
   write: protectedProcedure.input(z.object({
     storyId: z.number().int().positive(), operationToken: z.string().uuid(), instruction: z.string().trim().min(1).max(8000),
-    action: z.enum(["draft", "confirm", "copy"]), referenceImageIds: z.array(z.number().int().positive()).max(12).default([]),
+    action: z.enum(["draft", "confirm", "copy", "style-reference", "clear-style-reference"]), referenceImageIds: z.array(z.number().int().positive()).max(12).default([]),
     expectedVersion: z.number().int().nonnegative(),
     recipeVersion: z.number().int().positive().optional(),
     imageId: z.number().int().positive().optional(), sourceStoryId: z.number().int().positive().optional(),

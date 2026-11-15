@@ -39,3 +39,16 @@ it("exports a versioned creative Skill and bounds MJ/Vidu motion rules while pre
   }
   expect(withArtSystemVideoPrompt("existing prompt", {}, 500)).toBe("existing prompt");
 });
+
+it("routes explicit film style selection and opt-out, but not questions or shot-reference removal", () => {
+  for (const text of ["用图片 #15 作为全片画风参考", "更换全片画风参考为图片 #15", "Use image #15 as the film style reference"]) {
+    expect(parseArtSystemChat(text)).toEqual({ action: "style-reference", imageId: 15 });
+  }
+  expect(parseArtSystemChat("用这张图作为全片画风")).toEqual({ action: "style-reference" });
+  for (const text of ["停用全片画风参考", "不要使用全片画风参考", "Disable the film style reference"]) {
+    expect(parseArtSystemChat(text)).toEqual({ action: "clear-style-reference" });
+  }
+  for (const text of ["如何停用全片画风参考？", "全片画风参考可以停用吗？", "不要停用全片画风参考", "取消这一镜参考", "不要用图片 #15 作为全片画风", "全片画风参考是什么？", "取消这一镜参考，全片画风保留", "Keep the film style reference but remove the shot reference"]) {
+    expect(parseArtSystemChat(text)).toBeNull();
+  }
+});

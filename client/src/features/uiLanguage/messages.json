@@ -14226,5 +14226,33 @@
   "小程序接收的是本次所选内容的独立副本。其他内容保持私密；后续修改需要再次发送。": {
     "en": "The mini-program receives an independent copy of this selection. Other content stays private; send again to share later changes.",
     "fr": "Le mini-programme reçoit une copie indépendante de cette sélection. Le reste reste privé ; envoyez à nouveau pour partager les modifications ultérieures."
+  },
+  "全片画风 · 图片 #{0}": {
+    "en": "Film style · Image #{0}",
+    "fr": "Style du film · Image nº {0}"
+  },
+  "全片画风": {
+    "en": "Film style",
+    "fr": "Style du film"
+  },
+  "本镜使用单独风格": {
+    "en": "Shot style overrides film style",
+    "fr": "Style propre à ce plan"
+  },
+  "全片画风参考已失效": {
+    "en": "Film style reference unavailable",
+    "fr": "Référence de style du film indisponible"
+  },
+  " · 无单镜参考": {
+    "en": " · No shot references",
+    "fr": " · Sans référence pour ce plan"
+  },
+  "单镜参考最多 4 个。取消选择不会删除仓库资产，也不会停用全片画风参考。": {
+    "en": "Select up to 4 shot references. Removing them keeps the warehouse assets and the separate film style reference.",
+    "fr": "Choisissez jusqu’à 4 références pour ce plan. Les retirer conserve les ressources de l’entrepôt et la référence de style du film."
+  },
+  "只参考笔触、色彩和材质。可在对话中说“用图片 #编号作为全片画风参考”或“停用全片画风参考”。": {
+    "en": "Drawing style, colors and textures only. In chat, say “Use image #ID as the film style reference” or “Disable the film style reference”.",
+    "fr": "Traits, couleurs et matières uniquement. Dans le chat : « Use image #ID as the film style reference » ou « Disable the film style reference »."
   }
 }

@@ -1,5 +1,6 @@
 import { TRPCError } from "@trpc/server";
-import { artSystemDraftSchema, type ArtSystemDraft } from "../../shared/artSystem";
+import { activeArtSystemRecipe, artSystemDraftSchema, type ArtSystemDraft } from "../../shared/artSystem";
+import type { ArtSystemCommand } from "../../shared/artSystemChat";
 import { normalizeStoryArtDirection, type StoryArtRecipe } from "../../shared/artDirection";
 import { ownedCreationStory, creationFingerprint } from "../repositories/textSourceLineage";
 import { getGeneratedImageById } from "../repositories/images";
@@ -8,7 +9,7 @@ import { persistPreparedStoryBody, StoryBodyRevisionConflictError } from "./stor
 import { runJsonAgent } from "./agentRuntime";
 
 type Input = { storyId: number; userId: number; editorName: string; instruction: string; operationToken: string;
-  action: "draft" | "confirm" | "copy"; referenceImageIds: number[]; imageId?: number; sourceStoryId?: number; expectedVersion: number; recipeVersion?: number };
+  action: ArtSystemCommand["action"]; referenceImageIds: number[]; imageId?: number; sourceStoryId?: number; expectedVersion: number; recipeVersion?: number };
 export async function writeArtSystem(input: Input) {
   const { body, revision, story } = await ownedCreationStory(input);
   const direction = normalizeStoryArtDirection(body.artDirection);
@@ -31,7 +32,20 @@ export async function writeArtSystem(input: Input) {
   let recipe: StoryArtRecipe;
   const version = Math.max(0, ...direction.recipeVersions.map(r => r.version), direction.recipe?.version ?? 0) + 1;
   const now = Date.now();
-  if (input.action === "confirm") {
+  const changingStyleReference = input.action === "style-reference" || input.action === "clear-style-reference";
+  if (changingStyleReference) {
+    if (input.action === "style-reference" && !input.imageId) throw new Error("请选中一张图片，或说“用图片 #编号作为全片画风参考”");
+    const active = activeArtSystemRecipe(body) ?? (direction.phase === "locked" ? direction.recipe : undefined);
+    // Only confirmed rules survive this free command. Pending rules stay in history.
+    const base = active ?? { style: [], palette: [], light: [], composition: [], material: [], negative: [], sourceCandidateIds: [] };
+    const { filmStyleImageId: _oldStyle, ...system } = active?.system ?? {
+      name: "全片画风", englishPrompt: "", objectRules: [], motionRules: [], continuityRules: [], referenceImageIds: [],
+    };
+    recipe = { ...base, version, updatedAt: now, system: { ...system,
+      intent: input.instruction, editorId: input.userId, editorName: input.editorName, operationToken: input.operationToken,
+      confirmedAt: now, ...(input.action === "style-reference" ? { filmStyleImageId: input.imageId! } : {}),
+    } };
+  } else if (input.action === "confirm") {
     const selected = input.recipeVersion ? direction.recipeVersions.find(r => r.version === input.recipeVersion) : direction.recipe;
     if (!selected?.system) throw new Error("没有找到要确认的美术体系版本，请先在对话里建立并查看版本");
     recipe = { ...selected, version, updatedAt: now, system: { ...selected.system,
@@ -45,7 +59,7 @@ export async function writeArtSystem(input: Input) {
     const sourceDirection = normalizeStoryArtDirection(source.body.artDirection);
     const sourceRecipe = input.recipeVersion ? sourceDirection.recipeVersions.find(r => r.version === input.recipeVersion) : sourceDirection.recipe;
     if (!sourceRecipe?.system) throw new Error("该故事没有已保存的美术体系");
-    const { confirmedImageId: _image, confirmedAt: _confirmed, ...system } = sourceRecipe.system;
+    const { confirmedImageId: _image, filmStyleImageId: _styleImage, confirmedAt: _confirmed, ...system } = sourceRecipe.system;
     recipe = { ...sourceRecipe, version, updatedAt: now, sourceCandidateIds: [], system: { ...system,
       referenceImageIds: [], sourceStoryId: input.sourceStoryId, sourceVersion: sourceRecipe.version,
       intent: input.instruction, editorId: input.userId, editorName: input.editorName, operationToken: input.operationToken,
@@ -73,12 +87,13 @@ export async function writeArtSystem(input: Input) {
         referenceImageIds: referenceIds.length ? referenceIds : direction.recipe?.system?.referenceImageIds ?? [],
         // Keep the selected baseline through textual refinements, without confirming the new rules.
         ...(direction.recipe?.system?.confirmedImageId ? { confirmedImageId: direction.recipe.system.confirmedImageId } : {}),
+        ...(activeArtSystemRecipe(body)?.system?.filmStyleImageId ? { filmStyleImageId: activeArtSystemRecipe(body)!.system!.filmStyleImageId } : {}),
         intent: input.instruction, editorId: input.userId, editorName: input.editorName, operationToken: input.operationToken,
       } };
   }
   const history = direction.recipeVersions.some(r => r.version === direction.recipe?.version) || !direction.recipe
     ? direction.recipeVersions : [...direction.recipeVersions, direction.recipe];
-  const nextDirection = { ...direction, phase: input.action === "confirm" ? "locked" as const : "recipe-review" as const,
+  const nextDirection = { ...direction, phase: input.action === "confirm" || changingStyleReference ? "locked" as const : "recipe-review" as const,
     recipe, recipeVersions: [...history, recipe], updatedAt: now };
   // Inference may outlive an unrelated chat/autosave. Rebase only this owned
   // slice, without repeating inference or overwriting another art edit.

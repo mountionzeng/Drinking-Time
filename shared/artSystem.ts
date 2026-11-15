@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { artRecipePrompt, normalizeStoryArtDirection, type StoryArtRecipe, type StoryArtDirection } from "./artDirection";
+import type { ArtSystemCommand } from "./artSystemChat";
 const lines = z.array(z.string().trim().min(1).max(400)).max(12);
 export const artSystemDraftSchema = z.object({
   name: z.string().trim().min(1).max(100), style: lines, palette: lines, light: lines,
@@ -55,17 +56,27 @@ export function withArtSystemVideoPrompt(prompt: string, body: Record<string, un
   const suffix = `Art V${recipe.version}: keep source style.${rules ? ` ${rules}` : ""}`;
   return `${clip(prompt, maxLength - suffix.length - 1)}\n${suffix}`;
 }
-export function artSystemChatReply(direction: StoryArtDirection, version: number) {
+export function artSystemChatReply(direction: StoryArtDirection, version: number, action?: ArtSystemCommand["action"], language = "zh") {
   const recipe = direction.recipeVersions.find(item => item.version === version) ?? direction.recipe;
   if (!recipe?.system) return "没有找到已保存的美术体系，请重新载入仓库。";
   const system = recipe.system;
   const label = `V${String(recipe.version).padStart(2, "0")}`;
   const active = activeArtSystemRecipe({ artDirection: direction });
+  if (action === "style-reference" || action === "clear-style-reference") {
+    const imageId = system.filmStyleImageId;
+    if (!language.startsWith("zh")) return imageId
+      ? `Film style reference set to image #${imageId} (${label}). New shot images will use its drawing style, colors and textures. Removing a shot’s character or scene reference will keep this separate style reference. It does not specify characters or composition; a style asset selected for a shot takes priority.\n\nSay “Use image #ID as the film style reference” to change it, or “Disable the film style reference” to stop using it. No images were generated and no credits were charged.`
+      : `Film style image reference disabled (${label}). The written art rules and shot references are kept. No images were generated and no credits were charged.`;
+    return imageId
+      ? `已将图片 #${imageId} 设为全片画风参考（${label}）。后续镜头出图会参考它的笔触、色彩和材质；取消某一镜的人物或场景参考时，这份画风参考仍然保留。它不负责指定人物或构图；某镜单独选择的风格资产优先。\n\n想更换可以说“用图片 #编号作为全片画风参考”，想关闭可以说“停用全片画风参考”。本次只保存设置，没有生成图片或消耗算力。`
+      : `已停用全片画风参考图（${label}）。原有文字美术规则和各镜头参考保留。本次只保存设置，没有生成图片或消耗算力。`;
+  }
   return [`已${system.confirmedAt ? "确认" : "保存"}美术体系「${system.name}」${label}，位置：仓库 → 资产（Warehouse → Assets），可查看历史版本并下载创作 Skill。`,
     `风格：${recipe.style.join("；")}\n色彩：${recipe.palette.join("；") || "具体色板保持开放"}\n物体：${system.objectRules.join("；")}`,
     system.confirmedAt ? `后续图片和视频会使用这版规则${system.confirmedImageId ? `与基准图 #${system.confirmedImageId}` : ""}。可以直接说“第 02 镜生成图片”；素材生成后进入对应镜头表格和仓库。`
       : `当前为待确认版本${active ? `，制作仍沿用 V${String(active.version).padStart(2, "0")}` : "，尚未用于正式生成"}。可继续描述想改的地方，或说“确认这套美术体系”。选定图片后也可以说“用图片 #编号作为美术基准”。`,
     "本次只保存美术规则，没有提交图片或视频生成。",
+    ...(system.filmStyleImageId ? [`全片画风参考：图片 #${system.filmStyleImageId}；取消单镜参考不会取消它。可说“停用全片画风参考”。`] : []),
   ].join("\n\n");
 }
 export function artSystemSkillMarkdown(recipe: StoryArtRecipe) {
@@ -78,6 +89,7 @@ export function artSystemSkillMarkdown(recipe: StoryArtRecipe) {
     `## Continuity\n${system?.continuityRules.map(x => `- ${x}`).join("\n") || ""}`, "",
     `## Image prompt\n${system?.englishPrompt || ""}`, "",
     `Reference image IDs: ${system?.referenceImageIds.join(", ") || "none"}. Confirmed image: ${system?.confirmedImageId ?? "not selected"}.`,
+    `Film-wide style-only image: ${system?.filmStyleImageId ?? "disabled"}. This is not a subject or composition reference.`,
     `Updated: ${new Date(recipe.updatedAt).toISOString()}. Editor: ${system?.editorName || system?.editorId || "unknown"}.`,
     `Intent: ${system?.intent || ""}`, "",
   ].join("\n");

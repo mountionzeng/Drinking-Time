@@ -6,6 +6,12 @@ export function shotImageContinuityNotice(material: StoryMaterialState, referenc
   const zh = language.startsWith("zh");
   const style = material.artSystemStyle;
   const lines: string[] = [];
+  const filmStyle = material.filmStyleReference;
+  if (filmStyle) lines.push(references.assets.style
+    ? (zh ? "本镜已单独选择风格资产，本次以该资产为准；全片画风参考保留，其他镜头仍可使用。" : "This shot uses its selected style asset. The film style reference remains available for other shots.")
+    : (zh
+      ? `本次全片画风参考：图片 #${filmStyle.imageId}（${filmStyle.name}，V${filmStyle.version}），只参考笔触、色彩和材质，不指定人物或构图。取消本镜参考不会取消它；可在对话中说“用图片 #编号作为全片画风参考”或“停用全片画风参考”。`
+      : `Film style reference: image #${filmStyle.imageId} (${filmStyle.name}, V${filmStyle.version}), for drawing style, colors and textures only. It does not specify characters or composition. Removing shot references keeps it. Say “Use image #ID as the film style reference” or “Disable the film style reference” to change it.`));
   if (style) lines.push(zh
     ? `画风沿用全片已确认的「${style.name}」V${style.version}；取消参考图片不会清除这套画风规则。`
     : `Keep the film’s confirmed style “${style.name}” V${style.version}. Removing an image reference does not remove these style rules.`);

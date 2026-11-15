@@ -37,3 +37,12 @@ it("retains the old direction on failure and shows a recoverable reply", async (
   expect(m.setDirection).not.toHaveBeenCalled();
   expect(m.setMessages.mock.calls[0][0][1].content).toContain("原版本保留");
 });
+it("resolves a film style image from this story's single chat attachment and saves a visible reply", async () => {
+  await useArtSystemChat()({...input(),storyId:2,command:{action:"style-reference"},instruction:"用这张图作为全片画风"});
+  expect(m.write).toHaveBeenCalledWith(expect.objectContaining({storyId:2,action:"style-reference",imageId:9,referenceImageIds:[]}));
+  expect(m.append).toHaveBeenCalledWith(expect.objectContaining({assistantMessage:expect.objectContaining({content:expect.any(String)})}));
+});
+it("never borrows another story's attachment for the film style", async () => {
+  await useArtSystemChat()({...input(),command:{action:"style-reference"}});
+  expect(m.write.mock.calls[0][0].imageId).toBeUndefined();
+});

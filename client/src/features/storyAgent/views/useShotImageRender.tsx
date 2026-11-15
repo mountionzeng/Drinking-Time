@@ -187,6 +187,9 @@ export function useShotImageRender(
     const provider = isRevision ? input.revisionProvider ?? "midjourney" : input.generationProvider ?? "midjourney";
     const isGptRevision = provider === "gpt-image";
     const retexture = conversationRevision && provider === "midjourney";
+    const filmStyle = !isRevision && provider === "midjourney" && !settings.references.assets.style ? material?.filmStyleReference : undefined;
+    const references = !isRevision && provider === "midjourney"
+      ? { ...settings.references, filmStyleVersion: filmStyle?.version ?? 0 } : settings.references;
     const choices = material ? shotRenderReferenceOptions(material) : [];
     const chosen = selectedReferenceKeys(settings.references).map(key =>
       choices.find(choice => choice.key === key)
@@ -198,6 +201,8 @@ export function useShotImageRender(
           ? "请选中一张要修改的图片"
         : !material || chosen.some(choice => !choice)
           ? "参考素材尚未加载或已失效，请重新选择参考"
+          : filmStyle && (!filmStyle.image?.imageUrl || filmStyle.image.availability === "missing")
+            ? "全片画风参考已失效，请在对话中更换或停用后再生成"
           : null;
     if (issue) {
       if (!conversationRevision) setImageRenderError(issue);
@@ -254,7 +259,7 @@ export function useShotImageRender(
           explicitInstruction: instruction,
           imageProvider: provider,
           candidateCount: isRevision || isGptRevision ? undefined : 4,
-          reference: { selection: settings.references, ...(isRevision ? { referenceRevision: true, conversationRevision } : {}) },
+          reference: { selection: references, ...(isRevision ? { referenceRevision: true, conversationRevision } : {}) },
           costConfirmation: { accepted: true, estimatedCny, continueAfterUnknownRequestId: input.continueAfterUnknownRequestId },
         });
         if (!image.imageId || !image.imageUrl)

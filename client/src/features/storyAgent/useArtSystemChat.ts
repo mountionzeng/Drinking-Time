@@ -1,4 +1,5 @@
 import { toast } from "sonner";
+import { readUiLanguage } from "@/features/uiLanguage/UiLanguage";
 import { trpc } from "@/lib/trpc";
 import type { ArtSystemCommand } from "@shared/artSystemChat";
 import { artSystemChatReply } from "@shared/artSystem";
@@ -27,13 +28,14 @@ export function useArtSystemChat() {
     try {
       if (!storyId || storyId <= 0) throw new Error("请先保存当前故事，再建立美术体系");
       const basket = chatImageRefsStore.getState();
-      const imageId = command.imageId ?? (command.action === "confirm" &&
+      const styleAction = command.action === "style-reference" || command.action === "clear-style-reference";
+      const imageId = command.imageId ?? ((command.action === "confirm" || command.action === "style-reference") &&
         selection?.sourceType === "storyboard-image" && selectionBelongsToStory(selection, storyId)
-        ? selection.imageId ?? undefined : undefined);
+        ? selection.imageId ?? undefined : undefined) ?? (command.action === "style-reference" && basket.storyId === storyId && basket.refs.length === 1 ? basket.refs[0].imageId : undefined);
       const result = await write.mutateAsync({ storyId, ...command, imageId,
         expectedVersion: input.expectedVersion, instruction: input.instruction,
         operationToken: crypto.randomUUID(),
-        referenceImageIds: basket.storyId === storyId ? basket.refs.map(ref => ref.imageId) : [],
+        referenceImageIds: !styleAction && basket.storyId === storyId ? basket.refs.map(ref => ref.imageId) : [],
       });
       if (!isCurrent()) return false;
       const state = storySpineStore.getState();
@@ -41,7 +43,7 @@ export function useArtSystemChat() {
       state.setServerRevision(result.revision);
       utils.artSystems.read.setData({ storyId }, result.direction);
       void utils.storyAgent.storyMaterialState.invalidate({ storyId }).catch(() => {});
-      reply = artSystemChatReply(result.direction, result.version);
+      reply = artSystemChatReply(result.direction, result.version, command.action, readUiLanguage());
     } catch (error) {
       reply = `美术体系未更新：${error instanceof Error ? error.message : "请稍后重试"}。原版本保留。`;
     }

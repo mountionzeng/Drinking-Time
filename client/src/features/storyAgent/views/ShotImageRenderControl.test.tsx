@@ -142,3 +142,14 @@ describe("shot render control", () => {
     vi.unstubAllGlobals();
   });
 });
+
+it("shows film style separately when shot references are empty, and never prefills it as content", () => {
+  vi.stubGlobal("React", React);
+  vi.stubGlobal("localStorage", {getItem:()=>JSON.stringify({count:4,references:{imageIds:[],assets:{}}})});
+  const material = {shots:[{stableShotId:"s",imageVersions:[]}],unassignedImages:[],filmStyleReference:{version:4,name:"Ink",imageId:21,image:{id:21,imageUrl:"/style.png"}}} as unknown as StoryMaterialState;
+  expect(loadShotRenderSettings(1,"s",material).references.imageIds).toEqual([]);
+  const html=renderToStaticMarkup(<ShotImageRenderControl storyId={1} stableShotId="s" label="02" material={material} disabled={false} busy={false} onRender={async()=>{}} />);
+  expect(html).toContain("全片画风 · 图片 #21");
+  expect(html).toContain("无单镜参考"); expect(html).not.toContain("移除参考 图片 #21");
+  vi.unstubAllGlobals();
+});

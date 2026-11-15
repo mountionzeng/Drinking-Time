@@ -1,4 +1,5 @@
 import { isWechatImportImage, wechatProviderReference } from "../services/wechatVideoImage";
+import { resolveFilmStyleReference } from "../services/filmStyleReference";
 import { studioUiContextSchema, studioContextDescription } from "../../shared/studioAssistant";
 import { generate302FluxEdit, generate302FluxDevEdit } from "../services/fluxKontextEdit";
 import { generate302MjEdit } from "../services/mj302Edit";
@@ -2370,6 +2371,11 @@ export const storyAgentRouter = router({
           // 旧镜头 styleHint 只是兼容字段；新风格资产已锁定时不能再把它叠进提示词。
           prompt = promptBeforeLegacyStyleHint;
         }
+        const filmStyleReference = shotIdentity && (input.imageProvider ?? "midjourney") === "midjourney" &&
+          input.mode !== "draft" && !input.referenceRevision && !input.exactFrameEdit && !input.remixEdit && !input.editMaskImageUrl && !input.draftImageId
+          ? await resolveFilmStyleReference({ body: storyBody, storyId: input.storyId, userId: ctx.user.id,
+              references: input.renderReferences, hasExplicitStyle: Boolean(lockedAssets?.dimensions.style) })
+          : undefined;
 
         // 出图统一经美术网关。资产镜头不再读取旧故事参考池或旧人物锚点。
         const storyReferences = lockedAssets || input.renderReferences
@@ -2442,10 +2448,10 @@ export const storyAgentRouter = router({
             );
           }
         }
-        const injection = input.renderReferences
+        const contentInjection = input.renderReferences
           ? input.renderReferences.imagePurpose === "scene-style" && referenceImage && !input.referenceRevision
             ? { styleRef: providerReferenceImage }
-            : {}
+            : lockedAssets?.styleRef ? { styleRef: lockedAssets.styleRef } : {}
           : lockedAssets
           ? {
               ...(lockedAssets.characterRef
@@ -2469,6 +2475,7 @@ export const storyAgentRouter = router({
                   referencePlan.referencePurpose !== "scene-style",
               })
             : await deriveInjection(story, input.sceneAnalysis);
+        const injection = { ...contentInjection, ...(filmStyleReference ? { styleRef: filmStyleReference } : {}) };
         if (strictReferenceFidelity) {
           // The user's preservation request is authoritative; vision rewriting
           // previously invented steam, lighting and a new interface composition.

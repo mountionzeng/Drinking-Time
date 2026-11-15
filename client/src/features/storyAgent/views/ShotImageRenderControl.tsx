@@ -238,6 +238,9 @@ export function ShotImageRenderControl({
   const keys = selectedReferenceKeys(references);
   const chosen = keys.map(key => options.find(option => option.key === key));
   const missing = chosen.some(option => !option);
+  const filmStyle = material?.filmStyleReference;
+  const filmStyleMissing = Boolean(filmStyle && !references.assets.style && (!filmStyle.image?.imageUrl || filmStyle.image.availability === "missing"));
+  const filmStyleLabel = filmStyle ? _ui("全片画风 · 图片 #{0}", [filmStyle.imageId]) : "";
   const count = STORYBOARD_IMAGE_CANDIDATE_COUNT;
   const save = (next: ShotRenderReferences) => {
     const value = {
@@ -268,6 +271,12 @@ export function ShotImageRenderControl({
       onPointerDown={event => event.stopPropagation()}
       onClick={event => event.stopPropagation()}
     >
+      {filmStyle && <button type="button" onClick={() => setPickerOpen(true)}
+        className="flex max-w-full items-center gap-1 text-left text-[10px] text-muted-foreground"
+        title={filmStyleLabel} aria-label={filmStyleLabel}>
+        {filmStyle.image?.imageUrl && <img src={filmStyle.image.imageUrl} alt="" className="h-6 w-6 shrink-0 rounded object-cover" />}
+        <span>{filmStyleMissing ? _ui("全片画风参考已失效") : references.assets.style ? _ui("本镜使用单独风格") : _ui("全片画风")}</span>
+      </button>}
       <div
         className="flex flex-wrap items-center gap-1"
         aria-label={_ui("{0} 本次参考素材", [label])}
@@ -319,7 +328,7 @@ export function ShotImageRenderControl({
       </div>
       <button
         type="button"
-        disabled={disabled || busy || !material || missing}
+        disabled={disabled || busy || !material || missing || filmStyleMissing}
         aria-label={_ui("{0} 生成4张图", [label])}
         onClick={() => {
           setError(null);
@@ -336,7 +345,7 @@ export function ShotImageRenderControl({
       </button>
       <span className="text-[10px] text-muted-foreground">
         {_ui("MJ · 约 {0}", [formatComputeQuote(quoteShotImages(count).estimatedCny).replace(/算力$/, _ui("算力"))])}
-        {keys.length === 0 ? _ui(" · 不参考素材") : ""}
+        {keys.length === 0 ? _ui(" · 无单镜参考") : ""}
       </span>
       {error ? (
         <p role="alert" className="max-w-56 text-[10px] text-destructive">
@@ -348,8 +357,16 @@ export function ShotImageRenderControl({
           <DialogHeader>
             <DialogTitle>{label} {_ui("· 参考素材")}</DialogTitle>
             <DialogDescription>
-              {_ui("只使用这里选中的素材，最多 4 个。取消选择不会删除仓库资产。")}</DialogDescription>
+              {_ui("单镜参考最多 4 个。取消选择不会删除仓库资产，也不会停用全片画风参考。")}</DialogDescription>
           </DialogHeader>
+          {filmStyle && <div className="flex items-start gap-2 text-xs">
+            {filmStyle.image?.imageUrl && <img src={filmStyle.image.imageUrl} alt={filmStyleLabel} className="h-16 w-16 shrink-0 rounded object-contain" />}
+            <div className="space-y-1"><p>{filmStyleLabel}</p>
+              <p className="text-muted-foreground">{_ui("只参考笔触、色彩和材质。可在对话中说“用图片 #编号作为全片画风参考”或“停用全片画风参考”。")}</p>
+              {references.assets.style && <p>{_ui("本镜使用单独风格")}</p>}
+              {filmStyleMissing && <p role="alert" className="text-destructive">{_ui("全片画风参考已失效")}</p>}
+            </div>
+          </div>}
           <button
             type="button"
             className="text-left text-xs text-muted-foreground"

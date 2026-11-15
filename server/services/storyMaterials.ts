@@ -1065,6 +1065,8 @@ export async function getStoryMaterialState(
     storyId,
     ...(artRecipe?.system ? { artSystemStyle: { version: artRecipe.version, name: artRecipe.system.name } } : {}),
     ...(artReference && artRecipe?.system ? { artSystemReference: { version: artRecipe.version, name: artRecipe.system.name, image: artReference } } : {}),
+    ...(artRecipe?.system?.filmStyleImageId ? { filmStyleReference: { version: artRecipe.version, name: artRecipe.system.name,
+      imageId: artRecipe.system.filmStyleImageId, image: imageById.get(artRecipe.system.filmStyleImageId) ?? null } } : {}),
     timeline,
     // Covers (including illustration/texture candidates), style references and
     // old/rejected candidates remain discoverable without becoming shot inputs.

@@ -288,6 +288,8 @@ export type StoryMaterialState = {
   /** Explicitly confirmed art-system baseline; not a shot adoption. */
   artSystemStyle?: { version: number; name: string };
   artSystemReference?: { version: number; name: string; image: ImageAsset };
+  /** Independent, explicitly enabled style-only image. Null image blocks rendering. */
+  filmStyleReference?: { version: number; name: string; imageId: number; image: ImageAsset | null };
   timeline: TimelineDocument;
   shots: ShotMaterialState[];
   /** Complete story image archive, independent of shot assignment/adoption. */

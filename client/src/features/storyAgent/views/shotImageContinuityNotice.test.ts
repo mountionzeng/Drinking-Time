@@ -13,3 +13,11 @@ it("names the actual selected anchor and preserves style after an explicit opt-o
   expect(removed).not.toContain("第 01 镜");
   expect(shotImageContinuityNotice(material, { imageIds: [], assets: {} }, "en")).toContain("Removed references are never silently restored");
 });
+it("explains film style separately from removed character references and honors shot style overrides", () => {
+  const withStyle = { ...material, filmStyleReference: { version: 4, name: "Ink", imageId: 21, image: null } };
+  const text = shotImageContinuityNotice(withStyle, {imageIds:[],assets:{}}, "zh");
+  expect(text).toContain("图片 #21"); expect(text).toContain("停用全片画风参考");
+  expect(text).toContain("不指定人物或构图"); expect(text).toContain("本次没有选择人物参考图");
+  const overridden = shotImageContinuityNotice(withStyle, {imageIds:[],assets:{style:{assetId:"a",versionId:"v"}}}, "en");
+  expect(overridden).toContain("selected style asset"); expect(overridden).not.toContain("image #21");
+});

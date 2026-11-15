@@ -1,13 +1,29 @@
 import { parseColorTransferIntent } from "./colorTransferIntent";
 import { parseLuminanceGradeIntent } from "./luminanceGradeIntent";
 
-export type ArtSystemCommand = { action: "draft" | "confirm" | "copy"; imageId?: number; sourceStoryId?: number; recipeVersion?: number };
+export type ArtSystemCommand = { action: "draft" | "confirm" | "copy" | "style-reference" | "clear-style-reference"; imageId?: number; sourceStoryId?: number; recipeVersion?: number };
 
 /** Route explicit whole-work art requests before any shot/media generation. */
 export function parseArtSystemChat(text: string, continuing = false): ArtSystemCommand | null {
   const value = text.trim();
   // 「按图一的颜色改图二」「只调亮度」是本地免费调色，不是整部作品的美术体系讨论。
   if (parseColorTransferIntent(value) || parseLuminanceGradeIntent(value)) return null;
+  if (/全片画风|全片风格参考|film(?:-wide)? style(?: reference)?/i.test(value)) {
+    // Questions, quoted examples and negated changes must never mutate a film.
+    if (/[?？]|吗|怎么|如何|为什么|[“”「」]|\b(?:how|what|can|should)\b/i.test(value)) return null;
+    if (/(?:不要|别|不必|暂不|先不|don't|do not)\s*(?:停用|禁用|取消|删除|disable|remove)/i.test(value)) return null;
+    const target = "(?:全片画风(?:参考(?:图)?)?|全片风格参考(?:图)?|(?:the )?film(?:-wide)? style reference)";
+    const request = value.replace(/[。.!！]+$/, "").replace(/^(?:请|帮我|我想|我希望|现在|暂时)\s*/, "");
+    if (new RegExp(`^(?:停用|禁用|取消|删除|不再使用|不要使用|不用|disable |remove |turn off |stop using )${target}$`, "i").test(request)) return { action: "clear-style-reference" };
+    if (/不要|别|不用|不必|暂不|先不|don't|do not|取消|停用|禁用|remove|disable/i.test(value)) return null;
+    if (/用|作为|设为|更换|use|set|replace/i.test(value)) {
+      const ids = [...value.matchAll(/(?:图片|图像|图|image)\s*#\s*(\d+)/gi)];
+      if (ids.length > 1) return null;
+      const imageId = Number(ids[0]?.[1]) || undefined;
+      return { action: "style-reference", ...(imageId ? { imageId } : {}) };
+    }
+    return null;
+  }
   const subject = /美术体系|视觉体系|美术系统|风格体系|美术基准|风格基准|art system|visual system|style guide/i.test(value);
   const opening = value.split(/[：:。！？\n]/)[0];
   const recipeVersion = Number(value.match(/\bV\s*0*(\d+)/i)?.[1]) || undefined;

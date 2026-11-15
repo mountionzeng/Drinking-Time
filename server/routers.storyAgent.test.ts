@@ -416,6 +416,44 @@ describe("storyAgent tRPC router", () => {
     expect(prompt).not.toContain("【修改边界】");
     expect(imagePromptDirectorMocks.directImagePrompt).not.toHaveBeenCalled();
   });
+  it("keeps an independent film style only in sref when all shot references are removed", async () => {
+    const { createStory, updateStory } = await import("./repositories/stories");
+    const userId = 4976;
+    const caller = appRouter.createCaller(createAuthContext(userId));
+    const body = { shots: [{ shotNo: 1, stableShotId: "film-style-shot", subject: "纸船", promptDraft: "纸船漂过石桥" }] };
+    const story = await createStory({ userId, title: "Film style test", body });
+    const style = await createGeneratedImage({ storyId: story.id, userId, imageUrl: "https://storage.example/film-style.png", prompt: "style", isCurrent: false });
+    await updateStory(story.id, userId, { body: { ...body, artDirection: { recipe: { version: 4, system: { name: "Ink", confirmedAt: 1,
+      englishPrompt: "Ink contours and ochre washes.", filmStyleImageId: style.id } } } } });
+    const assets = await import("./services/imageAssets");
+    const wechat = await import("./services/wechatVideoImage");
+    const read = vi.spyOn(assets, "materializeImageInput").mockResolvedValue("data:image/png;base64,dGVzdA==");
+    const provider = vi.spyOn(wechat, "wechatProviderReference").mockResolvedValue("https://private.test/signed-style");
+    legnextMocks.generateLegnextImage.mockResolvedValue({status:"error",message:"test stops before submission"});
+    const request = { storyId: story.id, shotNo: 1, imageProvider: "midjourney" as const, prompt: "纸船漂过石桥", explicitInstruction: "纸船漂过石桥",
+      renderReferences: { imageIds: [] as number[], assets: {}, filmStyleVersion: 4 }, costConfirmation: { accepted: true as const, estimatedCny: 0.68 } };
+    try {
+      await caller.storyAgent.generateForMobile({ ...request, shotImageRequestId: crypto.randomUUID() });
+      expect(legnextMocks.generateLegnextImage).toHaveBeenCalledTimes(1);
+      const [prompt,, options] = legnextMocks.generateLegnextImage.mock.calls[0];
+      expect(options.styleRef).toBe("https://private.test/signed-style");
+      expect(options.referenceImageUrl).toBeUndefined(); expect(options.characterRef).toBeUndefined();
+      expect(options.referenceContextImageUrls).toEqual([]);
+      expect(prompt).toContain("纸船漂过石桥");
+      expect(read).toHaveBeenCalledWith(style.imageUrl,userId);
+      legnextMocks.generateLegnextImage.mockClear();
+      const stale = await caller.storyAgent.generateForMobile({ ...request, shotImageRequestId: crypto.randomUUID(), renderReferences: { ...request.renderReferences, filmStyleVersion: 3 } });
+      expect(stale).toMatchObject({ status: "error", error: expect.stringContaining("已更新") });
+      expect(legnextMocks.generateLegnextImage).not.toHaveBeenCalled();
+      // Image revision retains its own source; independent film style must not leak into editing.
+      imageGenMocks.editImage.mockClear();
+      await caller.storyAgent.generateForMobile({ ...request, referenceRevision: true,
+        renderReferences: { imageIds: [style.id], assets: {}, filmStyleVersion: 0 } });
+      expect(imageGenMocks.editImage).toHaveBeenCalledTimes(1);
+      expect(imageGenMocks.editImage.mock.calls[0][2].styleRef).toBeUndefined();
+    } finally { read.mockRestore(); provider.mockRestore(); }
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     imageGenMocks.toPublicImageUrl.mockImplementation(

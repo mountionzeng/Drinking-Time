@@ -4710,7 +4710,7 @@
         "人物和宠物资产的身份锚点必须是正面头部特写（identity-detail），且该视图必须真实生成、不得由全身图裁切派生；全身图里的脸或头部不足以锁住身份，也不足以作为下游出图的身份证据。",
         "素材仓库必须把 pet 显示为独立的“宠物”类别；同一镜头允许同时绑定一个 character 和一个 pet，生成合同与一致性门禁必须分别核对两者。",
         "整场默认宠物是用户主动选择的普通参考，无需人工验收或锁定；不改写原有视图判定。严格锁定和显式逐镜绑定仍遵守原质检门禁。已有逐镜设置优先，默认参考仅影响后续渲染。",
-        "统一渲染入口使用用户可见的完整参考选择：删除缩略图只取消后续生成参考，不删除资产；空列表不继承整场默认。新生成保持候选，用户选择普通宠物参考不等于锁定或人工验收。"
+        "统一渲染入口使用用户可见的完整单镜参考选择：删除缩略图只取消后续生成参考，不删除资产；空列表不继承整场内容默认。用户另行明确启用的全片画风单独可见并只用作sref，可在聊天停用；不恢复已取消的人物或场景参考。新生成保持候选，普通宠物参考不等于锁定或人工验收。"
       ],
       "dependencies": [
         "story-ownership",
@@ -12488,7 +12488,9 @@
         "server/services/imageEditDimensions.ts",
         "shared/renderProfiles.ts",
         "server/services/render/submitRender.ts",
-        "server/services/shotLock.ts"
+        "server/services/shotLock.ts",
+        "server/services/filmStyleReference.ts",
+        "client/src/features/storyAgent/views/shotImageContinuityNotice.ts"
       ],
       "evidence": [
         "docs/qa/2026-11-09-conversation-art-system.md",
@@ -12541,7 +12543,9 @@
         "server/services/frameColorMatch.test.ts",
         "server/services/imageEditDimensions.test.ts",
         "docs/qa/2026-11-12-joint-release.md",
-        "server/services/render/renderProfiles.contract.test.ts"
+        "server/services/render/renderProfiles.contract.test.ts",
+        "server/services/filmStyleReference.test.ts",
+        "docs/qa/2026-11-15-film-style-reference.md"
       ],
       "invariants": [
         "美术决定呈现方式，每镜内容由当前台词和用户最新意图决定；不硬编码单一风格、不机械复制参考构图。",
@@ -12555,7 +12559,8 @@
         "等待制作确认时其他文字可入队；受理后对话恢复，异步候选从服务端任务回显，图片替换采用明确文字决定且不把其他发言当同意。",
         "视频对话上传图片后明确要求修改时生成两张候选，文字确认费用后才提交；候选只在明确选择时加入原稳定镜头，失败不自动重试。",
         "按2026-11-10用户要求，原视频抽帧的MJ精修只改当次点名内容；先比较原图/新版并明确确认，原片及音轨不自动替换。报价单次对应Retexture任务，保留实际输出，不因少于四张而补购。",
-        "对话原图修改锁定所属底图的实际显示宽高；同比例输出仅等比还原原尺寸，异比例/未核验结果保留但禁止替换，不能裁切、拉伸或填边凑尺寸。即时和刷新恢复同样校验；采用时再读实际尺寸。"
+        "对话原图修改锁定所属底图的实际显示宽高；同比例输出仅等比还原原尺寸，异比例/未核验结果保留但禁止替换，不能裁切、拉伸或填边凑尺寸。即时和刷新恢复同样校验；采用时再读实际尺寸。",
+        "独立全片画风参考仅经用户明确设置，普通MJ镜头生成只注入sref，不变成主体、场景、构图或人物锚点；清空单镜参考仍保留它，单镜风格资产优先，原图修改不混入全片画风。对话更换/停用免费、版本化、校验所有权与并发，未确认草稿不被顺带采用。"
       ],
       "dependencies": [
         "image-asset-history",
@@ -12696,6 +12701,11 @@
           "date": "2026-11-12",
           "kind": "fix",
           "summary": "联合main已push并部署0e27e2aa；全量7732、MySQL73、小程序215与Python14项通过，生产HTTPS/哈希/鉴权验证完成。Linux私有CPU依赖补齐，真实离线推理通过；保留原有partial及供应商、美术、多帧验收缺口，未提交付费生成。证据：docs/qa/2026-11-12-joint-release.md。"
+        },
+        {
+          "date": "2026-11-15",
+          "kind": "fix",
+          "summary": "按用户选择接入独立全片画风参考与免费聊天更换/停用，生成前解释画风及人物来源并绑定已显示版本；失效参考阻断，跨故事复制去掉媒体身份。109相关项+4真实路由mock及77草稿安全回归、类型/build通过。实际模型画风效果待本轮线上视觉验收；保留partial。证据 docs/qa/2026-11-15-film-style-reference.md。"
         }
       ]
     },

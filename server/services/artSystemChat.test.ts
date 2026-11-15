@@ -105,3 +105,44 @@ it("does not overwrite a concurrent art edit after inference", async () => {
   await expect(writeArtSystem(input)).rejects.toThrow("美术体系已更新");
   expect(mocks.agent).toHaveBeenCalledTimes(1);
 });
+
+it("changes only the confirmed film style, retaining pending drafts, replay safety and shot selections", async () => {
+  const input = await fixture(); await writeArtSystem(input);
+  await writeArtSystem({ ...input, action: "confirm", expectedVersion: 1, operationToken: crypto.randomUUID() });
+  mocks.agent.mockResolvedValueOnce({ parsed: { ...draft, name: "Unconfirmed oil", style: ["oil paint"] } });
+  await writeArtSystem({ ...input, expectedVersion: 2, operationToken: crypto.randomUUID() });
+  const image = await createGeneratedImage({ storyId: input.storyId, userId: 1, imageUrl: "https://example.test/style.png", prompt: "style", isCurrent: false });
+  mocks.agent.mockClear();
+  const change = { ...input, expectedVersion: 3, action: "style-reference" as const, imageId: image.id, operationToken: crypto.randomUUID() };
+  const result = await writeArtSystem(change);
+  expect(result.version).toBe(4);
+  expect(result.direction.recipe?.style).toEqual(["ink wash"]);
+  expect(result.direction.recipe?.system?.filmStyleImageId).toBe(image.id);
+  expect(result.direction.recipeVersions.find(r => r.version === 3)?.style).toEqual(["oil paint"]);
+  expect((await writeArtSystem(change)).replayed).toBe(true);
+  const material = await getStoryMaterialState(input.storyId, 1);
+  expect(material?.filmStyleReference).toMatchObject({ version: 4, imageId: image.id, image: { id: image.id } });
+  expect(material?.artSystemReference).toBeUndefined();
+  expect(material?.shots[0].currentImage).toBeNull();
+  const cleared = await writeArtSystem({ ...input, action: "clear-style-reference", expectedVersion: 4, operationToken: crypto.randomUUID() });
+  expect(activeArtSystemRecipe({ artDirection: cleared.direction })?.system?.filmStyleImageId).toBeUndefined();
+  expect(cleared.direction.recipe?.style).toEqual(["ink wash"]);
+  expect((await getStoryMaterialState(input.storyId, 1))?.filmStyleReference).toBeUndefined();
+  expect(mocks.agent).not.toHaveBeenCalled();
+  const copied = await writeArtSystem({ ...await fixture(), action: "copy", sourceStoryId: input.storyId, recipeVersion: 4 });
+  expect(copied.direction.recipe?.system?.filmStyleImageId).toBeUndefined();
+});
+
+it("requires an owned explicit image for free film style changes and never silently confirms pending text rules", async () => {
+  const input = await fixture();
+  await expect(writeArtSystem({ ...input, action: "style-reference" })).rejects.toThrow("请选中");
+  await expect(writeArtSystem({ ...input, action: "style-reference", imageId: 999999 })).rejects.toThrow("不属于");
+  const other = await fixture(2);
+  const foreign = await createGeneratedImage({storyId:other.storyId,userId:2,imageUrl:"/other.png",prompt:"other"});
+  await expect(writeArtSystem({ ...input, action: "style-reference", imageId: foreign.id })).rejects.toThrow("不属于");
+  const own = await createGeneratedImage({storyId:input.storyId,userId:1,imageUrl:"/own.png",prompt:"own"});
+  const enabled = await writeArtSystem({ ...input, action: "style-reference", imageId: own.id });
+  expect(enabled.direction.recipe?.system?.filmStyleImageId).toBe(own.id);
+  expect(enabled.direction.recipe?.style).toEqual([]);
+  expect(mocks.agent).not.toHaveBeenCalled();
+});

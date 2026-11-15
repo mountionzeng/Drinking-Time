@@ -82,6 +82,8 @@ export type StoryArtRecipe = ArtRecipeDNA & {
     continuityRules: string[];
     referenceImageIds: number[];
     confirmedImageId?: number;
+    /** Explicit film-wide style only; never a shot subject/composition reference. */
+    filmStyleImageId?: number;
     confirmedAt?: number;
     sourceStoryId?: number;
     sourceVersion?: number;
@@ -289,6 +291,7 @@ function normalizeRecipe(value: unknown): StoryArtRecipe | undefined {
       objectRules: stringList(system.objectRules), motionRules: stringList(system.motionRules), continuityRules: stringList(system.continuityRules),
       referenceImageIds: Array.isArray(system.referenceImageIds) ? system.referenceImageIds.filter((id): id is number => typeof id === "number" && Number.isInteger(id) && id > 0) : [],
       ...(typeof system.confirmedImageId === "number" ? { confirmedImageId: system.confirmedImageId } : {}),
+      ...(Number.isInteger(system.filmStyleImageId) && Number(system.filmStyleImageId) > 0 ? { filmStyleImageId: Number(system.filmStyleImageId) } : {}),
       ...(typeof system.confirmedAt === "number" ? { confirmedAt: system.confirmedAt } : {}),
       ...(typeof system.sourceStoryId === "number" ? { sourceStoryId: system.sourceStoryId } : {}),
       ...(typeof system.sourceVersion === "number" ? { sourceVersion: system.sourceVersion } : {}),

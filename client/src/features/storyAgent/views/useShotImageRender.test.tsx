@@ -241,3 +241,22 @@ it("cancelled reading quote incurs no model calls", async () => {
   expect(inspection.mutateAsync).not.toHaveBeenCalled();
   expect(input.generate).not.toHaveBeenCalled();
 });
+
+it("explains the independent film style in chat before purchase and binds that version to submission", async () => {
+  const {withMediaChatSession,answerMediaChatQuestion,mediaChatQuestionStore}=await import("../mediaChatSession");
+  const {api,input}=setup();
+  input.material.filmStyleReference = {version:4,name:"Ink",imageId:21,image:{id:21,imageUrl:"/style.png"} as any};
+  const pending=withMediaChatSession(7,()=>api.render({...input,revisionInstruction:undefined,settings:{count:4,references:{imageIds:[],assets:{}}}}));
+  await vi.waitFor(() => expect(mediaChatQuestionStore.getState().question?.text).toContain("本次全片画风参考：图片 #21"));
+  expect(mediaChatQuestionStore.getState().question?.text).toContain("本次没有选择人物参考图");
+  expect(input.generate).not.toHaveBeenCalled();
+  answerMediaChatQuestion(7,"确认");
+  expect(await pending).toMatchObject({status:"success"});
+  expect(input.generate.mock.calls[0][0].reference.selection).toEqual({imageIds:[],assets:{},filmStyleVersion:4});
+});
+it("blocks an unavailable film style image before the purchase dialog or generation", async () => {
+  const {api,input}=setup();
+  input.material.filmStyleReference={version:4,name:"Ink",imageId:21,image:null};
+  expect(await api.render({...input,revisionInstruction:undefined,skipCostConfirmation:true})).toMatchObject({status:"error",message:expect.stringContaining("全片画风参考已失效")});
+  expect(input.generate).not.toHaveBeenCalled();
+});
