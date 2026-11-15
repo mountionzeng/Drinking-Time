@@ -2759,6 +2759,9 @@ export const storyAgentRouter = router({
               ])).filter(url => url !== providerReferenceImage).slice(0, 3),
               imageWeight, aspectRatio: "16:9", inlinePoll: false,
             };
+            // Use MJ's exclusion parameter, not prose about lettering/layouts,
+            // for confirmed standalone frames whose text lives on subtitle tracks.
+            if (unreferencedFramePrompt) renderedFinalPrompt += " --no text, lettering, typography, captions, borders, frames";
             return storyboardImage(accepted => submitRender("image.legnext-v7-fast", { prompt: renderedFinalPrompt, onAccepted: accepted, options: legnextOptions }),
               { prompt: renderedFinalPrompt, shotNo: canonicalizeShotNo(input.shotNo)!, promptCompilationId, generationType: referencePlan.usesStoryboardFrames ? "inpaint" : "initial", ...(input.previewBatchId ? { detached: true } : {}), ...(input.conversationRevision ? { conversationRevision: true, parentImageId: input.renderReferences!.imageIds[0], instruction: input.explicitInstruction } : {}),
                 renderProfile: buildRenderSnapshot("image.legnext-v7-fast", { params: legnextOptions, promptChars: renderedFinalPrompt.length }) });

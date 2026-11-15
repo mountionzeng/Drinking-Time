@@ -27,3 +27,12 @@ it("sends affirmative scene prose rather than editorial headings when no images 
   expect(prompt).not.toMatch(/图片要求|纸船邮局|字幕|【|reference sheet|annotation/);
   expect(unreferencedArtFramePrompt({ body: {}, shot: { promptDraft: "街景" } })).toBeNull();
 });
+
+it("keeps visible actions but excludes spoken lines, sound directions and video transitions from still frames", () => {
+  const body = { artDirection: { recipe: { version: 1, system: { name: "Ink", confirmedAt: 1, englishPrompt: "Black ink contours and warm ochre.", objectRules: ["round teapot handle", "不把参考图里的飞船搬入其他镜头"], continuityRules: ["coarse hatching"] } } } };
+  const source = "现代海边的日常，与旧影像叠化。\n画外音（旁白）：「旧时的日子已经远去。」画面：老人和孩子在步道散步，阳光柔和。\n声音建议：风和海浪。\n字幕：「海边的一天」。";
+  const prompt = unreferencedArtFramePrompt({body,shot:{subject:"步道上的老人和孩子",promptDraft:source}})!;
+  expect(prompt).toContain("现代海边"); expect(prompt).toContain("老人和孩子在步道散步"); expect(prompt).toContain("round teapot handle");
+  expect(prompt).not.toMatch(/画外音|旁白|旧时的日子|叠化|声音建议|风和海浪|字幕|海边的一天|飞船|参考图|画面：/);
+  expect(source).toContain("旧时的日子");
+});

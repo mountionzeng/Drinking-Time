@@ -440,6 +440,7 @@ describe("storyAgent tRPC router", () => {
       expect(options.referenceImageUrl).toBeUndefined(); expect(options.characterRef).toBeUndefined();
       expect(options.referenceContextImageUrls).toEqual([]);
       expect(prompt).toContain("纸船漂过石桥");
+      expect(prompt).toContain("--no text, lettering, typography, captions, borders, frames");
       expect(read).toHaveBeenCalledWith(style.imageUrl,userId);
       legnextMocks.generateLegnextImage.mockClear();
       const stale = await caller.storyAgent.generateForMobile({ ...request, shotImageRequestId: crypto.randomUUID(), renderReferences: { ...request.renderReferences, filmStyleVersion: 3 } });

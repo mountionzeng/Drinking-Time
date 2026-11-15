@@ -8,6 +8,14 @@ function record(value: unknown): Record<string, unknown> {
 function text(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
+/** Project a still frame, leaving spoken words and transitions in the source script. */
+function stillVisualDescription(value: string): string {
+  return stripExplicitScreenText(value)
+    .replace(/(?:画外音|旁白|对白|台词|声音建议|音效|配乐|voice[- ]?over|narration|dialogue|sound)(?:[（(][^）)\n]{0,30}[）)])?\s*[：:]\s*(?:「[^」\n]*」|“[^”\n]*”|"[^"\n]*"|『[^』\n]*』|[^\n]*?(?=(?:画面|visuals?)\s*[：:]|\n|$))/giu, "")
+    .replace(/[,，]?\s*(?:与|和)[^，。；\n]{1,40}(?:叠化|交叉淡化)/gu, "")
+    .replace(/(?:图片要求(?:（最高优先级）)?|画面动作|画面描述|开场画面|结束画面|画面|visuals?)[：:]/giu, "")
+    .replace(/【[^】]+】/gu, "").replace(/\s+/gu, " ").trim();
+}
 
 /** With a confirmed recipe and no images, feed MJ visual prose, not the
  * editorial document (headings and prohibitions can become printed artwork). */
@@ -18,17 +26,17 @@ export function unreferencedArtFramePrompt(input: {
 }): string | null {
   const recipe = activeArtSystemRecipe(input.body);
   if (!recipe?.system || !input.shot) return null;
-  const scene = stripExplicitScreenText(text(input.instruction) || text(input.shot.promptDraft))
-    .replace(/(?:图片要求(?:（最高优先级）)?|画面动作|画面描述|开场画面|结束画面)[：:]/gu, "")
-    .replace(/【[^】]+】/gu, "").replace(/\s+/gu, " ").trim();
+  const scene = stillVisualDescription(text(input.instruction) || text(input.shot.promptDraft));
   if (!scene) return null;
   return [
     recipe.system.englishPrompt,
     scene,
     ...[input.shot.subject, input.shot.location, input.shot.timeLight, input.shot.colorPalette, input.shot.materialTexture]
-      .map(value => stripExplicitScreenText(text(value))).filter(value => value && !scene.includes(value)),
-    ...recipe.system.objectRules,
-    ...recipe.system.continuityRules,
+      .map(value => stillVisualDescription(text(value))).filter(value => value && !scene.includes(value)),
+    // There is no selected content image on this path. Instructions about its
+    // unseen objects can otherwise introduce exactly the objects they forbid.
+    ...[...recipe.system.objectRules, ...recipe.system.continuityRules]
+      .filter(rule => !/(?:基准|参考)(?:图|图片)|所选人物|未显示|当前镜头需要/u.test(rule)),
     "One continuous illustration filling the entire canvas edge to edge. Plain unmarked surfaces.",
   ].filter(Boolean).join(" ");
 }
