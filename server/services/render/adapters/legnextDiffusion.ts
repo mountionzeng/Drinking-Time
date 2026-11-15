@@ -34,7 +34,7 @@ export function buildLegnextDiffusionRequest(prompt: string): { url: string; bod
   return { url: `${LEGNEXT_BASE}/v1/diffusion`, body: { text: prompt } };
 }
 
-/** HTTP statuses Legnext uses for refusals that never created a job (nothing charged). */
+/** Refusal statuses only when no valid job receipt accompanies the response. */
 export const LEGNEXT_REFUSAL_STATUSES = [400, 401, 402, 403, 422, 429] as const;
 
 export function parseLegnextSubmit(json: unknown): { receipt: string } | null {

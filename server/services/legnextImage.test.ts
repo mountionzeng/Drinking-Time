@@ -51,6 +51,38 @@ it("does not retry ambiguous paid submission", async () => {
   expect(await generateLegnextImage("boat", vi.fn())).toMatchObject({ status: "error", submissionUncertain: true });
   expect(fetcher).toHaveBeenCalledTimes(1); expect(m.access).toHaveBeenCalledOnce();
 });
+it.each([400, 429, 500, 502])("persists a receipt returned with HTTP %s instead of losing the accepted task", async status => {
+  vi.stubEnv("LEGNEXT_API_KEY", "test");
+  const accepted = vi.fn();
+  const fetcher = vi.fn().mockResolvedValue({ ok: false, status, json: async () => ({ job_id: id, status: "failed", error: { code: 400 } }) });
+  vi.stubGlobal("fetch", fetcher);
+  expect(await generateLegnextImage("boat", accepted, { inlinePoll: false }))
+    .toMatchObject({ providerTaskId: receipt, errorCode: "timeout_pending" });
+  expect(accepted).toHaveBeenCalledOnce();
+  expect(accepted).toHaveBeenCalledWith(receipt);
+  expect(fetcher).toHaveBeenCalledOnce();
+});
+it("keeps a refusal without a receipt definite, without inventing an accepted task", async () => {
+  vi.stubEnv("LEGNEXT_API_KEY", "test");
+  const accepted = vi.fn();
+  const fetcher = vi.fn().mockResolvedValue({ ok: false, status: 402, json: async () => ({ error: { code: 402, message: "Quota exhausted" } }) });
+  vi.stubGlobal("fetch", fetcher);
+  const result = await generateLegnextImage("boat", accepted);
+  expect(result).toMatchObject({ status: "error", providerError: { httpStatus: 402 } });
+  expect(result.submissionUncertain).not.toBe(true);
+  expect(result.providerTaskId).toBeUndefined();
+  expect(accepted).not.toHaveBeenCalled();
+  expect(fetcher).toHaveBeenCalledOnce();
+});
+it("keeps an HTTP 502 without a valid receipt uncertain and never repeats the paid POST", async () => {
+  vi.stubEnv("LEGNEXT_API_KEY", "test");
+  const accepted = vi.fn();
+  const fetcher = vi.fn().mockResolvedValue({ ok: false, status: 502, json: async () => ({ job_id: "invalid" }) });
+  vi.stubGlobal("fetch", fetcher);
+  expect(await generateLegnextImage("boat", accepted)).toMatchObject({ status: "error", submissionUncertain: true });
+  expect(accepted).not.toHaveBeenCalled();
+  expect(fetcher).toHaveBeenCalledOnce();
+});
 it("preserves receipt if durable acceptance callback fails; no poll or second POST", async () => {
   vi.stubEnv("LEGNEXT_API_KEY", "test"); const fetcher = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ job_id: id }) }); vi.stubGlobal("fetch", fetcher);
   const accepted = vi.fn().mockRejectedValue(new Error("disk"));

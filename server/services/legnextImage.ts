@@ -125,13 +125,17 @@ export async function generateLegnextImage(text: string, onAccepted: (id: string
       method: "POST", headers: { "x-api-key": key, "content-type": "application/json" },
       body: JSON.stringify(request.body), redirect: "error", signal: AbortSignal.timeout(45_000),
     });
-    if ((LEGNEXT_REFUSAL_STATUSES as readonly number[]).includes(response.status)) {
-      const providerError = providerErrorFromBody("legnext", await response.json().catch(() => null), response.status);
-      return { status: "error", providerError, message: `MJ 供应商拒绝请求（${shortProviderReason(providerError)}），请联系管理员核对。` };
+    // Error responses can still contain a real job. Preserve that receipt before
+    // interpreting HTTP status, so recovery queries it instead of losing the task.
+    const body = await response.json().catch(() => null);
+    const accepted = parseLegnextSubmit(body);
+    if (!accepted) {
+      if ((LEGNEXT_REFUSAL_STATUSES as readonly number[]).includes(response.status)) {
+        const providerError = providerErrorFromBody("legnext", body, response.status);
+        return { status: "error", providerError, message: `MJ 供应商拒绝请求（${shortProviderReason(providerError)}），请联系管理员核对。` };
+      }
+      throw new Error("unknown");
     }
-    if (!response.ok) throw new Error("unknown");
-    const accepted = parseLegnextSubmit(await response.json());
-    if (!accepted) throw new Error("unknown");
     receipt = accepted.receipt;
     await onAccepted(receipt); // Durable before the first poll.
     if (options.inlinePoll === false) return pending(receipt);
