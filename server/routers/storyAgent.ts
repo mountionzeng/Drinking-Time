@@ -112,7 +112,7 @@ import {
   deriveStoryboardReferenceInjection,
 } from "../services/imageInjection";
 import { synthesizeShotPrompt } from "../services/synthesizeShotPrompt";
-import { confirmedStoryboardImagePrompt, unreferencedArtFramePrompt } from "../services/confirmedStoryboardImagePrompt";
+import { composedStoryboardImagePrompt, confirmedStoryboardImagePrompt, unreferencedArtFramePrompt } from "../services/confirmedStoryboardImagePrompt";
 import { directImagePrompt } from "../services/imagePromptDirector";
 import { planImageGenerationReferences } from "../services/imageGenerationReference";
 import { readModuleImageTask, recoverModuleImageTask, runModuleImageTask, type ModuleImageHooks } from "../services/bookModuleImageRecovery";
@@ -2089,7 +2089,8 @@ export const storyAgentRouter = router({
         //   Path 1/3: 客户端已构建结构化 prompt，传入 input.prompt
         //   Path 2A:  LLM 写好的 imagePrompt，传入 input.prompt
         //   Path 2B:  没有 prompt，服务端从对话现编
-        let prompt = input.referenceRevision
+        const composedFrame = input.renderReferences?.instructionMode === "composed" && !input.referenceRevision && !input.exactFrameEdit && !input.remixEdit;
+        let prompt = composedFrame ? input.explicitInstruction!.trim() : input.referenceRevision
           ? input.explicitInstruction!.trim()
           : input.prompt?.trim() ?? "";
         // 一致性闸门只能看用户自己写的话。prompt 后面会被 synthesizeShotPrompt
@@ -2281,11 +2282,11 @@ export const storyAgentRouter = router({
             }
           : null;
 
-        const confirmedFramePrompt = input.previewBatchId ? input.prompt : !input.referenceRevision && !input.exactFrameEdit && !input.remixEdit
+        const confirmedFramePrompt = composedFrame ? composedStoryboardImagePrompt(storyBody, input.explicitInstruction!) : input.previewBatchId ? input.prompt : !input.referenceRevision && !input.exactFrameEdit && !input.remixEdit
           ? confirmedStoryboardImagePrompt({ body: storyBody, shot: storyShot,
               title: story.title, instruction: input.explicitInstruction })
           : null;
-        const unreferencedFramePrompt = confirmedFramePrompt && input.renderReferences &&
+        const unreferencedFramePrompt = !composedFrame && confirmedFramePrompt && input.renderReferences &&
           input.renderReferences.imageIds.length === 0 && Object.keys(input.renderReferences.assets).length === 0
           ? unreferencedArtFramePrompt({ body: storyBody, shot: storyShot, instruction: input.explicitInstruction }) : null;
         if (confirmedFramePrompt) {
@@ -2409,7 +2410,7 @@ export const storyAgentRouter = router({
           lockedAssets?.sceneRef ??
           lockedAssets?.petRef ??
           (input.renderReferences ? Object.values(lockedAssets?.dimensions ?? {})[0]?.providerReferenceUrl : undefined);
-        const strictReferenceFidelity = Boolean(referenceImage) &&
+        const strictReferenceFidelity = !composedFrame && Boolean(referenceImage) &&
           (input.conversationRevision && input.referenceRevision || requestsStrictReferenceFidelity(input.explicitInstruction ?? ""));
         if (confirmedFramePrompt && referenceImage && referencePlan.referencePurpose === "scene-style") {
           prompt += "\n【已确定画面的连续性】所附图片是本片已经确定的视觉依据：同一人物沿用可见的脸型、发型、服装与身份；沿用对应物体的造型、材质、线条与色调。本镜的内容、构图和动作仍按本镜要求；未在本镜出现的物体不搬过来，不把参考图直接当成本镜首帧。";
@@ -2553,6 +2554,11 @@ export const storyAgentRouter = router({
         }
         const referenceEditPrompt = input.conversationRevision && input.referenceRevision ? await preparedReferenceEditPrompt({ storyId: input.storyId, userId: ctx.user.id,
           stableShotId: shotIdentityForStoryShot(story, input.shotNo) ?? undefined, imageId: input.renderReferences!.imageIds[0], instruction: input.explicitInstruction! }) : undefined;
+        if (composedFrame) {
+          // Retain explicitly selected asset contracts without resurrecting old shot prose.
+          if (lockedAssets?.promptContract.trim()) prompt += "\n" + lockedAssets.promptContract.trim();
+          if (prompt.length > 3500) throw new Error("生成描述与参考素材要求过长，请缩短描述后再生成；本次未提交图片任务。");
+        }
         const gateContext = {
           referenceEditPrompt,
           creationEmotion: storyEmotion(story.body, { chapterId: input.moduleTarget ? String(input.moduleTarget.chapterId) : undefined, shotId: shotIdentity ?? undefined }),
@@ -2582,7 +2588,7 @@ export const storyAgentRouter = router({
           shotNo: input.shotNo != null ? String(input.shotNo) : undefined,
           projectId: input.referenceRevision ? undefined : story.projectId ?? undefined,
           storyId: story.id,
-          preservePrompt: Boolean(unreferencedFramePrompt) || (!confirmedFramePrompt && Boolean(coverArtDirection)),
+          preservePrompt: Boolean(composedFrame || unreferencedFramePrompt) || (!confirmedFramePrompt && Boolean(coverArtDirection)),
           outputPurpose: "story-frame" as const,
           // 首次正式出图的候选不该只是同一居中画面的换色。已有画面、用户精确指令
           // 和锁定资产都由各自的连续性约束接管，不能在这里强行分叉。
@@ -2761,7 +2767,7 @@ export const storyAgentRouter = router({
             };
             // Use MJ's exclusion parameter, not prose about lettering/layouts,
             // for confirmed standalone frames whose text lives on subtitle tracks.
-            if (unreferencedFramePrompt) renderedFinalPrompt += " --no text, lettering, typography, captions, borders, frames";
+            if (unreferencedFramePrompt || composedFrame) renderedFinalPrompt += " --no text, lettering, typography, captions, borders, frames";
             return storyboardImage(accepted => submitRender("image.legnext-v7-fast", { prompt: renderedFinalPrompt, onAccepted: accepted, options: legnextOptions }),
               { prompt: renderedFinalPrompt, shotNo: canonicalizeShotNo(input.shotNo)!, promptCompilationId, generationType: referencePlan.usesStoryboardFrames ? "inpaint" : "initial", ...(input.previewBatchId ? { detached: true } : {}), ...(input.conversationRevision ? { conversationRevision: true, parentImageId: input.renderReferences!.imageIds[0], instruction: input.explicitInstruction } : {}),
                 renderProfile: buildRenderSnapshot("image.legnext-v7-fast", { params: legnextOptions, promptChars: renderedFinalPrompt.length }) });

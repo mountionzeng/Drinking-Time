@@ -36,3 +36,10 @@ it("keeps visible actions but excludes spoken lines, sound directions and video 
   expect(prompt).not.toMatch(/画外音|旁白|旧时的日子|叠化|声音建议|风和海浪|字幕|海边的一天|飞船|参考图|画面：/);
   expect(source).toContain("旧时的日子");
 });
+
+it('treats the reviewed description as authoritative, retaining style without old subjects or neighboring scenes', async () => {
+  const { composedStoryboardImagePrompt } = await import('./confirmedStoryboardImagePrompt');
+  const prompt = composedStoryboardImagePrompt({ shots: [{ subject: '旧人物', location: '旧城堡', promptDraft: '废弃描述' }], artDirection: { recipe: {version: 1, system: { name: 'Ink', confirmedAt: 1, englishPrompt: 'Black ink and warm ochre.', objectRules: ['旧茶壶'], continuityRules: ['旧城堡'] } } } }, '图1中的花，置于现代海边。字幕：「海边」。');
+  expect(prompt).toContain('图1中的花'); expect(prompt).toContain('现代海边'); expect(prompt).toContain('Black ink');
+  expect(prompt).not.toMatch(/旧人物|旧城堡|废弃描述|旧茶壶|字幕/);
+});

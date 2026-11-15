@@ -416,6 +416,39 @@ describe("storyAgent tRPC router", () => {
     expect(prompt).not.toContain("【修改边界】");
     expect(imagePromptDirectorMocks.directImagePrompt).not.toHaveBeenCalled();
   });
+  it("renders a composed description with its selected image order and no stale shot facts", async () => {
+    const { createStory } = await import("./repositories/stories");
+    const userId = 4977;
+    const caller = appRouter.createCaller(createAuthContext(userId));
+    const story = await createStory({ userId, title: "Composer test", body: { shots: [
+      { shotNo: 1, stableShotId: "compose-1", subject: "旧人物", location: "旧城堡", promptDraft: "旧茶壶" },
+      { shotNo: 2, stableShotId: "compose-2", subject: "相邻的旧飞机" },
+    ] } });
+    const images = await Promise.all([1,2].map(i => createGeneratedImage({ storyId: story.id, userId,
+      imageUrl: `https://storage.example/compose-${i}.png`, prompt: "owned test", isCurrent: false })));
+    const assets = await import("./services/imageAssets");
+    const read = vi.spyOn(assets, "materializeImageInput").mockResolvedValue("data:image/png;base64,dGVzdA==");
+    legnextMocks.generateLegnextImage.mockResolvedValue({status:"error",message:"test stops before submission"});
+    const request = { storyId: story.id, shotNo: 1, imageProvider: "midjourney" as const, prompt: "旧缓存画面", explicitInstruction: "取图1的花，放在图2的海边。",
+      renderReferences: { imageIds: [images[1].id, images[0].id], assets: {}, instructionMode: "composed" as const }, costConfirmation: { accepted: true as const, estimatedCny: 0.68 } };
+    try {
+      await caller.storyAgent.generateForMobile({ ...request, shotImageRequestId: crypto.randomUUID() });
+      expect(legnextMocks.generateLegnextImage).toHaveBeenCalledTimes(1);
+      const [prompt,, options] = legnextMocks.generateLegnextImage.mock.calls[0];
+      expect(prompt).toContain("取图1的花，放在图2的海边");
+      expect(prompt).not.toMatch(/旧人物|旧城堡|旧茶壶|旧飞机|旧缓存/);
+      expect(options.referenceImageUrl).toBe(images[1].imageUrl);
+      expect(options.referenceContextImageUrls).toEqual([images[0].imageUrl]);
+      expect(imagePromptDirectorMocks.directImagePrompt).not.toHaveBeenCalled();
+      legnextMocks.generateLegnextImage.mockClear();
+      await expect(caller.storyAgent.generateForMobile({...request,shotImageRequestId:crypto.randomUUID(),explicitInstruction:"long ".repeat(800)})).rejects.toThrow();
+      expect(legnextMocks.generateLegnextImage).not.toHaveBeenCalled();
+      const foreign = await createGeneratedImage({storyId:story.id,userId:userId+1,imageUrl:"https://storage.example/foreign.png",isCurrent:false});
+      expect(await caller.storyAgent.generateForMobile({...request,shotImageRequestId:crypto.randomUUID(),renderReferences:{...request.renderReferences,imageIds:[foreign.id]}})).toMatchObject({status:"error"});
+      expect(legnextMocks.generateLegnextImage).not.toHaveBeenCalled();
+    } finally { read.mockRestore(); }
+  });
+
   it("keeps an independent film style only in sref when all shot references are removed", async () => {
     const { createStory, updateStory } = await import("./repositories/stories");
     const userId = 4976;

@@ -20,6 +20,8 @@ const versionRef = z
 export const shotRenderReferencesSchema = z
   .object({
     imageIds: z.array(z.number().int().positive()).max(4),
+    /** User reviewed the complete editable description; do not re-add old shot facts. */
+    instructionMode: z.literal("composed").optional(),
     /** Confirmed film style version shown in the quote, or zero when disabled. */
     filmStyleVersion: z.number().int().nonnegative().optional(),
     /** An established earlier frame supplies objects/materials/palette, not this shot's composition. */

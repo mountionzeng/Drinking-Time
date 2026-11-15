@@ -4658,7 +4658,10 @@
         "server/services/publicReferenceHost.ts",
         "shared/shotImageRender.ts",
         "client/src/features/storyAgent/views/useShotImageRender.tsx",
-        "client/src/features/storyAgent/views/shotImageContinuityNotice.ts"
+        "client/src/features/storyAgent/views/shotImageContinuityNotice.ts",
+        "client/src/features/storyAgent/views/ImageGenerationComposer.tsx",
+        "client/src/features/storyAgent/views/InlineImagePrompt.tsx",
+        "client/src/features/storyAgent/views/imageGenerationDraft.ts"
       ],
       "evidence": [
         "shared/photoExtraction.test.ts",
@@ -4692,7 +4695,9 @@
         "docs/qa/unified-shot-render-2026-09-09.md",
         "docs/qa/mj-shot-render-2026-09-09.md",
         "docs/qa/2026-11-15-film-style-continuity-captions.md",
-        "client/src/features/storyAgent/views/shotImageContinuityNotice.test.ts"
+        "client/src/features/storyAgent/views/shotImageContinuityNotice.test.ts",
+        "client/src/features/storyAgent/views/imageGenerationDraft.test.ts",
+        "docs/qa/2026-11-15-image-generation-composer.md"
       ],
       "invariants": [
         "聊天回形针添加图片后先在原聊天框追问提取范围；没有回复不得上传或识图。只保存图片不得调用特征提取或生成，明确改图仍走原费用确认；范围内提取仅建立待检查资产，不能自动锁定或替换镜头。",
@@ -4962,6 +4967,11 @@
             "docs/qa/2026-11-15-film-style-continuity-captions.md",
             "client/src/features/storyAgent/views/shotImageContinuityNotice.test.ts"
           ]
+        },
+        {
+          "date": "2026-11-15",
+          "kind": "enhancement",
+          "summary": "普通MJ生成确认窗口支持编辑描述、内嵌图片缩略标签/悬停详情、同屏仓库光标插入与搜索；删除引用取消本次选择，独立全片画风保留。服务端使用完整编辑稿，不重加旧镜头；归属/费用/候选与unknown保护保留。142回归+4路由及浏览器组件/hook验收通过，未购买模型；正式付费完整链路未重测。"
         }
       ]
     },

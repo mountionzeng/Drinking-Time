@@ -80,3 +80,13 @@ export function confirmedStoryboardImagePrompt(input: {
     "Single full-bleed frame; no annotation board, reference sheet, collage, borders, labels or lettering.",
   ].filter(Boolean).join("\n");
 }
+
+/** A reviewed composer draft is authoritative. Retain style, never hidden shot facts or adjacent scenes. */
+export function composedStoryboardImagePrompt(body: Record<string, unknown>, instruction: string): string {
+  const recipe = activeArtSystemRecipe(body);
+  return [
+    stillVisualDescription(instruction),
+    recipe?.system?.englishPrompt || artSystemPrompt(body),
+    "One continuous full-bleed illustration. Follow the supplied description for subjects, action and composition. Use references only for the requested elements. Plain unmarked surfaces; captions are added separately.",
+  ].filter(Boolean).join("\n");
+}
