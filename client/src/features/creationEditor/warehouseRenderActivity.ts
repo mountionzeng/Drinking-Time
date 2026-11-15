@@ -12,6 +12,7 @@ export type WarehouseRenderJob = {
   compositionId?: string;
   mediaTaskId?: string;
   takeId?: number;
+  sequence?: boolean;
   assetId?: number;
   url?: string;
 };
@@ -22,10 +23,12 @@ const producers: Record<string, WarehouseRenderJob["kind"]> = {
   "storyAgent.gradeVideoLuminance": "video",
   "storyAgent.gradeVideoRegion": "video",
   "creationAgent.inpaint": "image",
+  "creationAgent.frameReview.generateCloud": "image",
   "bookMedia.generateComposition": "image",
   "creationAgent.generateShotVideo": "video",
   "creationAgent.submitStartEndShotVideo": "video",
   "bookMedia.video": "video",
+  "warehouseVideoSequence.submit": "video",
   "timelineMedia.generateSceneAudio": "audio",
   "timelineMedia.generateNarrationCandidate": "audio",
   "storyAgent.generateStoryShotVoice": "audio",
@@ -39,13 +42,15 @@ export function renderJobFromMutation(mutation: Pick<Mutation, "mutationId" | "o
   const path = mutation.options.mutationKey?.[0];
   const kind = producers[Array.isArray(path) ? path.join(".") : String(path)];
   const input = record(mutation.state.variables);
+  if (input.recoverOnly === true) return null;
   const storyId = positive(input.storyId);
   if (!kind || !storyId || mutation.state.status === "idle") return null;
   const job: WarehouseRenderJob = {
     id: `render:${mutation.state.submittedAt}:${mutation.mutationId}`,
+    sequence: Array.isArray(path) && path.join(".") === "warehouseVideoSequence.submit" ? true : undefined,
     storyId, kind, state: "rendering", startedAt: mutation.state.submittedAt,
     shotId: string(input.conversationShotId) ?? string(input.stableShotId) ?? string(input.shotIdentity),
-    requestId: string(input.shotImageRequestId) ?? string(record(input.moduleTarget).requestId),
+    requestId: string(input.shotImageRequestId) ?? string(input.requestId) ?? string(record(input.moduleTarget).requestId),
   };
   // A network failure does not prove the provider stopped. Never offer an automatic retry.
   if (mutation.state.status === "error") return { ...job, state: "unknown" };
@@ -74,7 +79,7 @@ export function renderJobResult(job: WarehouseRenderJob, value: unknown): Wareho
   }
   if (result.submissionUncertain === true || (typeof result.error === "string" && result.error.startsWith("配音结果待确认"))) return { ...next, state: "unknown" };
   if (["error", "failed", "timeout"].includes(String(state))) return { ...next, state: "failed" };
-  if (["submission-unknown", "submission_unknown", "unknown", "missing"].includes(String(state))) return { ...next, state: "unknown" };
+  if (["submission-unknown", "submission_unknown", "unknown", "missing", "unfollowable"].includes(String(state))) return { ...next, state: "unknown" };
   if (["submitted", "submitting", "processing", "pending", "accepted", "preparing"].includes(String(state))) return { ...next, state: "rendering" };
   if (next.takeId && result.videoUrl) return { ...next, state: "ready" };
   if (["ok", "ready", "candidate-ready", "succeeded", "available", "recovered"].includes(String(state))) return { ...next, state: "ready" };

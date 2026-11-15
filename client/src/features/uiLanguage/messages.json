@@ -13375,6 +13375,10 @@
     "en": "Waiting for your confirmation · You can keep messaging",
     "fr": "En attente de votre confirmation · Vous pouvez continuer à écrire"
   },
+  "已收到，正在处理 · 可以继续输入": {
+    "en": "Received, processing · You can keep typing",
+    "fr": "Reçu, traitement en cours · Vous pouvez continuer à écrire"
+  },
   "正在思考 · 可以继续输入": {
     "en": "Thinking · You can keep typing",
     "fr": "Réflexion en cours · Vous pouvez continuer à écrire"
@@ -14138,6 +14142,18 @@
   "故事内容": {
     "en": "Story content",
     "fr": "Contenu de l’histoire"
+  },
+  "编辑图片 / Edit image {0}": {
+    "en": "Edit image {0}",
+    "fr": "Edit image {0}"
+  },
+  "编辑视频 / Edit video": {
+    "en": "Edit video",
+    "fr": "Edit video"
+  },
+  "已引用 / Referenced": {
+    "en": "Referenced",
+    "fr": "Referenced"
   },
   "勾选要发送的部分": {
     "en": "Choose the parts to send",

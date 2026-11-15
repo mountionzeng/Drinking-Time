@@ -9,6 +9,7 @@ import type { StoryMaterialState } from "@shared/storyMaterial";
 import type { ImageAsset } from "@shared/imageAsset";
 import type { VideoTakeAsset } from "@shared/videoAsset";
 import type { ChatImageRevision } from "@shared/chatImageRevision";
+import type { StoryArtDirection } from "@shared/artDirection";
 const shots = [
   {
     stableShotId: "a",
@@ -53,6 +54,33 @@ const state = {
   reusableVideoTakes: [],
 } as unknown as StoryMaterialState;
 describe("shot archive projection", () => {
+  it("mixes whole-story music and every saved art-system version without duplicate current recipes", () => {
+    const artDirection = { recipeVersions: [
+      { version: 1, updatedAt: 1000, system: { name: "World", referenceImageIds: [] } },
+      { version: 2, updatedAt: 3000, system: { name: "World", referenceImageIds: [1] } },
+    ], recipe: { version: 2, updatedAt: 3000, system: { name: "World", referenceImageIds: [1] } } } as StoryArtDirection;
+    const groups = buildWarehouseShotGroups({ storyId: 7, shots, materialState: state, artDirection,
+      audio: [{ id: 20, displayName: "Music", mediaKind: "music", createdAt: new Date(2000), durationFrames: 300, audioUrl: "/music" }] });
+    const items = groups.find(group => group.id === WHOLE_STORY_MEDIA)!.items;
+    expect(items.map(item => item.key)).toEqual(["art-system:1", "audio:20", "art-system:2"]);
+    expect(items[2].url).toBe("/image/1");
+    expect(items[2].version).toBe("V02");
+    expect(groups[0].items.every(item => item.kind !== "asset")).toBe(true);
+  });
+  it("interleaves bound asset versions without renumbering them or guessing ownership", () => {
+    const material = { ...state, visualAssets: { images: [], proposals: [], bindings: [{ stableShotId: "a", scene: { assetId: "forest", versionId: "v2" }, confirmedAt: 4 }],
+      assets: [{ id: "forest", kind: "scene", name: "Forest", createdAt: 1, updatedAt: 4, versions: [
+        { id: "v1", version: 1, createdAt: Date.parse("2026-11-10T00:00:01.250Z"), references: [], views: [] },
+        { id: "v2", version: 2, createdAt: Date.parse("2026-11-10T00:00:01.750Z"), references: [], views: [] },
+      ] }, { id: "unrelated", kind: "scene", name: "SH01 do not infer", createdAt: 1, updatedAt: 1, versions: [
+        { id: "v4", version: 4, createdAt: 1, references: [], views: [] },
+      ] }] } } as unknown as StoryMaterialState;
+    const groups = buildWarehouseShotGroups({ storyId: 7, shots, materialState: material });
+    expect(groups[0].items.map(item => item.key)).toEqual(["image:1", "asset:forest:v1", "video:10", "asset:forest:v2", "image:2"]);
+    expect(groups[0].items.filter(item => item.kind === "asset").map(item => item.version)).toEqual(["V01", "V02"]);
+    expect(groups.find(group => group.id === UNASSIGNED_MEDIA)?.items.find(item => item.kind === "asset")?.version).toBe("V04");
+    expect(buildWarehouseShotGroups({ storyId: 99, shots, materialState: material }).every(group => !group.items.length)).toBe(true);
+  });
   it("mixes every generation in time order without adopting or changing the original assets", () => {
     const before = JSON.stringify(state);
     const groups = buildWarehouseShotGroups({

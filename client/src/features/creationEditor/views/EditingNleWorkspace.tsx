@@ -2716,11 +2716,14 @@ export default function EditingNleWorkspace({
         if (videoEditorTarget || imageEditorTarget || timelineWritePending) {
           toast.info(_ui("请先保存当前剪辑调整，再引用这一帧 / Save current edits before referencing this frame")); return;
         }
-        window.dispatchEvent(new CustomEvent(PAUSED_FRAME_SHORTCUT_EVENT, {detail: {kind: "capture", snapshot: {
-          storyId: activeStoryId, timelineVersion: pausedTimelineVersion, timelineFrame: frozen.timelineFrame,
-          hiddenVisualLayers: [...timelineVisualLayerState.hidden], width: chatCutTimeline?.width ?? 1024, height: chatCutTimeline?.height ?? 1024,
-          imageMode: "source",
-        }}}));
+        const visible = resolveTimelineVisualFrame({ items: timelineItems, overlays: timelineOverlays,
+          hiddenVisualLayers: timelineVisualLayerState.hidden, frame: frozen.timelineFrame });
+        const layer = visible.kind === "shot" ? visible.row.item.visualLayer ?? 0
+          : visible.kind === "image" ? visible.placement.clip.visualLayer ?? 0
+          : visible.kind === "overlay" ? overlayVisualLayer(visible.overlay) : 0;
+        void extractFrameAtTimelineFrame(frozen.timelineFrame, layer).catch(error => {
+          if (isEditingStorySessionCurrent()) toast.error(error instanceof Error ? error.message : _ui("提取当前帧失败"));
+        });
       }}
     >
       <ResizablePanelGroup

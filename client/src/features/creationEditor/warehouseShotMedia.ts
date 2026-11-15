@@ -4,6 +4,8 @@ import type { ChatImageRevision } from "@shared/chatImageRevision";
 import { displayShotCode } from "@shared/shotIdentity";
 import { shotConversationImages } from "@/features/storyAgent/shotConversation";
 import type { CreationEditorShot } from "./types";
+import type { StoryArtDirection, StoryArtRecipe } from "@shared/artDirection";
+import type { VisualAssetVersion } from "@shared/visualAssets";
 
 export type WarehouseAudio = {
   id: number;
@@ -17,7 +19,7 @@ export type WarehouseAudio = {
 export type WarehouseMedia = {
   key: string;
   id: number;
-  kind: "image" | "video" | "audio";
+  kind: "image" | "video" | "audio" | "asset";
   role: string;
   url: string | null;
   createdAt: number;
@@ -26,6 +28,9 @@ export type WarehouseMedia = {
   originalName?: string;
   ready: boolean;
   renderState?: "rendering" | "failed" | "unknown";
+  aspectRatio?: string;
+  assetVersion?: VisualAssetVersion;
+  artRecipe?: StoryArtRecipe;
 };
 export type WarehouseShotGroup = {
   id: string;
@@ -41,7 +46,7 @@ const time = (value: string | number | Date | undefined) => {
 };
 export function warehouseMediaOrder(a: WarehouseMedia, b: WarehouseMedia) {
   return (
-    a.createdAt - b.createdAt || a.id - b.id || a.kind.localeCompare(b.kind)
+    a.createdAt - b.createdAt || a.id - b.id || a.kind.localeCompare(b.kind) || a.key.localeCompare(b.key)
   );
 }
 function imageRole(shot: CreationEditorShot, id: number) {
@@ -106,12 +111,14 @@ export function buildWarehouseShotGroups(input: {
   materialState?: StoryMaterialState | null;
   revisions?: readonly ChatImageRevision[];
   audio?: readonly WarehouseAudio[];
+  artDirection?: StoryArtDirection;
 }): WarehouseShotGroup[] {
   const state =
     input.materialState?.storyId === input.storyId ? input.materialState : null;
   const images = new Map<number, ImageAsset>();
   for (const image of [
     ...(state?.warehouseImages ?? state?.unassignedImages ?? []),
+    ...(state?.visualAssets?.images ?? []),
     ...(state?.shots.flatMap(s => [
       ...s.imageVersions,
       ...(s.relatedImages ?? []),
@@ -157,6 +164,7 @@ export function buildWarehouseShotGroups(input: {
     createdAt: time(take.createdAt),
     version: "",
     durationSec: take.durationSec ?? undefined,
+    aspectRatio: take.aspectRatio,
     renderState: ["submitted", "processing"].includes(take.status) ? "rendering" : take.status === "failed" ? "failed" : take.status === "timeout" ? "unknown" : undefined,
     ready: Boolean(
       take.videoUrl && ["available", "unfollowable"].includes(take.status)
@@ -241,12 +249,36 @@ export function buildWarehouseShotGroups(input: {
       ready: true,
     });
   }
+  // Explicit bindings/references locate reusable assets; names and old shot numbers do not.
+  for (const asset of state?.visualAssets?.assets ?? []) {
+    const owners = groups.filter(group =>
+      (state?.visualAssets?.bindings ?? []).some(binding => binding.stableShotId === group.id &&
+        [binding.character, binding.pet, binding.scene, binding.style].some(ref => ref?.assetId === asset.id)) ||
+      asset.versions.some(version => version.references.some(ref => group.items.some(item => item.key === `image:${ref.imageId}`))));
+    const targets = owners.length ? owners : [asset.kind === "style" ? whole : unassigned];
+    for (const version of asset.versions) {
+      const preview = images.get(version.boardImageId ?? version.views.find(view => view.status === "pass")?.imageId ?? version.references[0]?.imageId ?? -1);
+      const item: WarehouseMedia = { key: `asset:${asset.id}:${version.id}`, id: version.version, kind: "asset", role: asset.name,
+        url: preview?.imageUrl ?? null, createdAt: time(version.createdAt), version: `V${String(version.version).padStart(2, "0")}`,
+        originalName: asset.name, ready: true, assetVersion: version };
+      targets.forEach(group => group.items.push(item));
+    }
+  }
+  const recipes = new Map([...(input.artDirection?.recipeVersions ?? []), ...(input.artDirection?.recipe ? [input.artDirection.recipe] : [])]
+    .filter(recipe => recipe.system).map(recipe => [recipe.version, recipe]));
+  for (const recipe of recipes.values()) {
+    const preview = images.get(recipe.system!.confirmedImageId ?? recipe.system!.referenceImageIds[0] ?? -1);
+    whole.items.push({ key: `art-system:${recipe.version}`, id: recipe.version, kind: "asset", role: recipe.system!.name,
+      url: preview?.imageUrl ?? null, createdAt: time(recipe.updatedAt), version: `V${String(recipe.version).padStart(2, "0")}`,
+      originalName: recipe.system!.name, ready: true, artRecipe: recipe });
+  }
   if (whole.items.length) groups.push(whole);
   if (unassigned.items.length) groups.push(unassigned);
   for (const group of groups) {
     // IDs, rather than adoption order, keep a version stable when the selected take changes.
     const versions = new Map<string, number>();
     for (const item of [...group.items].sort((a, b) => a.id - b.id)) {
+      if (item.kind === "asset") continue; // Real asset/recipe versions must not be renumbered.
       const kind = item.kind === "audio" ? item.role : item.kind;
       const n = (versions.get(kind) ?? 0) + 1;
       versions.set(kind, n);

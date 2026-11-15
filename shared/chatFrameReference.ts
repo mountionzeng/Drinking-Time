@@ -8,15 +8,23 @@ export const chatFrameReferenceSchema = z.object({
   imageId: z.number().int().positive(),
   imageUrl: z.string().min(1).refine(value => value.startsWith("/api/images/") || /^https?:\/\//i.test(value)),
   takeId: z.number().int().positive().optional(),
-  origin: z.literal("paused-preview").optional(),
+  origin: z.enum(["paused-preview", "warehouse-video"]).optional(),
   sourceFrame: z.boolean().optional(),
   imageSize: z.object({ width: z.number().int().positive(), height: z.number().int().positive() }).optional(),
   timelineVersion: z.number().int().nonnegative().optional(),
-  timelineFrame: z.number().int().nonnegative(),
+  timelineFrame: z.number().int().nonnegative().optional(),
   sourceTimeSec: z.number().finite().nonnegative(),
   shotTimeSec: z.number().finite().nonnegative(),
 });
 export type ChatFrameReference = z.infer<typeof chatFrameReferenceSchema>;
+
+/** The warehouse previews the whole original Take, independent of timeline trims. */
+export const warehouseVideoFrameSchema = z.object({
+  storyId: z.number().int().positive(),
+  takeId: z.number().int().positive(),
+  sourceTimeSec: z.number().finite().nonnegative(),
+});
+export type WarehouseVideoFrame = z.infer<typeof warehouseVideoFrameSchema>;
 
 /** Free inspection precedes image/video production, even when the brief mentions music or art. */
 export function isFrameReferenceChat(text: string): boolean {

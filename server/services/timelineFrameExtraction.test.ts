@@ -419,6 +419,7 @@ describe("extractTimelineFrameForStory", () => {
     });
     await renderStarted;
     expect(renderVideoFrame).toHaveBeenCalledTimes(1);
+    expect(renderVideoFrame).toHaveBeenCalledWith(expect.objectContaining({ preserveAspect: true, preserveDimensions: true }));
     expect(renewClaim).toHaveBeenCalledTimes(1);
     await vi.advanceTimersByTimeAsync(30_000);
     expect(renewClaim).toHaveBeenCalledTimes(2);
@@ -433,6 +434,7 @@ describe("extractTimelineFrameForStory", () => {
       imageId: image.id,
       timelineVersion: 5,
       targetLayer: 1,
+      source: { takeId: 44, sourceTimeSec: 0.4, stableShotId: "shot-a" },
       replayed: false,
     });
     expect(recordDescriptor).toHaveBeenCalledWith(

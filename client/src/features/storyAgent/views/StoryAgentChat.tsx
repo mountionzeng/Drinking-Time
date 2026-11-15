@@ -30,7 +30,8 @@ import { parseSoundChat } from "@shared/soundChat";
 import { parseVisualProductionChat, usesSelectedImageRevision } from "@shared/visualProductionChat";
 import { mediaChatQuestionStore, answerMediaChatQuestion, cancelMediaChatSession } from "../mediaChatSession";
 import { selectionBelongsToStory } from "../selectionStoryScope";
-import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
+import { useUiText as useDesktopUiText, useUiLanguage } from "@/features/uiLanguage/UiLanguage";
+import { focusWarehouseConversation, useWarehouseConversationFocus } from "@/features/creationEditor/warehouseConversationFocus";
 import { BookVideoChat, type BookVideoChatHandle } from "@/features/bookVideo/BookVideoChat";
 import { useBookVideoSession } from "@/features/bookVideo/bookVideoSession";
 import { BookMediaChat, type BookMediaChatHandle } from "@/features/publishingAlbum/BookMediaChat";
@@ -99,6 +100,7 @@ import { useStoryAgentChatSlice } from "@/features/storyAgent/spine/selectors";
 import StoryCoverThumbnail from "./StoryCoverThumbnail";
 import ChatAssistantAvatar from "./ChatAssistantAvatar";
 import { ChatCompanionStatus } from "./ChatCompanionStatus";
+import { scrollToLatestChatTurn } from "../chatMessageScroll";
 import StoryChatContents from "./StoryChatContents";
 import { useDesktopChatQueue } from "../useDesktopChatQueue";
 import { useDesktopWritingSession } from "@/features/writingCompanion/desktopWritingSession";
@@ -184,6 +186,7 @@ type OpenCreationChatDetail = {
   draftMessage?: string;
   preserveSelection?: boolean;
   autoSubmit?: boolean;
+  focusComposer?: boolean;
 };
 
 type MaterialAdvice = StoryImageMaterialAdvice;
@@ -302,6 +305,7 @@ export default function StoryAgentChat({
   showCreationActions?: boolean;
 }) {
   const _ui = useDesktopUiText();
+  const { language } = useUiLanguage();
   const hasStudioShots = useStorySpine(state => state.storyShots.length > 0);
   const { element, visualTheme } = useNayin();
   const desktopStoryMenu = useContext(DesktopStoryMenuContext);
@@ -543,7 +547,7 @@ export default function StoryAgentChat({
           ])
           .find(image => image.id === activeSelection.imageId)
       : undefined;
-  const pausedFrameChat = usePausedFrameChat({ storyId: activeStoryId, enabled: workspaceContext === "video", text: input, selectedImageId: activeSelection?.imageId, selectedImageUrl: selectedImage?.imageUrl, proposeFrame: contentEdits.proposeFrame, focusComposer: () => inputRef.current?.focus({ preventScroll: true }) });
+  const pausedFrameChat = usePausedFrameChat({ storyId: activeStoryId, enabled: workspaceContext === "video", text: input, selectedImageId: activeSelection?.imageId, selectedImageUrl: selectedImage?.imageUrl, proposeFrame: contentEdits.proposeFrame, onFrameReady: frame => { setClosedShotHistory(`${frame.storyId}:${frame.stableShotId}`); readingHistory.current = false; }, focusComposer: () => inputRef.current?.focus({ preventScroll: true }) });
   useEffect(() => {
     if (
       interactionMode === "story" &&
@@ -604,21 +608,18 @@ export default function StoryAgentChat({
   const conversationMessages = showingShotHistory && selectedChatShot && activeStoryId
     ? shotConversationMessages(messages, activeStoryId, selectedChatShot.stableShotId ?? selectedChatShot.shotIdentity ?? "", selectedChatShot) : messages;
   const shotMaterial = selectedChatShot && creationEditor?.materialState?.shots.find(s => s.stableShotId === (selectedChatShot.stableShotId ?? selectedChatShot.shotIdentity));
+  useWarehouseConversationFocus({ storyId: activeStoryId, enabled: workspaceContext === "video", messages: conversationMessages, container: scrollRef, nodes: messageNodes });
   useEffect(() => {
     const open = () => setClosedShotHistory(null);
     window.addEventListener(SHOT_CHAT_FOCUS_EVENT, open);
     return () => window.removeEventListener(SHOT_CHAT_FOCUS_EVENT, open);
   }, []);
-  useEffect(() => {
-    readingHistory.current = showingShotHistory;
-    const scroller = scrollRef.current;
-    scroller?.scrollTo({top: showingShotHistory ? 0 : scroller.scrollHeight, behavior: "auto"});
-  }, [shotHistoryKey, showingShotHistory]);
   const inputPlaceholder =
     composition ? '说说这张图还想怎么改…' :
     workspaceContext === "video" && pendingMedia.some(item => item.kind === "image") ? _ui("说说图片想怎么改…") :
     bookVideo && workspaceContext !== "video" ? "说说视频给谁看、想表达什么，或继续调整方案…" :
     pausedFrameChat.placeholder && !soundDirector.active && !pendingMedia.length && !activeSelection?.selection ? pausedFrameChat.placeholder :
+    selectedChatShot && activeSelection?.imageId ? (language === "en" ? `Describe changes to image #${activeSelection.imageId}…` : `说说图片 #${activeSelection.imageId} 想怎么改…`) :
     selectedChatShot ? _ui("说说第 {0} 镜想怎么改…", [displayShotCode(selectedChatShot)]) :
     workspaceContext === "video" && !activeSelection?.selection && !pendingMedia.length && !soundDirector.active ? _ui("直接说想改哪个镜头的画面、音乐或视频…") :
     activeSelection?.sourceType === "storyboard-image"
@@ -723,7 +724,7 @@ export default function StoryAgentChat({
   useEffect(() => {
     const applyCreationDraft = (event: Event) => {
       const detail = (event as CustomEvent<OpenCreationChatDetail>).detail;
-      if (!detail?.draftMessage) return;
+      if (!detail?.draftMessage) { if (detail?.focusComposer) resizeAndFocusInput(); return; }
       if (!detail.preserveSelection) clearSelection();
       if (detail.autoSubmit) {
         setInput("");
@@ -918,11 +919,22 @@ export default function StoryAgentChat({
   );
 
   const scrollToLatestMessage = useCallback(() => {
-    const latest = conversationMessages.at(-1);
-    const node = latest?.frameReview ? messageNodes.current.get(latest.id) : null;
-    if (node) node.scrollIntoView({ block: "end", behavior: "auto" });
-    else scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "auto" });
-  }, [conversationMessages]);
+    if (scrollRef.current) scrollToLatestChatTurn(scrollRef.current, messageNodes.current, conversationMessages, chatQueue.items);
+  }, [conversationMessages, chatQueue.items]);
+  // Only entering/closing history changes reading mode; incoming messages do not.
+  const historyMode = useRef("");
+  useEffect(() => {
+    const key = `${accountId}:${activeStoryId}:${shotHistoryKey}:${showingShotHistory}`;
+    if (historyMode.current === key) return;
+    historyMode.current = key;
+    readingHistory.current = showingShotHistory;
+    if (showingShotHistory) scrollRef.current?.scrollTo({ top: 0, behavior: "auto" });
+    else scrollToLatestMessage();
+  }, [accountId, activeStoryId, shotHistoryKey, showingShotHistory, scrollToLatestMessage]);
+  const followCurrentConversation = (target = activeSelection) => {
+    readingHistory.current = false;
+    setClosedShotHistory(target?.stableShotId && activeStoryId ? `${activeStoryId}:${target.stableShotId}` : null);
+  };
   const handleRevisionContentChange = useCallback(() => {
     if (!readingHistory.current) requestAnimationFrame(() => {
       if (!readingHistory.current) scrollToLatestMessage();
@@ -969,6 +981,7 @@ export default function StoryAgentChat({
 
   const handleSubmit = async () => {
     const text = creationFlow.resolveVersionReply?.(input.trim()) ?? input.trim();
+    if (text || pendingMedia.length) followCurrentConversation();
     if ((isStudioAssistantRequest(text) || studioConfirmation(text)) && !isReplying && !pendingMedia.length && !voice.isBusy && !isImportingMedia) {
       setInput("");
       await sendMessage(text, undefined, undefined, { workspaceContext, writingContext: bookRewriteChatSnapshot(writingSession?.getSnapshot(), useBookModuleActions.getState().session) });
@@ -989,7 +1002,7 @@ export default function StoryAgentChat({
       const shot = shotNo == null ? undefined : creationEditor?.shots.find(shot => shot.shotNo === shotNo);
       const target = shot && activeStoryId ? shotConversationSelection(activeStoryId, shot) : activeSelection;
       if (target?.stableShotId && activeStoryId) {
-        setActiveSelection(target); focusShotChat(activeStoryId, target.stableShotId); setClosedShotHistory(null);
+        setActiveSelection(target); followCurrentConversation(target);
       }
       if (isReplying || chatQueue.items.length > 0) {
         if (!chatQueue.enqueue(text, undefined, workspaceContext, undefined, revisionProvider, target)) return;
@@ -1041,8 +1054,7 @@ export default function StoryAgentChat({
       const target = named && activeStoryId ? shotConversationSelection(activeStoryId, named) : undefined;
       if (target && activeStoryId) {
         setActiveSelection(target);
-        focusShotChat(activeStoryId, target.stableShotId!);
-        setClosedShotHistory(null);
+        followCurrentConversation(target);
       }
       if (isReplying || chatQueue.items.length > 0) {
         if (!chatQueue.enqueue(text, undefined, workspaceContext, undefined, revisionProvider, target)) return;
@@ -1075,10 +1087,11 @@ export default function StoryAgentChat({
       }
       const target = shotConversationSelection(activeStoryId, shot);
       setActiveSelection(target);
-      focusShotChat(activeStoryId, target.stableShotId!);
-      setClosedShotHistory(null);
       setInput("");
-      if (/^(?:请)?(?:查看|打开|看看|显示|show|open)\s*/i.test(text) && /记录|历史|对话|history|conversation/i.test(text)) { resizeAndFocusInput(); return; }
+      if (/^(?:请)?(?:查看|打开|看看|显示|show|open)\s*/i.test(text) && /记录|历史|对话|history|conversation/i.test(text)) {
+        focusShotChat(activeStoryId, target.stableShotId!); setClosedShotHistory(null); resizeAndFocusInput(); return;
+      }
+      followCurrentConversation(target);
       if (isReplying) chatQueue.enqueue(text, undefined, workspaceContext, undefined, revisionProvider, target);
       else await sendMessage(text, undefined, undefined, {workspaceContext, selection: target});
       resizeAndFocusInput();
@@ -1869,6 +1882,8 @@ export default function StoryAgentChat({
         onLocate={id => {
           const node = messageNodes.current.get(id);
           if (!node) return;
+          const message = conversationMessages.find(message => message.id === id);
+          if (message && activeStoryId) focusWarehouseConversation(message, activeStoryId);
           readingHistory.current = true;
           node.focus({ preventScroll: true });
           node.scrollIntoView({ block: "center", behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
@@ -1978,6 +1993,7 @@ export default function StoryAgentChat({
                 {m.content.trim() && (
                   <p
                     className="whitespace-pre-wrap"
+                    data-chat-message-text
                     data-selection-source={`chat:${m.id}`}
                   >
                     {m.role === 'assistant' && m.bookRewrite ? <BookFormattedText text={displayAssistantName(stripAssistantReasoning(m.content))} /> : tokenizeChatMessageText(
@@ -2372,9 +2388,10 @@ export default function StoryAgentChat({
         {workspaceContext === "video" && contentEdits.panel}
 
         {chatQueue.items.filter(item => !messages.some(message => message.id === item.id)).map(item => (
-          <div key={item.id} className="flex justify-end">
+          <div key={item.id} className="flex justify-end"
+            ref={node => { if (node) messageNodes.current.set(item.id, node); else messageNodes.current.delete(item.id); }}>
             <div className="max-w-[85%] rounded-2xl rounded-tr-sm bg-[var(--nayin-accent)] px-3 py-2 text-[12.5px] text-[var(--background)]">
-              <p className="whitespace-pre-wrap">{item.text}</p>
+              <p className="whitespace-pre-wrap" data-chat-message-text>{item.text}</p>
               {renderQueueStatus(item.id)}
             </div>
           </div>
@@ -2396,8 +2413,8 @@ export default function StoryAgentChat({
             <button type="button" aria-expanded={showingShotHistory}
               className="flex min-w-0 flex-1 items-center gap-2 rounded text-left focus-visible:outline focus-visible:outline-2"
               onClick={() => { setClosedShotHistory(showingShotHistory ? shotHistoryKey : null); if (!showingShotHistory && activeStoryId && selectedChatShot) focusShotChat(activeStoryId, selectedChatShot.stableShotId ?? selectedChatShot.shotIdentity!); }}>
-              {selectedChatShot.imageUrl && <img src={selectedChatShot.imageUrl} alt="" className="h-8 w-10 rounded object-contain" />}
-              <span className="min-w-0 truncate text-xs">{_ui("第 {0} 镜 · 对话与素材", [displayShotCode(selectedChatShot)])}{activeSelection?.imageId ? ` · #${activeSelection.imageId}` : ""}</span>
+              {(selectedImage?.imageUrl ?? selectedChatShot.imageUrl) && <img src={selectedImage?.imageUrl ?? selectedChatShot.imageUrl!} alt="" className="h-8 w-10 rounded object-contain" />}
+              <span className="min-w-0 truncate text-xs">{_ui("第 {0} 镜 · 对话与素材", [displayShotCode(selectedChatShot)])}{activeSelection?.imageId ? ` · #${activeSelection.imageId}` : activeSelection?.videoTakeId ? ` · Take ${activeSelection.videoTakeId}` : ""}</span>
             </button>
             <button type="button" aria-label={_ui("取消选中")} onClick={clearSelection} className="rounded p-1 hover:bg-foreground/10"><X className="h-3 w-3" /></button>
           </div>

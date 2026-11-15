@@ -1,5 +1,5 @@
-import { useEffect, useMemo, type ReactNode } from "react";
-import { Music2, Loader2, Video } from "lucide-react";
+import { useEffect, useMemo, useRef, type ReactNode } from "react";
+import { Music2 } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -7,7 +7,10 @@ import {
   SelectTrigger,
 } from "@/components/ui/select";
 import { trpc } from "@/lib/trpc";
-import { useUiText } from "@/features/uiLanguage/UiLanguage";
+import { useUiLanguage, useUiText } from "@/features/uiLanguage/UiLanguage";
+import { useStorySpine } from "@/features/storyAgent/spine/storySpine";
+import { WarehouseVideoThumbnail } from "./WarehouseVideoThumbnail";
+import { WarehouseAssetCard } from "./WarehouseAssetCard";
 import type { StoryMaterialState } from "@shared/storyMaterial";
 import type { CreationEditorShot } from "../types";
 import {
@@ -26,6 +29,7 @@ export function useWarehouseShotGroups(
   watch = false
 ) {
   const enabled = Boolean(storyId && storyId > 0);
+  const artDirection = useStorySpine(state => state.activeStoryId === storyId ? state.artDirection : undefined);
   const revisions = trpc.storyAgent.chatImageRevisions.useQuery(
     { storyId: storyId ?? 0 },
     { enabled, refetchInterval: enabled && watch ? 5000 : false }
@@ -43,14 +47,16 @@ export function useWarehouseShotGroups(
             materialState,
             revisions: revisions.data,
             audio: audio.data,
+            artDirection,
           })
         : [],
-    [enabled, storyId, shots, materialState, revisions.data, audio.data]
+    [enabled, storyId, shots, materialState, revisions.data, audio.data, artDirection]
   );
   return {
     groups,
     loading: revisions.isLoading || audio.isLoading,
     error: revisions.error || audio.error,
+    refetch: () => { void revisions.refetch(); void audio.refetch(); },
   };
 }
 export function warehouseGroupName(
@@ -86,20 +92,17 @@ export function WarehouseShotMenu({
     `${warehouseGroupName(g, ui)}${g.subject ? ` · ${g.subject}` : ""} · ${g.items.length}`;
   return (
     <Select
-      value={group?.id}
+      value={active ? group?.id ?? "" : ""}
       onValueChange={onGroupChange}
-      onOpenChange={open => {
-        if (open && group) onGroupChange(group.id);
-      }}
     >
       <SelectTrigger
         disabled={!group}
         aria-label={ui("镜头素材组 / Shot group")}
-        title={group ? label(group) : ui("镜头 / Shots")}
+        title={active && group ? label(group) : ui("按镜头归类 / By shot")}
         className={`data-[size=default]:h-7 min-w-24 max-w-[220px] shrink rounded-full border-0 px-2 py-0 text-xs font-medium shadow-none ${active ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted"}`}
       >
         <span className="truncate">
-          {group ? label(group) : ui("镜头 / Shots")}
+          {active && group ? label(group) : ui("按镜头归类 / By shot")}
         </span>
       </SelectTrigger>
       <SelectContent align="start" className="max-w-[calc(100vw-24px)]">
@@ -121,6 +124,8 @@ export function WarehouseShotGroups({
   loading,
   error,
   leading,
+  storyId = 0,
+  focusedKeys = [],
 }: {
   groups: WarehouseShotGroup[];
   groupId: string | null;
@@ -129,13 +134,26 @@ export function WarehouseShotGroups({
     group: WarehouseShotGroup,
     name: string
   ) => ReactNode;
-  onSelectVideo: (id: number) => void;
+  onSelectVideo: (id: number, sourceTimeSec?: number) => void;
   loading: boolean;
   error: unknown;
   leading?: ReactNode;
+  storyId?: number;
+  focusedKeys?: readonly string[];
 }) {
   const ui = useUiText();
   const group = groups.find(g => g.id === groupId) ?? groups[0];
+  const strip = useRef<HTMLDivElement>(null);
+  const { language } = useUiLanguage();
+  const focusSignature = focusedKeys.join("|");
+  useEffect(() => {
+    const root = strip.current;
+    if (!root || !focusedKeys.length) return;
+    const target = [...root.querySelectorAll<HTMLElement>("[data-warehouse-media-key]")]
+      .find(node => node.dataset.warehouseMediaKey === focusedKeys[0]);
+    if (target) root.scrollTo({ left: root.scrollLeft + target.getBoundingClientRect().left - root.getBoundingClientRect().left - (root.clientWidth - target.clientWidth) / 2,
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+  }, [group?.id, focusSignature]);
   return (
     <section aria-label={ui("按镜头归类 / By shot")}>
       {error ? (
@@ -143,44 +161,26 @@ export function WarehouseShotGroups({
           {ui("部分素材暂未读到，正在重试。")}
         </p>
       ) : null}
-      <div
-        className="flex flex-nowrap gap-1.5 overflow-x-auto overflow-y-hidden pb-1 custom-scrollbar"
+      {focusedKeys.length > 0 && <p className="mb-1 text-[10px] text-muted-foreground">{language === "en" ? "From the conversation in view" : "正在查看的对话素材 / From viewed chat"}</p>}
+      <div ref={strip}
+        className="flex flex-nowrap items-start gap-1.5 overflow-x-auto overflow-y-hidden pb-1 custom-scrollbar"
         data-testid="warehouse-shot-strip"
         key={group?.id}
       >
         {leading}
-        {group?.items.map(item => {
+        {[...(group?.items ?? [])].sort((a, b) => warehouseMediaOrder(b, a)).map(item => {
           const name = warehouseMediaName(group, item, ui);
-          if (item.kind === "image") return renderImage(item, group, name);
           return (
             <article
               key={item.key}
-              className="relative flex w-[128px] shrink-0 flex-col overflow-hidden rounded-md bg-background"
+              data-warehouse-media-key={item.key}
+              data-conversation-focus={focusedKeys.includes(item.key) || undefined}
+              className={`relative flex ${item.kind === "image" ? "w-[84px]" : "w-[128px]"} shrink-0 flex-col overflow-hidden rounded-md bg-background ${focusedKeys.includes(item.key) ? "after:pointer-events-none after:absolute after:inset-0 after:rounded-md after:border-2 after:border-primary" : ""}`}
               title={item.originalName || name}
             >
-              {item.kind === "video" ? (
-                <div className="relative h-[84px] bg-muted/30">
-                  {item.ready && item.url ? (
-                    <video
-                      src={item.url}
-                      controls
-                      playsInline
-                      preload="metadata"
-                      className="h-full w-full object-contain"
-                      aria-label={name}
-                    />
-                  ) : (
-                    <div role="status" className="flex h-full flex-col items-center justify-center gap-2 text-[10px] text-muted-foreground">
-                      {item.renderState === "rendering" ? <Loader2 className="size-5 animate-spin motion-reduce:animate-none text-primary" /> : <Video className="size-5" />}
-                      {ui(item.renderState === "rendering" ? "生成中 / Generating" : item.renderState === "failed" ? "生成失败 / Failed" : item.renderState === "unknown" ? "状态待确认 / Checking" : "尚未就绪")}
-                    </div>
-                  )}
-                  {item.durationSec != null && (
-                    <span className="pointer-events-none absolute right-1 top-1 rounded bg-black/65 px-1 text-[10px] text-white">
-                      {item.durationSec.toFixed(1)}s
-                    </span>
-                  )}
-                </div>
+              {item.kind === "image" ? renderImage(item, group, name) : item.kind === "asset" ? <WarehouseAssetCard item={item} name={name} storyId={storyId} /> : item.kind === "video" ? (
+                <WarehouseVideoThumbnail url={item.url} ready={item.ready} state={item.renderState} durationSec={item.durationSec} aspectRatio={item.aspectRatio}
+                  label={`${ui("编辑视频 / Edit video")} · ${name}`} onSelect={time => onSelectVideo(item.id, time)} />
               ) : (
                 <div className="flex h-[84px] flex-col items-center justify-center gap-1 bg-muted/30">
                   <Music2 className="size-5 text-muted-foreground" />
@@ -205,11 +205,11 @@ export function WarehouseShotGroups({
                 >
                   {name}
                 </button>
-              ) : (
+              ) : item.kind === "audio" ? (
                 <p className="line-clamp-2 py-1 text-[10px] leading-4">
                   {name}
                 </p>
-              )}
+              ) : null}
             </article>
           );
         })}

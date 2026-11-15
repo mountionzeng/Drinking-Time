@@ -315,7 +315,7 @@ export async function runTimelineFrameCapture<T>(input: {
   rangeId: number | null;
   atSec: number;
   capture: () => Promise<T>;
-  variant?: "source-aspect" | "source-native";
+  variant?: "source-aspect" | "source-native" | "timeline-source-native";
 }): Promise<T> {
   const key = `${input.userId}:${input.takeId}:${input.rangeId ?? "full"}:${input.atSec.toFixed(3)}:${input.variant ?? "square"}`;
   const existing = inFlightCaptures.get(key) as Promise<T> | undefined;

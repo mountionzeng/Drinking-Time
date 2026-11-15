@@ -279,6 +279,7 @@ export type ExtractTimelineFrameForStoryResult =
       clipId: string;
       timelineVersion: number;
       targetLayer?: number;
+      source?: { takeId?: number; sourceTimeSec: number; stableShotId: string };
       replayed: boolean;
     }
   | { status: "pending"; requestId: string; message: string }
@@ -425,6 +426,7 @@ export function extractedTimelineFrameSourceStorageKey(input: {
         takeId: input.takeId,
         rangeId: input.rangeId,
         atSec: input.atSec,
+        format: "native-source-v2",
       })
     )
     .digest("hex")
@@ -586,6 +588,13 @@ async function releaseExtractionForRetry(
   }
 }
 
+function capturedSource(descriptor: unknown) {
+  if (!isExtractionDescriptor(descriptor)) return undefined;
+  return descriptor.kind === "video"
+    ? { takeId: descriptor.takeId, sourceTimeSec: descriptor.atSec, stableShotId: descriptor.sourceStableShotId }
+    : { sourceTimeSec: 0, stableShotId: descriptor.ownerStableShotId };
+}
+
 function replayedSuccess(
   requestId: string,
   operation: TimelineFrameExtractionReceipt,
@@ -610,6 +619,7 @@ function replayedSuccess(
     imageUrl: image.imageUrl,
     clipId: operation.clipId,
     timelineVersion: operation.timelineVersion,
+    source: capturedSource(operation.descriptor),
     replayed: true,
   };
 }
@@ -1029,6 +1039,7 @@ export async function extractTimelineFrameForStory(
                   takeId: descriptor.takeId,
                   rangeId: descriptor.rangeId,
                   atSec: descriptor.atSec,
+                  variant: "timeline-source-native",
                   capture: async () => {
                     const temporaryDirectory = await mkdtemp(
                       path.join(tmpdir(), "timeline-frame-extraction-")
@@ -1044,6 +1055,8 @@ export async function extractTimelineFrameForStory(
                         rangeId: descriptor.rangeId,
                         atSec: descriptor.atSec,
                         outputPath,
+                        preserveAspect: true,
+                        preserveDimensions: true,
                       });
                       return await dependencies.readFrameFile(outputPath);
                     } finally {
@@ -1247,6 +1260,7 @@ export async function extractTimelineFrameForStory(
     clipId,
     timelineVersion: placement.timelineVersion,
     targetLayer: placement.targetLayer,
+    source: capturedSource(descriptor ?? operation.descriptor),
     replayed: placement.changed === false || claim.created === false,
   };
 }

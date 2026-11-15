@@ -281,7 +281,7 @@
       "id": "shot-media-warehouse",
       "name": "仓库按镜头汇集媒体版本",
       "status": "working",
-      "userValue": "按镜头查看图片、首尾参考帧、视频和声音的已保存版本，按生成时间横向浏览；编辑镜头时打开对应素材组，提交生成后立即显示媒体占位与任务状态。",
+      "userValue": "按镜头将图片、视频、声音与资产各版本按生成时间从新到旧混排横向浏览，最新素材在最左侧；视频显示源文件真实尺寸与时长；翻阅有结果引用的历史聊天时定位并高亮对应素材。",
       "entryPoints": [
         "client/src/pages/EditingStudioPage.tsx",
         "client/src/features/creationEditor/views/MaterialWarehousePanel.tsx",
@@ -294,7 +294,11 @@
         "client/src/features/creationEditor/useWarehouseRenderActivity.ts",
         "client/src/features/creationEditor/views/WarehouseRenderCards.tsx",
         "shared/audioWarehouseShot.ts",
-        "server/routers/timelineMedia.ts"
+        "server/routers/timelineMedia.ts",
+        "client/src/features/creationEditor/warehouseConversationFocus.ts",
+        "client/src/features/creationEditor/views/WarehouseVideoThumbnail.tsx",
+        "client/src/features/creationEditor/views/WarehouseAssetCard.tsx",
+        "client/src/features/creationEditor/views/WarehouseConnectionStatus.tsx"
       ],
       "evidence": [
         "client/src/features/creationEditor/warehouseShotMedia.test.ts",
@@ -305,16 +309,27 @@
         "docs/qa/2026-11-10-shot-media-warehouse.md",
         "client/src/features/creationEditor/warehouseRenderActivity.test.ts",
         "client/src/features/creationEditor/views/WarehouseRenderCards.test.tsx",
-        "docs/qa/2026-11-10-warehouse-render-feedback.md"
+        "docs/qa/2026-11-10-warehouse-render-feedback.md",
+        "client/src/features/creationEditor/warehouseConversationFocus.test.ts",
+        "client/src/features/creationEditor/views/WarehouseVideoThumbnail.test.tsx",
+        "docs/qa/2026-11-14-warehouse-sequence.md",
+        "docs/qa/2026-11-14-warehouse-video-frame.md",
+        "docs/qa/2026-11-15-warehouse-newest-first.md",
+        "client/src/features/creationEditor/views/WarehouseConnectionStatus.test.tsx",
+        "client/src/features/creationEditor/useWarehouseRenderActivity.test.ts",
+        "docs/qa/2026-11-15-warehouse-multiselect.md"
       ],
       "invariants": [
         "保留横滑浮窗、原图预览/拖放/选择与原始资产，不因浏览分组而采用、复制、改名或解除素材。",
         "归属依据稳定身份、显式书转视频引用、帧角色/时间线引用或对话候选；不凭旧镜号或文件名猜测。",
-        "按创建时间混排；时间缺失如实置前。全书声音保留全片组，无可信归属的旧图/视频进入未归类。",
+        "按创建时间混排展示，最新在最左，时间缺失放最后；内部归档与版本编号顺序保持不变。全书声音保留全片组，无可信归属的旧图/视频进入未归类。",
         "音频接口只返回当前用户拥有的声音及净化后的镜头身份。",
         "只有明确选择镜头、点击仓库链接或提交当前故事的媒体生成才自动打开；播放跟随和后台完成不得反复弹窗。",
         "生成占位沿用横滑布局，不新增生产按钮；报价、聊天思考、导入与采用不显示为生成。",
-        "生成回执绑定原故事／稳定镜头并按账号隔离；网络中断显示待确认，不自动重试或采用成果。"
+        "生成回执绑定原故事／稳定镜头并按账号隔离；网络中断显示待确认，不自动重试或采用成果。",
+        "历史聊天定位只读取结构化结果ID，按故事和稳定镜头匹配；用户主动翻阅只影响已打开的仓库，不改变当前选图、播放头或采用素材。后台回复不抢仓库位置。",
+        "视频缩略图完整保留源文件比例，尺寸与时长优先读取媒体元数据；美术资产沿用真实保存版本号，不修改画布或原媒体。",
+        "仓库镜头分组与图片/视频分类从最新生成排到最早；悬浮视频保持源比例并自动静音播放，点击冻结当前呈现的源视频帧，不使用当前采用Take或实时播放头替代。"
       ],
       "dependencies": [
         "stable-shot-identity",
@@ -327,9 +342,9 @@
         "V01等为组内同媒体种类按资产ID排列的展示序号；增删历史关联可能重排，不替代影片及声音子版本，也不改原文件名。",
         "旧资产缺少稳定身份及显式引用时无法自动准确归镜；无来源旧音频归入全片。",
         "最近素材通知从已保存资产投影；成功文案说明存入仓库，不新增逐资产持久聊天消息。",
-        "真实故事1217没有视频Take；视频混排/时长通过固定样本测试，未新购媒体做付费验收。",
         "生成占位是本浏览器新提交任务的前端回执，最多保留50个/24小时；无服务端回执的同步生成刷新后仅能显示待确认，不保证跨设备恢复。",
-        "本轮三类生成反馈以3000隔离模拟回执验证，未付费验收实际供应商时延或音画质量；无资产ID的旧接口完成后沿用原入口呈现成果。"
+        "本轮三类生成反馈以3000隔离模拟回执验证，未付费验收实际供应商时延或音画质量；无资产ID的旧接口完成后沿用原入口呈现成果。",
+        "历史对话定位目前覆盖frameReview候选、imageRevision与助手frameReferences；纯文字旧回执、独立视频/音频gallery尚无统一消息输出引用，不靠文本编号猜关联。"
       ],
       "history": [
         {
@@ -346,6 +361,26 @@
           "date": "2026-11-10",
           "kind": "feature",
           "summary": "按用户要求补齐图片/音乐/视频提交即时占位，复用横滑仓库及双语状态；按账号恢复回执、独立轮询、完成刷新和失败/不确定状态，未增加生产按钮。27专项、类型、含77草稿回归的构建通过；3000真实仓库入口及模拟并发/输入/切故事/刷新/单查询故障隔离验证，未付费/提交/部署。详见2026-11-10-warehouse-render-feedback QA。"
+        },
+        {
+          "date": "2026-11-14",
+          "kind": "fix",
+          "summary": "仓库默认按镜头显示，补齐视觉资产及美术体系历史版本的混排；视频统一84px完整预览，读取真实尺寸/时长；主动翻历史对话定位并高亮对应输出。3000故事1217验证第03镜50项、全片18项混排，视频960/1024方形及8.083/12.375/14.5秒元数据，2110/2111关联及刷新通过；42相关项、77构建前置项、类型/构建通过。不付费、不生成、不采用、不提交/发布；纯文字旧回执关联仍有缺口。详见2026-11-14-warehouse-sequence QA。"
+        },
+        {
+          "date": "2026-11-14",
+          "kind": "fix",
+          "summary": "仓库竖图固定84px消除整排空白，图片/视频分类生成时间升序；视频悬浮同尺寸自动播放，点击冻结呈现源帧。新增warehouse-video来源，不冒用全片位置，核对指定旧Take/原尺寸并接现有范围聊天。3000实测1612/6.333333秒→2113、刷新保持；预览移出工具栏避免误点。157项/最后28项、类型/build通过；剪辑28/视频10/音频14/算力27.21保留，无收费或采用。QA见2026-11-14-warehouse-video-frame。"
+        },
+        {
+          "date": "2026-11-15",
+          "kind": "fix",
+          "summary": "按用户最新要求统一镜头分组与图片/视频分类为最新在最左；仅改变展示排序，保留版本编号、内部归档升序和最近素材通知。54项相关测试与类型通过；3000真实第03镜及图片分类首项2115/V46、视频分类Take1617，刷新重新打开03组后2115→2114→2113→2112→2111通过。无生成/收费/采用，未提交/发布。"
+        },
+        {
+          "date": "2026-11-15",
+          "kind": "fix",
+          "summary": "恢复唯一主仓3000，仓库网络错误合并为一个状态，只重试读取；接连续视频占位、账号/故事回执及完成通知。58专项+60视频/素材回归、类型及构建通过；3000真实多选、报价、取消与原图片编辑通过。未付费生成/采用/提交/部署。"
         }
       ]
     },
@@ -13330,6 +13365,59 @@
           "date": "2026-11-14",
           "kind": "verification",
           "summary": "用户确认体验版已是0.1.1113m，记录为用户后台确认；未提审或正式发布。真实好友、手机媒体及完整剪辑线仍待验收，保持observing。"
+        }
+      ]
+    },
+    {
+      "id": "warehouse-image-sequence-video",
+      "name": "仓库多选图片生成连续镜头",
+      "status": "partial",
+      "userValue": "按点击顺序选择2–5张图片，确认总算力后生成相邻首尾帧视频，合成为同镜头新候选。",
+      "entryPoints": [
+        "client/src/features/creationEditor/views/MaterialWarehousePanel.tsx",
+        "server/routers/warehouseVideoSequence.ts"
+      ],
+      "owners": [
+        "client/src/features/creationEditor/views/WarehouseImageSelection.tsx",
+        "client/src/features/creationEditor/views/WarehouseVideoSequenceDialog.tsx",
+        "shared/warehouseVideoSequence.ts",
+        "server/services/warehouseVideoSequence.ts",
+        "client/src/features/creationEditor/useWarehouseRenderActivity.ts",
+        "client/src/features/creationEditor/warehouseRenderActivity.ts"
+      ],
+      "evidence": [
+        "server/services/warehouseVideoSequence.test.ts",
+        "server/routers/warehouseVideoSequence.test.ts",
+        "client/src/features/creationEditor/views/WarehouseImageSelection.test.tsx",
+        "client/src/features/creationEditor/views/WarehouseVideoSequenceDialog.test.tsx",
+        "client/src/features/creationEditor/useWarehouseRenderActivity.test.ts",
+        "docs/qa/2026-11-15-warehouse-multiselect.md"
+      ],
+      "invariants": [
+        "点击顺序就是视频顺序，不遗漏中间图片；跨故事/分组不得沿用旧选择或报价。",
+        "报价仅读本地素材，无外部上传/生成；提交需接受总报价，并复核归属、像素摘要与参数。",
+        "同请求只提交一次；先预占所有分段费用；未知任务不自动重新购买，已生成分段保留。",
+        "不静默裁切源图；现阶段只接受方图，720p生成。",
+        "生成父候选，不改故事结构、剪辑、旧版本、音乐或字幕；采用由用户决定。",
+        "完成通知绑定原故事/稳定镜头；刷新或关闭窗口后只恢复原回执，不切换用户界面。"
+      ],
+      "dependencies": [
+        "shot-media-warehouse",
+        "story-ownership",
+        "stable-shot-identity"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "真实供应商多段生成与接缝画质尚未付费验收；本轮只验证真实页面选图/报价、模拟供应商及真实ffmpeg。",
+        "支持2–5张本地已导入方图，每段1–8秒；固定302/Vidu Q2 Turbo 720p。",
+        "父视频和分段都保存在仓库；部分失败需核对，不自动重购。",
+        "浏览器回执沿用24小时/50任务恢复限制；整页关闭后的最终拼接可能等待重新打开该故事。"
+      ],
+      "history": [
+        {
+          "date": "2026-11-15",
+          "kind": "feature",
+          "summary": "实现顺序多选、编辑要求/时长、报价确认、幂等分段与父合成候选。3000真实选2112→2114→2115，8秒报价4.12算力；改时长清报价、取消及原单图编辑通过。58专项+60旧回归、类型、构建含77草稿项通过；未付费，状态partial。"
         }
       ]
     }

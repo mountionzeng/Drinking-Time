@@ -1,5 +1,5 @@
 import React from "react";
-import { PAUSED_FRAME_SHORTCUT_EVENT } from "@/features/creationEditor/frameNavigation";
+import { PAUSED_FRAME_SHORTCUT_EVENT, type FrameReferenceEvent } from "@/features/creationEditor/frameNavigation";
 import { useEffect, useRef, useState } from "react";
 import { ImageIcon, X } from "lucide-react";
 import { trpc } from "@/lib/trpc";
@@ -12,6 +12,7 @@ import {
   usesPausedFrame,
   type ChatFrameReference,
   type PausedFrameSnapshot,
+  type WarehouseVideoFrame,
 } from "@shared/chatFrameReference";
 import { storySpineStore, useStorySpine } from "./spine/storySpine";
 import { PausedFrameBadge } from "./views/PausedFrameBadge";
@@ -20,9 +21,11 @@ import { formatComputeQuote } from "@shared/computeMoney";
 import { withMediaChatSession } from "./mediaChatSession";
 import { pollStoryboardImage } from "./views/pollStoryboardImage";
 import type { SelectionContext } from "@shared/selectionContext";
+import { TIMELINE_FPS } from "@shared/timelineViewport";
 
 type Draft = {
   snapshot: PausedFrameSnapshot | null;
+  warehouseFrame?: WarehouseVideoFrame;
   accountId: number | null;
   epoch: number;
   loadEpoch: number;
@@ -63,6 +66,7 @@ export function usePausedFrameChat(input: {
   selectedImageUrl?: string;
   proposeFrame: (frame: ChatFrameReference, text: string) => Promise<void>;
   focusComposer?: () => void;
+  onFrameReady?: (frame: ChatFrameReference) => void;
 }) {
   const { language } = useUiLanguage();
   const en = language === "en";
@@ -77,6 +81,7 @@ export function usePausedFrameChat(input: {
   const palettePending = useRef<PalettePending | null>(null);
   const paletteRecovery = useRef<AbortController | null>(null);
   const draft = useRef<Draft | null>(null);
+  const seenExtractions = useRef(new WeakSet<Promise<ChatFrameReference>>());
   const submitting = useRef<Draft | null>(null);
   const busy = useRef(false);
   const [pinned, setPinned] = useState<Draft | null>(null);
@@ -112,7 +117,7 @@ export function usePausedFrameChat(input: {
     (usesPausedFrame(input.text) || Boolean(pinned?.manual));
   const extract = async (d: Draft, text: string) => {
     const snapshot = d.snapshot;
-    if (!snapshot || !input.storyId || !pausedDraftIsCurrent(d, input.storyId))
+    if ((!snapshot && !d.warehouseFrame) || !input.storyId || !pausedDraftIsCurrent(d, input.storyId))
       throw new Error(
         en
           ? "Pause the preview and reference this frame again."
@@ -121,19 +126,20 @@ export function usePausedFrameChat(input: {
     // Preview, shortcut and submit share the exact capture, including while pending.
     // Keep a failure on this draft too; another Up explicitly starts a new capture.
     d.extraction ??= capture.mutateAsync({
-      storyId: snapshot.storyId,
+      storyId: input.storyId,
       instruction: text,
-      pausedFrame: snapshot,
+      pausedFrame: snapshot ?? undefined,
+      warehouseFrame: d.warehouseFrame,
     }).then(result => {
-      void utils.storyAgent.storyMaterialState.invalidate({ storyId: snapshot.storyId });
-      void utils.storyAgent.storyImages.invalidate({ storyId: snapshot.storyId });
+      void utils.storyAgent.storyMaterialState.invalidate({ storyId: input.storyId! });
+      void utils.storyAgent.storyImages.invalidate({ storyId: input.storyId! });
       const frame = result.frames[0];
       if (!frame)
         throw new Error(result.failures.join("; ") || (en ? "Frame unavailable" : "暂时无法读取这一帧"));
       return frame;
     });
     const frame = await d.extraction;
-    if (!pausedDraftIsCurrent(d, snapshot.storyId)) return null;
+    if (!pausedDraftIsCurrent(d, input.storyId)) return null;
     return frame;
   };
   const record = (
@@ -145,17 +151,17 @@ export function usePausedFrameChat(input: {
     if (d.suppressed || !input.storyId || !pausedDraftIsCurrent(d, input.storyId)) return;
     storySpineStore
       .getState()
-      .setMessages(messages => [
-        ...messages,
-        {
+      .setMessages(messages => {
+        const message = {
           id: crypto.randomUUID(),
           role,
           content: text,
           timestamp: Date.now(),
           ...(frame ? { frameReferences: [frame] } : {}),
           ...(!frame && d.selectionQuote ? {selectionQuote:d.selectionQuote} : {}),
-        },
-      ]);
+        };
+        return [...messages, message];
+      });
   };
   const runPalette = async (pending: PalettePending) => {
     const {d,frame,quote,storyId,targetImageId} = pending;
@@ -284,15 +290,12 @@ export function usePausedFrameChat(input: {
   useEffect(() => {
     const shortcut = (event: Event) => {
       const detail = (
-        event as CustomEvent<
-          | { kind: "clear"; storyId: number }
-          | { kind: "capture"; snapshot: PausedFrameSnapshot }
-        >
+        event as CustomEvent<FrameReferenceEvent>
       ).detail;
       if (
         !input.enabled ||
         !detail ||
-        (detail.kind === "clear" ? detail.storyId : detail.snapshot.storyId) !==
+        (detail.kind === "clear" ? detail.storyId : detail.kind === "warehouse" ? detail.source.storyId : detail.snapshot.storyId) !==
           input.storyId
       )
         return;
@@ -306,10 +309,14 @@ export function usePausedFrameChat(input: {
         }
         return;
       }
-      const d = {
+      if (detail.extraction && seenExtractions.current.has(detail.extraction)) return;
+      if (detail.extraction) seenExtractions.current.add(detail.extraction);
+      const d: Draft = {
         ...freezePausedFrame(),
-        snapshot: structuredClone(detail.snapshot),
+        snapshot: detail.kind === "warehouse" ? null : structuredClone(detail.snapshot),
+        warehouseFrame: detail.kind === "warehouse" ? structuredClone(detail.source) : undefined,
         manual: true,
+        extraction: detail.extraction,
       };
       if (submitting.current) submitting.current.suppressed = true;
       const selection = storySpineStore.getState().activeSelection;
@@ -320,7 +327,7 @@ export function usePausedFrameChat(input: {
       input.focusComposer?.();
       setNotice(en ? "Reading this frame…" : "正在抽取这一帧…");
       void extract(d, "引用这一帧 / Reference this frame")
-        .then(frame => {
+        .then(async frame => {
           if (draft.current !== d) return;
           const spine = storySpineStore.getState();
           if (frame && spine.activeSelection === selection &&
@@ -328,13 +335,15 @@ export function usePausedFrameChat(input: {
             spine.setActiveSelection(shotConversationSelection(frame.storyId, frame));
           }
           setPreview(frame);
+          if (frame) input.onFrameReady?.(frame);
           setNotice(
             frame
               ? en
-                ? "This frame is attached. Tell me what to change."
-                : "已引用这一帧，直接说想怎么改。"
+                ? detail.kind === "capture" && detail.extraction ? "Frame added to the timeline and attached here. Tell me what to change." : "This frame is attached. Tell me what to change."
+                : detail.kind === "capture" && detail.extraction ? "静帧已放入剪辑线并引用到这里，直接说想怎么改。" : "已引用这一帧，直接说想怎么改。"
               : ""
           );
+
         })
         .catch(error => {
           if (draft.current === d)
@@ -347,13 +356,21 @@ export function usePausedFrameChat(input: {
     return () =>
       window.removeEventListener(PAUSED_FRAME_SHORTCUT_EVENT, shortcut);
   }, [input.enabled, input.storyId, input.text, input.selectedImageId, input.focusComposer, en]);
-  const placeholder =
-    input.enabled &&
+  const contextFrame = pinned?.warehouseFrame ? null : pinned?.snapshot ?? live;
+  const contextTime = contextFrame ? (contextFrame.timelineFrame / TIMELINE_FPS).toFixed(2) : undefined;
+  const contextLabel = pinned?.warehouseFrame && !pinned.suppressed
+    ? (en ? `Attached source · Take ${pinned.warehouseFrame.takeId} · ${pinned.warehouseFrame.sourceTimeSec.toFixed(2)}s` : `已引用源视频 · Take ${pinned.warehouseFrame.takeId} · ${pinned.warehouseFrame.sourceTimeSec.toFixed(2)}s`)
+    : input.enabled &&
     !pinned?.suppressed &&
     (!input.selectedImageId || pinned?.manual) &&
-    (pinned?.snapshot ?? live)?.storyId === input.storyId
-      ? en ? "You can say: change this frame…" : "可以直接说：把这一帧……"
+    contextFrame?.storyId === input.storyId
+      ? en ? `${pinned ? "Attached frame" : "Playhead"} · Timeline ${contextTime}s` : `${pinned ? "已引用帧" : "播放头"} · 全片 ${contextTime}s`
       : undefined;
+  const placeholder = pinned?.warehouseFrame && !pinned.suppressed
+    ? (en ? `Describe changes to this source frame…` : `说说这个源视频画面想怎么改…`)
+    : contextLabel
+    ? en ? `Describe changes to the frame at timeline ${contextTime}s…` : `说说全片 ${contextTime}s 这一帧想怎么改…`
+    : undefined;
   const panel = input.enabled ? (
     <div className="relative z-[2] text-[10px] text-muted-foreground" aria-live="polite">
       {input.selectedImageId && input.selectedImageUrl && (
@@ -365,7 +382,7 @@ export function usePausedFrameChat(input: {
           <img src={input.selectedImageUrl} alt={en ? "Selected image reference" : "选中的参考图片"} className="max-h-32 max-w-full rounded object-contain" />
         </details>
       )}
-      {relevant && pinned?.snapshot && !pinned.suppressed ? (
+      {relevant && pinned && (pinned.snapshot || pinned.warehouseFrame) && !pinned.suppressed ? (
         <>
           <span className="inline-flex items-center gap-1">
             <button
@@ -380,7 +397,7 @@ export function usePausedFrameChat(input: {
               className="inline-flex h-6 items-center gap-1"
             >
               <ImageIcon className="h-3.5 w-3.5" />
-              {(pinned.snapshot.timelineFrame / 30).toFixed(2)}s
+              {pinned.warehouseFrame ? `${en ? "Source" : "源视频"} ${pinned.warehouseFrame.sourceTimeSec.toFixed(2)}` : (pinned.snapshot!.timelineFrame / TIMELINE_FPS).toFixed(2)}s
             </button>
             <button
               type="button"
@@ -406,5 +423,5 @@ export function usePausedFrameChat(input: {
       {notice && <p>{notice}</p>}
     </div>
   ) : null;
-  return { begin, change, handle, panel, placeholder, hasManualFrame: Boolean(pinned?.manual && !pinned.suppressed) };
+  return { begin, change, handle, panel, placeholder, contextLabel, hasManualFrame: Boolean(pinned?.manual && !pinned.suppressed) };
 }

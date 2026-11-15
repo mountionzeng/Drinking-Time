@@ -1,3 +1,4 @@
+import { isWarehouseVideoSequence, refreshWarehouseVideoSequence } from "./warehouseVideoSequence";
 import { hasUnreviewedFrameRefinement } from "../../shared/chatImageRevision";
 import { shotVideoPriceProfile, type ShotVideoRenderMode } from "../../shared/shotDirector";
 import { bookMediaTargetIsCurrent } from "./bookMediaTarget";
@@ -936,6 +937,7 @@ export async function refreshVideoTakeStatus(
 > {
   let take = await getVideoTakeById(takeId, userId);
   if (!take) return { status: "error", error: "视频任务不存在或无权操作" };
+  if (isWarehouseVideoSequence(take)) return refreshWarehouseVideoSequence(take, userId);
   take = await recoverVideoReceipt(take);
   if (isLocalMotionVideoTake(take)) {
     return refreshLocalMotionVideoTake(take, userId);

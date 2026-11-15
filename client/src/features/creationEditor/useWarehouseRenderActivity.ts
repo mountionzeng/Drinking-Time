@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useUiLanguage } from "@/features/uiLanguage/UiLanguage";
 import { trpc } from "@/lib/trpc";
 import { storySpineStore } from "@/features/storyAgent/spine/storySpine";
 import {
@@ -14,6 +15,8 @@ export function useWarehouseRenderActivity(
   onStart: (job: WarehouseRenderJob) => void,
 ) {
   const client = useQueryClient();
+  const {language} = useUiLanguage();
+  const {mutateAsync:refreshVideo} = trpc.creationAgent.refreshShotVideoStatus.useMutation();
   const utils = trpc.useUtils();
   const [snapshot, setSnapshot] = useState<{ accountId?: number; jobs: WarehouseRenderJob[] }>({ jobs: [] });
   const jobsRef = useRef<WarehouseRenderJob[]>([]);
@@ -64,6 +67,7 @@ export function useWarehouseRenderActivity(
   useEffect(() => {
     if (!accountId || !storyId || !needsPolling) return;
     let stopped = false;
+    const epoch = storySpineStore.getState().storyScopeEpoch;
     let timer: ReturnType<typeof setTimeout>;
     const poll = async () => {
       const current = jobsRef.current.filter(j => j.storyId === storyId && j.state !== "failed");
@@ -94,7 +98,12 @@ export function useWarehouseRenderActivity(
             if (view.state === "done") next = renderJobResult(job, view.result);
             else next = { ...job, state: view.state === "pending" ? "rendering" as const : "unknown" as const };
           }
-          if (job.requestId) {
+          if (job.sequence && job.requestId) {
+            const result = await utils.warehouseVideoSequence.status.fetch({storyId,requestId:job.requestId});
+            if (result.take) next = renderJobResult(job,result);
+            if (next.takeId && ["rendering","unknown"].includes(next.state)) next = renderJobResult(next,await refreshVideo({takeId:next.takeId}));
+          }
+          if (job.requestId && !job.sequence) {
             const revision = revisions.find(r => r.requestId === job.requestId);
             if (revision) next = renderJobResult(job, revision);
             else {
@@ -107,7 +116,15 @@ export function useWarehouseRenderActivity(
             }
           }
           const take = takes.find(t => t.id === next.takeId);
-          if (take) next = renderJobResult(next, { take });
+          if (take && !job.sequence) next = renderJobResult(next, { take });
+          if (job.sequence && next.state === "ready" && next.takeId && !stopped) {
+            const spine=storySpineStore.getState();
+            if (spine.activeStoryId===storyId && spine.storyScopeEpoch===epoch) {
+              const id=`warehouse-video-${next.takeId}-ready`;
+              const content=language==="en"?`Video Take ${next.takeId} is ready and saved in Warehouse. Review it before adding it to the timeline.`:`连续视频 Take ${next.takeId} 已完成并保存到仓库，可先查看，再决定是否放入剪辑线。`;
+              spine.setMessages(rows=>rows.some(row=>row.id===id)?rows:[...rows,{id,role:"assistant",content,timestamp:Date.now(),selectionQuote:job.shotId?{sourceType:"shot",sourceId:job.shotId,storyId,stableShotId:job.shotId,selectedText:content}:undefined}]);
+            }
+          }
           // Remove a placeholder only when its saved asset is actually present.
           const visible = next.kind === "image" ? images.some(i => i.id === next.assetId)
             : next.kind === "audio" ? audio.some(a => a.id === next.assetId)
@@ -140,6 +157,6 @@ export function useWarehouseRenderActivity(
     };
     void poll();
     return () => { stopped = true; clearTimeout(timer); };
-  }, [accountId, storyId, needsPolling, utils]);
+  }, [accountId, storyId, needsPolling, utils, refreshVideo, language]);
   return jobs;
 }

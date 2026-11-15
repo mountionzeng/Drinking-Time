@@ -1,10 +1,16 @@
+import { WarehouseImageSelection, toggleWarehouseImage, MAX_WAREHOUSE_VIDEO_IMAGES, type WarehouseSelectedImage } from "./WarehouseImageSelection";
+import { WarehouseVideoSequenceDialog } from "./WarehouseVideoSequenceDialog";
+import { WarehouseConnectionStatus } from "./WarehouseConnectionStatus";
+import { WarehouseVideoThumbnail } from "./WarehouseVideoThumbnail";
+import { WAREHOUSE_CONVERSATION_FOCUS, type WarehouseConversationFocus, resolveWarehouseConversationGroup } from "../warehouseConversationFocus";
 import { SHOT_CHAT_FOCUS_EVENT } from "@/features/storyAgent/shotChatFocus";
+import { PAUSED_FRAME_SHORTCUT_EVENT } from "../frameNavigation";
 import { WarehouseRenderCards } from "./WarehouseRenderCards";
 import type { WarehouseRenderJob } from "../warehouseRenderActivity";
 import { WarehouseShotGroups, WarehouseShotMenu, useWarehouseShotGroups, warehouseMediaName } from "./WarehouseShotGroups";
 import { OPEN_SHOT_WAREHOUSE, type WarehouseMedia, type WarehouseShotGroup } from "../warehouseShotMedia";
-import { useStorySpine } from "@/features/storyAgent/spine/storySpine";
-import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
+import { useStorySpine, storySpineStore } from "@/features/storyAgent/spine/storySpine";
+import { useUiLanguage, useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { WarehouseBookMedia } from "./WarehouseBookMedia";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { WarehouseImageActions } from "./WarehouseImageActions";
@@ -421,6 +427,11 @@ export function buildMaterialWarehouseVideoItems(
     });
 }
 
+function warehouseCreatedOrder(a: { id: number; createdAt?: string | Date | null }, b: { id: number; createdAt?: string | Date | null }) {
+  const time = (v: typeof a) => v.createdAt ? (+new Date(v.createdAt) || 0) : 0;
+  return time(b) - time(a) || b.id - a.id;
+}
+
 function shotLabel(shot: ShotDisplayLike | number | null | undefined) {
   if (shot == null) return "未选镜头";
   return displayShotCode(typeof shot === "number" ? { shotNo: shot } : shot);
@@ -520,6 +531,8 @@ export default function MaterialWarehousePanel({
   renderJobs?: readonly WarehouseRenderJob[];
 } = {}) {
   const _ui = useDesktopUiText();
+  const sourceFrameCapture = trpc.creationAgent.chatFrameReferences.useMutation();
+  const sourceFrameUtils = trpc.useUtils();
   const { setActiveSelection } = useStoryAgentActions();
   const {
     activeStoryId,
@@ -532,6 +545,7 @@ export default function MaterialWarehousePanel({
     materialState,
     isLoading,
     error,
+    refetch,
     assignStoryImageToShot,
     importStoryMaterial,
     promoteStoryImage,
@@ -550,6 +564,11 @@ export default function MaterialWarehousePanel({
   const [selectedMaterialKey, setSelectedMaterialKey] =
     useState<SelectedMaterialKey | null>(null);
   const [warehouseExpanded, setWarehouseExpanded] = useState(false);
+  const {language:warehouseLanguage} = useUiLanguage();
+  const sequenceUi = (zh:string, en:string) => warehouseLanguage === "en" ? en : zh;
+  const [multiSelect, setMultiSelect] = useState(false);
+  const [imageSelection, setImageSelection] = useState<{scope:string;images:WarehouseSelectedImage[]}>({scope:"",images:[]});
+  const [sequenceOpen, setSequenceOpen] = useState(false);
   const [previewImage, setPreviewImage] = useState<WarehouseImageItem | null>(null);
   const hoverClose = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previewLocked = useRef(false);
@@ -557,9 +576,22 @@ export default function MaterialWarehousePanel({
   const closePreviewSoon = () => { cancelPreviewClose(); hoverClose.current = setTimeout(() => { if (!previewLocked.current) setPreviewImage(null); }, 220); };
   useEffect(() => () => cancelPreviewClose(), []);
 
-  const [drawerTab, setDrawerTab] = useState<"shots" | "images" | "videos" | "assets" | "music" | "text">(focusedShotId ? "shots" : "images");
+  const [drawerTab, setDrawerTab] = useState<"shots" | "images" | "videos" | "assets" | "music" | "text">(videoActions ? "shots" : "images");
   const [groupId, setGroupId] = useState<string | null>(focusedShotId ?? null);
   const grouped = useWarehouseShotGroups(activeStoryId, shots, materialState);
+  const [conversationFocus, setConversationFocus] = useState<WarehouseConversationFocus | null>(null);
+  useEffect(() => {
+    if (!videoActions || variant !== "drawer") return;
+    const follow = (event: Event) => {
+      const focus = (event as CustomEvent<WarehouseConversationFocus>).detail;
+      if (focus?.storyId !== activeStoryId) return;
+      const group = resolveWarehouseConversationGroup(grouped.groups, focus);
+      if (!group) { setConversationFocus(null); return; }
+      setConversationFocus(focus); setGroupId(group.id); setDrawerTab("shots"); setPreviewImage(null);
+    };
+    window.addEventListener(WAREHOUSE_CONVERSATION_FOCUS, follow);
+    return () => window.removeEventListener(WAREHOUSE_CONVERSATION_FOCUS, follow);
+  }, [videoActions, variant, activeStoryId, grouped.groups]);
   const latestRender = renderJobs[renderJobs.length - 1];
   const latestRenderSeen = useRef(0);
   useEffect(() => {
@@ -575,7 +607,7 @@ export default function MaterialWarehousePanel({
     const open = (event: Event) => {
       const detail = (event as CustomEvent<{ storyId: number; groupId?: string; stableShotId?: string }>).detail;
       if (detail?.storyId !== activeStoryId) return;
-      setGroupId(detail.groupId ?? detail.stableShotId ?? null); setDrawerTab("shots"); setPreviewImage(null);
+      setConversationFocus(null); setGroupId(detail.groupId ?? detail.stableShotId ?? null); setDrawerTab("shots"); setPreviewImage(null);
     };
     window.addEventListener(OPEN_SHOT_WAREHOUSE, open);
     window.addEventListener(SHOT_CHAT_FOCUS_EVENT, open);
@@ -587,6 +619,15 @@ export default function MaterialWarehousePanel({
   const currentShot = selectedShot ?? shots[0] ?? null;
   const currentStableShotId =
     currentShot?.stableShotId ?? currentShot?.shotIdentity ?? null;
+  const sequenceShot = drawerTab === "shots" ? shots.find(shot => (shot.stableShotId ?? shot.shotIdentity) === (groupId ?? currentStableShotId)) : currentShot;
+  const selectionScope = `${activeStoryId}:${drawerTab}:${drawerTab === "shots" ? groupId ?? currentStableShotId : currentStableShotId}`;
+  const selectedImages = imageSelection.scope === selectionScope ? imageSelection.images : [];
+  const setSelectedImages = (value: WarehouseSelectedImage[] | ((rows:WarehouseSelectedImage[])=>WarehouseSelectedImage[])) => setImageSelection(previous=>({scope:selectionScope,images:typeof value === "function" ? value(previous.scope===selectionScope?previous.images:[]) : value}));
+  useEffect(() => { setSequenceOpen(false); }, [selectionScope]);
+  const toggleSelectedImage = (image: WarehouseSelectedImage) => {
+    if (selectedImages.length >= MAX_WAREHOUSE_VIDEO_IMAGES && !selectedImages.some(item => item.id === image.id)) { toast.info(sequenceUi("一次最多选择5张图片 / Select up to 5 images", "Select up to 5 images")); return; }
+    setSelectedImages(rows => toggleWarehouseImage(rows, image));
+  };
   const currentMaterial = useMemo(() => {
     if (!currentShot) return null;
     return (
@@ -668,13 +709,13 @@ export default function MaterialWarehousePanel({
         isCurrent: true,
       });
     }
-    return Array.from(rows.values());
+    return Array.from(rows.values()).sort((a, b) => warehouseCreatedOrder(a.image, b.image));
   }, [activeStoryId, materialState, shots]);
 
-  const videoItems = useMemo(
-    () => buildMaterialWarehouseVideoItems(materialState),
-    [materialState]
-  );
+  const videoItems = useMemo(() => {
+    const rows = buildMaterialWarehouseVideoItems(materialState);
+    return variant === "drawer" ? rows.sort((a, b) => warehouseCreatedOrder(a.take, b.take)) : rows;
+  }, [materialState, variant]);
   const visualAssetImages = useMemo(
     () => {
       const rows = imageItems.map(item => ({
@@ -704,6 +745,12 @@ export default function MaterialWarehousePanel({
     currentMaterial?.timelineItem?.plannedDurationMs
   );
 
+  const openMaterialChat = () => {
+    window.dispatchEvent(new CustomEvent(PAUSED_FRAME_SHORTCUT_EVENT, { detail: { kind: "clear", storyId: activeStoryId } }));
+    setPreviewImage(null);
+    onClose?.();
+    window.dispatchEvent(new CustomEvent("dt:open-creation-chat", { detail: { focusComposer: true, preserveSelection: true } }));
+  };
   const selectImageMaterial = (item: WarehouseImageItem) => {
     if (insertIntoLayout) {
       const event = new CustomEvent(INSERT_WAREHOUSE_IMAGE, { cancelable: true, detail: { storyId: activeStoryId, imageId: item.image.id } });
@@ -736,9 +783,10 @@ export default function MaterialWarehousePanel({
       objectVersion: `image:${item.image.id}`,
       materialStatus: item.isCurrent ? "current-image" : "candidate-image",
     });
+    openMaterialChat();
   };
 
-  const selectVideoMaterial = (item: WarehouseVideoItem) => {
+  const selectVideoMaterial = (item: WarehouseVideoItem, sourceTimeSec?: number) => {
     const key: SelectedMaterialKey = `video:${item.take.id}`;
     setSelectedMaterialKey(key);
     const text = `${videoSourceLabel(item)} · Take ${item.take.id}`;
@@ -762,6 +810,25 @@ export default function MaterialWarehousePanel({
       objectVersion: `video:${item.take.id}`,
       materialStatus: status,
     });
+    openMaterialChat();
+    if (sourceTimeSec != null && activeStoryId != null) {
+      const source = { storyId: activeStoryId, takeId: item.take.id, sourceTimeSec };
+      const extraction = sourceFrameCapture.mutateAsync({ storyId: activeStoryId,
+        instruction: "引用仓库视频当前帧 / Reference warehouse video frame", warehouseFrame: source,
+      }).then(result => {
+        void sourceFrameUtils.storyAgent.storyMaterialState.invalidate({ storyId: source.storyId });
+        void sourceFrameUtils.storyAgent.storyImages.invalidate({ storyId: source.storyId });
+        if (!result.frames[0]) throw new Error(result.failures.join("; ") || "无法读取这一帧 / Frame unavailable");
+        return result.frames[0];
+      });
+      window.dispatchEvent(new CustomEvent(PAUSED_FRAME_SHORTCUT_EVENT, { detail: { kind: "warehouse", source, extraction } }));
+      // Also surface failures when the chat panel is not mounted yet.
+      const scope = storySpineStore.getState();
+      void extraction.catch(error => { const current = storySpineStore.getState();
+        if (current.activeStoryId === source.storyId && current.storyScopeEpoch === scope.storyScopeEpoch && current.accountId === scope.accountId)
+          toast.error(error instanceof Error ? error.message : "Frame unavailable");
+      });
+    }
   };
 
   // 拖入/选择的文件先进暂存区，交代目标镜头和运动/场景说明后再确认入库。
@@ -1062,6 +1129,11 @@ export default function MaterialWarehousePanel({
             ) : null;
 
   const renderDrawerImage = (item: WarehouseImageItem, caption?: string) => {
+                    if (multiSelect) {
+                      const image = {id:item.image.id,imageUrl:item.image.imageUrl,label:caption ?? imageCaption(item.image.id)};
+                      return <WarehouseImageSelection key={image.id} image={image} order={selectedImages.findIndex(i=>i.id===image.id)+1} onToggle={()=>toggleSelectedImage(image)} />;
+                    }
+
                     const busy = busyKey === `image:${item.image.id}`;
                     const belongsToCurrent =
                       imageItemRelatesToShot(item, currentStableShotId);
@@ -1075,9 +1147,9 @@ export default function MaterialWarehousePanel({
                           onPointerEnter={event => { if(event.pointerType === 'mouse' && !previewLocked.current) {cancelPreviewClose(); setPreviewImage(item);} }}
                           onPointerLeave={closePreviewSoon}
                           onFocus={() => {cancelPreviewClose(); setPreviewImage(item);}}
-                          onClick={() => setPreviewImage(item)}
-                          aria-label={_ui("预览图片 {0}", [item.image.id])}
-                          className="aspect-square w-full bg-muted/30 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+                          onClick={event => { if (videoActions) { event.preventDefault(); selectImageMaterial(item); } else setPreviewImage(item); }}
+                          aria-label={_ui(videoActions ? "编辑图片 / Edit image {0}" : "预览图片 {0}", [item.image.id])}
+                          className="h-[84px] w-full shrink-0 overflow-hidden bg-muted/30 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
                         >
                           <img
                             src={item.image.imageUrl}
@@ -1099,12 +1171,12 @@ export default function MaterialWarehousePanel({
                           <span className="sr-only">
                             {item.image.prompt?.trim() || (item.shotNo ? shotLabel(item) : _ui("图片 {0}", [item.image.id]))}
                           </span>
-                          <button type="button" aria-label={_ui("使用图片 {0}", [item.image.id])} onClick={() => selectImageMaterial(item)} className="shrink-0 rounded px-2 py-1 text-xs text-primary hover:bg-primary/10">{_ui("使用")}</button>
+                          {!videoActions && <button type="button" aria-label={_ui("使用图片 {0}", [item.image.id])} onClick={() => selectImageMaterial(item)} className="shrink-0 rounded px-2 py-1 text-xs text-primary hover:bg-primary/10">{_ui("使用")}</button>}
                           {videoActions && <button
                             type="button"
                             onClick={() => void bindImage(item.image)}
                             disabled={busy || !currentStableShotId}
-                            className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border px-2 text-[11px] font-medium transition hover:border-primary/50 hover:text-primary disabled:opacity-50"
+                            className="inline-flex min-h-7 w-full items-center justify-center gap-1 rounded-md border border-border px-1 text-[10px] leading-4 font-medium transition hover:border-primary/50 hover:text-primary disabled:opacity-50"
                           >
                             {busy ? (
                               <Loader2 className="h-3 w-3 animate-spin" />
@@ -1131,7 +1203,7 @@ export default function MaterialWarehousePanel({
                   <summary className="cursor-pointer py-2">{_ui("图片说明")}</summary>
                   <p className="max-h-24 overflow-y-auto whitespace-pre-wrap break-words py-2">{item.image.prompt || _ui("这张图片没有附带文字说明。")}</p>
                 </details>
-                {activeStoryId != null && <WarehouseImageActions key={item.image.id} storyId={activeStoryId} imageId={item.image.id} imageUrl={item.image.imageUrl} onDialogOpenChange={value => { previewLocked.current=value; cancelPreviewClose(); }}/>}
+                {!videoActions && activeStoryId != null && <WarehouseImageActions key={item.image.id} storyId={activeStoryId} imageId={item.image.id} imageUrl={item.image.imageUrl} onDialogOpenChange={value => { previewLocked.current=value; cancelPreviewClose(); }}/>}
                 {(insertIntoLayout || videoActions) && <ImageRefToggleButton storyId={activeStoryId} imageId={item.image.id} imageUrl={item.image.imageUrl} label={warehouseImageRefLabel(item)}/>}
                 {!insertIntoLayout && <button type="button" onClick={() => selectImageMaterial(item)} className="shrink-0 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground">
                   {videoActions ? _ui("选中图片") : _ui("加入对话")}
@@ -1168,12 +1240,12 @@ export default function MaterialWarehousePanel({
     const drawerItems =
       drawerTab === "images" ? imageItems : drawerTab === "videos" ? videoItems : [];
     const drawer = (
-      <FloatingWarehouse expanded={warehouseExpanded} compact={(drawerTab === "images" || drawerTab === "shots") && pendingImports.length === 0}>
+      <FloatingWarehouse expanded={warehouseExpanded} compact={(drawerTab === "images" || drawerTab === "shots" || drawerTab === "videos") && pendingImports.length === 0}>
         <div data-warehouse-handle role="toolbar" tabIndex={0} aria-label={_ui("仓库工具栏 / Warehouse toolbar")}
           title={_ui("拖动位置")} className="flex shrink-0 flex-nowrap items-center gap-1 border-b border-border p-1.5 cursor-grab active:cursor-grabbing">
           <div className="flex min-w-0 items-center gap-0.5 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&>button]:shrink-0 [&>button]:whitespace-nowrap">
               {videoActions && <WarehouseShotMenu groups={grouped.groups} groupId={groupId ?? currentStableShotId} active={drawerTab === "shots"}
-                onGroupChange={id => {setGroupId(id); setDrawerTab("shots"); setPreviewImage(null);}} />}
+                onGroupChange={id => {setConversationFocus(null); setGroupId(id); setDrawerTab("shots"); setPreviewImage(null);}} />}
               <button
                 type="button"
                 onClick={() => {setDrawerTab("images"); setPreviewImage(null);}}
@@ -1224,6 +1296,11 @@ export default function MaterialWarehousePanel({
             ) : null}
           </div>
           <div className="flex shrink-0 items-center gap-0.5">
+            {videoActions && (drawerTab === "shots" || drawerTab === "images") && <button type="button" aria-pressed={multiSelect}
+              onClick={()=>{setMultiSelect(value=>!value);setSelectedImages([]);setPreviewImage(null);}}
+              className={`h-7 shrink-0 whitespace-nowrap rounded px-2 text-xs ${multiSelect ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted"}`}>
+              {sequenceUi(multiSelect ? "取消多选 / Cancel" : "多选 / Select", multiSelect ? "Cancel selection" : "Select")}
+            </button>}
             <button
               type="button"
               onClick={() => setWarehouseExpanded(value => !value)}
@@ -1274,15 +1351,22 @@ export default function MaterialWarehousePanel({
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto p-1.5 custom-scrollbar">
-          {panelError || error ? (
-            <div className="mb-2 text-xs text-destructive">
-              {panelError ?? error?.message}
-            </div>
-          ) : null}
+          {multiSelect && (drawerTab === "shots" || drawerTab === "images") && <div className="mb-2 flex items-center justify-between gap-2 text-xs">
+            <span>{sequenceUi("按点击顺序，选择2–5张图片 / Select 2–5 images in order", "Select 2–5 images in order")} · {selectedImages.length}</span>
+            <button type="button" disabled={selectedImages.length < 2 || !sequenceShot}
+              onClick={()=>setSequenceOpen(true)} className="shrink-0 rounded bg-primary px-2 py-1 text-primary-foreground disabled:opacity-40">{sequenceUi("生成视频 / Make video", "Make video")}</button>
+          </div>}
+          {sequenceOpen && imageSelection.scope === selectionScope && selectedImages.length >= 2 && activeStoryId && sequenceShot && <WarehouseVideoSequenceDialog key={selectionScope}
+            storyId={activeStoryId} stableShotId={(sequenceShot.stableShotId ?? sequenceShot.shotIdentity)!} shotNo={sequenceShot.shotNo} images={selectedImages}
+            onClose={()=>setSequenceOpen(false)} />}
+
+          {panelError ? <div role="alert" className="mb-2 text-xs text-destructive">{panelError}</div> : null}
+          <WarehouseConnectionStatus error={error ?? grouped.error}
+            retry={() => { refetch(); grouped.refetch(); }} />
           {pendingImports.length > 0 ? importQueue : drawerTab === "shots" ? <WarehouseShotGroups
-            leading={renderCards}
-            {...grouped} groupId={groupId ?? currentStableShotId}
-            renderImage={renderGroupedImage} onSelectVideo={id => {const item = videoItems.find(v => v.take.id === id); if (item) selectVideoMaterial(item);}} /> : (drawerTab === "music" || drawerTab === "text") && activeStoryId ? <WarehouseBookMedia key={`${activeStoryId}:${drawerTab}`} storyId={activeStoryId} kind={drawerTab} leading={drawerTab === "music" ? renderCards : undefined}/> : drawerTab === "assets" ? (
+            leading={renderCards} storyId={activeStoryId ?? 0} focusedKeys={conversationFocus?.mediaKeys}
+            {...grouped} error={null} groupId={groupId ?? currentStableShotId}
+            renderImage={renderGroupedImage} onSelectVideo={(id, time) => {const item = videoItems.find(v => v.take.id === id); if (item) selectVideoMaterial(item, time);}} /> : (drawerTab === "music" || drawerTab === "text") && activeStoryId ? <WarehouseBookMedia key={`${activeStoryId}:${drawerTab}`} storyId={activeStoryId} kind={drawerTab} leading={drawerTab === "music" ? renderCards : undefined}/> : drawerTab === "assets" ? (
             <>
             <ArtSystemLibrary storyId={activeStoryId ?? null} images={visualAssetImages} />
             {activeStoryId != null && <ArtPreviewGallery key={activeStoryId} storyId={activeStoryId} includePlans />}
@@ -1311,7 +1395,7 @@ export default function MaterialWarehousePanel({
                   : _ui("暂无视频素材")}
             </div>
           ) : (
-            <div className={drawerTab === "images" ? "flex flex-nowrap gap-1.5 overflow-x-auto overflow-y-hidden pb-1 custom-scrollbar" : "grid grid-cols-[repeat(auto-fill,minmax(min(100%,84px),1fr))] gap-1.5"}>
+            <div className="flex flex-nowrap gap-1.5 overflow-x-auto overflow-y-hidden pb-1 custom-scrollbar">
               {renderCards}
               {drawerTab === "images"
                 ? imageItems.map(item => renderDrawerImage(item, imageCaption(item.image.id)))
@@ -1331,38 +1415,13 @@ export default function MaterialWarehousePanel({
                     return (
                       <article
                         key={item.take.id}
-                        className="flex h-56 min-w-0 flex-col overflow-hidden rounded-md border border-border bg-background"
+                        className="flex w-[128px] shrink-0 flex-col overflow-hidden rounded-md border border-border bg-background"
                       >
-                        <button
-                          type="button"
-                          onClick={() => selectVideoMaterial(item)}
-                          className="min-h-0 flex-1 bg-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
-                        >
-                          {item.take.videoUrl ? (
-                            <video
-                              src={item.take.videoUrl}
-                              muted
-                              playsInline
-                              preload="metadata"
-                              onMouseEnter={event => {
-                                startWarehouseVideo(event.currentTarget);
-                              }}
-                              onCanPlay={event => {
-                                resumeWarehouseVideoIfHovered(event.currentTarget);
-                              }}
-                              onMouseLeave={event => {
-                                stopWarehouseVideo(event.currentTarget);
-                              }}
-                              className="h-full w-full object-contain"
-                            />
-                          ) : (
-                            <span role="status" className="flex h-full flex-col items-center justify-center gap-2 text-xs text-muted-foreground">
-                              {["submitted", "processing"].includes(item.take.status) ? <Loader2 className="size-5 animate-spin motion-reduce:animate-none" /> : <Video className="size-5" />}
-                              {_ui(["submitted", "processing"].includes(item.take.status) ? "生成中 / Generating" : item.take.status === "failed" ? "生成失败 / Failed" : "状态待确认 / Checking")}
-                            </span>
-                          )}
-                        </button>
-                        <div className="flex shrink-0 items-center gap-2 p-2">
+                        <WarehouseVideoThumbnail url={item.take.videoUrl} ready={playable}
+                          state={["submitted", "processing"].includes(item.take.status) ? "rendering" : item.take.status === "failed" ? "failed" : "unknown"}
+                          durationSec={item.take.durationSec ?? undefined} aspectRatio={item.take.aspectRatio}
+                          label={`${_ui("编辑视频 / Edit video")} · Take ${item.take.id}`} onSelect={time => selectVideoMaterial(item, time)} />
+                        <div className="flex shrink-0 flex-col items-start gap-1 p-1">
                           <span className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground">
                             {videoSourceLabel(item)} · Take {item.take.id}
                           </span>

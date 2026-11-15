@@ -7,10 +7,12 @@ const job: WarehouseRenderJob = { id: "r1", storyId: 7, shotId: "shot-a", kind: 
 describe("warehouse render receipts", () => {
   it.each([
     ["storyAgent.generateForMobile", "image"],
+    ["creationAgent.frameReview.generateCloud", "image"],
     ["timelineMedia.generateSceneAudio", "audio"],
     ["timelineMedia.generateNarrationCandidate", "audio"],
     ["storyAgent.generateStoryShotVoice", "audio"],
     ["creationAgent.generateShotVideo", "video"],
+    ["warehouseVideoSequence.submit", "video"],
   ])("shows %s immediately, before the request resolves", async (path, kind) => {
     const client = new QueryClient();
     const notice = vi.fn();
@@ -35,9 +37,21 @@ describe("warehouse render receipts", () => {
     const client = new QueryClient();
     const notice = vi.fn();
     const stop = watchWarehouseRenders(client, notice);
-    for (const path of ["timelineMedia.quoteSceneAudio", "storyAgent.chat", "creationAgent.refreshShotVideoStatus", "creationAgent.adoptVideoTake"]) {
+    for (const path of ["warehouseVideoSequence.quote", "warehouseVideoSequence.status", "timelineMedia.quoteSceneAudio", "storyAgent.chat", "creationAgent.refreshShotVideoStatus", "creationAgent.adoptVideoTake"]) {
       await client.getMutationCache().build(client, { mutationKey: [path.split(".")], mutationFn: async () => ({ status: "ok" }) }).execute({ storyId: 7 });
     }
+    expect(notice).not.toHaveBeenCalled();
+    stop(); client.clear();
+  });
+
+  it("does not create another render card while recovering the same cloud task", async () => {
+    const client = new QueryClient();
+    const notice = vi.fn();
+    const stop = watchWarehouseRenders(client, notice);
+    await client.getMutationCache().build(client, {
+      mutationKey: [["creationAgent", "frameReview", "generateCloud"]],
+      mutationFn: async () => ({ status: "ok", imageId: 25 }),
+    }).execute({ storyId: 7, requestId: "existing-cloud-task", recoverOnly: true });
     expect(notice).not.toHaveBeenCalled();
     stop(); client.clear();
   });
@@ -112,4 +126,13 @@ describe("warehouse render receipts", () => {
     expect(restoreRenderJobs(JSON.stringify([job, { id: "bad" }]), 90_000_000)).toEqual([]);
     expect(restoreRenderJobs("broken")).toEqual([]);
   });
+});
+
+it("retains sequence request identity after a lost response and a refresh", async()=>{
+ const client=new QueryClient(); const notice=vi.fn();const stop=watchWarehouseRenders(client,notice);
+ const mutation=client.getMutationCache().build(client,{mutationKey:[["warehouseVideoSequence","submit"]],mutationFn:async()=>{throw new Error("network");}});
+ await expect(mutation.execute({storyId:7,stableShotId:"shot-3",requestId:"receipt-1"})).rejects.toThrow();
+ const saved=notice.mock.lastCall![0];expect(saved).toMatchObject({sequence:true,storyId:7,shotId:"shot-3",requestId:"receipt-1",state:"unknown"});
+ expect(restoreRenderJobs(JSON.stringify([saved]))[0]).toMatchObject({sequence:true,requestId:"receipt-1"});
+ expect(renderJobResult(saved,{take:{id:88,status:"unfollowable"}})).toMatchObject({state:"unknown",takeId:88});stop();client.clear();
 });

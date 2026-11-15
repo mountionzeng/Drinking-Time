@@ -1,5 +1,5 @@
 import { frameRegionReviewRouter } from "./frameRegionReview";
-import { pausedFrameSnapshotSchema } from "../../shared/chatFrameReference";
+import { pausedFrameSnapshotSchema, warehouseVideoFrameSchema } from "../../shared/chatFrameReference";
 import { quoteChatLlmSteps, withStartEndAnalysisQuote } from "../services/chatLlmQuote";
 import { importWarehouseFile, listWarehouseFiles, inspectWarehouseFiles } from "../services/warehouseFiles";
 import { extractChatFrameReferences } from "../services/chatFrameReferences";
@@ -2015,7 +2015,7 @@ export const creationAgentRouter = router({
    * 仓库备份、相邻可见层规划和图片落位全部由服务端完成并可幂等重放。
    */
   chatFrameReferences: protectedProcedure
-    .input(z.object({ storyId: z.number().int().positive(), instruction: z.string().trim().min(1).max(8000), pausedFrame: pausedFrameSnapshotSchema.optional(), stableShotId: z.string().min(1).max(240).optional() }))
+    .input(z.object({ storyId: z.number().int().positive(), instruction: z.string().trim().min(1).max(8000), pausedFrame: pausedFrameSnapshotSchema.optional(), warehouseFrame: warehouseVideoFrameSchema.optional(), stableShotId: z.string().min(1).max(240).optional() }))
     .mutation(({ ctx, input }) => extractChatFrameReferences({ ...input, userId: ctx.user.id })),
 
   extractTimelineFrame: protectedProcedure

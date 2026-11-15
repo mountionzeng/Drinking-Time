@@ -2,7 +2,7 @@ import sharp from "sharp";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { StoryMaterialState } from "../../shared/storyMaterial";
 import { DEFAULT_TIMELINE_TRANSFORM, DEFAULT_TIMELINE_VIDEO_EFFECTS } from "../../shared/storyMaterial";
-import { extractChatFrameReferences, planChatReferenceFrames, resolveReferenceShot } from "./chatFrameReferences";
+import { extractChatFrameReferences, planChatReferenceFrames, planWarehouseVideoFrame, resolveReferenceShot } from "./chatFrameReferences";
 import { resetTimelineFrameExtractionLimitsForTesting } from "./timelineFrameExtractionLimits";
 
 const take = { id: 10, storyId: 7, userId: 1, stableShotId: "third", status: "available", durationSec: 14.5, ranges: [], selectedRangeId: null, selectedSelectionType: "full_take", parameterSnapshot: { fileName: "flight_v1.mp4" } };
@@ -63,4 +63,40 @@ describe("warehouse-only video references", () => {
     expect(deps.storeBytes.mock.calls[0][2].storageKey).toMatch(/^generated\/frame-references\/source-ref-[a-f0-9]+\.png$/);
     expect(deps.capture.mock.calls[0][0]).toMatchObject({preserveAspect:true, preserveDimensions:true, userId:1,takeId:10});
   });
+});
+
+
+it("captures the clicked historical Take at source time without current trim or timeline coordinates", async () => {
+  resetTimelineFrameExtractionLimitsForTesting();
+  const state = fixture();
+  state.shots[0].videoTakes.push({ ...state.shots[0].videoTakes[0], id: 11 });
+  state.timeline.items[0].primaryVideoEdit!.sourceStartSec = 4;
+  const before = JSON.stringify(state);
+  const source = { storyId: 7, takeId: 11, sourceTimeSec: 1 / 24 };
+  const png = await sharp({ create: { width: 48, height: 32, channels: 3, background: "white" } }).png().toBuffer();
+  const saved: any[] = [];
+  const deps = {
+    getMaterial: vi.fn().mockResolvedValue(state), listImages: vi.fn(async () => saved), readImage: vi.fn(async () => png),
+    createImage: vi.fn(async (data: any) => { const img = { ...data, id: 105 }; saved.push(img); return img; }),
+    capture: vi.fn().mockResolvedValue({ path: "capture" }), readFile: vi.fn().mockResolvedValue(png),
+    preflight: vi.fn().mockResolvedValue(undefined), storeLimited: vi.fn(async ({store}: any) => store()),
+    storeBytes: vi.fn(async (_bytes: any, _mime: any, options: any) => ({status:"ok" as const,imageUrl:"/api/images/source.png",imageKey:options.storageKey})),
+  };
+  const result = await extractChatFrameReferences({ ...input, warehouseFrame: source }, deps);
+  expect(deps.capture).toHaveBeenCalledWith(expect.objectContaining({ takeId: 11, atSec: 0.041, rangeId: null, preserveDimensions: true }));
+  expect(result.frames[0]).toMatchObject({ takeId: 11, origin: "warehouse-video", sourceTimeSec: 1 / 24, imageSize: {width:48,height:32} });
+  expect(result.frames[0].timelineFrame).toBeUndefined();
+  expect(result.frames[0].timelineVersion).toBeUndefined();
+  expect(saved[0].prompt).not.toContain("时间线帧");
+  expect(saved[0].isCurrent).toBe(false);
+  await extractChatFrameReferences({ ...input, warehouseFrame: source }, deps);
+  expect(deps.capture).toHaveBeenCalledOnce();
+  expect(JSON.stringify(state)).toBe(before);
+});
+it("rejects foreign, unavailable and out-of-bounds warehouse references", () => {
+  const state = fixture(); const source = { storyId: 7, takeId: 10, sourceTimeSec: 1 };
+  for (const patch of [{storyId:99},{takeId:999},{sourceTimeSec:-1},{sourceTimeSec:Infinity},{sourceTimeSec:14.5}])
+    expect(() => planWarehouseVideoFrame(state, {...source,...patch})).toThrow();
+  state.shots[0].videoTakes[0] = {...state.shots[0].videoTakes[0],status:"failed"};
+  expect(() => planWarehouseVideoFrame(state, source)).toThrow();
 });

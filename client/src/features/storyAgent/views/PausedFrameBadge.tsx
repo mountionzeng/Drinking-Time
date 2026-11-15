@@ -34,8 +34,7 @@ export function PausedFrameBadge({
         {language === "en" ? "Shot" : "镜头"}{" "}
         {String(frame.shotNo).padStart(2, "0")} · #{frame.imageId} ·
         {frame.takeId ? ` Take ${frame.takeId} ·` : ""}{" "}
-        {language === "en" ? "Timeline revision" : "剪辑修订"}{" "}
-        {frame.timelineVersion}
+        {frame.origin === "warehouse-video" ? `${language === "en" ? "Source video" : "源视频"} ${frame.sourceTimeSec.toFixed(2)}s` : `${language === "en" ? "Timeline revision" : "剪辑修订"} ${frame.timelineVersion}`}
         {frame.imageSize && <> · {frame.imageSize.width}×{frame.imageSize.height} · {language === "en" ? "Source frame" : "原素材帧"}</>}
       </figcaption>
     </figure>
@@ -50,7 +49,7 @@ export function PausedFrameBadge({
       >
         <ImageIcon aria-hidden="true" className="h-3.5 w-3.5" />
         <span className="text-[10px]">
-          {(frame.timelineFrame / 30).toFixed(2)}s
+          {frame.origin === "warehouse-video" ? `${language === "en" ? "Source" : "源视频"} ${frame.sourceTimeSec.toFixed(2)}` : ((frame.timelineFrame ?? 0) / 30).toFixed(2)}s
         </span>
       </summary>
       {picture}

@@ -101,6 +101,12 @@ function setup(selectedImageId?: number) {
   m.effects.splice(0).forEach(effect => effect());
   return api;
 }
+it("names the live playhead time instead of an ambiguous this-frame placeholder", () => {
+  const api = setup();
+  expect(api.placeholder).toContain("3.00s");
+  expect(api.contextLabel).toContain("3.00s");
+  expect(setup(100).contextLabel).toBeUndefined();
+});
 beforeEach(() => {
   vi.clearAllMocks();
   vi.stubGlobal("window", new EventTarget());
@@ -276,4 +282,32 @@ it("does not quote requests to view a frame or failed captures", async () => {
   await setup().handle("修改这一帧");
   expect(m.propose).not.toHaveBeenCalled();
   expect(m.messages.at(-1).content).toContain("stale revision");
+});
+
+it("reuses the frame inserted on the timeline without recapturing it for chat", async () => {
+  const api = setup();
+  const inserted = { ...frame, imageId: 211, timelineVersion: 17 };
+  let finish!: (value: typeof inserted) => void;
+  const extraction = new Promise<typeof inserted>(resolve => { finish = resolve; });
+  window.dispatchEvent(new CustomEvent(PAUSED_FRAME_SHORTCUT_EVENT, { detail: {
+    kind: "capture", snapshot: structuredClone(m.state.pausedPreviewFrame), extraction,
+  }}));
+  const sent = api.handle("只改云层，其他不变");
+  finish(inserted);
+  await sent;
+  expect(m.capture).not.toHaveBeenCalled();
+  expect(m.propose).toHaveBeenCalledWith(inserted, "只改云层，其他不变");
+  expect(m.messages[0].frameReferences[0].imageId).toBe(211);
+});
+
+it("reuses a warehouse source frame instead of capturing the live timeline", async () => {
+  const api = setup();
+  const sourceFrame = { ...frame, takeId: 11, origin: "warehouse-video" as const, timelineFrame: undefined, timelineVersion: undefined, sourceTimeSec: 2.375, shotTimeSec: 2.375 };
+  window.dispatchEvent(new CustomEvent(PAUSED_FRAME_SHORTCUT_EVENT, {detail:{kind:"warehouse",source:{storyId:7,takeId:11,sourceTimeSec:2.375},extraction:Promise.resolve(sourceFrame)}}));
+  m.state.pausedPreviewFrame.timelineFrame = 900;
+  await api.handle("只改森林");
+  expect(m.capture).not.toHaveBeenCalled();
+  expect(m.propose).toHaveBeenCalledWith(sourceFrame, "只改森林");
+  expect(m.messages[0].frameReferences[0].takeId).toBe(11);
+  expect(chatFrameReferenceSchema.parse(JSON.parse(JSON.stringify(sourceFrame))).timelineFrame).toBeUndefined();
 });

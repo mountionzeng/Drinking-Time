@@ -1,3 +1,5 @@
+import { storySpineStore } from "@/features/storyAgent/spine/storySpine";
+import { referenceExtractedFrame } from "./frameNavigation";
 import {
   useCallback,
   useEffect,
@@ -282,9 +284,40 @@ export function useVisualObjectEditingSession(input: {
   );
 
   const extractFrameAtTimelineFrame = useCallback(
-    async (timelineFrame: number, operationLayer: number) =>
-      extractTimelineFrame({ timelineFrame, operationLayer }),
-    [extractTimelineFrame]
+    async (timelineFrame: number, operationLayer: number) => {
+      const frame = Math.max(0, Math.round(timelineFrame));
+      const extraction = extractTimelineFrame({ timelineFrame: frame, operationLayer });
+      const spine = storySpineStore.getState();
+      if (activeStoryId && spine.activeStoryId === activeStoryId) {
+        const snapshot = {
+          storyId: activeStoryId,
+          timelineVersion: spine.pausedPreviewFrame?.timelineVersion ?? 0,
+          timelineFrame: frame,
+          hiddenVisualLayers: [...timelineVisualLayerState.hidden],
+          width: spine.pausedPreviewFrame?.width ?? 1024,
+          height: spine.pausedPreviewFrame?.height ?? 1024,
+          imageMode: "source" as const,
+        };
+        const reference = extraction.then(result => {
+          const sourceShotId = result.source?.stableShotId ?? result.stableShotId;
+          const shot = shots.find(shot => shot.stableShotId === sourceShotId);
+          const timing = timings.find(row => row.stableShotId === sourceShotId);
+          if (!shot || !timing || !result.source) throw new Error("抽帧已保存，但来源信息暂不可用 / Frame saved; source information unavailable");
+          return {
+            storyId: activeStoryId, shotNo: shot.shotNo,
+            imageId: result.imageId, imageUrl: result.imageUrl,
+            ...result.source, timelineFrame: frame, shotTimeSec: Math.max(0, frame - timing.startFrame) / 30,
+            timelineVersion: result.timelineVersion, origin: "paused-preview" as const, sourceFrame: true,
+          };
+        });
+        // The chat listener freezes the session immediately and shares this promise.
+        // A closed chat must not leave an unhandled rejected promise.
+        void reference.catch(() => undefined);
+        referenceExtractedFrame(snapshot, reference);
+      }
+      return extraction;
+    },
+    [activeStoryId, extractTimelineFrame, shots, timings, timelineVisualLayerState.hidden]
   );
   const extractFrameAtPlayhead = useCallback(
     async (playheadMs: number, operationLayer: number) =>

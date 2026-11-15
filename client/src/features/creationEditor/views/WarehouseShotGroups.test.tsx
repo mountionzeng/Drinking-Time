@@ -1,6 +1,7 @@
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, expect, it, vi } from "vitest";
+import { WarehouseVideoThumbnail } from "./WarehouseVideoThumbnail";
 import { UiLanguageContext } from "@/features/uiLanguage/UiLanguage";
 import {
   WarehouseCompletionNotice,
@@ -57,7 +58,17 @@ const group: WarehouseShotGroup = {
     },
   ],
 };
-it("shows a mixed chronological strip with localized names, versions and durations", () => {
+it("opens the exact video from its thumbnail without requiring the caption", () => {
+  const select=vi.fn(); let click: ((atSec: number) => void) | undefined;
+  const create=React.createElement;
+  vi.spyOn(React,"createElement").mockImplementation(((type:any,props:any,...children:any[])=>{
+    if(type === WarehouseVideoThumbnail) click=props.onSelect;
+    return create(type,props,...children);
+  }) as typeof React.createElement);
+  renderToStaticMarkup(<WarehouseShotGroups groups={[group]} groupId="a" loading={false} error={null} onSelectVideo={select} renderImage={()=>null}/>);
+  click!(2.375); expect(select).toHaveBeenCalledTimes(1); expect(select).toHaveBeenCalledWith(2, 2.375);
+});
+it("shows newest media first while preserving names, versions and the archive order", () => {
   const renderImage = vi.fn((item, _group, name) => (
     <img key={item.key} src={item.url} alt={name} />
   ));
@@ -79,8 +90,9 @@ it("shows a mixed chronological strip with localized names, versions and duratio
   expect(html).toContain("Shot 01 · Videos V01");
   expect(html).toContain("8.0s");
   expect(html).toContain("1.5s");
-  expect(html.indexOf("/image/1")).toBeLessThan(html.indexOf("/video/2"));
-  expect(html.indexOf("/video/2")).toBeLessThan(html.indexOf("/audio/3"));
+  expect([...html.matchAll(/data-warehouse-media-key="([^"]+)"/g)].map(match => match[1]))
+    .toEqual(["audio:3", "video:2", "image:1"]);
+  expect(group.items.map(item => item.key)).toEqual(["image:1", "video:2", "audio:3"]);
   expect(html).not.toMatch(/按生成|镜头素材|音效/);
 });
 

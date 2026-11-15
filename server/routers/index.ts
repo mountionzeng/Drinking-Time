@@ -1,3 +1,4 @@
+import { warehouseVideoSequenceRouter } from "./warehouseVideoSequence";
 import { studioAssistantRouter } from "./studioAssistant";
 import { storyMailboxRouter } from "./storyMailbox";
 import { bookVideoRouter } from "./bookVideo";
@@ -1390,6 +1391,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
   // ─── Creation Agent ─────────────────────────────────────────────────
   // Creation Engine: chat with image generation + focus tracking.
   creationAgent: creationAgentRouter,
+  warehouseVideoSequence: warehouseVideoSequenceRouter,
 });
 
 export type AppRouter = typeof appRouter;

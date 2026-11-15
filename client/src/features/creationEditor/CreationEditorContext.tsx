@@ -159,6 +159,7 @@ export type {
 export type { CreationTimelineFrameResolution } from "@shared/timelineCommands";
 
 export type ExtractedTimelineFrameResult = {
+  source?: { takeId?: number; sourceTimeSec: number; stableShotId: string };
   requestId: string;
   imageId: number;
   imageUrl: string;
@@ -3848,6 +3849,7 @@ export function CreationEditorProvider({
             transform: persistedTarget.clip.transform,
             timelineVersion: result.timelineVersion,
             targetLayer: result.targetLayer,
+            source: result.source,
             replayed: result.replayed,
           };
         }

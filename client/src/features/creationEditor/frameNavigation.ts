@@ -1,3 +1,5 @@
+import type { ChatFrameReference, PausedFrameSnapshot, WarehouseVideoFrame } from "@shared/chatFrameReference";
+
 /** Plain arrows navigate the preview; modified arrows remain clip-edit shortcuts. */
 export function isFrameNavigationKey(event: {
   key: string;
@@ -27,3 +29,15 @@ export function isFrameNavigationTarget(target: Element | null) {
   );
 }
 export const PAUSED_FRAME_SHORTCUT_EVENT = "dt:paused-frame-reference";
+
+export type FrameReferenceEvent =
+  | { kind: "clear"; storyId: number }
+  | { kind: "warehouse"; source: WarehouseVideoFrame; extraction: Promise<ChatFrameReference> }
+  | { kind: "capture"; snapshot: PausedFrameSnapshot; extraction?: Promise<ChatFrameReference> };
+
+/** Both timeline entry points hand the already placed asset to chat. */
+export function referenceExtractedFrame(snapshot: PausedFrameSnapshot, extraction: Promise<ChatFrameReference>) {
+  window.dispatchEvent(new CustomEvent<FrameReferenceEvent>(PAUSED_FRAME_SHORTCUT_EVENT, {
+    detail: { kind: "capture", snapshot, extraction },
+  }));
+}
