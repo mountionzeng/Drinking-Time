@@ -721,3 +721,11 @@
 2026-11-14 chat 01a1d3cc 私密参考图渲染修复本地完成并释放生产窗口：3f30a49e/main db0ded4a，认证/签名/供应商适配模拟和正式站只读签名通过，完整路由6项失败与未改基线相同；新生产补丁被自动审批拒绝，未部署，等待用户确认。QA docs/qa/2026-11-14-wechat-render-reference.md。
 
 2026-11-14 chat 01a1d3cc 私密参考图渲染修复已获用户明确批准并上线：3f30a49e、281哈希/ready及线上签名读取/无签名拒绝通过，未重发付费任务；供应商取图及浏览器实测待验收。QA docs/qa/2026-11-14-wechat-render-reference.md。
+
+2026-11-15 chat 01a1d3cc 正式站渲染回执修复完成并释放范围：2883c8dd已部署，113项/类型与281产物及公网ready/鉴权通过；用户授权仅一次真实MJ，四候选入仓并公网200，原采用保留。历史无回执任务仍unknown，未重复购买，浏览器实点工具不可用。QA docs/qa/2026-11-15-render-receipt-recovery.md。未改其他会话热点或新开dev服务。
+
+2026-11-15 chat 01a1d3cc 三项线上续修占用：confirmedStoryboardImagePrompt、shared/artSystem、ShotImageRenderControl/useShotImageRender 与专项测试；timelineSubtitleEditing/directBookStoryboard 的显式屏幕文字与测试。保留 story-visual-assets 的完整参考选择/候选不自动采用、timeline-subtitle-audio-editing 的人工字幕与空轨权威和30fps；不重发unknown任务。采用 /tmp 隔离源码修改，不覆盖其他会话热点/不启额外服务；尚未占用生产窗口。
+
+2026-11-15 chat 01a1d3cc 占用正式站发布窗口：09184dee，基于线上2883c8dd隔离本次画风/连续性/屏幕文字修复，213项/类型/构建通过。只发布4个编译产物，保留其他会话未发布修改及线上旧资源，随后对用户已授权故事补全原风格与遗漏字幕并至多一次MJ验收；无回执unknown任务不动。
+
+2026-11-15 chat 01a1d3cc 三项续修阶段完成并释放生产/代码窗口：09184dee/f24246d8已push并上线，282哈希/ready/mysql/鉴权/新前端通过，215相关测试/类型/构建/102卡通过。原片补回3处屏幕文字，原13字幕和剪辑、原图采用保留；首个确定画面继承和聊天说明已上线。两轮各一次MJ、共8候选未自动采用，实际仍有书页/文字样版式，画风质量未通过，不再购买；等待用户选择独立全片画风参考或仅文字规则。不能将本轮声称为全部问题修好。QA docs/qa/2026-11-15-film-style-continuity-captions.md；保留其他会话未提交修改，未新增dev服务。

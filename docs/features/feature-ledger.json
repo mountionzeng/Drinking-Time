@@ -2428,7 +2428,8 @@
         "scripts/align-book-narration.py",
         "client/src/features/storyAgent/views/prepareVideoFrame.ts",
         "client/src/features/storyAgent/views/storyboardReviewModel.ts",
-        "shared/shotImageRender.ts"
+        "shared/shotImageRender.ts",
+        "server/services/confirmedStoryboardImagePrompt.ts"
       ],
       "evidence": [
         "server/services/publishingVideoStoryboard.test.ts",
@@ -2505,7 +2506,9 @@
         "docs/qa/2026-11-10-conversation-release.md",
         "docs/qa/2026-11-10-shot03-live-rerender.md",
         "docs/qa/2026-11-14-wechat-image-video.md",
-        "docs/qa/2026-11-14-wechat-render-reference.md"
+        "docs/qa/2026-11-14-wechat-render-reference.md",
+        "docs/qa/2026-11-15-film-style-continuity-captions.md",
+        "server/services/confirmedStoryboardImagePrompt.test.ts"
       ],
       "invariants": [
         "预览不得修改正式镜头。",
@@ -2877,6 +2880,15 @@
           "evidence": [
             "docs/qa/2026-11-14-wechat-render-reference.md"
           ]
+        },
+        {
+          "date": "2026-11-15",
+          "kind": "fix",
+          "summary": "修复书转视频镜头提示词的通用界面指令和屏幕文案污染；真实首轮仍出现说明板，进一步将无参考且已确认画风的入口限定为纯画面描述，绕过说明式标题和政策文本。保留有参考图、严格原图和锁定资产路径。代码09184dee及f24246d8已上线，线上图像质量结论见QA，不把接口成功当效果通过。",
+          "evidence": [
+            "docs/qa/2026-11-15-film-style-continuity-captions.md",
+            "server/services/confirmedStoryboardImagePrompt.test.ts"
+          ]
         }
       ]
     },
@@ -3113,7 +3125,8 @@
         "server/services/storyVoice302.ts",
         "shared/bookVideoAudio.ts",
         "server/services/bookVideoAudio.ts",
-        "scripts/align-book-narration.py"
+        "scripts/align-book-narration.py",
+        "shared/bookScreenText.ts"
       ],
       "evidence": [
         "shared/timelineSubtitleModel.test.ts",
@@ -3161,7 +3174,9 @@
         "docs/qa/2026-11-10-compact-timeline-layout.md",
         "shared/timelineSubtitleMultitrack.test.ts",
         "server/services/chatCutProjectMigration.test.ts",
-        "docs/qa/2026-11-10-chatcut-launch-migration.md"
+        "docs/qa/2026-11-10-chatcut-launch-migration.md",
+        "docs/qa/2026-11-15-film-style-continuity-captions.md",
+        "shared/bookScreenText.test.ts"
       ],
       "invariants": [
         "所有字幕与音频结构时间使用 30fps 非负整数帧；总时长取视觉、字幕、音频三者的最大结束帧。",
@@ -3360,6 +3375,15 @@
           "date": "2026-11-10",
           "kind": "feature",
           "summary": "ChatCut迁移补齐多轨字幕读写/绑定/双语预览与导出，位置变更记录子版本；PNG字幕仅解码一次，修复真实68秒导出超时。故事1217两字幕轨31/27条、四声音轨5片段实际导入，原增益/源裁剪/fade保留；174专项与77草稿、类型/构建通过，9:16成片全解码及4帧核查。来源黑场32.87–68秒保留，未付费；详见迁移QA。"
+        },
+        {
+          "date": "2026-11-15",
+          "kind": "fix",
+          "summary": "书稿明确的字幕/屏幕文字现在进入独立、可编辑、预览/导出共用的文字轨；已对齐旁白的书转视频也保留此轨。已有人工编辑、删空与撤销权威保持。真实旧片通过窄命令补3处文字，原13条台词字幕、视觉剪辑、原书、图片采用和旧unknown任务未改。",
+          "evidence": [
+            "docs/qa/2026-11-15-film-style-continuity-captions.md",
+            "shared/bookScreenText.test.ts"
+          ]
         }
       ]
     },
@@ -4633,7 +4657,8 @@
         "server/services/imageGen.ts",
         "server/services/publicReferenceHost.ts",
         "shared/shotImageRender.ts",
-        "client/src/features/storyAgent/views/useShotImageRender.tsx"
+        "client/src/features/storyAgent/views/useShotImageRender.tsx",
+        "client/src/features/storyAgent/views/shotImageContinuityNotice.ts"
       ],
       "evidence": [
         "shared/photoExtraction.test.ts",
@@ -4665,7 +4690,9 @@
         "shared/shotImageRender.test.ts",
         "client/src/features/storyAgent/views/ShotImageRenderControl.test.tsx",
         "docs/qa/unified-shot-render-2026-09-09.md",
-        "docs/qa/mj-shot-render-2026-09-09.md"
+        "docs/qa/mj-shot-render-2026-09-09.md",
+        "docs/qa/2026-11-15-film-style-continuity-captions.md",
+        "client/src/features/storyAgent/views/shotImageContinuityNotice.test.ts"
       ],
       "invariants": [
         "聊天回形针添加图片后先在原聊天框追问提取范围；没有回复不得上传或识图。只保存图片不得调用特征提取或生成，明确改图仍走原费用确认；范围内提取仅建立待检查资产，不能自动锁定或替换镜头。",
@@ -4926,6 +4953,15 @@
           "date": "2026-09-09",
           "kind": "fix",
           "summary": "用户明确要求使用MJ，纠正统一入口擅自改用GPT造成的价格变化。默认模型改为MJ；输入1–4张提交1个四图任务约¥0.68，5–8张提交2个任务约¥1.36，报价显示模型、任务数与全部候选数量，额外候选全部保留。显式参考通过MJ base64Array传入（最多4图），不依赖公网oref/sref托管，原严格锁定路径保留。新入口禁用primaryReferenceLock以免触发Kontext模型降级；缺少MJ凭据直接失败，不回落其他模型。单任务返回不足4张即保留实际结果并停止后续付费，不自动重试。本轮未付费生成。 242项定向及架构测试、类型/构建/账本通过；主仓库3000镜头02验证4张MJ总价¥0.68确认并取消、8张¥1.36，最终恢复1张+猫参考，未付费提交。"
+        },
+        {
+          "date": "2026-11-15",
+          "kind": "fix",
+          "summary": "显式空参考仍保持空，不隐藏加回图片；已有确认画风独立保存并用于无图生成。默认人物/画面锚点从最近前镜改为首个已确定画面；聊天费用确认如实说明所用镜头、可见人物特征和取消参考的限制。原采用/候选边界保持，旧作品缺少画风规则时仍须从已采用图核对建立，不能声称自动识图。",
+          "evidence": [
+            "docs/qa/2026-11-15-film-style-continuity-captions.md",
+            "client/src/features/storyAgent/views/shotImageContinuityNotice.test.ts"
+          ]
         }
       ]
     },
@@ -13259,5 +13295,5 @@
     }
   ],
   "schemaVersion": 1,
-  "updatedAt": "2026-11-13"
+  "updatedAt": "2026-11-15"
 }
