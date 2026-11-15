@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { pollStoryboardImage } from "./pollStoryboardImage";
+import { canResumeStoryboardImage, pollStoryboardImage } from "./pollStoryboardImage";
 import { IMAGE_TASK_POLL_LIMIT_MS, IMAGE_TASK_POLL_MS } from "@/lib/imageTaskPolling";
 
 beforeEach(() => vi.useFakeTimers());
@@ -70,4 +70,11 @@ it("bounds a hung query and ignores its late success", async () => {
   await vi.advanceTimersByTimeAsync(IMAGE_TASK_POLL_MS);
   expect(query).toHaveBeenCalledTimes(1);
   expect(vi.getTimerCount()).toBe(0);
+});
+
+it("only presents resume for pending or timed-out reads, never for a completed failure", () => {
+  expect(canResumeStoryboardImage({ status: "error", recoveryPending: false })).toBe(false);
+  expect(canResumeStoryboardImage({ status: "error" })).toBe(false);
+  expect(canResumeStoryboardImage({ status: "error", recoveryPending: true })).toBe(true);
+  expect(canResumeStoryboardImage({ status: "timeout" })).toBe(true);
 });

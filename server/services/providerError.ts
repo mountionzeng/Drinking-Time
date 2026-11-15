@@ -37,7 +37,7 @@ export function providerErrorFromBody(
   const nested = record.error && typeof record.error === "object" ? (record.error as Record<string, unknown>) : {};
   const code = nested.err_code ?? nested.code ?? nested.type ?? record.err_code ?? record.code ?? record.error_code;
   const message =
-    nested.message ?? nested.raw_message ?? record.description ?? record.message ?? record.failReason ??
+    nested.message ?? nested.raw_message ?? record.description ?? record.message ?? record.raw_message ?? record.failReason ??
     (typeof record.error === "string" ? record.error : undefined) ?? record.detail;
   const reason = typeof message === "string" ? /\(reason:\s*([A-Za-z_]+)\)/.exec(message)?.[1] : undefined;
   const detail: ProviderErrorDetail = { provider };

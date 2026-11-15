@@ -122,11 +122,45 @@ export type ResponseFormat =
   | { type: "json_schema"; json_schema: JsonSchema };
 
 /**
- * 旧的 Forge 配置现在只作为候选链末端的兼容通道：Key 和网关原样传给
- * orchestrator，回退路径因此与改动前逐字节一致，变的只是「Next 排在它前面」。
+ * Forge 配置作为候选链末端的兼容通道，保留独立聊天凭据。
+ * 已配置 302 国内入口时，旧 302 聊天入口共用其传输域名；自定义网关不变。
  */
-const legacyFallbackBaseUrl = () =>
-  ENV.forgeApiUrl?.trim() || "https://forge.manus.im";
+const legacyFallbackBaseUrl = () => {
+  const legacy = ENV.forgeApiUrl?.trim() || "https://forge.manus.im";
+  // The legacy chat key can differ from the media key. Share only the configured
+  // transport host, and only between the provider's two known HTTPS origins.
+  try {
+    const source = new URL(legacy);
+    const configured = new URL(ENV.api302BaseUrl);
+    const hosts = new Set(["api.302.ai", "api.302ai.cn"]);
+    if (source.hostname === "api.302.ai" && configured.hostname === "api.302ai.cn" &&
+        [source, configured].every(url => url.protocol === "https:" && hosts.has(url.hostname) && !url.port && !url.username && !url.password)) {
+      source.hostname = configured.hostname;
+      return source.href.replace(/\/$/, "");
+    }
+  } catch { /* Custom gateways keep their own configuration. */ }
+  return legacy;
+};
+
+/** An explicit recovery model opts text-only requests into the existing 302
+ * service account. Never route image/file messages to a text-only model. */
+function fallbackCandidates(messages: Message[]) {
+  const textOnly = messages.every(message =>
+    (Array.isArray(message.content) ? message.content : [message.content])
+      .every(part => typeof part === "string" || part.type === "text")
+  );
+  const model = ENV.llmTextOnly302Model?.trim();
+  if (model && ENV.api302Key && textOnly) return {
+    fallback302Model: model,
+    fallback302ApiKey: ENV.api302Key,
+    fallback302BaseUrl: ENV.api302BaseUrl,
+  };
+  return {
+    fallback302Model: ENV.llmModel,
+    fallback302ApiKey: ENV.forgeApiKey,
+    fallback302BaseUrl: legacyFallbackBaseUrl(),
+  };
+}
 
 const normalizeResponseFormat = ({
   responseFormat,
@@ -206,11 +240,7 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
   const outcome = await runInference({
     useCase: "text",
     messages,
-    candidates: {
-      fallback302Model: ENV.llmModel,
-      fallback302ApiKey: ENV.forgeApiKey,
-      fallback302BaseUrl: legacyFallbackBaseUrl(),
-    },
+    candidates: fallbackCandidates(messages),
     tools,
     toolChoice: toolChoice || tool_choice,
     maxTokens: maxTokens ?? max_tokens,
@@ -260,11 +290,7 @@ export async function invokeLLMWithProvider(params: InvokeParams) {
   return runInference({
     useCase: "text",
     messages,
-    candidates: {
-      fallback302Model: ENV.llmModel,
-      fallback302ApiKey: ENV.forgeApiKey,
-      fallback302BaseUrl: legacyFallbackBaseUrl(),
-    },
+    candidates: fallbackCandidates(messages),
     tools,
     toolChoice: toolChoice || tool_choice,
     maxTokens: maxTokens ?? max_tokens,

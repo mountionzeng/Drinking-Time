@@ -242,3 +242,30 @@ it("reports invalid prompt rejection safely and never repeats the purchase", asy
   const result=await resumeLegnextImage(receipt,"retexture");
   expect(result.message).toContain("MJ 拒绝了精修参数");expect(result.message).not.toContain("secret-url");expect(fetcher).toHaveBeenCalledTimes(1);
 });
+
+it.each([0, undefined])("explains a terminal reference fetch failure without claiming an unverified refund (%s)", async consume => {
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ok:true,json:async()=>({status:"failed",error:{code:400,raw_message:"reference image could not be fetched: https://secret.test/?token=secret"},meta:{usage:{consume}}})}));
+  const result=await resumeLegnextImage(receipt);
+  expect(result.message).toContain("参考图片未能被供应商读取");
+  expect(result.errorCode).not.toBe("timeout_pending");
+  expect(result.message?.includes("回执显示未扣费")).toBe(consume===0);
+  expect(result.providerError?.message).not.toContain("secret.test");
+  expect(fetch).toHaveBeenCalledOnce();
+});
+
+it("returns a final reference failure immediately during inline polling", async () => {
+  vi.useFakeTimers();
+  try {
+    vi.stubEnv("LEGNEXT_API_KEY", "test");
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ job_id: id }) })
+      .mockResolvedValue({ ok: true, json: async () => ({ status: "failed", error: { raw_message: "reference image could not be fetched" }, meta: { usage: { consume: 0 } } }) });
+    vi.stubGlobal("fetch", fetcher);
+    const pending = generateLegnextImage("paper boat", vi.fn());
+    await vi.runAllTimersAsync();
+    const result = await pending;
+    expect(result.errorCode).not.toBe("timeout_pending");
+    expect(result.message).toContain("参考图片未能被供应商读取");
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  } finally { vi.useRealTimers(); }
+});

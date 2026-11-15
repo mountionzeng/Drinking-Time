@@ -2940,7 +2940,8 @@
         "server/services/videoJobs.test.ts",
         "server/_core/httpConnectionPool.test.ts",
         "docs/qa/2026-10-13-image-network-proxy.md",
-        "docs/qa/2026-10-19-agent-connectivity-recovery.md"
+        "docs/qa/2026-10-19-agent-connectivity-recovery.md",
+        "docs/qa/2026-11-15-render-chat-failure.md"
       ],
       "invariants": [
         "OpenAI Next 只承接 OpenAI 兼容的文本与多模态 chat/completions。",
@@ -3012,6 +3013,11 @@
           "date": "2026-10-19",
           "kind": "fix",
           "summary": "正式站Agent连接故障确认：Next凭据未配置导致落到不可达302旧域名，国内端点原Claude模型又被禁用。按用户授权补齐现有Next/gpt-5.6-terra配置并重启上线；真实模型、浏览器独立虚构故事回复与卡片及正文伴写、HTTPS健康检查通过，84项定向回归与64张功能账本校验通过。应用与数据库未变，旧失败队列和未知计费不自动重放。详见恢复QA。"
+        },
+        {
+          "date": "2026-11-15",
+          "kind": "fix",
+          "summary": "生产Next401及旧302聊天凭据模型禁用；新增显式纯文字恢复模型配置，使用已有可用302服务通道，图片/文件保留原边界。DeepSeek真实虚构短答200/40tokens；未知提交不重放/不释放预占。附图聊天与主Next未恢复，详见2026-11-15-render-chat-failure QA。"
         }
       ]
     },
@@ -4661,7 +4667,8 @@
         "client/src/features/storyAgent/views/shotImageContinuityNotice.ts",
         "client/src/features/storyAgent/views/ImageGenerationComposer.tsx",
         "client/src/features/storyAgent/views/InlineImagePrompt.tsx",
-        "client/src/features/storyAgent/views/imageGenerationDraft.ts"
+        "client/src/features/storyAgent/views/imageGenerationDraft.ts",
+        "server/services/legnextReferenceImage.ts"
       ],
       "evidence": [
         "shared/photoExtraction.test.ts",
@@ -4697,7 +4704,8 @@
         "docs/qa/2026-11-15-film-style-continuity-captions.md",
         "client/src/features/storyAgent/views/shotImageContinuityNotice.test.ts",
         "client/src/features/storyAgent/views/imageGenerationDraft.test.ts",
-        "docs/qa/2026-11-15-image-generation-composer.md"
+        "docs/qa/2026-11-15-image-generation-composer.md",
+        "docs/qa/2026-11-15-render-chat-failure.md"
       ],
       "invariants": [
         "聊天回形针添加图片后先在原聊天框追问提取范围；没有回复不得上传或识图。只保存图片不得调用特征提取或生成，明确改图仍走原费用确认；范围内提取仅建立待检查资产，不能自动锁定或替换镜头。",
@@ -4972,6 +4980,11 @@
           "date": "2026-11-15",
           "kind": "enhancement",
           "summary": "普通MJ生成确认窗口支持编辑描述、内嵌图片缩略标签/悬停详情、同屏仓库光标插入与搜索；删除引用取消本次选择，独立全片画风保留。服务端使用完整编辑稿，不重加旧镜头；归属/费用/候选与unknown保护保留。142回归+4路由及浏览器组件/hook验收通过，未购买模型；正式付费完整链路未重测。 已部署ed81283e，285哈希及公网新前端/ready/鉴权通过。"
+        },
+        {
+          "date": "2026-11-15",
+          "kind": "fix",
+          "summary": "修复参考托管域名超时：仅已知302文件切国内同路径并提交前检查；私密签名不变。终态失败不再显示等待/恢复，同步轮询读状态不读文案。生产纯色合成参考一次MJ完成4候选、consume80；真实hook失败展示通过，未改用户作品或采用。详见2026-11-15-render-chat-failure QA。"
         }
       ]
     },

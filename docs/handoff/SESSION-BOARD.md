@@ -737,3 +737,7 @@
 2026-11-15 chat 01a1d3cc 生成编辑面板占用发布窗口：10个范围内源文件已同步主仓，保留其他会话全部未提交修改；142回归+4正式路由、类型/构建、真实编辑组件/hook无付费浏览器验收通过。基线线上bddb3582及283哈希确认，准备仅发布本次编译变化；不购买模型、不修改用户故事或采用。QA docs/qa/2026-11-15-image-generation-composer.md。
 
 2026-11-15 chat 01a1d3cc 生成编辑面板完成并释放代码/发布窗口：ed81283e已main/push/上线；可编辑描述、缩略图标签/悬停详情、仓库光标插入、删除取消本次引用及独立画风保留。142回归+4路由、类型/构建/102卡、真实组件和hook浏览器验收通过；5更新产物/285哈希、公网ready/mysql/required/新版前端/匿名401通过。无模型购买、无故事或采用写入；正式账号完整付费出图本轮未重测。QA docs/qa/2026-11-15-image-generation-composer.md；源/tmp/dt-image-compose-20261115/src。其他会话未提交改动保留，无新dev服务。
+
+2026-11-15 chat 01a1d3cc 图片400/聊天unknown续修占用：llm.ts及测试、useShotImageRender/pollStoryboardImage及测试、legnextImage/providerError及测试、trpc错误展示；参考托管链路先诊断后定范围。已确认图片参考抓取失败且consume0，聊天旧302.ai DNS异常/302ai.cn同凭据目录可达，Next401。保留未知费用预占、不重购unknown、不改他会话imageGen/任务热点；隔离源码修复。当前未占发布窗口。
+
+2026-11-15 chat 01a1d3cc 图片400/聊天unknown修复占用发布窗口：14范围文件已核对后同步主仓，追加env纯文字恢复开关及独立参考托管helper，不触碰他会话热点。图片真实虚构参考单次4图/80点，DeepSeek现有服务通道真实短答通过；保留主Next401、附图聊天与旧未知预占限制。基于线上ed81283e/285清单隔离发布；待类型/最终回归和发布校验结束释放。

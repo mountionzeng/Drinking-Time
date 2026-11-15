@@ -11,6 +11,7 @@ const saved = {
   forgeApiKey: ENV.forgeApiKey,
   forgeApiUrl: ENV.forgeApiUrl,
   llmModel: ENV.llmModel,
+  llmTextOnly302Model: ENV.llmTextOnly302Model,
 };
 
 const LEGACY_MODEL = "deepseek-ai/DeepSeek-R1-Distill-Qwen-32B";
@@ -36,6 +37,7 @@ beforeEach(() => {
   ENV.forgeApiKey = "forge-key";
   ENV.forgeApiUrl = "https://api.302ai.cn";
   ENV.llmModel = LEGACY_MODEL;
+  ENV.llmTextOnly302Model = "";
   ENV.openaiNextApiKey = "";
   ENV.openaiNextBaseUrl = "https://api.openai-next.com";
   ENV.openaiNextTextModel = "gpt-5.6-terra";
@@ -181,4 +183,37 @@ describe("invokeLLMWithProvider", () => {
     expect(outcome.model).toBe("gpt-5.6-terra");
     expect(outcome.result).toEqual(upstreamResult);
   });
+});
+
+it('uses the configured reachable 302 host for a legacy 302 chat URL, retaining the chat credential', async () => {
+  ENV.forgeApiUrl='https://api.302.ai'; ENV.api302BaseUrl='https://api.302ai.cn';
+  await invokeLLM({messages:[{role:'user',content:'hi'}]});
+  expect(calls[0].url).toBe('https://api.302ai.cn/v1/chat/completions');
+  expect((calls[0].init.headers as Record<string,string>).authorization).toBe('Bearer forge-key');
+});
+it('does not reroute a custom gateway or send its credential to an unrelated configured host', async () => {
+  ENV.forgeApiUrl='https://private.example'; ENV.api302BaseUrl='https://api.302ai.cn';
+  await invokeLLMWithProvider({messages:[{role:'user',content:'hi'}]});
+  expect(calls[0].url).toBe('https://private.example/v1/chat/completions');
+  calls=[];ENV.forgeApiUrl='https://api.302.ai';ENV.api302BaseUrl='https://unrelated.example';
+  await invokeLLM({messages:[{role:'user',content:'hi'}]});
+  expect(calls[0].url).toBe('https://api.302.ai/v1/chat/completions');
+});
+
+
+it.each([invokeLLM, invokeLLMWithProvider])("uses the optional text-only recovery model without changing the multimodal fallback", async invoke => {
+  ENV.llmTextOnly302Model = "deepseek-v3.2";
+  ENV.api302Key = "service-key";
+  ENV.api302BaseUrl = "https://api.302ai.cn";
+  ENV.llmModel = "claude-opus-4-7";
+  await invoke({ messages: [{ role: "user", content: [{ type: "text", text: "hello" }] }] });
+  expect(calls[0].payload.model).toBe("deepseek-v3.2");
+  expect((calls[0].init.headers as Record<string, string>).authorization).toBe("Bearer service-key");
+  calls = [];
+  await invoke({ messages: [{ role: "user", content: [{ type: "image_url", image_url: { url: "https://example.test/test.png" } }, { type: "text", text: "describe" }] }] });
+  expect(calls[0].payload.model).toBe("claude-opus-4-7");
+  expect((calls[0].init.headers as Record<string, string>).authorization).toBe("Bearer forge-key");
+  calls = [];
+  await expect(invoke({ messages: [{ role: "user", content: { type: "file_url", file_url: { url: "https://example.test/test.pdf", mime_type: "application/pdf" } } }] })).rejects.toThrow("file_url input is not supported");
+  expect(calls).toHaveLength(0);
 });

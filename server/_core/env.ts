@@ -22,6 +22,7 @@ export const ENV = {
   forgeApiUrl: process.env.BUILT_IN_FORGE_API_URL ?? "", // 大模型 API 地址（OpenAI 兼容格式）
   forgeApiKey: process.env.BUILT_IN_FORGE_API_KEY ?? "", // 大模型 API 密钥
   llmModel: process.env.LLM_MODEL ?? "gemini-2.5-flash", // 默认使用的模型名称
+  llmTextOnly302Model: process.env.LLM_TEXT_ONLY_302_MODEL ?? "", // 纯文字恢复通道，显式使用 API302_KEY/BASE_URL；图片/文件沿用原模型
   llmSupportsImage: process.env.LLM_SUPPORTS_IMAGE === "true", // 模型是否支持图片输入
   llmSupportsResponseFormat:
     process.env.LLM_SUPPORTS_RESPONSE_FORMAT !== "false", // 模型是否支持 structured output

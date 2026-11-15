@@ -1,7 +1,8 @@
+import { legnextReferenceImage } from "./legnextReferenceImage";
 import { downloadLegnextImage } from "./legnextImageDownload";
 import { createHash } from "node:crypto";
 import { assertComputeRequestAccess } from "./computeRequestAccess";
-import { storeImageBytes, toPublicImageUrl, type ImageGenResult } from "./imageGen";
+import { storeImageBytes, type ImageGenResult } from "./imageGen";
 import { providerErrorFromBody, shortProviderReason } from "./providerError";
 import {
   buildLegnextDiffusionRequest,
@@ -30,6 +31,11 @@ export async function resumeLegnextImage(id: string, editMode?: "retexture"): Pr
     if (job.kind === "failed") {
       const providerError = job.providerError;
       const invalidPrompt = /Invalid_Prompt_Parameter|invalid prompt parameter/i.test(String(task.error?.raw_message ?? task.error?.message ?? ""));
+      const referenceUnavailable = /reference image could not be fetched/i.test(String(task.error?.raw_message ?? task.error?.message ?? ""));
+      if (referenceUnavailable) return { status: "error", providerTaskId: id, providerError,
+        message: task.meta?.usage?.consume === 0
+          ? "参考图片未能被供应商读取，本次未生成图片；供应商回执显示未扣费。请稍后重新确认生成。"
+          : "参考图片未能被供应商读取，本次未生成图片，费用仍待核对。原图保留，没有自动重试。" };
       const reason = shortProviderReason(providerError);
       return { status: "error", providerTaskId: id, providerError, message: invalidPrompt
         ? "供应商确认本次图片生成失败：MJ 拒绝了精修参数，未生成图片。原图保留，没有自动重试。"
@@ -96,7 +102,7 @@ export async function generateLegnextImage(text: string, onAccepted: (id: string
     // One image commonly supplies both composition and style. Upload it once,
     // and prepare distinct references concurrently before the single paid POST.
     const uploaded = new Map(await Promise.all(sources.map(async source => {
-      const url = await toPublicImageUrl(source);
+      const url = await legnextReferenceImage(source);
       if (!url || !/^https:\/\//i.test(url)) throw new Error("参考图上传未返回可读取的 HTTPS 地址");
       return [source, url] as const;
     })));
@@ -142,7 +148,7 @@ export async function generateLegnextImage(text: string, onAccepted: (id: string
     const deadline = Date.now() + 90_000;
     for (let attempt = 0; attempt < 12 && Date.now() < deadline; attempt++) {
       const result = await resumeLegnextImage(receipt, options.editMode);
-      if (result.status === "ok" || result.message?.includes("供应商确认")) return result;
+      if (result.errorCode !== "timeout_pending") return result;
       await new Promise(resolve => setTimeout(resolve, 5_000));
     }
     return pending(receipt);

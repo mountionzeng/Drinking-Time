@@ -39,3 +39,8 @@ export function pollStoryboardImage<T extends RecoveryResult>(
     void poll();
   });
 }
+
+/** A final provider failure cannot be recovered by polling the same finished job. */
+export function canResumeStoryboardImage(result: RecoveryResult | { status: "cancelled" | "timeout" }): boolean {
+  return result.status === "timeout" || (result.status === "error" && result.recoveryPending === true);
+}

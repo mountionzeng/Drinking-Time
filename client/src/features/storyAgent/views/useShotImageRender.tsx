@@ -3,7 +3,7 @@ import type { ImageGenerationDraft } from "./imageGenerationDraft";
 import { useUiText as useDesktopUiText, useUiLanguage } from "@/features/uiLanguage/UiLanguage";
 import { trpc } from "@/lib/trpc";
 import { PendingShotImageError } from "@shared/shotImageRender";
-import { pollStoryboardImage } from "./pollStoryboardImage";
+import { canResumeStoryboardImage, pollStoryboardImage } from "./pollStoryboardImage";
 import { askMediaChatConfirmation, cancelMediaChatSession, hasMediaChatSession } from "../mediaChatSession";
 import { formatComputeQuote } from "@shared/computeMoney";
 import { toast } from "sonner";
@@ -64,7 +64,7 @@ export function useShotImageRender(
         return { status: "cancelled", message: "已离开当前故事" };
       if (result.status !== "ok") {
         const message = result.status === "error" ? result.error : "等待时间较长，原任务已保留。稍后可恢复原任务，不会重新提交生成。";
-        setPendingRequestId(requestId);
+        setPendingRequestId(canResumeStoryboardImage(result) ? requestId : null);
         setImageRenderError(message);
         return { status: "error", message };
       }
