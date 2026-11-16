@@ -89,15 +89,15 @@ import {
 } from "../../shared/personalMemory";
 export type PlatformRegistrationChallenge = {
   id: string;
-  openId: string;
+  browserHash: string;
+  openIdHash: string;
   name: string | null;
   loginMethod: string | null;
-  browserHash: string;
   expiresAt: number;
   consumedAt: number | null;
   otp: {
     channel: "email" | "phone";
-    subject: string;
+    subjectHash: string;
     codeHash: string;
     expiresAt: number;
     attempts: number;

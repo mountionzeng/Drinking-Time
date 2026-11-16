@@ -96,7 +96,8 @@ describe("platform registration policy", () => {
       now: 1_000 + PLATFORM_REGISTRATION_TTL_MS + 1,
     });
     expect(expired).toMatchObject({ error: "expired" });
-    const otherBrowser = `${cookie.slice(0, cookie.indexOf("."))}.${"z".repeat(43)}`;
+    const [id, , openIdPart] = cookie.split(".");
+    const otherBrowser = `${id}.${"z".repeat(43)}.${openIdPart}`;
     const crossed = await completePlatformRegistration({
       cookie: otherBrowser, channel: "phone", subject: "13800000000", code: sent.read(), requestIp: "203.0.113.11", now: 1_000,
     });

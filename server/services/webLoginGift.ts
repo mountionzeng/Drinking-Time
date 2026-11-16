@@ -180,6 +180,18 @@ class RegistrationConflict extends Error {
   }
 }
 
+export function isRegistrationConflict(error: unknown): error is RegistrationConflict {
+  return error instanceof RegistrationConflict;
+}
+
+export async function openRegisteredAccountOnExecutor(
+  tx: CreditLedgerExecutor,
+  input: OpenRegisteredAccountInput,
+  grant: RegistrationGrant = grantCredit,
+) {
+  return openRegisteredAccountOn(tx, input, grant);
+}
+
 async function openRegisteredAccountOn(
   tx: CreditLedgerExecutor,
   input: OpenRegisteredAccountInput,

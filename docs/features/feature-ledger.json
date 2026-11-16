@@ -5706,6 +5706,7 @@
         "server/services/sharedComputeWallet.test.ts",
         "client/src/features/computeAccount/BindComputeAccount.test.tsx",
         "server/services/platformRegistration.test.ts",
+        "server/integration/platformRegistration.mysql.test.ts",
         "server/_core/platformRegistration.http.test.ts",
         "client/src/features/auth/views/PlatformRegisterPage.test.tsx"
       ],
@@ -5736,7 +5737,7 @@
         "本轮补齐正式环境供应商提交前的零余额准入检查；它不替代原有预占结算，也不宣称所有正余额调用已完成逐笔计费。正式站余额保持零，不新增充值或自动赠送入口；未接入账本的正余额消费仍须后续补齐。",
         "真实微信端已经接入余额与逐笔账单展示。注册赠送只跟第一次插入账号的事务走，已有账号不再因登录补发，已发放的 10 算力不回收不补差。赠送卡领取、续充申请和管理入口仍未接入用户界面与业务路由，网页版尚未接入同等账单页面。",
         "本轮只补网页绑定入口和注册赠送边界。本地邮箱小程序功能线目前只见余额桥接，缺模型 reserve/settle；另一条 logo-ai 功能线有计费，两者不能合并后宣称小程序消费已互通。正式包 0.1.1113m 的精确上传树与线上开关、密钥状态未在本轮读取，不能声称已经上线。小程序确认页不在本仓库。",
-        "2026-11-16 缺少可信邮箱验证的平台新用户，要先完成邮箱或手机验证，才会在同一次提交里建号并赠送 5 算力。注册挑战只在进程内存，MySQL 上的挑战持久化、跨进程消费和并发没有执行。本环境没有发送真实短信、邮件或外部消息。",
+        "2026-11-16 平台注册授权和验证码摘要存在 MySQL 表 platform_registration_challenges，并与用户、身份、额度和赠送同一事务提交。隔离本机 MariaDB 已覆盖跨进程单次消费、过期拒绝、赠送回滚后重试和已有邮箱冲突。迁移没有在生产执行，其余既有 MySQL 套件本轮没有重跑。",
         "正式 MySQL、测试 MySQL 与本地历史数据尚未按迁移清单完成归属核对、冲突修复和可回滚切换；未提供 TEST_MYSQL_DATABASE_URL 时 MySQL 集成测试不会执行。",
         "微信小游戏的聊天生成和重新解读来信已增加零余额闸门；付费 AI 调用尚未在网页版与所有供应商路径全面接入算力预留、结算与失败释放，因此当前不能把全站账本基础视为已上线计费。",
         "微信与支付所需资质、渠道规则、退款、订阅和消费者告知仍待后续阶段核验。",
@@ -5750,6 +5751,11 @@
         "拾光签名桥已提供只读流水 POST /api/shiguang/compute/statement，但小程序「我的」页面和云函数尚未接入。本接口不改价格、退款或预占结算，也不改云函数 BASE_URL。"
       ],
       "history": [
+        {
+          "date": "2026-11-16",
+          "kind": "fix",
+          "summary": "平台注册授权和验证码摘要改存 MySQL，并与用户、身份、额度和首次赠送在同一事务提交。进程退出后未过期的挑战仍可在另一个进程完成；重复提交、过期和失败回滚由隔离库实测。没有在生产执行迁移。"
+        },
         {
           "date": "2026-11-16",
           "kind": "fix",

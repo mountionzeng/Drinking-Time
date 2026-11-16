@@ -9,14 +9,20 @@ import {
 } from "../repositories/accounts";
 import {
   cancelPlatformRegistration,
+  findLoginIdentityForUpdate,
   insertPlatformRegistration,
+  lockPlatformRegistration,
   mutatePlatformRegistration,
+  savePlatformRegistration,
+  sha256Hex,
   viewPlatformRegistration,
 } from "../repositories/platformRegistrationStore";
+import { registrationDatabase } from "../repositories/registrationMemory";
+import type { CreditLedgerExecutor } from "../repositories/computeLedger";
 import { getUserByOpenId } from "../repositories/users";
 import { generateOtpCode } from "./accountSecurity";
 import { grantCredit } from "./computeLedger";
-import { openRegisteredAccount } from "./webLoginGift";
+import { isRegistrationConflict, openRegisteredAccount, openRegisteredAccountOnExecutor } from "./webLoginGift";
 
 const OTP_TTL_MS = 10 * 60 * 1000;
 const OTP_MAX_ATTEMPTS = 5;
@@ -65,7 +71,7 @@ export async function beginPlatformRegistration(input: {
   now?: number;
 }) {
   const openId = input.openId.trim();
-  if (!openId || openId.length > 128) return { error: "invalid_profile" as const };
+  if (!openId || openId.length > 64) return { error: "invalid_profile" as const };
   return insertPlatformRegistration({
     openId,
     name: input.name ?? null,
@@ -97,15 +103,16 @@ export async function sendPlatformRegistrationCode(input: {
   const now = input.now ?? Date.now();
   const pending = await readPlatformRegistration(input.cookie, now);
   if (pending.status !== "pending") return { error: pending.status };
-  const ipWait = await limit("platform-reg:send:ip", input.requestIp || "unknown", 3600, 20);
+  const ipWait = await limit("platform-reg:send:ip", sha256Hex(input.requestIp || "unknown"), 3600, 20);
   if (ipWait !== null) return { error: "rate_limited", retryAfterMs: ipWait };
-  const subjectWait = await limit(`platform-reg:send:${input.channel}`, subject, 60, 1);
+  const subjectWait = await limit(`platform-reg:send:${input.channel}`, sha256Hex(subject), 60, 1);
   if (subjectWait !== null) return { error: "rate_limited", retryAfterMs: subjectWait };
   const code = generateOtpCode();
+  const subjectHash = sha256Hex(subject);
   const saved = await mutatePlatformRegistration(input.cookie, now, row => {
     row.otp = {
       channel: input.channel,
-      subject,
+      subjectHash,
       codeHash: codeHash(input.channel, subject, code, secret),
       expiresAt: now + OTP_TTL_MS,
       attempts: 0,
@@ -117,7 +124,7 @@ export async function sendPlatformRegistrationCode(input: {
     await input.deliver(input.channel, subject, code);
   } catch {
     await mutatePlatformRegistration(input.cookie, now, row => {
-      if (row.otp?.subject === subject) row.otp = null;
+      if (row.otp?.subjectHash === subjectHash) row.otp = null;
     });
     return { error: "delivery_failed" };
   }
@@ -150,50 +157,105 @@ export async function completePlatformRegistration(input: {
   const secret = digestSecret();
   if (!secret) return { error: "not_configured" };
   const now = input.now ?? Date.now();
-  const ipWait = await limit("platform-reg:verify:ip", input.requestIp || "unknown", 600, 60);
+  const ipWait = await limit("platform-reg:verify:ip", sha256Hex(input.requestIp || "unknown"), 600, 60);
   if (ipWait !== null) return { error: "rate_limited", retryAfterMs: ipWait };
-  const subjectWait = await limit(`platform-reg:verify:${input.channel}`, subject, 600, 20);
+  const subjectWait = await limit(`platform-reg:verify:${input.channel}`, sha256Hex(subject), 600, 20);
   if (subjectWait !== null) return { error: "rate_limited", retryAfterMs: subjectWait };
+  const db = await registrationDatabase();
+  if (!db) return completeWithoutDatabase({ ...input, subject, code, secret, now });
+  try {
+    return await db.transaction(async tx => {
+      const locked = await lockPlatformRegistration(tx, input.cookie, now);
+      if (locked.status !== "ok") return { error: locked.status };
+      const verdict = await decideOtp(locked.row, input.channel, subject, code, secret, now);
+      if (verdict !== "match") {
+        await savePlatformRegistration(tx, locked.row);
+        return { error: "invalid" as const };
+      }
+      if (input.channel === "phone" && await findLoginIdentityForUpdate(tx, "phone", subject)) {
+        locked.row.consumedAt = now;
+        locked.row.otp = null;
+        await savePlatformRegistration(tx, locked.row);
+        return { error: "conflict" as const };
+      }
+      const opened = await openRegisteredAccountOnExecutor(tx as CreditLedgerExecutor, registrationInput(locked.openId, locked.row, input.channel, subject, input.requestIp, now), input.grant);
+      if (opened.outcome !== "created" && opened.outcome !== "reused") {
+        locked.row.consumedAt = now;
+        locked.row.otp = null;
+        await savePlatformRegistration(tx, locked.row);
+        return { error: "conflict" as const };
+      }
+      locked.row.consumedAt = now;
+      locked.row.otp = null;
+      await savePlatformRegistration(tx, locked.row);
+      return { outcome: "created" as const, userId: opened.userId };
+    });
+  } catch (error) {
+    if (!isRegistrationConflict(error)) throw error;
+    await mutatePlatformRegistration(input.cookie, now, row => {
+      row.consumedAt = now;
+      row.otp = null;
+    });
+    return { error: "conflict" };
+  }
+}
 
-  const decision = await mutatePlatformRegistration(input.cookie, now, async row => {
-    const otp = row.otp;
-    if (!otp || otp.channel !== input.channel || otp.subject !== subject || otp.expiresAt <= now) {
-      return { error: "invalid" as const };
-    }
-    otp.attempts += 1;
-    const matches = hashesMatch(otp.codeHash, codeHash(input.channel, subject, code, secret));
-    if (!matches || otp.attempts > OTP_MAX_ATTEMPTS) {
-      if (otp.attempts >= OTP_MAX_ATTEMPTS) row.otp = null;
-      return { error: "invalid" as const };
-    }
-    if (await identityAlreadyExists(input.channel, subject)) {
-      row.consumedAt = now;
+function registrationInput(openId: string, row: { name: string | null; loginMethod: string | null }, channel: PlatformChannel, subject: string, requestIp: string, now: number) {
+  return {
+    openId,
+    name: row.name,
+    loginMethod: row.loginMethod,
+    lastSignedIn: new Date(now),
+    requestIp,
+    email: channel === "email" ? subject : null,
+    emailVerified: channel === "email",
+    claimExisting: false,
+    links: [{ provider: channel, subject }],
+  };
+}
+
+function decideOtp(row: { otp: { channel: PlatformChannel; subjectHash: string; codeHash: string; expiresAt: number; attempts: number } | null }, channel: PlatformChannel, subject: string, code: string, secret: string, now: number) {
+  const otp = row.otp;
+  if (!otp || otp.channel !== channel || otp.subjectHash !== sha256Hex(subject) || otp.expiresAt <= now) return "invalid" as const;
+  otp.attempts += 1;
+  const matches = hashesMatch(otp.codeHash, codeHash(channel, subject, code, secret));
+  if (!matches || otp.attempts > OTP_MAX_ATTEMPTS) {
+    if (otp.attempts >= OTP_MAX_ATTEMPTS) row.otp = null;
+    return "invalid" as const;
+  }
+  return "match" as const;
+}
+
+async function completeWithoutDatabase(input: {
+  cookie: string | undefined;
+  channel: PlatformChannel;
+  subject: string;
+  code: string;
+  requestIp: string;
+  secret: string;
+  now: number;
+  grant?: typeof grantCredit;
+}): Promise<{ outcome: "created"; userId: number } | PlatformRegistrationFailure> {
+  const decision = await mutatePlatformRegistration(input.cookie, input.now, async (row, openId) => {
+    if (decideOtp(row, input.channel, input.subject, input.code, input.secret, input.now) !== "match") return { error: "invalid" as const };
+    if (await identityAlreadyExists(input.channel, input.subject)) {
+      row.consumedAt = input.now;
       row.otp = null;
       return { error: "conflict" as const };
     }
-    const opened = await openRegisteredAccount({
-      openId: row.openId,
-      name: row.name,
-      loginMethod: row.loginMethod,
-      lastSignedIn: new Date(now),
-      requestIp: input.requestIp,
-      email: input.channel === "email" ? subject : null,
-      emailVerified: input.channel === "email",
-      claimExisting: false,
-      links: [{ provider: input.channel, subject }],
-    }, input.grant);
+    const opened = await openRegisteredAccount(registrationInput(openId, row, input.channel, input.subject, input.requestIp, input.now), input.grant);
     if (opened.outcome !== "created" && opened.outcome !== "reused") {
-      row.consumedAt = now;
+      row.consumedAt = input.now;
       row.otp = null;
       return { error: "conflict" as const };
     }
-    const user = await getUserByOpenId(row.openId);
+    const user = await getUserByOpenId(openId);
     if (!user || user.id !== opened.userId) {
-      row.consumedAt = now;
+      row.consumedAt = input.now;
       row.otp = null;
       return { error: "conflict" as const };
     }
-    row.consumedAt = now;
+    row.consumedAt = input.now;
     row.otp = null;
     return { outcome: "created" as const, userId: user.id };
   });
