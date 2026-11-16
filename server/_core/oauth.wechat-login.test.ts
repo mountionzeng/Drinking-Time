@@ -118,9 +118,26 @@ describe("网页六位码登录 HTTP 边界", () => {
     const authenticate = vi.spyOn(sdk, "authenticateRequest").mockRejectedValueOnce(new Error("no session"));
     expect((await post("wechat-scan/create", { mode: "bind", userId: 999 })).status).toBe(401);
     expect(create).not.toHaveBeenCalled();
-    authenticate.mockResolvedValueOnce({ id: 7 } as Awaited<ReturnType<typeof sdk.authenticateRequest>>);
+    authenticate.mockResolvedValue({ id: 7 } as Awaited<ReturnType<typeof sdk.authenticateRequest>>);
     expect((await post("wechat-scan/create", { mode: "bind", userId: 999 })).status).toBe(200);
     expect(create).toHaveBeenCalledWith(expect.objectContaining({ bindUserId: 7 }));
+    create.mockClear();
+    expect((await post("wechat-scan/create", {
+      mode: "bind", userId: 999, subject: `shiguang:${"e".repeat(64)}`, mailboxCode: "ABCDEF",
+    })).status).toBe(200);
+    const createdInput = create.mock.calls.at(-1)?.[0] as Record<string, unknown>;
+    expect(createdInput.bindUserId).toBe(7);
+    expect(createdInput.subject).toBeUndefined();
+    expect(createdInput.mailboxCode).toBeUndefined();
+    expect(JSON.stringify(createdInput)).not.toContain("ABCDEF");
+  });
+
+  it("访客会话不能绑定算力账户", async () => {
+    vi.spyOn(sdk, "authenticateRequest").mockResolvedValueOnce({
+      id: 7, loginMethod: "guest", openId: "guest:browser",
+    } as Awaited<ReturnType<typeof sdk.authenticateRequest>>);
+    expect((await post("wechat-scan/create", { mode: "bind", userId: 7 })).status).toBe(403);
+    expect(create).not.toHaveBeenCalled();
   });
 
   it.each(["pending", "scanned", "expired", "denied", "merge_required"] as const)("%s 不写登录 Cookie，也不返回码", async status => {

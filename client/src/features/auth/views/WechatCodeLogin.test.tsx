@@ -2,7 +2,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
-import WechatCodeLogin, { isPhoneBrowser, WechatCodeLoginView } from "./WechatCodeLogin";
+import WechatCodeLogin, { isPhoneBrowser, webWechatLoginCreateBody, WechatCodeLoginView } from "./WechatCodeLogin";
 
 vi.stubGlobal("React", React);
 
@@ -16,6 +16,8 @@ describe("WechatCodeLogin", () => {
     vi.stubGlobal("window", { navigator: { userAgent: "Mozilla/5.0 (Macintosh) Chrome/120" } });
     expect(renderToStaticMarkup(<WechatCodeLogin onLoggedIn={() => {}} />)).toContain("使用微信登录");
     expect(renderToStaticMarkup(<WechatCodeLoginView phase="idle" created={null} secondsLeft={0} onStart={() => {}} />)).toContain("使用微信登录");
+    expect(webWechatLoginCreateBody()).toEqual({ presentation: "qr" });
+    expect(JSON.stringify(webWechatLoginCreateBody())).not.toContain("bind");
   });
 
   it("手机浏览器复用同一微信登录入口", () => {

@@ -22,6 +22,7 @@ import {
   type SaveEmotionAnalysisProfileInput,
 } from "@/features/analysis/emotionAnalysis";
 import EmotionAnalysisInvitePanel from "@/features/analysis/views/EmotionAnalysisInvitePanel";
+import { BindComputeAccount, canBindComputeAccount } from "@/features/computeAccount/BindComputeAccount";
 import { ComputeBalanceBadge } from "@/features/computeAccount/ComputeBalanceBadge";
 import { useDailyAlmanac } from "@/features/nayin/hooks/useDailyAlmanac";
 import { useNayin } from "@/features/nayin/NayinContext";
@@ -224,6 +225,7 @@ export function MobileMePage({
         <div className="mt-2">
           <ComputeBalanceBadge enabled={Boolean(user?.id)} />
         </div>
+        <BindComputeAccount enabled={canBindComputeAccount(user)} />
       </section>
 
       {onBack && user?.role === "admin" && <Row title="用户管理" hint="注册人数、活跃与算力账单" onClick={() => window.location.assign("/admin/users")} />}

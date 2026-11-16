@@ -799,8 +799,14 @@ export function registerOAuthRoutes(app: Express) {
     if (qr && !wechatLoginQrConfigured()) { res.status(503).json({ error: "qr_not_configured" }); return; }
     let bindUserId: number | undefined;
     if (req.body?.mode === "bind") {
-      try { bindUserId = (await sdk.authenticateRequest(req)).id; }
-      catch { res.status(401).json({ error: "unauthenticated" }); return; }
+      try {
+        const user = await sdk.authenticateRequest(req);
+        if (user.loginMethod === "guest" || user.openId?.startsWith("guest:") || user.openId === "local-guest") {
+          res.status(403).json({ error: "guest_not_bindable" });
+          return;
+        }
+        bindUserId = user.id;
+      } catch { res.status(401).json({ error: "unauthenticated" }); return; }
     }
     try {
       const result = await createWebLoginRequest({

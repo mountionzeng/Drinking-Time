@@ -42,9 +42,9 @@ vi.mock("../repositories/webLoginRequests", () => ({
     const row = store.rows.find(item => item.id === input.id);
     if (!row || !row.bindUserId || !["pending", "scanned"].includes(row.status) || row.expiresAt <= input.now) return "invalid";
     const outcome = await input.bind(row.bindUserId, transaction);
-    Object.assign(row, { status: outcome, userId: outcome === "bound" ? row.bindUserId : null, confirmedAt: input.now });
-    if (outcome === "bound") row.status = "confirmed";
-    return outcome;
+    const status = outcome === "bound" ? "confirmed" : "merge_required";
+    Object.assign(row, { status, userId: outcome === "bound" ? row.bindUserId : null, confirmedAt: input.now });
+    return status;
   }),
   consumeConfirmedWebLogin: vi.fn(async (input: { lookupHash: string; verifierHash: string; now: Date }) => {
     const row = store.rows.find(item => item.lookupHash === input.lookupHash && item.verifierHash === input.verifierHash && item.status === "confirmed" && !item.consumedAt);
@@ -186,6 +186,22 @@ describe("网页登录请求", () => {
     const expired = await create({ bindUserId: 5 });
     expect(await confirmWebLoginBySubject({ subject, code: expired.code, decision: "confirm", now: later(121_000) })).toEqual({ outcome: "invalid" });
     expect(bind.transactions).toHaveLength(0);
+  });
+
+  it("缺失、明文 openid 和重放都不能绑定", async () => {
+    expect(await confirmWebLoginBySubject({ subject, code: "ABCDEF", decision: "confirm", now: later(1_000) })).toEqual({ outcome: "invalid" });
+    const fresh = await create({ bindUserId: 5 });
+    expect(await confirmWebLoginBySubject({
+      subject: "wx0000000000000001:openid", code: fresh.code, decision: "confirm", now: later(1_000),
+    })).toEqual({ outcome: "invalid" });
+    expect(bind.transactions).toHaveLength(0);
+    expect(await confirmWebLoginBySubject({ subject, code: fresh.code, decision: "confirm", now: later(2_000) })).toEqual({ outcome: "confirmed" });
+    expect(bind.transactions).toHaveLength(1);
+    expect(await confirmWebLoginBySubject({ subject, code: fresh.code, decision: "confirm", now: later(3_000) })).toEqual({ outcome: "invalid" });
+    expect(bind.transactions).toHaveLength(1);
+    const expired = await create({ bindUserId: 5 });
+    expect(await confirmWebLoginBySubject({ subject, code: expired.code, decision: "confirm", now: later(121_000) })).toEqual({ outcome: "invalid" });
+    expect(bind.transactions).toHaveLength(1);
   });
 
   it("只记粗粒度的系统和浏览器", () => {

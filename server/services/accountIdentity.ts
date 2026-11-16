@@ -36,6 +36,13 @@ import {
 } from "../db";
 import type { WebLoginTransaction } from "../repositories/webLoginRequests";
 import {
+  memoryState,
+  nextMemoryId,
+  now as memoryNow,
+  persistMemoryState,
+  withLocalAggregateMutationLock,
+} from "../repositories/runtime";
+import {
   PAIRING_CODE_LENGTH,
   checkPasswordPolicy,
   generateOtpCode,
@@ -49,7 +56,7 @@ import {
   type OtpPurpose,
   type PasswordPolicyResult,
 } from "./accountSecurity";
-import { grantCredit } from "./computeLedger";
+import { grantCredit, type CreditLedgerExecutor } from "./computeLedger";
 
 const { accountIdentities: identities, accountVerificationChallenges: challenges } = schema;
 type ProofContext = { userId: number; sessionVersion: number; email: string; secret: string };
@@ -227,35 +234,50 @@ export async function allowShiguangDesktopTransferAttempt(subject: string) {
 }
 
 /**
- * 5 算力；按 ¥1 = 2 算力折算为 ¥2.5 的微元账本额度（2026-10-30 起，原为 10 算力）。
- * 只影响此后发放；幂等键保持 v1，已领过的账号不会补发或回收。
+ * 5 算力；按 1 元 = 2 算力折成 2_500_000 微元。
+ * 幂等键保持 v1。已经入账的 10 算力或 5 算力都不再改写。
  */
 export const WECHAT_REGISTRATION_GIFT_MINOR = 2_500_000;
+
+/**
+ * 此时间之前创建的账号缺少赠送记录也不再补发。
+ * 此时间之后新建的网站账号仍可领取一次；微信新账号只在创建事务里领取。
+ */
+export const REGISTRATION_GIFT_EPOCH_MS = Date.parse("2026-11-16T09:30:00.000Z");
+
+export function registrationGiftEligible(createdAt: Date | null | undefined) {
+  return createdAt instanceof Date && createdAt.getTime() >= REGISTRATION_GIFT_EPOCH_MS;
+}
 
 export function wechatRegistrationGiftIdempotencyKey(subject: string) {
   return `wechat-registration-gift:v1:${createHash("sha256").update(subject).digest("hex")}`;
 }
 
+export function wechatRegistrationGiftInput(userId: number, subject: string) {
+  return {
+    userId,
+    amountMinor: WECHAT_REGISTRATION_GIFT_MINOR,
+    idempotencyKey: wechatRegistrationGiftIdempotencyKey(subject),
+    oncePerAccountPrefixes: ["wechat-registration-gift:", "web-login-gift:"] as const,
+    reason: "账号首次登录赠送 5 算力",
+    enableAccess: true,
+  };
+}
+
 /**
- * Each canonical account receives one registration gift, across linked identities.
- *
- * This deliberately also repairs an older WeChat account on its next login. The
- * Legacy identity keys remain valid; the account-scoped prefix guard under the
- * ledger lock prevents another identity from granting the same account twice.
+ * 补一次尚未入账的注册赠送。老账号直接返回，不写账。
+ * 同一账号已有微信或网站赠送前缀时，账本锁内记为重复，余额不变。
  */
 export async function ensureWechatRegistrationGift(
   userId: number,
   subject: string,
   grant: typeof grantCredit = grantCredit
 ) {
-  await grant({
-    userId,
-    amountMinor: WECHAT_REGISTRATION_GIFT_MINOR,
-    idempotencyKey: wechatRegistrationGiftIdempotencyKey(subject),
-    oncePerAccountPrefixes: ["wechat-registration-gift:", "web-login-gift:"],
-    reason: "账号首次登录赠送 5 算力",
-    enableAccess: true,
-  });
+  const user = await getUserById(userId);
+  if (!user || user.id !== userId || !registrationGiftEligible(user.createdAt)) {
+    return { kind: "ineligible" as const };
+  }
+  return grant(wechatRegistrationGiftInput(userId, subject));
 }
 
 /** Creates the account and identity in one transaction, then grants 5 compute units. */
@@ -270,28 +292,21 @@ export async function resolveWechatAccount(subject: string): Promise<number> {
     return row?.userId;
   };
   const existing = await find();
-  if (existing !== undefined) {
-    await ensureWechatRegistrationGift(existing, subject);
-    return existing;
-  }
+  // 已有身份直接返回。老账号不补发；新建账号的赠送已经和用户行在同一次提交里。
+  if (existing !== undefined) return existing;
   try {
-    const userId = await db.transaction(async tx => {
+    return await db.transaction(async tx => {
       const [user] = await tx.insert(users).values({
         openId: `wx:${randomUUID()}`, loginMethod: 'wechat', role: 'user',
       }).$returningId();
       await tx.insert(accountIdentities).values({ userId: user.id, provider: 'wechat', subject, verifiedAt: new Date() });
+      await grantCredit(wechatRegistrationGiftInput(user.id, subject), tx as CreditLedgerExecutor);
       return user.id;
     });
-    await ensureWechatRegistrationGift(userId, subject);
-    return userId;
   } catch (error) {
-    // If another login won the unique identity constraint, its account is authoritative.
-    // The losing transaction rolls back its new user as well.
+    // 唯一约束的赢家已经提交了自己的用户和赠送。输家整笔回滚，不能再给旧账号补发。
     const winner = await find();
-    if (winner !== undefined) {
-      await ensureWechatRegistrationGift(winner, subject);
-      return winner;
-    }
+    if (winner !== undefined) return winner;
     throw error;
   }
 }
@@ -300,7 +315,7 @@ export async function resolveWechatAccount(subject: string): Promise<number> {
  * Never transfers an identity from another account, even if it appears empty. */
 export async function bindWechatAccount(userId: number, subject: string, transaction?: WebLoginTransaction) {
   const db = transaction ?? await getDb();
-  if (!db) throw new Error('wechat_database_unavailable');
+  if (!db) return bindWechatIdentityInMemory(userId, subject);
   const find = async () => {
     const [row] = await db.select({ userId: accountIdentities.userId, subject: accountIdentities.subject }).from(accountIdentities)
       .where(and(eq(accountIdentities.provider, 'wechat'), eq(accountIdentities.subject, subject))).limit(1);
@@ -327,6 +342,31 @@ export async function bindWechatAccount(userId: number, subject: string, transac
     if (winner) return winner.userId === userId ? 'bound' as const : 'merge_required' as const;
     throw error;
   }
+}
+
+/** 本地账本里的绑定。不创建用户，不写余额，也不把信箱绑定当成钱包身份。 */
+async function bindWechatIdentityInMemory(userId: number, subject: string) {
+  return withLocalAggregateMutationLock(async () => {
+    const user = memoryState.users.find(item => item.id === userId);
+    if (!user) throw new Error("account_missing");
+    const folded = memoryState.accountIdentities.find(item =>
+      item.provider === "wechat" && item.subject.toLowerCase() === subject.toLowerCase());
+    if (folded && folded.subject !== subject) throw new Error("wechat_identity_collision");
+    const exact = memoryState.accountIdentities.find(item => item.provider === "wechat" && item.subject === subject);
+    if (exact) return exact.userId === userId ? "bound" as const : "merge_required" as const;
+    const current = memoryNow();
+    memoryState.accountIdentities.push({
+      id: nextMemoryId("accountIdentity"),
+      userId,
+      provider: "wechat",
+      subject,
+      verifiedAt: current,
+      createdAt: current,
+      updatedAt: current,
+    });
+    await persistMemoryState();
+    return "bound" as const;
+  });
 }
 export const OTP_MAX_ATTEMPTS = 5;
 /** 每个邮箱每 10 分钟最多 5 次发送 */

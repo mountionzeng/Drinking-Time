@@ -8,6 +8,7 @@ import { noteComputeReservation } from "./computeRequestAccess";
  */
 import {
   appendCreditLedgerEntry,
+  type CreditLedgerExecutor,
   applyComputeSettlement,
   findActiveCreditHold,
   findBillingOperation,
@@ -27,6 +28,8 @@ import {
   type ProviderOutcome,
 } from "./computeBilling";
 import { isLocalUnlimitedCompute } from "./computeAccessPolicy";
+
+export type { CreditLedgerExecutor };
 
 /** Production provider admission reads only the shared, authoritative ledger. */
 export async function canFundComputeRequest(userId: number, reservations: ReadonlySet<string>): Promise<boolean> {
@@ -316,7 +319,7 @@ export async function grantCredit(input: {
   reason?: string | null;
   /** 领卡同时开通工作台 */
   enableAccess?: boolean;
-}) {
+}, executor?: CreditLedgerExecutor) {
   if (input.amountMinor <= 0) {
     throw new Error("赠送金额必须为正");
   }
@@ -330,7 +333,7 @@ export async function grantCredit(input: {
     giftCardId: input.giftCardId ?? null,
     reason: input.reason ?? null,
     enableAccess: input.enableAccess,
-  });
+  }, executor);
 }
 
 /**

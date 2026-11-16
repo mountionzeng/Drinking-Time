@@ -143,6 +143,9 @@ export type ConfirmWebLoginResult =
   | { outcome: "rate_limited" }
   | { outcome: "not_configured" };
 
+/** 小程序云上下文的钱包身份。网页 OAuth 的 appId:openid 明文不能当作同一个 subject。 */
+const SHIGUANG_WALLET_SUBJECT = /^shiguang:[0-9a-f]{64}$/;
+
 /** subject 来自验过签的桥接请求，由云函数从 OPENID 计算，这里不接受客户端传入的身份。 */
 export async function confirmWebLoginBySubject(input: {
   subject: string;
@@ -152,6 +155,7 @@ export async function confirmWebLoginBySubject(input: {
   now?: Date;
 }): Promise<ConfirmWebLoginResult> {
   if (!secret().trim()) return { outcome: "not_configured" };
+  if (!SHIGUANG_WALLET_SUBJECT.test(input.subject)) return { outcome: "invalid" };
   const now = input.now ?? new Date();
   for (const [scope, subject, limit] of [
     ["weblogin:confirm:minute", input.subject, WEB_LOGIN_LIMITS.confirmMinute],

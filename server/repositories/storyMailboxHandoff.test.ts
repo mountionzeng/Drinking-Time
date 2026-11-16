@@ -14,6 +14,7 @@ import {
   readNativeMailbox,
   shareNativeMailbox,
 } from "./storyMailboxHandoff";
+import { getAccountBalance, grantCredit, reserveForOperation } from "../services/computeLedger";
 import { nativeMailboxDocument } from "../services/storyMailboxNativeView";
 const a = `shiguang:${"a".repeat(64)}`,
   b = `shiguang:${"b".repeat(64)}`;
@@ -86,11 +87,19 @@ describe("private native mailbox handoff", () => {
     expect(await listNativeMailbox(a)).toEqual([]);
     await previewMailboxHandoff(a, result.code);
     expect(memoryState.storyMailboxWechatBindings).toEqual([]);
+    await grantCredit({ userId: 1, amountMinor: 5_000_000, idempotencyKey: "mailbox-existing-balance", reason: "已有余额" });
+    expect((await reserveForOperation({
+      userId: 1, operationId: "mailbox-hold", operationType: "text.generate",
+      requestHash: "hash-mailbox-hold", maxCostMinor: 1_000_000, quoteExpiresAt: null,
+      now: new Date("2026-09-02T12:00:00.000Z"),
+    })).outcome).toBe("reserved");
+    const wallet = await getAccountBalance(1);
     await confirmMailboxHandoff(a, result.code);
+    expect(await getAccountBalance(1)).toEqual(wallet);
     expect(await listNativeMailbox(a)).toHaveLength(1);
     expect(await listNativeMailbox(b)).toEqual([]);
     expect(memoryState.accountIdentities).toEqual([]);
-    expect(memoryState.creditAccounts).toEqual([]);
+    expect(memoryState.storyMailboxWechatBindings.map(item => item.subject)).toEqual([a]);
     const { row, mine } = await readNativeMailbox(a, result.id);
     expect(mine).toBe(true);
     expect(JSON.stringify(nativeMailboxDocument(row, mine))).not.toContain(

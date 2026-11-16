@@ -3,6 +3,8 @@ import type { User } from "../../drizzle/schema";
 import { COMPUTE_UNITS_PER_YUAN, MINOR_PER_YUAN } from "../../shared/computeMoney";
 import { consumePersistentRateLimit } from "../repositories/accounts";
 import { listCreditLedgerEntries } from "../repositories/computeLedger";
+import { getUserById } from "../repositories/users";
+import { registrationGiftEligible } from "./accountIdentity";
 import { grantCredit } from "./computeLedger";
 
 export const WEB_LOGIN_GIFT_MINOR = 5 * MINOR_PER_YUAN / COMPUTE_UNITS_PER_YUAN;
@@ -70,23 +72,27 @@ type GiftUser = Pick<User, "id" | "openId" | "loginMethod"> & { email?: string |
  * 对外统一返回 { kind: "ineligible" }，不暴露具体原因。
  */
 export async function claimWebLoginGift(user: GiftUser, opts: { ip?: string | null; now?: Date } = {}) {
-  if (user.loginMethod === "guest" || user.openId.startsWith("guest:") || user.openId === "local-guest") {
+  const stored = await getUserById(user.id);
+  if (!stored || stored.id !== user.id) return { kind: "ineligible" as const };
+  if (stored.loginMethod === "guest" || stored.openId.startsWith("guest:") || stored.openId === "local-guest") {
     return { kind: "ineligible" as const };
   }
   // 已领过的账号直接返回，避免每次访问都消耗限流额度。
-  if (await alreadyGifted(user.id)) return { kind: "duplicate" as const };
+  if (await alreadyGifted(stored.id)) return { kind: "duplicate" as const };
+  // 调用方传入的 createdAt 不能把老账号改成新账号。
+  if (!registrationGiftEligible(stored.createdAt)) return { kind: "ineligible" as const };
 
-  const isEmail = user.loginMethod === "email";
+  const isEmail = stored.loginMethod === "email";
   const deny = (reason: string) => {
-    console.warn(`[web-login-gift] skipped user=${user.id} reason=${reason}`);
+    console.warn(`[web-login-gift] skipped user=${stored.id} reason=${reason}`);
     return { kind: "ineligible" as const };
   };
-  if (isEmail && isDisposableEmail(user.email)) return deny("disposable_domain");
+  if (isEmail && isDisposableEmail(stored.email)) return deny("disposable_domain");
 
   const limits = webLoginGiftLimits();
   // 同一账号每天只占一次额度：并发/重试的首次领取不会重复消耗 IP 和全站额度。
   const checks: Array<[string, string, string, number]> = [
-    ["user_attempt_day", "web-login-gift:user-attempt:day", String(user.id), 1],
+    ["user_attempt_day", "web-login-gift:user-attempt:day", String(stored.id), 1],
   ];
   if (isEmail) {
     checks.push(["email_ip_day", "web-login-gift:email-ip:day", hash(`ip:${opts.ip?.trim() || "unknown"}`), limits.emailIpPerDay]);
@@ -102,9 +108,9 @@ export async function claimWebLoginGift(user: GiftUser, opts: { ip?: string | nu
   }
 
   return grantCredit({
-    userId: user.id,
+    userId: stored.id,
     amountMinor: WEB_LOGIN_GIFT_MINOR,
-    idempotencyKey: `web-login-gift:v1:${user.id}`,
+    idempotencyKey: `web-login-gift:v1:${stored.id}`,
     oncePerAccountPrefixes: [GIFT_PREFIX, "wechat-registration-gift:"],
     reason: "网站登录赠送 5 算力（每账号一次）",
     enableAccess: true,

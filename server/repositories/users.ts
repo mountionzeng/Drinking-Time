@@ -20,9 +20,11 @@ export async function upsertUser(user: InsertUser): Promise<void> {
   if (!db) {
     const existing = memoryState.users.find(u => u.openId === user.openId);
     if (existing) {
+      const patch = { ...user };
+      delete patch.createdAt;
       applyDefinedValues(
         existing as unknown as Record<string, unknown>,
-        user as unknown as Record<string, unknown>
+        patch as unknown as Record<string, unknown>
       );
       existing.updatedAt = now();
       if (user.lastSignedIn !== undefined) {
