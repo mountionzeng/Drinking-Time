@@ -1,75 +1,76 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { resetMemoryStateForTesting, upsertUser, getUserByOpenId } from "../db";
-import { claimWebLoginGift, WEB_LOGIN_GIFT_MINOR } from "./webLoginGift";
+import { claimWebLoginGift, openRegisteredAccount, WEB_LOGIN_GIFT_MINOR } from "./webLoginGift";
 import { getAccountBalance, grantCredit, recordAdjustment } from "./computeLedger";
 import { formatComputeUnits } from "../../shared/computeMoney";
 import { ensureWechatRegistrationGift, WECHAT_REGISTRATION_GIFT_MINOR, wechatRegistrationGiftIdempotencyKey } from "./accountIdentity";
 
 beforeEach(() => resetMemoryStateForTesting());
-async function user(openId: string, loginMethod = "email") {
+async function existing(openId: string, loginMethod = "email") {
   await upsertUser({ openId, loginMethod });
   return (await getUserByOpenId(openId))!;
 }
-describe("website login gift", () => {
-  it("grants exactly five compute units once despite concurrent visits", async () => {
-    const account = await user("email:gift");
-    const results = await Promise.all(Array.from({ length: 8 }, () => claimWebLoginGift(account)));
-    expect(results.filter(r => r.kind === "appended")).toHaveLength(1);
+describe("website registration gift", () => {
+  it("grants exactly five compute units once when the account row is inserted", async () => {
+    const results = await Promise.all(Array.from({ length: 8 }, () => openRegisteredAccount({
+      openId: "email:gift@example.com", email: "gift@example.com", loginMethod: "email",
+    })));
+    expect(results.filter(result => result.created)).toHaveLength(1);
+    const account = (await getUserByOpenId("email:gift@example.com"))!;
     expect((await getAccountBalance(account.id)).balanceMinor).toBe(WEB_LOGIN_GIFT_MINOR);
+    expect(await claimWebLoginGift(account)).toEqual({ kind: "duplicate" });
     expect(formatComputeUnits(WEB_LOGIN_GIFT_MINOR)).toBe("5.00 算力");
   });
   it("does not refill the gift after spending and keeps other credits", async () => {
-    const account = await user("google:existing", "google");
-    await grantCredit({ userId: account.id, amountMinor: 5_000_000, idempotencyKey: "prior-gift" });
+    const opened = await openRegisteredAccount({ openId: "google:existing", loginMethod: "google" });
+    await grantCredit({ userId: opened.userId, amountMinor: 5_000_000, idempotencyKey: "prior-balance" });
+    const account = (await getUserByOpenId("google:existing"))!;
     await claimWebLoginGift(account);
     expect((await getAccountBalance(account.id)).balanceMinor).toBe(7_500_000);
     await recordAdjustment({ userId: account.id, amountMinor: -1_000_000, idempotencyKey: "test-spend", actorUserId: account.id, reason: "test" });
     await claimWebLoginGift(account);
+    await openRegisteredAccount({ openId: "google:existing", loginMethod: "google" });
     expect((await getAccountBalance(account.id)).balanceMinor).toBe(6_500_000);
   });
-  it("excludes guests and isolates accounts", async () => {
-    for (const [id, method] of [["guest:one", "email"], ["local-guest", "email"], ["fixed-dev", "guest"]]) {
-      expect(await claimWebLoginGift(await user(id, method))).toEqual({ kind: "ineligible" });
+  it("does not gift guests or accounts that were not created by registration", async () => {
+    for (const [id, method] of [["guest:one", "email"], ["local-guest", "email"], ["fixed-dev", "guest"]] as const) {
+      const opened = await openRegisteredAccount({ openId: id, loginMethod: method });
+      expect((await getAccountBalance(opened.userId)).balanceMinor).toBe(0);
+      expect(await claimWebLoginGift((await getUserByOpenId(id))!)).toEqual({ kind: "ineligible" });
     }
-    const a = await user("a"), b = await user("b");
-    await claimWebLoginGift(a);
+    const a = await existing("a"), b = await existing("b");
+    expect(await claimWebLoginGift(a)).toEqual({ kind: "ineligible" });
+    expect(await claimWebLoginGift(b)).toEqual({ kind: "ineligible" });
+    expect((await getAccountBalance(a.id)).balanceMinor).toBe(0);
     expect((await getAccountBalance(b.id)).balanceMinor).toBe(0);
-    await claimWebLoginGift(b);
-    expect((await getAccountBalance(b.id)).balanceMinor).toBe(WEB_LOGIN_GIFT_MINOR);
   });
-  it("shares one five-unit registration gift across WeChat and website", async () => {
-    const account = await user("wx0000000000000001:new-wechat", "wechat");
-    await ensureWechatRegistrationGift(account.id, "wx0000000000000001:new-wechat");
-    expect((await getAccountBalance(account.id)).balanceMinor).toBe(2_500_000);
-    await claimWebLoginGift(account);
-    expect((await getAccountBalance(account.id)).balanceMinor).toBe(WECHAT_REGISTRATION_GIFT_MINOR);
-    expect(WEB_LOGIN_GIFT_MINOR).toBe(2_500_000);
-  });
-  it("deduplicates concurrent website and WeChat gifts under the account lock", async () => {
-    const account = await user("wx:concurrent", "wechat");
-    await Promise.all(Array.from({ length: 8 }, (_, i) => i % 2
-      ? claimWebLoginGift(account)
-      : ensureWechatRegistrationGift(account.id, "concurrent-subject")));
-    expect((await getAccountBalance(account.id)).balanceMinor).toBe(WEB_LOGIN_GIFT_MINOR);
-  });
-  it("does not add a second gift when an email account later links WeChat", async () => {
-    const account = await user("email:first");
-    await claimWebLoginGift(account);
-    await ensureWechatRegistrationGift(account.id, "linked-wechat");
-    expect((await getAccountBalance(account.id)).balanceMinor).toBe(WEB_LOGIN_GIFT_MINOR);
-  });
-  it("does not top up or claw back an account that already received the old 10-unit WeChat gift", async () => {
+  it("does not add a website gift when a WeChat gift or an old 10-unit gift already exists", async () => {
     const subject = "wx0000000000000001:old-wechat";
-    const account = await user(subject, "wechat");
+    const account = await existing(subject, "wechat");
     await grantCredit({ userId: account.id, amountMinor: 5_000_000, idempotencyKey: wechatRegistrationGiftIdempotencyKey(subject), reason: "账号首次登录赠送 10 算力" });
+    await openRegisteredAccount({ openId: subject, loginMethod: "wechat" });
+    await ensureWechatRegistrationGift(account.id, subject);
     await claimWebLoginGift(account);
-    const before = await getAccountBalance(account.id);
-    expect(before.balanceMinor).toBe(5_000_000);
-    for (let i = 0; i < 3; i++) {
-      await ensureWechatRegistrationGift(account.id, subject);
-      await ensureWechatRegistrationGift(account.id, "wx0000000000000001:other-identity");
-      await claimWebLoginGift(account);
-    }
-    expect(await getAccountBalance(account.id)).toEqual(before);
+    expect((await getAccountBalance(account.id)).balanceMinor).toBe(5_000_000);
+    expect(WEB_LOGIN_GIFT_MINOR).toBe(WECHAT_REGISTRATION_GIFT_MINOR);
+  });
+  it("rolls the new account back when the gift write fails, then the retry grants five", async () => {
+    let failed = true;
+    await expect(openRegisteredAccount({
+      openId: "email:retry@example.com", email: "retry@example.com", loginMethod: "email",
+    }, async () => {
+      if (failed) {
+        failed = false;
+        throw new Error("ledger_unavailable");
+      }
+      return { kind: "appended", balanceMinor: 0 };
+    })).rejects.toThrow("ledger_unavailable");
+    expect(await getUserByOpenId("email:retry@example.com")).toBeUndefined();
+    const opened = await openRegisteredAccount({
+      openId: "email:retry@example.com", email: "retry@example.com", loginMethod: "email",
+    });
+    expect(opened.created).toBe(true);
+    expect((await getAccountBalance(opened.userId)).balanceMinor).toBe(WEB_LOGIN_GIFT_MINOR);
+    expect((await getAccountBalance(opened.userId)).reservedMinor).toBe(0);
   });
 });

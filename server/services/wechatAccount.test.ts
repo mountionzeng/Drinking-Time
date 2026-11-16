@@ -9,6 +9,7 @@ import {
   ensureWechatRegistrationGift,
   WECHAT_REGISTRATION_GIFT_MINOR,
   wechatRegistrationGiftIdempotencyKey,
+  wechatRegistrationGiftInput,
 } from './accountIdentity';
 import { WEB_LOGIN_GIFT_MINOR } from './webLoginGift';
 import { formatComputeUnits } from '../../shared/computeMoney';
@@ -35,8 +36,9 @@ it('defines one opaque, stable 5-compute-unit gift for an app-scoped WeChat iden
   const subject = 'wx0000000000000001:sensitive-openid';
   await upsertUser({ openId: 'wx:gift-definition', loginMethod: 'wechat' });
   const account = (await getUserByOpenId('wx:gift-definition'))!;
-  await ensureWechatRegistrationGift(account.id, subject, grant);
-  expect(grant).toHaveBeenCalledWith({
+  expect(await ensureWechatRegistrationGift(account.id, subject, grant)).toEqual({ kind: 'ineligible' });
+  expect(grant).not.toHaveBeenCalled();
+  expect(wechatRegistrationGiftInput(account.id, subject)).toEqual({
     userId: account.id,
     amountMinor: 2_500_000,
     idempotencyKey: wechatRegistrationGiftIdempotencyKey(subject),

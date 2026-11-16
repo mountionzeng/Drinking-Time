@@ -14,11 +14,7 @@ import {
   getLoginIdentity,
   linkLoginIdentity,
 } from "../repositories/accounts";
-import {
-  getUserById,
-  getUserByOpenId,
-  upsertUser,
-} from "../repositories/users";
+import { getUserById } from "../repositories/users";
 import {
   consumePhoneChallenge,
   markPhoneChallengeSent,
@@ -128,17 +124,20 @@ export async function verifyPhoneLoginCode(
     return identity.userId;
   }
   // Stable opaque openId + unique identity prevent parallel registrations creating two users.
-  // No email/WeChat matching, merging or signup credit grants.
+  // No email/WeChat matching or merging. The one registration gift is committed with the new
+  // user row; a later login of the same phone does not grant again.
   // Keep the full SHA-256 digest within users.openId VARCHAR(64).
   // Existing linked identities above retain their original user ID.
   const openId = `phone:${createHash("sha256").update(phone).digest("base64url")}`;
-  await upsertUser({
+  const { openRegisteredAccount } = await import("./webLoginGift");
+  const opened = await openRegisteredAccount({
     openId,
     loginMethod: "phone",
     role: "user",
     lastSignedIn: new Date(),
+    requestIp: ip,
   });
-  const user = await getUserByOpenId(openId);
+  const user = await getUserById(opened.userId);
   if (!user) throw new Error("phone_account_unavailable");
   const linked = await linkLoginIdentity({
     userId: user.id,

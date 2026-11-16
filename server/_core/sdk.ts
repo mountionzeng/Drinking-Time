@@ -316,7 +316,8 @@ class SDKServer {
       }
       try {
         const userInfo = await this.getUserInfoWithJwt(sessionCookie ?? "");
-        await db.upsertUser({
+        const { openRegisteredAccount } = await import("../services/webLoginGift");
+        await openRegisteredAccount({
           openId: userInfo.openId,
           name: userInfo.name || null,
           email: userInfo.email ?? null,

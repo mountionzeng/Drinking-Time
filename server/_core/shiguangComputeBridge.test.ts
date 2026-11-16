@@ -4,8 +4,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createShiguangComputeBridgeRouter } from "./shiguangComputeBridge";
 import { bridgeSignature } from "./shiguangBridgeSignature";
 import { resetMemoryStateForTesting, upsertUser, getUserByOpenId } from "../db";
-import { ensureWechatRegistrationGift } from "../services/accountIdentity";
-import { getAccountBalance } from "../services/computeLedger";
+import { wechatRegistrationGiftInput } from "../services/accountIdentity";
+import { getAccountBalance, grantCredit } from "../services/computeLedger";
 import * as runtime from "../repositories/runtime";
 
 const secret = "test-compute-bridge-secret-at-least-32";
@@ -23,7 +23,7 @@ async function fixture(options?: { enabled?: boolean }) {
     await upsertUser({ openId: s, loginMethod: "wechat" });
     const user = (await getUserByOpenId(s))!;
     users.set(s, user.id);
-    await ensureWechatRegistrationGift(user.id, s);
+    await grantCredit(wechatRegistrationGiftInput(user.id, s));
   }
   const nonces = new Set<string>();
   const app = express();

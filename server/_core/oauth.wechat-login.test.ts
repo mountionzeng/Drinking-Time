@@ -122,14 +122,12 @@ describe("网页六位码登录 HTTP 边界", () => {
     expect((await post("wechat-scan/create", { mode: "bind", userId: 999 })).status).toBe(200);
     expect(create).toHaveBeenCalledWith(expect.objectContaining({ bindUserId: 7 }));
     create.mockClear();
-    expect((await post("wechat-scan/create", {
+    const rejected = await post("wechat-scan/create", {
       mode: "bind", userId: 999, subject: `shiguang:${"e".repeat(64)}`, mailboxCode: "ABCDEF",
-    })).status).toBe(200);
-    const createdInput = create.mock.calls.at(-1)?.[0] as Record<string, unknown>;
-    expect(createdInput.bindUserId).toBe(7);
-    expect(createdInput.subject).toBeUndefined();
-    expect(createdInput.mailboxCode).toBeUndefined();
-    expect(JSON.stringify(createdInput)).not.toContain("ABCDEF");
+    });
+    expect(rejected.status).toBe(400);
+    expect(await rejected.json()).toEqual({ error: "subject_not_accepted" });
+    expect(create).not.toHaveBeenCalled();
   });
 
   it("访客会话不能绑定算力账户", async () => {

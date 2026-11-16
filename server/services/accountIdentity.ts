@@ -20,7 +20,6 @@ import {
   getDb,
   getLoginIdentity,
   getUserById,
-  getUserByOpenId,
   consumeDevicePairingCode,
   consumePersistentRateLimit,
   consumeVerificationChallenge,
@@ -57,6 +56,7 @@ import {
   type PasswordPolicyResult,
 } from "./accountSecurity";
 import { grantCredit, type CreditLedgerExecutor } from "./computeLedger";
+import { openRegisteredAccount } from "./webLoginGift";
 
 const { accountIdentities: identities, accountVerificationChallenges: challenges } = schema;
 type ProofContext = { userId: number; sessionVersion: number; email: string; secret: string };
@@ -239,16 +239,6 @@ export async function allowShiguangDesktopTransferAttempt(subject: string) {
  */
 export const WECHAT_REGISTRATION_GIFT_MINOR = 2_500_000;
 
-/**
- * 此时间之前创建的账号缺少赠送记录也不再补发。
- * 此时间之后新建的网站账号仍可领取一次；微信新账号只在创建事务里领取。
- */
-export const REGISTRATION_GIFT_EPOCH_MS = Date.parse("2026-11-16T09:30:00.000Z");
-
-export function registrationGiftEligible(createdAt: Date | null | undefined) {
-  return createdAt instanceof Date && createdAt.getTime() >= REGISTRATION_GIFT_EPOCH_MS;
-}
-
 export function wechatRegistrationGiftIdempotencyKey(subject: string) {
   return `wechat-registration-gift:v1:${createHash("sha256").update(subject).digest("hex")}`;
 }
@@ -265,19 +255,15 @@ export function wechatRegistrationGiftInput(userId: number, subject: string) {
 }
 
 /**
- * 补一次尚未入账的注册赠送。老账号直接返回，不写账。
- * 同一账号已有微信或网站赠送前缀时，账本锁内记为重复，余额不变。
+ * 登录、绑定和读余额都不能补发。微信赠送只发生在 resolveWechatAccount
+ * 新建用户、身份和账本的同一次提交里。
  */
 export async function ensureWechatRegistrationGift(
-  userId: number,
-  subject: string,
-  grant: typeof grantCredit = grantCredit
+  _userId: number,
+  _subject: string,
+  _grant: typeof grantCredit = grantCredit
 ) {
-  const user = await getUserById(userId);
-  if (!user || user.id !== userId || !registrationGiftEligible(user.createdAt)) {
-    return { kind: "ineligible" as const };
-  }
-  return grant(wechatRegistrationGiftInput(userId, subject));
+  return { kind: "ineligible" as const };
 }
 
 /** Creates the account and identity in one transaction, then grants 5 compute units. */
@@ -561,17 +547,14 @@ export async function resolveGoogleLogin(input: {
 
   let userId = emailResolution.kind === "known" ? emailResolution.userId : null;
   if (userId == null) {
-    const openId = `email:${email}`;
-    await upsertUser({
-      openId,
+    const opened = await openRegisteredAccount({
+      openId: `email:${email}`,
       email,
       name: input.name?.trim() || null,
       loginMethod: "google",
       lastSignedIn: new Date(),
     });
-    const created = await getUserByOpenId(openId);
-    if (!created) throw new Error("Google 用户创建后无法读取");
-    userId = created.id;
+    userId = opened.userId;
   }
 
   const emailLink = await linkEmailIdentity({ userId, email });

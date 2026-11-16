@@ -38,6 +38,7 @@ import {
   isWechatScanLoginEnabled,
   pollWebLoginRequest,
 } from "../services/webLogin";
+import { openRegisteredAccount } from "../services/webLoginGift";
 import {
   buildSupabaseGoogleAuthorizeUrl,
   verifySupabaseGoogleToken,
@@ -204,13 +205,14 @@ async function establishEmailSession(
   email: string
 ): Promise<void> {
   const openId = `email:${email}`;
-  await db.upsertUser({
+  const opened = await openRegisteredAccount({
     openId,
     email,
     loginMethod: "email",
     lastSignedIn: new Date(),
+    requestIp: clientIp(req),
   });
-  const user = await db.getUserByOpenId(openId);
+  const user = await db.getUserById(opened.userId);
   if (!user) {
     throw new Error("邮箱用户创建后无法读取");
   }
@@ -250,13 +252,14 @@ async function establishAccountSession(
     user = await db.getUserById(input.userId);
   } else {
     const openId = `email:${input.email}`;
-    await db.upsertUser({
+    const opened = await openRegisteredAccount({
       openId,
       email: input.email,
       loginMethod: "email",
       lastSignedIn: new Date(),
+      requestIp: clientIp(req),
     });
-    user = await db.getUserByOpenId(openId);
+    user = await db.getUserById(opened.userId);
   }
   if (!user) throw new Error("邮箱用户创建后无法读取");
 
@@ -795,6 +798,10 @@ export function registerOAuthRoutes(app: Express) {
   app.post("/api/auth/wechat-scan/create", async (req: Request, res: Response) => {
     res.setHeader("Cache-Control", "no-store");
     if (!isWechatScanLoginEnabled()) { res.status(404).json({ error: "disabled" }); return; }
+    if (req.body && typeof req.body === "object" && "subject" in req.body) {
+      res.status(400).json({ error: "subject_not_accepted" });
+      return;
+    }
     const qr = req.body?.presentation === "qr";
     if (qr && !wechatLoginQrConfigured()) { res.status(503).json({ error: "qr_not_configured" }); return; }
     let bindUserId: number | undefined;
@@ -827,6 +834,10 @@ export function registerOAuthRoutes(app: Express) {
   app.post("/api/auth/wechat-scan/poll", async (req: Request, res: Response) => {
     res.setHeader("Cache-Control", "no-store");
     if (!isWechatScanLoginEnabled()) { res.status(404).json({ error: "disabled" }); return; }
+    if (req.body && typeof req.body === "object" && "subject" in req.body) {
+      res.status(400).json({ error: "subject_not_accepted" });
+      return;
+    }
     const l = typeof req.body?.l === "string" ? req.body.l : "";
     const v = typeof req.body?.v === "string" ? req.body.v : "";
     try {
@@ -1031,13 +1042,24 @@ export function registerOAuthRoutes(app: Express) {
         return;
       }
 
-      await db.upsertUser({
-        openId: userInfo.openId,
-        name: existingUser?.name ?? (userInfo.name || null),
-        email: userInfo.email ?? null,
-        loginMethod: userInfo.loginMethod ?? userInfo.platform ?? null,
-        lastSignedIn: new Date(),
-      });
+      if (existingUser) {
+        await db.upsertUser({
+          openId: userInfo.openId,
+          name: existingUser.name ?? (userInfo.name || null),
+          email: userInfo.email ?? null,
+          loginMethod: userInfo.loginMethod ?? userInfo.platform ?? null,
+          lastSignedIn: new Date(),
+        });
+      } else {
+        await openRegisteredAccount({
+          openId: userInfo.openId,
+          name: userInfo.name || null,
+          email: userInfo.email ?? null,
+          loginMethod: userInfo.loginMethod ?? userInfo.platform ?? null,
+          lastSignedIn: new Date(),
+          requestIp: clientIp(req),
+        });
+      }
 
       const sessionToken = await sdk.createSessionToken(userInfo.openId, {
         name: userInfo.name || "",
