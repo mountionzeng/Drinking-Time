@@ -10,6 +10,7 @@ import WelcomePreviewPage from "@/pages/WelcomePreviewPage";
 import ShiguangLandingPage from "@/pages/ShiguangLandingPage";
 import PersonalMemoryPage from "@/pages/PersonalMemoryPage";
 import SupabaseAuthCallbackPage from "@/pages/SupabaseAuthCallbackPage";
+import PlatformRegisterPage from "@/features/auth/views/PlatformRegisterPage";
 import NotFound from "@/pages/NotFound";
 import AdminInvitesPage from "@/pages/AdminInvitesPage";
 import AdminVisitsPage from "@/pages/AdminVisitsPage";
@@ -89,6 +90,9 @@ export default function AppRouter() {
       <Route path="/chapter/claim"><ChapterClaimPage /></Route>
       <Route path="/auth/supabase/callback">
         <SupabaseAuthCallbackPage />
+      </Route>
+      <Route path="/auth/platform-register">
+        <PlatformRegisterPage />
       </Route>
       <Route path="/login">
         <LoginEntry />

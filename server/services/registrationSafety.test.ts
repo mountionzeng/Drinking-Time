@@ -225,7 +225,7 @@ describe("registration safety", () => {
     expect(await balance(created.userId)).toBe(WEB_LOGIN_GIFT_MINOR);
   });
 
-  it("does not create or gift a platform session user while invites are required", async () => {
+  it("does not create a platform session user, with or without the invite wall", async () => {
     const { syncMissingExternalUser } = await import("../_core/sdk");
     const previous = ENV.betaInviteRequired;
     try {
@@ -238,13 +238,14 @@ describe("registration safety", () => {
       })).rejects.toThrow("invite_required");
       expect(await getUserByOpenId("platform:bypass")).toBeUndefined();
       ENV.betaInviteRequired = false;
-      const created = await syncMissingExternalUser({
+      await expect(syncMissingExternalUser({
         openId: "platform:plain",
         email: "plain@example.com",
         loginMethod: "platform",
         lastSignedIn: new Date(),
-      });
-      expect(await balance(created.id)).toBe(0);
+      })).rejects.toThrow("registration_required");
+      expect(await getUserByOpenId("platform:plain")).toBeUndefined();
+      expect(memoryState.users.some(user => user.email === "plain@example.com")).toBe(false);
     } finally {
       ENV.betaInviteRequired = previous;
     }

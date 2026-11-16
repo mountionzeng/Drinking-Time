@@ -5574,7 +5574,8 @@
         "client/src/pages/LoginPage.tsx",
         "client/src/features/auth/views/AuthEntryPanel.tsx",
         "client/src/features/computeAccount/RechargeDialog.tsx",
-        "client/src/features/computeAccount/BindComputeAccount.tsx"
+        "client/src/features/computeAccount/BindComputeAccount.tsx",
+        "client/src/features/auth/views/PlatformRegisterPage.tsx"
       ],
       "owners": [
         "server/services/accountIdentity.ts",
@@ -5616,6 +5617,7 @@
         "server/routers/computePayment.ts",
         "client/src/features/computeAccount/RechargeDialog.tsx",
         "client/src/features/computeAccount/BindComputeAccount.tsx",
+        "client/src/features/auth/views/PlatformRegisterPage.tsx",
         "server/services/computeMetering.ts",
         "server/services/computeSubscriptionPlans.ts",
         "server/_core/inferenceOrchestrator.ts",
@@ -5631,6 +5633,8 @@
         "server/services/computeTopUp.ts",
         "server/_core/alipayNotifyRoute.ts",
         "server/services/webLoginGift.ts",
+        "server/services/platformRegistration.ts",
+        "server/repositories/platformRegistrationStore.ts",
         "server/routers/index.ts",
         "client/src/_core/hooks/useAuth.ts"
       ],
@@ -5700,7 +5704,10 @@
         "server/services/payments/alipay.test.ts",
         "docs/qa/2026-11-02-wechat-account-followup.md",
         "server/services/sharedComputeWallet.test.ts",
-        "client/src/features/computeAccount/BindComputeAccount.test.tsx"
+        "client/src/features/computeAccount/BindComputeAccount.test.tsx",
+        "server/services/platformRegistration.test.ts",
+        "server/_core/platformRegistration.http.test.ts",
+        "client/src/features/auth/views/PlatformRegisterPage.test.tsx"
       ],
       "invariants": [
         "按 2026-09-23 用户确认，已绑定同一 userId 的手机和电脑共用同一本算力账；不同账号不自动合并，冲突停止，不修改故事或图片。",
@@ -5714,7 +5721,8 @@
         "正常运行时余额不足只阻止付费调用，不得阻止用户登录、浏览和编辑已有内容；用户可以站内申请追加测试算力。用户明确授权的全站紧急停用除外，停用必须保留原数据、审计记录与恢复路径。",
         "管理员可以管理赠送卡、续充申请、额度和费用，但不能借此读取用户的故事、提示词或媒体。",
         "邮箱账号继续使用验证码、密码或 Google；微信账号使用微信授权与一次性电脑短码。真实支付订阅仍须通过独立上线门槛后开放。",
-        "注册赠送只在第一次插入该账号的同一次提交里发放 5 算力。已经存在的账号不论创建时间、有无历史赠送，登录、绑定和读余额都不再补发。微信新账号的赠送和用户、身份在同一次提交里。绑定、换端和再次登录不重复赠送。两本已存在的账保持余额、赠送和预占，冲突只返回 merge_required。浏览器提交的 subject 不能充当绑定身份；只有验签通过的云桥 shiguang 哈希可以。故事信箱确认不写入钱包身份。"
+        "注册赠送只在第一次插入该账号的同一次提交里发放 5 算力。已经存在的账号不论创建时间、有无历史赠送，登录、绑定和读余额都不再补发。微信新账号的赠送和用户、身份在同一次提交里。绑定、换端和再次登录不重复赠送。两本已存在的账保持余额、赠送和预占，冲突只返回 merge_required。浏览器提交的 subject 不能充当绑定身份；只有验签通过的云桥 shiguang 哈希可以。故事信箱确认不写入钱包身份。",
+        "缺少可信邮箱已验证标记的第三方平台新用户，必须先用邮箱或手机验证码完成验证，才在同一次提交里创建账号、身份和首次 5 算力。会话同步不创建账号，也不能先建一个不赠送的号再补领。已有平台账号可以登录且不补发，未验证邮箱不写入 users.email，也不据此合并。验证码命中已有邮箱或手机号时只返回冲突，不登录旧账号、不绑定平台身份、不改余额和预占。Google 等已经可信的验证入口不增加这一步。内测邀请仍然挡住尚未开放的新注册。查询参数不能证明注册资格。"
       ],
       "dependencies": [
         "invite-access-monitoring",
@@ -5728,6 +5736,7 @@
         "本轮补齐正式环境供应商提交前的零余额准入检查；它不替代原有预占结算，也不宣称所有正余额调用已完成逐笔计费。正式站余额保持零，不新增充值或自动赠送入口；未接入账本的正余额消费仍须后续补齐。",
         "真实微信端已经接入余额与逐笔账单展示。注册赠送只跟第一次插入账号的事务走，已有账号不再因登录补发，已发放的 10 算力不回收不补差。赠送卡领取、续充申请和管理入口仍未接入用户界面与业务路由，网页版尚未接入同等账单页面。",
         "本轮只补网页绑定入口和注册赠送边界。本地邮箱小程序功能线目前只见余额桥接，缺模型 reserve/settle；另一条 logo-ai 功能线有计费，两者不能合并后宣称小程序消费已互通。正式包 0.1.1113m 的精确上传树与线上开关、密钥状态未在本轮读取，不能声称已经上线。小程序确认页不在本仓库。",
+        "2026-11-16 缺少可信邮箱验证的平台新用户，要先完成邮箱或手机验证，才会在同一次提交里建号并赠送 5 算力。注册挑战只在进程内存，MySQL 上的挑战持久化、跨进程消费和并发没有执行。本环境没有发送真实短信、邮件或外部消息。",
         "正式 MySQL、测试 MySQL 与本地历史数据尚未按迁移清单完成归属核对、冲突修复和可回滚切换；未提供 TEST_MYSQL_DATABASE_URL 时 MySQL 集成测试不会执行。",
         "微信小游戏的聊天生成和重新解读来信已增加零余额闸门；付费 AI 调用尚未在网页版与所有供应商路径全面接入算力预留、结算与失败释放，因此当前不能把全站账本基础视为已上线计费。",
         "微信与支付所需资质、渠道规则、退款、订阅和消费者告知仍待后续阶段核验。",
@@ -5741,6 +5750,11 @@
         "拾光签名桥已提供只读流水 POST /api/shiguang/compute/statement，但小程序「我的」页面和云函数尚未接入。本接口不改价格、退款或预占结算，也不改云函数 BASE_URL。"
       ],
       "history": [
+        {
+          "date": "2026-11-16",
+          "kind": "fix",
+          "summary": "缺少可信邮箱验证的平台新用户，改为先完成邮箱或手机验证，再在同一次提交里建号、写入身份并赠送 5 算力。未验证回调和会话同步都不建号。验证命中已有邮箱或手机号时冲突，不登录旧账号、不合并余额和预占。已有平台账号仍可登录且不补发。Google 等已验证入口不增加步骤。注册挑战只在进程内存，MySQL 并发未执行。"
+        },
         {
           "date": "2026-11-16",
           "kind": "fix",

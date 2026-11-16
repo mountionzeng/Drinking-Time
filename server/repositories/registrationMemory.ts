@@ -2,6 +2,7 @@ import type { User } from "../../drizzle/schema";
 import { ENV } from "../_core/env";
 import {
   applyDefinedValues,
+  getDb,
   memoryState,
   nextMemoryId,
   now,
@@ -22,6 +23,8 @@ export type MemoryRegistrationInput = {
   requestIp?: string | null;
   now?: Date;
   links?: Link[];
+  /** 已验证邮箱命中旧账号时，默认认领。平台新注册设为 false：冲突且不改旧账。 */
+  claimExisting?: boolean;
 };
 export type MemoryRegistrationResult = {
   outcome: "created" | "reused" | "conflict";
@@ -82,6 +85,14 @@ export async function openRegisteredAccountInMemory(
 ): Promise<MemoryRegistrationResult> {
   return withLocalAggregateMutationLock(async () => {
     const verified = verifiedEmailDecision(input.email, input.emailVerified);
+    if (input.claimExisting === false && (verified?.kind === "reuse" || verified?.kind === "conflict")) {
+      return {
+        outcome: "conflict",
+        created: false,
+        userId: 0,
+        userIds: verified.kind === "reuse" ? [verified.userId] : verified.userIds,
+      };
+    }
     if (verified?.kind === "conflict") return { outcome: "conflict", created: false, userId: 0, userIds: verified.userIds };
     if (verified?.kind === "reuse") {
       const blocked = attachLinks(verified.userId, input.links);
@@ -172,4 +183,9 @@ export async function bindWechatIdentityInMemory(userId: number, subject: string
     await persistMemoryState();
     return "bound" as const;
   });
+}
+
+/** 服务层走这里取数据库，避免再直接导入 server/db.ts。 */
+export async function registrationDatabase() {
+  return getDb();
 }

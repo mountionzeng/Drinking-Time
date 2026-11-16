@@ -5,8 +5,7 @@ import { COMPUTE_UNITS_PER_YUAN, MINOR_PER_YUAN } from "../../shared/computeMone
 import { ENV } from "../_core/env";
 import { consumePersistentRateLimit, normalizeAccountEmail } from "../repositories/accounts";
 import { listCreditLedgerEntries, type CreditLedgerExecutor } from "../repositories/computeLedger";
-import { getDb } from "../db";
-import { openRegisteredAccountInMemory } from "../repositories/registrationMemory";
+import { openRegisteredAccountInMemory, registrationDatabase } from "../repositories/registrationMemory";
 import { getUserById, getUserByOpenId } from "../repositories/users";
 import { grantCredit } from "./computeLedger";
 
@@ -78,6 +77,8 @@ export type OpenRegisteredAccountInput = {
   requestIp?: string | null;
   now?: Date;
   links?: Array<{ provider: "email" | "google" | "phone"; subject: string }>;
+  /** 已验证邮箱命中旧账号时是否认领。平台新注册传 false，只返回冲突、不改旧账。 */
+  claimExisting?: boolean;
 };
 
 export type OpenRegisteredAccountResult = {
@@ -153,7 +154,7 @@ export async function openRegisteredAccount(
   grant: RegistrationGrant = grantCredit,
 ): Promise<OpenRegisteredAccountResult> {
   if (!input.openId) throw new Error("User openId is required for upsert");
-  const db = await getDb();
+  const db = await registrationDatabase();
   if (!db) {
     return openRegisteredAccountInMemory(input, {
       declined: Boolean(registrationGiftDeclined(input)),
@@ -185,6 +186,14 @@ async function openRegisteredAccountOn(
   grant: RegistrationGrant,
 ): Promise<OpenRegisteredAccountResult> {
   const verified = await verifiedEmailDecisionOn(tx, input.email, input.emailVerified);
+  if (input.claimExisting === false && (verified?.kind === "reuse" || verified?.kind === "conflict")) {
+    return {
+      outcome: "conflict",
+      created: false,
+      userId: 0,
+      userIds: verified.kind === "reuse" ? [verified.userId] : verified.userIds,
+    };
+  }
   if (verified?.kind === "conflict") return { outcome: "conflict", created: false, userId: 0, userIds: verified.userIds };
   if (verified?.kind === "reuse") {
     await touchRegisteredUser(tx, verified.userId, input);

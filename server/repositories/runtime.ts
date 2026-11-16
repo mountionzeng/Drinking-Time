@@ -87,11 +87,29 @@ import {
   createEmptyPersonalMemoryLocalState,
   normalizePersonalMemoryLocalState,
 } from "../../shared/personalMemory";
+export type PlatformRegistrationChallenge = {
+  id: string;
+  openId: string;
+  name: string | null;
+  loginMethod: string | null;
+  browserHash: string;
+  expiresAt: number;
+  consumedAt: number | null;
+  otp: {
+    channel: "email" | "phone";
+    subject: string;
+    codeHash: string;
+    expiresAt: number;
+    attempts: number;
+  } | null;
+};
+
 export const transientState = {
   memoryVideoTakeSubmissionClaimQueue: Promise.resolve() as Promise<void>,
   memoryInviteClaimQueue: Promise.resolve() as Promise<void>,
   memoryEmailOtps: [] as EmailOtp[],
   nextMemoryEmailOtpId: 1,
+  platformRegistrationChallenges: [] as PlatformRegistrationChallenge[],
 };
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -1314,6 +1332,7 @@ export function resetMemoryStateForTesting(): void {
   transientState.memoryInviteClaimQueue = Promise.resolve();
   transientState.memoryEmailOtps = [];
   transientState.nextMemoryEmailOtpId = 1;
+  transientState.platformRegistrationChallenges = [];
   // Mark as loaded so subsequent calls don't reload stale data from disk.
   memoryLoaded = true;
   memoryLoadPromise = null;

@@ -325,7 +325,7 @@ class SDKServer {
         });
       } catch (error) {
         console.error("[Auth] Failed to sync user from OAuth:", error);
-        throw ForbiddenError(error instanceof Error && error.message === "invite_required" ? "invite_required" : "Failed to sync user info");
+        throw ForbiddenError(error instanceof Error && (error.message === "invite_required" || error.message === "registration_required") ? error.message : "Failed to sync user info");
       }
     }
 
@@ -342,7 +342,7 @@ class SDKServer {
   }
 }
 
-/** 会话里第一次见到外部 openId。内测邀请开启时不新建账号，任何情况下都不发注册赠送。 */
+/** 会话里第一次见到外部 openId。不在这里建账号，也不发注册赠送。 */
 export async function syncMissingExternalUser(input: {
   openId: string;
   name?: string | null;
@@ -353,16 +353,7 @@ export async function syncMissingExternalUser(input: {
   const existing = await db.getUserByOpenId(input.openId);
   if (existing) return existing;
   if (ENV.betaInviteRequired) throw new Error("invite_required");
-  await db.upsertUser({
-    openId: input.openId,
-    name: input.name ?? null,
-    email: input.email ?? null,
-    loginMethod: input.loginMethod ?? null,
-    lastSignedIn: input.lastSignedIn,
-  });
-  const created = await db.getUserByOpenId(input.openId);
-  if (!created) throw new Error("external_user_unavailable");
-  return created;
+  throw new Error("registration_required");
 }
 
 export const sdk = new SDKServer();
