@@ -35,7 +35,7 @@ describe("shared compute wallet", () => {
       openId: "email:brand-new@example.com", email: "brand-new@example.com", loginMethod: "email",
     });
     const account = (await getUserByOpenId("email:brand-new@example.com"))!;
-    expect(opened).toEqual({ userId: account.id, created: true });
+    expect(opened).toMatchObject({ userId: account.id, created: true, outcome: "created" });
     expect((await getAccountBalance(account.id)).balanceMinor).toBe(WEB_LOGIN_GIFT_MINOR);
     await getAccountBalance(account.id);
     expect(await claimWebLoginGift({ ...account, createdAt: new Date("2099-01-01") } as typeof account)).toEqual({ kind: "duplicate" });
@@ -90,7 +90,7 @@ describe("shared compute wallet", () => {
     const platform = await openRegisteredAccount({ openId: "manus:first-sync", loginMethod: "manus", name: "平台用户" });
     expect((await getAccountBalance(platform.userId)).balanceMinor).toBe(WEB_LOGIN_GIFT_MINOR);
     const again = await openRegisteredAccount({ openId: "manus:first-sync", loginMethod: "manus", lastSignedIn: new Date() });
-    expect(again).toEqual({ userId: platform.userId, created: false });
+    expect(again).toMatchObject({ userId: platform.userId, created: false, outcome: "reused" });
     expect((await getAccountBalance(platform.userId)).balanceMinor).toBe(WEB_LOGIN_GIFT_MINOR);
   });
 

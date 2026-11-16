@@ -55,6 +55,14 @@ describe("绑定算力账户", () => {
     expect(view("expired")).toContain("绑定确认已过期");
   });
 
+  it("区分访客、未登录、功能关闭和过期", () => {
+    expect(view("guest" as Parameters<typeof BindComputeAccountView>[0]["phase"])).toContain("正式账号");
+    expect(view("unauthenticated" as Parameters<typeof BindComputeAccountView>[0]["phase"])).toContain("请先登录");
+    expect(view("disabled")).toContain("还没开启");
+    expect(view("expired")).toContain("已过期");
+    expect(view("disabled")).not.toContain("正式账号");
+  });
+
   it("hides the action for guests and signed-out visitors", () => {
     expect(canBindComputeAccount(null)).toBe(false);
     expect(canBindComputeAccount({ id: 1, loginMethod: "guest", openId: "guest:1" })).toBe(false);

@@ -61,8 +61,13 @@ const DIRECT_GOOGLE_OAUTH_STATE_COOKIE = "dt_google_direct_oauth_state";
 const GOOGLE_RETURN_COOKIE = "dt_google_return_to";
 const GOOGLE_OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
 
+/** 只用 Express 在 trust proxy 关闭或仅回环时算出的地址，不读取客户端自己写的 X-Forwarded-For。 */
+export function trustedClientIp(req: { ip?: string; socket?: { remoteAddress?: string | null } }): string {
+  return req.ip || req.socket?.remoteAddress || "unknown";
+}
+
 function clientIp(req: Request): string {
-  return req.ip || req.socket.remoteAddress || "unknown";
+  return trustedClientIp(req);
 }
 
 /** 均匀分布的 6 位验证码（crypto.randomInt），与账号/手机登录共用。 */
@@ -203,22 +208,23 @@ async function establishEmailSession(
   req: Request,
   res: Response,
   email: string
-): Promise<void> {
-  const openId = `email:${email}`;
+): Promise<"ok" | "conflict"> {
   const opened = await openRegisteredAccount({
-    openId,
+    openId: `email:${email}`,
     email,
+    emailVerified: true,
     loginMethod: "email",
     lastSignedIn: new Date(),
     requestIp: clientIp(req),
   });
+  if (opened.outcome === "conflict" || opened.userId == null) return "conflict";
   const user = await db.getUserById(opened.userId);
   if (!user) {
     throw new Error("邮箱用户创建后无法读取");
   }
   await db.bindRedeemedInviteToUser(email, user.id);
 
-  const sessionToken = await sdk.createSessionToken(openId, {
+  const sessionToken = await sdk.createSessionToken(user.openId, {
     name: email.split("@")[0],
     expiresInMs: ONE_YEAR_MS,
   });
@@ -227,6 +233,7 @@ async function establishEmailSession(
     ...cookieOptions,
     maxAge: ONE_YEAR_MS,
   });
+  return "ok";
 }
 
 /**
@@ -251,14 +258,17 @@ async function establishAccountSession(
     });
     user = await db.getUserById(input.userId);
   } else {
-    const openId = `email:${input.email}`;
     const opened = await openRegisteredAccount({
-      openId,
+      openId: `email:${input.email}`,
       email: input.email,
+      emailVerified: true,
       loginMethod: "email",
       lastSignedIn: new Date(),
       requestIp: clientIp(req),
     });
+    if (opened.outcome === "conflict" || opened.userId == null) {
+      throw new Error("registration_identity_conflict");
+    }
     user = await db.getUserById(opened.userId);
   }
   if (!user) throw new Error("邮箱用户创建后无法读取");
@@ -375,10 +385,18 @@ export function registerOAuthRoutes(app: Express) {
         return;
       }
 
-      await establishAccountSession(req, res, {
-        email,
-        userId: verified.userId,
-      });
+      try {
+        await establishAccountSession(req, res, {
+          email,
+          userId: verified.userId,
+        });
+      } catch (error) {
+        if (error instanceof Error && error.message === "registration_identity_conflict") {
+          respondNeedsManualMapping(res);
+          return;
+        }
+        throw error;
+      }
       res.json({ ok: true });
     }
   );
@@ -632,6 +650,7 @@ export function registerOAuthRoutes(app: Express) {
           email: identity.email,
           emailVerified: true,
           name: identity.name,
+          requestIp: clientIp(req),
         });
         if (resolution.outcome === "identity_conflict" || resolution.outcome === "needs_manual_mapping") {
           respondNeedsManualMapping(res);
@@ -714,6 +733,7 @@ export function registerOAuthRoutes(app: Express) {
         email,
         emailVerified: email_verified === true,
         name,
+        requestIp: clientIp(req),
       });
       if (resolution.outcome === "invalid_profile") {
         res.redirect(302, "/login?error=google_email_not_verified");
@@ -757,7 +777,10 @@ export function registerOAuthRoutes(app: Express) {
           res.status(403).json({ error: "invalid_invite" });
           return;
         }
-        await establishEmailSession(req, res, email);
+        if (await establishEmailSession(req, res, email) === "conflict") {
+          respondNeedsManualMapping(res);
+          return;
+        }
         res.json({ ok: true });
       } catch (error) {
         console.error("[InviteLogin] login failed", error);
@@ -1011,7 +1034,10 @@ export function registerOAuthRoutes(app: Express) {
         res.status(401).json({ error: "invalid_or_expired" });
         return;
       }
-      await establishEmailSession(req, res, email);
+      if (await establishEmailSession(req, res, email) === "conflict") {
+        respondNeedsManualMapping(res);
+        return;
+      }
       res.json({ ok: true });
     } catch (error) {
       console.error("[EmailOTP] verify failed", error);

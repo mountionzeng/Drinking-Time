@@ -1,19 +1,12 @@
 import { createHash } from "node:crypto";
-import { eq } from "drizzle-orm";
-import { users, type User } from "../../drizzle/schema";
+import { and, eq, sql } from "drizzle-orm";
+import { accountIdentities, users, type User } from "../../drizzle/schema";
 import { COMPUTE_UNITS_PER_YUAN, MINOR_PER_YUAN } from "../../shared/computeMoney";
 import { ENV } from "../_core/env";
-import { consumePersistentRateLimit } from "../repositories/accounts";
+import { consumePersistentRateLimit, normalizeAccountEmail } from "../repositories/accounts";
 import { listCreditLedgerEntries, type CreditLedgerExecutor } from "../repositories/computeLedger";
-import {
-  applyDefinedValues,
-  getDb,
-  memoryState,
-  nextMemoryId,
-  now as memoryNow,
-  persistMemoryState,
-  withLocalAggregateMutationLock,
-} from "../repositories/runtime";
+import { getDb } from "../db";
+import { openRegisteredAccountInMemory } from "../repositories/registrationMemory";
 import { getUserById, getUserByOpenId } from "../repositories/users";
 import { grantCredit } from "./computeLedger";
 
@@ -76,12 +69,23 @@ type RegistrationGrant = typeof grantCredit;
 export type OpenRegisteredAccountInput = {
   openId: string;
   email?: string | null;
-  name?: string | null;
+  /** 调用方已经证明这个人控制该邮箱。未验证的供应商邮箱不能用来认领旧账号。 */
+  emailVerified?: boolean;
   loginMethod?: string | null;
+  name?: string | null;
   role?: "user" | "admin";
   lastSignedIn?: Date;
   requestIp?: string | null;
   now?: Date;
+  links?: Array<{ provider: "email" | "google" | "phone"; subject: string }>;
+};
+
+export type OpenRegisteredAccountResult = {
+  outcome: "created" | "reused" | "conflict";
+  created: boolean;
+  /** 冲突时是已有账号之一，不是新建账号。 */
+  userId: number;
+  userIds?: number[];
 };
 
 /**
@@ -98,20 +102,24 @@ export async function claimWebLoginGift(user: GiftUser, _opts: { ip?: string | n
 function registrationGiftDeclined(input: OpenRegisteredAccountInput) {
   if (input.loginMethod === "guest" || input.loginMethod === "system") return "not_registration";
   if (input.openId.startsWith("guest:") || input.openId === "local-guest" || input.openId.startsWith("system:")) return "not_registration";
-  if (input.loginMethod === "email" && isDisposableEmail(input.email)) return "disposable_domain";
+  if (input.email && isDisposableEmail(input.email)) return "disposable_domain";
   return null;
 }
 
 /** 超限是明确拒绝，账号仍可建成且以后不再补。存储故障则抛出，让本次注册回滚。 */
-async function registrationGiftPermitted(input: OpenRegisteredAccountInput) {
+async function registrationGiftPermitted(
+  input: OpenRegisteredAccountInput,
+  executor?: Parameters<typeof consumePersistentRateLimit>[0]["executor"],
+) {
   const limits = webLoginGiftLimits();
-  const checks: Array<[string, string, string, number]> = [];
-  if (input.loginMethod === "email") {
-    checks.push(["email_ip_day", "web-login-gift:email-ip:day", hash(`ip:${input.requestIp?.trim() || "unknown"}`), limits.emailIpPerDay]);
-  }
-  checks.push(["global_day", "web-login-gift:global:day", "all", limits.globalPerDay]);
+  const checks: Array<[string, string, string, number]> = [
+    ["ip_day", "web-login-gift:ip:day", hash(`ip:${input.requestIp?.trim() || "unknown"}`), limits.emailIpPerDay],
+    ["global_day", "web-login-gift:global:day", "all", limits.globalPerDay],
+  ];
   for (const [reason, scope, subject, maxAttempts] of checks) {
-    const result = await consumePersistentRateLimit({ scope, subject, windowSeconds: DAY, maxAttempts, now: input.now });
+    const result = await consumePersistentRateLimit({
+      scope, subject, windowSeconds: DAY, maxAttempts, now: input.now, executor,
+    });
     if (!result.allowed) {
       console.warn(`[web-login-gift] skipped new registration reason=${reason}`);
       return false;
@@ -131,93 +139,121 @@ function registrationGiftInput(userId: number) {
   };
 }
 
+type VerifiedEmailDecision =
+  | { kind: "reuse"; userId: number }
+  | { kind: "conflict"; userIds: number[] }
+  | { kind: "absent" };
+
 /**
- * 第一次插入这个 openId 时，用户行和注册赠送在同一次提交里完成。
- * 已存在的账号只更新资料，不赠送。限流存储或账本写入失败会让新建回滚，
- * 调用方重新完成注册时仍会领取；超限和临时邮箱是决定不送，登录不会再补。
- * 调用点：邮箱建会话、账号会话的新建分支、Google 新建、手机号新建、
- * 平台 OAuth 回调和会话里第一次同步本地用户。
+ * 已验证邮箱先解析到唯一账号。解析不了或有多条存量映射时冲突，不新建、不赠送、不合并余额。
+ * 真正新建时，用户、身份、额度和赠送在同一次提交里；失败则整笔回滚，重试仍可领取。
  */
 export async function openRegisteredAccount(
   input: OpenRegisteredAccountInput,
   grant: RegistrationGrant = grantCredit,
-): Promise<{ userId: number; created: boolean }> {
+): Promise<OpenRegisteredAccountResult> {
   if (!input.openId) throw new Error("User openId is required for upsert");
   const db = await getDb();
-  if (!db) return openRegisteredAccountInMemory(input, grant);
-  try {
-    return await db.transaction(async tx => {
-      const [existing] = await tx.select().from(users).where(eq(users.openId, input.openId)).limit(1).for("update");
-      if (existing) {
-        const patch: Partial<typeof users.$inferInsert> = {};
-        if (input.name !== undefined) patch.name = input.name;
-        if (input.email !== undefined) patch.email = input.email;
-        if (input.loginMethod !== undefined) patch.loginMethod = input.loginMethod;
-        if (input.role !== undefined) patch.role = input.role;
-        if (input.lastSignedIn !== undefined) patch.lastSignedIn = input.lastSignedIn;
-        if (Object.keys(patch).length) await tx.update(users).set(patch).where(eq(users.id, existing.id));
-        return { userId: existing.id, created: false };
-      }
-      const [created] = await tx.insert(users).values({
-        openId: input.openId,
-        name: input.name ?? null,
-        email: input.email ?? null,
-        loginMethod: input.loginMethod ?? null,
-        role: input.role ?? (input.openId === ENV.ownerOpenId ? "admin" : "user"),
-        lastSignedIn: input.lastSignedIn ?? new Date(),
-      }).$returningId();
-      if (!registrationGiftDeclined(input) && await registrationGiftPermitted(input)) {
-        await grant(registrationGiftInput(created.id), tx as CreditLedgerExecutor);
-      }
-      return { userId: created.id, created: true };
+  if (!db) {
+    return openRegisteredAccountInMemory(input, {
+      declined: Boolean(registrationGiftDeclined(input)),
+      permit: () => registrationGiftPermitted(input),
+      grant: userId => grant(registrationGiftInput(userId)),
     });
+  }
+  try {
+    return await db.transaction(async tx => openRegisteredAccountOn(tx as CreditLedgerExecutor, input, grant));
   } catch (error) {
+    if (error instanceof RegistrationConflict) {
+      return { outcome: "conflict", created: false, userId: 0, userIds: error.userIds };
+    }
     const winner = await getUserByOpenId(input.openId);
-    if (winner) return { userId: winner.id, created: false };
+    if (winner) return { outcome: "reused", created: false, userId: winner.id };
     throw error;
   }
 }
 
-async function openRegisteredAccountInMemory(input: OpenRegisteredAccountInput, grant: RegistrationGrant) {
-  return withLocalAggregateMutationLock(async () => {
-    const existing = memoryState.users.find(user => user.openId === input.openId);
-    if (existing) {
-      const patch = { ...input };
-      delete patch.requestIp;
-      delete patch.now;
-      applyDefinedValues(existing as unknown as Record<string, unknown>, patch as unknown as Record<string, unknown>);
-      existing.updatedAt = memoryNow();
-      if (input.lastSignedIn !== undefined) existing.lastSignedIn = input.lastSignedIn;
-      await persistMemoryState();
-      return { userId: existing.id, created: false };
-    }
-    const declined = registrationGiftDeclined(input);
-    const permitted = declined ? false : await registrationGiftPermitted(input);
-    const current = memoryNow();
-    const id = nextMemoryId("user");
-    memoryState.users.push({
-      id,
-      openId: input.openId,
-      name: input.name ?? null,
-      email: input.email ?? null,
-      loginMethod: input.loginMethod ?? null,
-      role: (input.role ?? (input.openId === ENV.ownerOpenId ? "admin" : "user")) as User["role"],
-      sessionVersion: 1,
-      createdAt: current,
-      updatedAt: current,
-      lastSignedIn: input.lastSignedIn ?? current,
-    });
-    if (permitted) {
-      try {
-        await grant(registrationGiftInput(id));
-      } catch (error) {
-        memoryState.users = memoryState.users.filter(user => user.id !== id);
-        memoryState.creditLedgerEntries = memoryState.creditLedgerEntries.filter(entry => entry.userId !== id);
-        memoryState.creditAccounts = memoryState.creditAccounts.filter(account => account.userId !== id);
-        throw error;
-      }
-    }
-    await persistMemoryState();
-    return { userId: id, created: true };
-  });
+class RegistrationConflict extends Error {
+  constructor(readonly userIds: number[]) {
+    super("registration_identity_conflict");
+  }
+}
+
+async function openRegisteredAccountOn(
+  tx: CreditLedgerExecutor,
+  input: OpenRegisteredAccountInput,
+  grant: RegistrationGrant,
+): Promise<OpenRegisteredAccountResult> {
+  const verified = await verifiedEmailDecisionOn(tx, input.email, input.emailVerified);
+  if (verified?.kind === "conflict") return { outcome: "conflict", created: false, userId: 0, userIds: verified.userIds };
+  if (verified?.kind === "reuse") {
+    await touchRegisteredUser(tx, verified.userId, input);
+    const blocked = await attachLinksOn(tx, verified.userId, input);
+    if (blocked) return { outcome: "conflict", created: false, userId: 0, userIds: [verified.userId, blocked].sort((a, b) => a - b) };
+    return { outcome: "reused", created: false, userId: verified.userId };
+  }
+  const [existing] = await tx.select().from(users).where(eq(users.openId, input.openId)).for("update").limit(1);
+  if (existing) {
+    await touchRegisteredUser(tx, existing.id, input);
+    const blocked = await attachLinksOn(tx, existing.id, input);
+    if (blocked) return { outcome: "conflict", created: false, userId: 0, userIds: [existing.id, blocked].sort((a, b) => a - b) };
+    return { outcome: "reused", created: false, userId: existing.id };
+  }
+  const [created] = await tx.insert(users).values({
+    openId: input.openId,
+    name: input.name ?? null,
+    email: input.email ?? null,
+    loginMethod: input.loginMethod ?? null,
+    role: input.role ?? (input.openId === ENV.ownerOpenId ? "admin" : "user"),
+    lastSignedIn: input.lastSignedIn ?? new Date(),
+  }).$returningId();
+  const links = [
+    ...(input.emailVerified && input.email ? [{ provider: "email" as const, subject: input.email }] : []),
+    ...(input.links ?? []),
+  ];
+  const blocked = await attachLinksOn(tx, created.id, { ...input, links });
+  if (blocked) throw new RegistrationConflict([blocked]);
+  if (!registrationGiftDeclined(input) && await registrationGiftPermitted(input, tx)) {
+    await grant(registrationGiftInput(created.id), tx);
+  }
+  return { outcome: "created", created: true, userId: created.id };
+}
+
+async function verifiedEmailDecisionOn(tx: CreditLedgerExecutor, email: string | null | undefined, verified: boolean | undefined): Promise<VerifiedEmailDecision | null> {
+  if (!verified || !email) return null;
+  const normalized = normalizeAccountEmail(email);
+  if (!normalized) return { kind: "absent" };
+  const [identity] = await tx.select().from(accountIdentities).where(and(
+    eq(accountIdentities.provider, "email"), eq(accountIdentities.subject, normalized),
+  )).for("update").limit(1);
+  if (identity) return { kind: "reuse", userId: identity.userId };
+  const matches = await tx.select({ id: users.id }).from(users).where(sql`LOWER(TRIM(${users.email})) = ${normalized}`).for("update");
+  if (matches.length > 1) return { kind: "conflict", userIds: matches.map(item => item.id).sort((a, b) => a - b) };
+  if (matches.length === 1) {
+    return ENV.accountAutoIdentityResolution
+      ? { kind: "reuse", userId: matches[0].id }
+      : { kind: "conflict", userIds: [matches[0].id] };
+  }
+  return { kind: "absent" };
+}
+
+async function touchRegisteredUser(tx: CreditLedgerExecutor, userId: number, input: OpenRegisteredAccountInput) {
+  const patch: Partial<typeof users.$inferInsert> = {};
+  if (input.name !== undefined) patch.name = input.name;
+  if (input.lastSignedIn !== undefined) patch.lastSignedIn = input.lastSignedIn;
+  if (Object.keys(patch).length) await tx.update(users).set(patch).where(eq(users.id, userId));
+}
+
+async function attachLinksOn(tx: CreditLedgerExecutor, userId: number, input: OpenRegisteredAccountInput) {
+  for (const link of input.links ?? []) {
+    const subject = link.provider === "email" ? normalizeAccountEmail(link.subject) : link.subject.trim();
+    if (!subject) continue;
+    const [owner] = await tx.select().from(accountIdentities).where(and(
+      eq(accountIdentities.provider, link.provider), eq(accountIdentities.subject, subject),
+    )).for("update").limit(1);
+    if (owner && owner.userId !== userId) return owner.userId;
+    if (owner) continue;
+    await tx.insert(accountIdentities).values({ userId, provider: link.provider, subject, verifiedAt: new Date() });
+  }
+  return null;
 }

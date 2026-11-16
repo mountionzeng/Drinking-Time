@@ -46,12 +46,13 @@ describe("web login gift abuse limits", () => {
     expect(await balance(later.id)).toBe(WEB_LOGIN_GIFT_MINOR);
   });
 
-  it("does not apply the IP limit to non-email logins", async () => {
+  it("applies the IP limit to every rewarded registration channel", async () => {
     vi.stubEnv("WEB_LOGIN_GIFT_EMAIL_IP_DAILY_LIMIT", "1");
     const a = await register("phone:a", "phone", null, "1.2.3.4");
     const b = await register("phone:b", "phone", null, "1.2.3.4");
-    expect(await balance(b.id)).toBe(WEB_LOGIN_GIFT_MINOR);
     expect(await balance(a.id)).toBe(WEB_LOGIN_GIFT_MINOR);
+    expect(await balance(b.id)).toBe(0);
+    expect(await claimWebLoginGift(b)).toEqual({ kind: "ineligible" });
   });
 
   it("enforces the global daily cap", async () => {

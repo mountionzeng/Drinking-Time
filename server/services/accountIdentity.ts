@@ -26,21 +26,13 @@ import {
   getPasswordCredential,
   issueDevicePairingCode,
   issueVerificationChallenge,
-  linkEmailIdentity,
-  linkLoginIdentity,
   normalizeAccountEmail,
   resolveEmailIdentity,
   setPasswordCredential,
   upsertUser,
 } from "../db";
 import type { WebLoginTransaction } from "../repositories/webLoginRequests";
-import {
-  memoryState,
-  nextMemoryId,
-  now as memoryNow,
-  persistMemoryState,
-  withLocalAggregateMutationLock,
-} from "../repositories/runtime";
+import { bindWechatIdentityInMemory } from "../repositories/registrationMemory";
 import {
   PAIRING_CODE_LENGTH,
   checkPasswordPolicy,
@@ -330,30 +322,6 @@ export async function bindWechatAccount(userId: number, subject: string, transac
   }
 }
 
-/** 本地账本里的绑定。不创建用户，不写余额，也不把信箱绑定当成钱包身份。 */
-async function bindWechatIdentityInMemory(userId: number, subject: string) {
-  return withLocalAggregateMutationLock(async () => {
-    const user = memoryState.users.find(item => item.id === userId);
-    if (!user) throw new Error("account_missing");
-    const folded = memoryState.accountIdentities.find(item =>
-      item.provider === "wechat" && item.subject.toLowerCase() === subject.toLowerCase());
-    if (folded && folded.subject !== subject) throw new Error("wechat_identity_collision");
-    const exact = memoryState.accountIdentities.find(item => item.provider === "wechat" && item.subject === subject);
-    if (exact) return exact.userId === userId ? "bound" as const : "merge_required" as const;
-    const current = memoryNow();
-    memoryState.accountIdentities.push({
-      id: nextMemoryId("accountIdentity"),
-      userId,
-      provider: "wechat",
-      subject,
-      verifiedAt: current,
-      createdAt: current,
-      updatedAt: current,
-    });
-    await persistMemoryState();
-    return "bound" as const;
-  });
-}
 export const OTP_MAX_ATTEMPTS = 5;
 /** 每个邮箱每 10 分钟最多 5 次发送 */
 export const OTP_SEND_LIMIT = { windowSeconds: 600, maxAttempts: 5 };
@@ -492,6 +460,7 @@ export async function resolveGoogleLogin(input: {
   email: string;
   emailVerified: boolean;
   name?: string | null;
+  requestIp?: string | null;
 }): Promise<GoogleLoginResolution> {
   const subject = input.subject.trim();
   const email = normalizeAccountEmail(input.email);
@@ -545,46 +514,21 @@ export async function resolveGoogleLogin(input: {
     return { outcome: "authenticated", userId: user.id };
   }
 
-  let userId = emailResolution.kind === "known" ? emailResolution.userId : null;
-  if (userId == null) {
-    const opened = await openRegisteredAccount({
-      openId: `email:${email}`,
-      email,
-      name: input.name?.trim() || null,
-      loginMethod: "google",
-      lastSignedIn: new Date(),
-    });
-    userId = opened.userId;
-  }
-
-  const emailLink = await linkEmailIdentity({ userId, email });
-  if (emailLink.kind === "taken" && emailLink.userId !== userId) {
-    return {
-      outcome: "identity_conflict",
-      userIds: [userId, emailLink.userId].sort((left, right) => left - right),
-    };
-  }
-  const googleLink = await linkLoginIdentity({
-    userId,
-    provider: "google",
-    subject,
-  });
-  if (googleLink.kind === "taken" && googleLink.userId !== userId) {
-    return {
-      outcome: "identity_conflict",
-      userIds: [userId, googleLink.userId].sort((left, right) => left - right),
-    };
-  }
-
-  const user = await getUserById(userId);
-  if (!user) throw new Error("Google 身份指向的账号不存在");
-  await upsertUser({
-    openId: user.openId,
+  const known = emailResolution.kind === "known" ? await getUserById(emailResolution.userId) : null;
+  const opened = await openRegisteredAccount({
+    openId: known?.openId ?? `email:${email}`,
     email,
-    name: user.name ?? input.name?.trim() ?? null,
+    emailVerified: true,
+    name: input.name?.trim() || known?.name || null,
+    loginMethod: "google",
     lastSignedIn: new Date(),
+    requestIp: input.requestIp,
+    links: [{ provider: "google", subject }],
   });
-  return { outcome: "authenticated", userId };
+  if (opened.outcome === "conflict" || opened.userId == null) {
+    return { outcome: "identity_conflict", userIds: opened.userIds ?? [] };
+  }
+  return { outcome: "authenticated", userId: opened.userId };
 }
 
 export type VerifyOtpResult =

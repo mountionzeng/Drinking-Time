@@ -7,7 +7,7 @@ import { useUiText } from "@/features/uiLanguage/UiLanguage";
  */
 import { useEffect, useRef, useState } from "react";
 
-export type BindPhase = "idle" | "creating" | "waiting" | "expired" | "denied" | "merge_required" | "error" | "disabled" | "confirmed";
+export type BindPhase = "idle" | "creating" | "waiting" | "expired" | "denied" | "merge_required" | "error" | "disabled" | "guest" | "unauthenticated" | "confirmed";
 
 type Created = { l: string; v: string; qrDataUrl: string; expiresAt: number; clientHint: string };
 
@@ -58,11 +58,11 @@ export function BindComputeAccount({ enabled }: { enabled: boolean }) {
         body: JSON.stringify(bindComputeAccountCreateBody()),
       });
       if (!current()) return;
-      if (res.status === 404 || res.status === 401 || res.status === 403) {
-        setPhase("disabled");
-        return;
-      }
       const data = await res.json().catch(() => ({}));
+      if (res.status === 403 && data.error === "guest_not_bindable") { setPhase("guest"); return; }
+      if (res.status === 401) { setPhase("unauthenticated"); return; }
+      if (res.status === 404) { setPhase("disabled"); return; }
+      if (res.status === 403) { setPhase("error"); return; }
       if (data.error === "qr_not_configured") { setPhase("disabled"); return; }
       if (!res.ok) { setPhase("error"); return; }
       const next: Created = {
@@ -168,11 +168,15 @@ export function BindComputeAccountView({ phase, created, secondsLeft, scanned = 
               ? t("这个微信已经有独立的算力账。本次没有绑定，余额、赠送记录和预占都保持原样，没有合并或划转。")
               : phase === "denied"
                 ? t("你在小程序里拒绝了这次绑定。两个账号仍保持分开。")
-                : phase === "disabled"
-                  ? t("绑定算力账户暂不可用。请先登录电脑账号；未开启小程序确认时不能绑定。")
-                  : phase === "error"
-                    ? t("这次绑定没有完成，请稍后重试。余额没有变化。")
-                    : t("绑定确认已过期。请重新发起。")}
+                : phase === "guest"
+                  ? t("请先登录正式账号。访客不能绑定算力账户。")
+                  : phase === "unauthenticated"
+                    ? t("请先登录后再绑定算力账户。")
+                    : phase === "disabled"
+                      ? t("小程序确认还没开启，现在不能绑定。")
+                      : phase === "error"
+                        ? t("这次绑定没有完成，请稍后重试。余额没有变化。")
+                        : t("绑定确认已过期。请重新发起。")}
           </p>
           <button
             type="button"

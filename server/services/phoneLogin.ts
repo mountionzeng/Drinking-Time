@@ -12,7 +12,6 @@ import {
 import {
   consumePersistentRateLimit,
   getLoginIdentity,
-  linkLoginIdentity,
 } from "../repositories/accounts";
 import { getUserById } from "../repositories/users";
 import {
@@ -136,15 +135,10 @@ export async function verifyPhoneLoginCode(
     role: "user",
     lastSignedIn: new Date(),
     requestIp: ip,
+    links: [{ provider: "phone", subject: phone }],
   });
-  const user = await getUserById(opened.userId);
-  if (!user) throw new Error("phone_account_unavailable");
-  const linked = await linkLoginIdentity({
-    userId: user.id,
-    provider: "phone",
-    subject: phone,
-  });
-  if (linked.kind === "taken")
+  if (opened.outcome === "conflict" || opened.userId == null) {
     throw new PhoneLoginError("account_needs_manual_setup", 409);
-  return user.id;
+  }
+  return opened.userId;
 }
