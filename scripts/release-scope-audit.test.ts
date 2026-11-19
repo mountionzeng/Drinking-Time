@@ -78,4 +78,23 @@ describe("release scope completeness", () => {
     expect(auditReleaseScope(repo, source).ok).toBe(true);
     expect(() => auditReleaseScope(repo, repo)).toThrow("independent snapshot");
   });
+  it("refuses ignored executable source instead of silently leaving it out of the seal", () => {
+    const { repo, source } = fixture();
+    for (const dir of [repo, source]) {
+      writeFileSync(path.join(dir, ".gitignore"), "hidden.ts\n.env\n");
+      writeFileSync(path.join(dir, "hidden.ts"), "unreviewed build input");
+    }
+    expect(auditReleaseScope(repo, source)).toMatchObject({ ok: false });
+  });
+  it("rejects source files and parent directories replaced by symlinks", () => {
+    const { repo, source, git } = fixture();
+    for (const dir of [repo, source]) {
+      mkdirSync(path.join(dir, "server"));
+      writeFileSync(path.join(dir, "server/input.ts"), "same");
+    }
+    git("add", "server"); git("commit", "-m", "add server");
+    rmSync(path.join(source, "server"), { recursive: true });
+    symlinkSync(path.join(repo, "server"), path.join(source, "server"));
+    expect(() => auditReleaseScope(repo, source)).toThrow(/symlink/i);
+  });
 });

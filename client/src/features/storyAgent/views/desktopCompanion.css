@@ -102,3 +102,46 @@
   margin-left: -10px;
   z-index: 1;
 }
+
+.story-chat-composer[data-compact-video] [data-testid="chat-creation-actions"] {
+  gap: 4px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+}
+.story-chat-composer[data-compact-video] {
+  flex-shrink: 0;
+  gap: 4px;
+}
+.inline-chat-composer { scrollbar-gutter: stable; caret-color: var(--foreground); }
+
+/* The same input and caret stay mounted in both arrangements. */
+.chat-composer-dock {
+  position: relative;
+  display: grid;
+  flex-shrink: 0;
+  grid-template-columns: 64px minmax(0, 1fr) 32px;
+  grid-template-areas: "summary summary summary" "avatar editor send" "tools editor send";
+  align-items: end;
+  gap: 4px 6px;
+}
+.chat-composer-dock[data-layout="beside"] {
+  grid-template-areas: "avatar summary summary" "tools editor send";
+}
+.chat-composer-dock[data-layout="beside"] .chat-dock-summary { align-self: center; }
+.chat-dock-avatar { grid-area: avatar; }
+.chat-dock-summary { grid-area: summary; min-width: 0; }
+.chat-dock-summary [data-testid="chat-edit-status"] {
+  max-height: 96px;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+}
+.chat-dock-tools { grid-area: tools; }
+.chat-dock-editor { grid-area: editor; min-width: 0; }
+.chat-dock-send { grid-area: send; }
+.chat-dock-measure {
+  position: absolute;
+  visibility: hidden;
+  white-space: pre;
+  width: max-content;
+  pointer-events: none;
+}

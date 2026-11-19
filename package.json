@@ -48,7 +48,11 @@
     "eval:weights": "tsx evals/run-weight-analysis.ts",
     "eval:retrieval": "tsx evals/run-retrieval-analysis.ts",
     "eval:recurring": "tsx evals/run-recurring-analysis.ts",
-    "eval:publishing-draft": "tsx evals/run-publishing-draft-prompt-contract.ts --offline"
+    "eval:publishing-draft": "tsx evals/run-publishing-draft-prompt-contract.ts --offline",
+    "release:audit": "node --import tsx scripts/release-inventory-audit.ts",
+    "release:seal": "node --import tsx scripts/release-artifacts.ts seal",
+    "release:verify": "node --import tsx scripts/release-artifacts.ts verify",
+    "release:build": "node --import tsx scripts/release-build.ts"
   },
   "dependencies": {
     "@radix-ui/react-checkbox": "^1.3.3",

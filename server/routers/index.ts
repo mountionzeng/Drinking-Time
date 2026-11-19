@@ -73,6 +73,8 @@ import { consumeGuestEmotionAllowance } from "../services/guestEmotionRateLimit"
 import type { ProjectState } from "../_core/editDiff";
 import { nanoid } from "nanoid";
 import { transcribeAudioBytes } from "../_core/voiceTranscription";
+import { isLocalDictationRequest, transcribeLocalVoice } from "../services/localVoiceTranscription";
+import { LOCAL_VOICE_MAX_BYTES } from "../../shared/localVoiceInput";
 import { analyzeArtReference, createArtRiff } from "../services/artAgent";
 import {
   artPromptLibraryRouter,
@@ -388,6 +390,14 @@ export const appRouter = router({
   storyConversation: storyConversationRouter,
 
   voice: router({
+    transcribeLocal: protectedProcedure
+      .input(z.object({ audioBase64: z.string().min(4).max(4 * Math.ceil(LOCAL_VOICE_MAX_BYTES / 3)) }))
+      .mutation(({ ctx, input }) => {
+        if (!isLocalDictationRequest(ctx.req)) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "本机转写仅在本机开发页面可用。" });
+        }
+        return transcribeLocalVoice(input.audioBase64);
+      }),
     transcribe: protectedProcedure
       .input(
         z.object({

@@ -45,8 +45,12 @@ const time = (value: string | number | Date | undefined) => {
   return Number.isFinite(result) ? result : 0;
 };
 export function warehouseMediaOrder(a: WarehouseMedia, b: WarehouseMedia) {
+  if (!a.createdAt || !b.createdAt) {
+    if (a.createdAt) return -1;
+    if (b.createdAt) return 1;
+  }
   return (
-    a.createdAt - b.createdAt || a.id - b.id || a.kind.localeCompare(b.kind) || a.key.localeCompare(b.key)
+    b.createdAt - a.createdAt || b.id - a.id || a.kind.localeCompare(b.kind) || a.key.localeCompare(b.key)
   );
 }
 function imageRole(shot: CreationEditorShot, id: number) {

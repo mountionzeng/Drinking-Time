@@ -15,7 +15,7 @@ export type ReleaseDifference = {
 };
 export type ReleaseDeferral = ReleaseDifference & { reason: string };
 
-function hashFile(file: string): string | null {
+export function hashFile(file: string): string | null {
   try {
     if (!lstatSync(file).isFile()) throw new Error(`Expected a regular file: ${file}`);
     return createHash("sha256").update(readFileSync(file)).digest("hex");
@@ -31,18 +31,41 @@ export function auditReleaseScope(repo: string, source: string, deferrals: Relea
   if (repo === source) throw new Error("Release source must be an independent snapshot");
   const git = (...args: string[]) => execFileSync("git", args, { cwd: repo, encoding: "utf8" });
   const paths = [...new Set([
+    ...git("ls-tree", "-r", "--name-only", "-z", "HEAD").split("\0"),
     ...git("diff", "HEAD", "--name-only", "--no-renames", "-z").split("\0"),
     ...git("ls-files", "--others", "--exclude-standard", "-z").split("\0"),
+    ...git("--work-tree", source, "ls-files", "--others", "--exclude-standard", "-z").split("\0"),
   ].filter(Boolean))].sort();
+  const errors: string[] = [];
+  // Ignore runtime/dependency outputs and credentials, but never ignore executable build inputs.
+  const ignoredOutputs = ["node_modules", "dist", "build", ".git", ".webdev", ".runtime", "outputs", "coverage", ".claude", ".worktrees", ".private", ".artifacts", ".pnpm-store", ".venv"];
+  for (const root of [repo, source]) {
+    const ignored = git("--work-tree", root, "ls-files", "--others", "--ignored", "--exclude-standard", "-z", "--", ".", ...ignoredOutputs.map(dir => `:(exclude,glob)**/${dir}/**`)).split("\0");
+    for (const file of ignored) {
+      if (/^(node_modules|dist(?:[.-][^/]*)?|\.git|\.webdev|\.runtime|outputs|coverage|\.claude|\.worktrees)\//.test(file)) continue;
+      if (/\.(?:[cm]?[jt]sx?|py|css|html|vue|svelte)$/.test(file)) errors.push(`Ignored build source must be reviewed and tracked: ${root}/${file}`);
+    }
+  }
   const included: string[] = [];
   const differences: ReleaseDifference[] = [];
   for (const file of paths) {
+    for (const root of [repo, source]) {
+      let current = root;
+      for (const part of file.split("/")) {
+        current = path.join(current, part);
+        try {
+          if (lstatSync(current).isSymbolicLink()) throw new Error(`Source symlink is not allowed: ${current}`);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === "ENOENT") break;
+          throw error;
+        }
+      }
+    }
     const workspaceHash = hashFile(path.join(repo, file));
     const releaseHash = hashFile(path.join(source, file));
     if (workspaceHash === releaseHash) included.push(file);
     else differences.push({ path: file, workspaceHash, releaseHash });
   }
-  const errors: string[] = [];
   const seen = new Set<string>();
   for (const item of deferrals) {
     if (!item || typeof item.path !== "string" || typeof item.reason !== "string" || !item.reason.trim()) {

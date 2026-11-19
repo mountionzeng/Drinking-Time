@@ -1,3 +1,4 @@
+import { ExportButton } from "@/features/creationEditor/ExportTimelineButton";
 import type { WechatMailboxReceiptValue } from "@/features/storyMailbox/WechatMailboxReceipt";
 import { hasPendingStudioDraft } from "@/features/storyAgent/studioDraftState";
 import { useDesktopWritingSession } from "@/features/writingCompanion/desktopWritingSession";
@@ -10,6 +11,7 @@ import { Mail } from "lucide-react";
 import { useWarehouseFileChat } from "@/features/storyAgent/useWarehouseFileChat";
 import { useVisualUnderstandingChat } from "@/features/storyAgent/useVisualUnderstandingChat";
 import { useFrameRegionReviewChat } from "@/features/storyAgent/useFrameRegionReviewChat";
+import { ReviewedVideoDialog } from "@/features/storyAgent/views/ReviewedVideoDialog";
 import { OPEN_SHOT_WAREHOUSE } from "@/features/creationEditor/warehouseShotMedia";
 import { useWarehouseRenderActivity } from "@/features/creationEditor/useWarehouseRenderActivity";
 import { SHOT_CHAT_FOCUS_EVENT } from "@/features/storyAgent/shotChatFocus";
@@ -34,8 +36,6 @@ import { DesktopStoryMenuContext } from "@/app/shell/DesktopStoryMenuContext";
  * 复用工作区同一套 Provider 栈与面板组件，只是一个专注剪辑的组合视图。
  */
 import {
-  Clapperboard,
-  Loader2,
   PanelLeftClose,
   PanelLeftOpen,
 } from "lucide-react";
@@ -96,7 +96,6 @@ import {
 import type { VideoClipEditorTarget } from "@/features/creationEditor/videoClipEditorModel";
 import { trpc } from "@/lib/trpc";
 import { useShareBackNotices } from "@/features/sharing/useShareBackNotices";
-import { displayShotCode } from "@shared/shotIdentity";
 import type { SelectionContext } from "@shared/selectionContext";
 import { editingCapabilityReply } from "@shared/editingActionCapabilities";
 import DailyLetterWelcome from "@/features/analysis/views/DailyLetterWelcome";
@@ -110,112 +109,12 @@ import { STUDIO_TOUR_REPLAY_EVENT } from "@/features/studioTour/studioTourStorag
 import {
   STUDIO_WORKSPACE_OPTIONS,
   isStoryPanelWorkspace,
-  resolveExportStoryId,
   resolveStudioInteractionMode,
   resolveTimelineCommandStoryId,
   shouldSettleStoryOpenRequest,
   type StudioInteractionMode,
   type StudioWorkspace,
 } from "./editingStudioWorkspace";
-
-function ExportButton({
-  storyId,
-  pendingStoryRequestId,
-}: {
-  storyId: number | null;
-  pendingStoryRequestId: number | null;
-}) {
-  const _ui = useDesktopUiText();
-  const { visualTheme } = useNayin();
-  const exportMut = trpc.creationAgent.exportTimeline.useMutation();
-  const [exporting, setExporting] = useState(false);
-  const [exportError, setExportError] = useState<{
-    storyId: number;
-    message: string;
-  } | null>(null);
-  const exportStoryId = resolveExportStoryId(storyId, pendingStoryRequestId);
-  const disabledReason =
-    pendingStoryRequestId !== null
-      ? "正在打开另一篇故事"
-      : exportStoryId === null
-        ? "先打开一个故事再导出成片"
-        : undefined;
-
-  const runExport = async () => {
-    if (exportStoryId === null) return;
-    setExporting(true);
-    setExportError(null);
-    try {
-      const result = await exportMut.mutateAsync({
-        storyId: exportStoryId,
-        fallbackToLatestTake: false,
-      });
-      if (result.status === "ok") {
-        const storyShots = storySpineStore.getState().storyShots;
-        const skipped =
-          result.skipped.length > 0
-            ? `（跳过 ${result.skipped.length} 镜：${result.skipped
-                .map(s =>
-                  displayShotCode(
-                    storyShots.find(shot => shot.shotNo === s.shotNo) ?? s
-                  )
-                )
-                .join("、")}）`
-            : "";
-        toast.success(
-          `成片已导出：${result.segmentCount} 镜 · ${result.durationSec}s${skipped}`
-        );
-        window.open(result.videoUrl, "_blank");
-      } else {
-        setExportError({ storyId: exportStoryId, message: result.error });
-        toast.error(result.error);
-      }
-    } catch (error) {
-      setExportError({
-        storyId: exportStoryId,
-        message: error instanceof Error ? error.message : "导出失败",
-      });
-      toast.error(error instanceof Error ? error.message : "导出失败");
-    } finally {
-      setExporting(false);
-    }
-  };
-
-  return (
-    <div className="flex flex-col items-end gap-2">
-      <button
-        type="button"
-        onClick={() => void runExport()}
-        disabled={exporting || exportStoryId === null}
-        title={disabledReason}
-        data-tour="export"
-        className="shiguang-export-button inline-flex h-9 items-center gap-2 rounded-xl px-4 text-sm font-semibold text-primary-foreground shadow-[0_6px_14px_-8px_var(--nayin-accent)] transition hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:cursor-not-allowed disabled:opacity-60"
-        style={{ background: "var(--nayin-accent)" }}
-      >
-        {exporting ? (
-          <Loader2 className="h-4 w-4 animate-spin" />
-        ) : visualTheme === "shiguang" ? (
-          <img
-            src="/shiguang/nav-export-v2.svg"
-            alt=""
-            aria-hidden="true"
-            className="shiguang-action-illustration"
-          />
-        ) : (
-          <Clapperboard className="h-4 w-4" />
-        )}
-        <span className="shiguang-nav-label">
-          {exporting ? _ui("合成中…") : _ui("导出成片")}
-        </span>
-      </button>
-      {exportError?.storyId === exportStoryId && (
-        <p role="alert" className="max-w-xl text-sm text-destructive">
-          {exportError.message}
-        </p>
-      )}
-    </div>
-  );
-}
 
 function StoryPanelWorkspace({
   workspace,
@@ -1070,6 +969,7 @@ export default function EditingStudioPage() {
       />
       <div className="relative z-10 min-h-0 flex-1">
         <DesktopStoryMenuContext.Provider value={storyMenu}>
+        <ReviewedVideoDialog />
         <StoryAgentProvider
           userId={user?.id ?? null}
           projectId={currentProjectId}

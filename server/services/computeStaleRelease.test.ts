@@ -28,6 +28,18 @@ describe("decideStaleRelease", () => {
     expect(d({ operationType: "media.video", createdAt: ago(60), evidence: { ...none, taskInFlight: true } }).action).toBe("skip");
     expect(d({ operationType: "media.video", createdAt: ago(25 * 60), evidence: { ...none, taskInFlight: true } }).action).toBe("manual");
   });
+  it("hold 51 / hold 71 shapes: inference unknown >10min and music reserved >30min release", () => {
+    expect(d({ status: "submission_unknown", operationType: "inference.text", createdAt: ago(5 * 60) }).action).toBe("release");
+    expect(d({ status: "reserved", operationType: "audio.scene-generation", createdAt: ago(130) }).action).toBe("release");
+    expect(d({ status: "reserved", operationType: "audio.scene-generation", createdAt: ago(29) }).action).toBe("skip");
+  });
+  it("publishing cover: reserved releases, submission_unknown keeps hold for manual reconciliation", () => {
+    expect(d({ status: "reserved", operationType: "image.publishing-cover", createdAt: ago(31) }).action).toBe("release");
+    expect(d({ status: "submission_unknown", operationType: "image.publishing-cover", createdAt: ago(31) }).action).toBe("manual");
+    expect(d({ status: "submission_unknown", operationType: "image.publishing-cover", createdAt: ago(29) }).action).toBe("skip");
+    expect(d({ status: "submission_unknown", operationType: "image.publishing-cover", createdAt: ago(31), evidence: { ...none, storedOutput: true } }).action).toBe("settle");
+    expect(d({ status: "submission_unknown", operationType: "image.publishing-cover", createdAt: ago(60), evidence: { ...none, taskInFlight: true } }).action).toBe("skip");
+  });
   it("skips terminal or hold-less rows", () => {
     expect(d({ status: "released" }).action).toBe("skip");
     expect(d({ holdActive: false }).action).toBe("skip");

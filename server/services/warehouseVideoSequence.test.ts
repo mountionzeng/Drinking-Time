@@ -20,8 +20,12 @@ const m = vi.hoisted(() => ({
   probe: vi.fn(),
   dir: "",
   update: vi.fn(),
+  reviewedPlan: vi.fn(),
+  cues: vi.fn(),
 }));
 vi.mock("../repositories/stories", () => ({ getStoryById: m.story }));
+vi.mock("./videoTimelineCues", async importOriginal=>({...await importOriginal<typeof import("./videoTimelineCues")>(),readVideoTimelineCues:m.cues}));
+vi.mock("./frameReviewVideo", () => ({ prepareFrameReviewVideo: m.reviewedPlan }));
 vi.mock("../repositories/videos", () => ({
   getVideoTakeById: async (id: number, userId: number) =>
     m.takes.find((t) => t.id === id && t.userId === userId) ?? null,
@@ -103,6 +107,7 @@ const png = await sharp({
   .toBuffer();
 beforeEach(() => {
   vi.clearAllMocks();
+  m.cues.mockImplementation(async (_s,_u,_id,durations:number[])=>durations.map(()=>null));
   m.takes = [];
   m.dir = root;
   m.story.mockResolvedValue({
@@ -177,6 +182,49 @@ async function submit() {
   );
 }
 describe("ordered warehouse video", () => {
+  it("quotes the reviewed seconds without submitting, then sends only each segment's own cues", async () => {
+    const plan = { ...input, segmentSeconds: 3, secondCues: [["城市", "向前", "越过屋顶"], ["进入树林", "停在小屋"]] };
+    const quote = await quoteWarehouseVideoSequence(plan, 1);
+    expect(quote.totalSeconds).toBe(5);
+    expect(m.submit).not.toHaveBeenCalled();
+    const edited = { ...plan, secondCues: [["换一个开场", "向前", "越过屋顶"], plan.secondCues[1]] };
+    await expect(submitWarehouseVideoSequence({ ...edited, requestId, fingerprint: quote.fingerprint, confirmedCny: quote.totalCny }, 1)).rejects.toThrow("重新确认");
+    expect(m.reserve).not.toHaveBeenCalled();
+    await submitWarehouseVideoSequence({ ...plan, requestId, fingerprint: quote.fingerprint, confirmedCny: quote.totalCny }, 1);
+    expect(m.submit.mock.calls.map(call => call[1].spec.durationSec)).toEqual([3,2]);
+    expect(m.submit.mock.calls[0][1].spec.prompt).toContain("2–3秒：越过屋顶");
+    expect(m.submit.mock.calls[0][1].spec.prompt).not.toContain("停在小屋");
+    expect(m.submit.mock.calls[1][1].spec.prompt).toContain("1–2秒：停在小屋");
+    expect(m.takes[0].durationSec).toBe(5);
+  });
+  it("rechecks the current edit and sends only each segment's cues", async () => {
+    const first={startFrame:30,endFrame:60,text:[{from:0,to:1,text:"长成音乐"}],audio:[]};
+    const second={...first,startFrame:60,endFrame:90,text:[{from:0,to:1,text:"长成电影"}]};
+    m.cues.mockResolvedValue([first,second]);
+    const initial=await quoteWarehouseVideoSequence(input,1);
+    m.cues.mockResolvedValue([first,{...second,text:[{from:0,to:1,text:"属于你"}]}]);
+    await expect(submitWarehouseVideoSequence({...input,requestId,fingerprint:initial.fingerprint,confirmedCny:initial.totalCny},1)).rejects.toThrow("重新确认");
+    expect(m.reserve).not.toHaveBeenCalled();expect(m.submit).not.toHaveBeenCalled();
+    const current=await quoteWarehouseVideoSequence(input,1);
+    await submitWarehouseVideoSequence({...input,requestId,fingerprint:current.fingerprint,confirmedCny:current.totalCny},1);
+    expect(m.submit.mock.calls[0][1].spec.prompt).toContain("长成音乐");
+    expect(m.submit.mock.calls[0][1].spec.prompt).not.toContain("属于你");
+    expect(m.submit.mock.calls[1][1].spec.prompt).toContain("属于你");
+  });
+  it("refuses ambiguous transforms before purchase and binds the actual region to the first segment and quote", async () => {
+    const plan={...input,prompt:"发送按钮变成纸飞机",segmentSeconds:1,secondCues:[["从按钮原位飞出"],["继续向前"]]};
+    const objectOrigin={imageId:9,label:"右边粉色圆形发送键",rect:{x:.8,y:.55,w:.12,h:.12}};
+    await expect(quoteWarehouseVideoSequence(plan,1)).rejects.toThrow("圈出");
+    await expect(quoteWarehouseVideoSequence({...plan,objectOrigin:{...objectOrigin,imageId:3}},1)).rejects.toThrow("首帧已改变");
+    const q=await quoteWarehouseVideoSequence({...plan,objectOrigin},1);
+    await expect(submitWarehouseVideoSequence({...plan,objectOrigin:{...objectOrigin,rect:{...objectOrigin.rect,x:.7}},requestId,fingerprint:q.fingerprint,confirmedCny:q.totalCny},1)).rejects.toThrow("重新确认");
+    expect(m.submit).not.toHaveBeenCalled();
+    expect(m.reserve).not.toHaveBeenCalled();
+    await submitWarehouseVideoSequence({...plan,objectOrigin,requestId,fingerprint:q.fingerprint,confirmedCny:q.totalCny},1);
+    expect(m.submit.mock.calls[0][1].spec.prompt).toContain("右边粉色圆形发送键");
+    expect(m.submit.mock.calls[0][1].spec.prompt).toContain("原位不留下副本");
+    expect(m.submit.mock.calls[1][1].spec.prompt).toContain("延续首段变形后的同一主体");
+  });
   it.each([
     [9, 3],
     [9, 3, 5],
@@ -425,4 +473,18 @@ describe("ordered warehouse video", () => {
     });
     expect(m.takes[1].status).toBe("available");
   });
+});
+
+it("binds reviewed frames to the quote and refuses changed frames or duration before purchase", async () => {
+  const review = { reviewId: "a7b27f0e-933e-4b6d-82d4-3b6d3def94c1", reviewRevision: 2, timelineVersion: 9 };
+  const plan = { images: input.imageIds.map(id => ({ id })), segmentSeconds: 1, sourceTakeId: 10, sourceDurationSec: 2, review };
+  m.reviewedPlan.mockResolvedValue(plan);
+  const quote = await quoteWarehouseVideoSequence({ ...input, review }, 1);
+  expect(quote.reviewedSource).toEqual({ takeId: 10, durationSec: 2, review });
+  expect(m.reserve).not.toHaveBeenCalled();
+  await expect(quoteWarehouseVideoSequence({ ...input, review, segmentSeconds: 2 }, 1)).rejects.toThrow("原时长");
+  m.reviewedPlan.mockRejectedValue(new Error("review changed"));
+  await expect(submitWarehouseVideoSequence({ ...input, review, requestId, fingerprint: quote.fingerprint, confirmedCny: quote.totalCny }, 1)).rejects.toThrow("review changed");
+  expect(m.reserve).not.toHaveBeenCalled();
+  expect(m.submit).not.toHaveBeenCalled();
 });

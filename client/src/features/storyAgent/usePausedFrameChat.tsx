@@ -16,11 +16,13 @@ import {
 } from "@shared/chatFrameReference";
 import { storySpineStore, useStorySpine } from "./spine/storySpine";
 import { PausedFrameBadge } from "./views/PausedFrameBadge";
+import { ChatImageReferenceChip } from "./views/ChatImageReferenceChip";
 import { shotConversationSelection } from "./shotConversation";
 import { formatComputeQuote } from "@shared/computeMoney";
 import { withMediaChatSession } from "./mediaChatSession";
 import { pollStoryboardImage } from "./views/pollStoryboardImage";
 import type { SelectionContext } from "@shared/selectionContext";
+import { isRegionRefinement, type FrameRegionReview, type FrameReviewTurnOptions } from "@shared/frameRegionReview";
 import { TIMELINE_FPS } from "@shared/timelineViewport";
 
 type Draft = {
@@ -33,6 +35,7 @@ type Draft = {
   manual?: boolean;
   extraction?: Promise<ChatFrameReference>;
   selectionQuote?: SelectionContext;
+  inspection?: Promise<{ reply: string; frameReview?: FrameRegionReview } | null>;
 };
 export function freezePausedFrame(): Draft {
   const s = storySpineStore.getState();
@@ -65,6 +68,7 @@ export function usePausedFrameChat(input: {
   selectedImageId?: number | null;
   selectedImageUrl?: string;
   proposeFrame: (frame: ChatFrameReference, text: string) => Promise<void>;
+  reviewFrame?: (frame: ChatFrameReference, text: string, options?: FrameReviewTurnOptions) => Promise<{ reply: string; frameReview?: FrameRegionReview } | null>;
   focusComposer?: () => void;
   onFrameReady?: (frame: ChatFrameReference) => void;
 }) {
@@ -146,7 +150,8 @@ export function usePausedFrameChat(input: {
     d: Draft,
     text: string,
     role: "user" | "assistant",
-    frame?: ChatFrameReference
+    frame?: ChatFrameReference,
+    frameReview?: FrameRegionReview,
   ) => {
     if (d.suppressed || !input.storyId || !pausedDraftIsCurrent(d, input.storyId)) return;
     storySpineStore
@@ -158,8 +163,14 @@ export function usePausedFrameChat(input: {
           content: text,
           timestamp: Date.now(),
           ...(frame ? { frameReferences: [frame] } : {}),
+          ...(frameReview ? { frameReview } : {}),
           ...(!frame && d.selectionQuote ? {selectionQuote:d.selectionQuote} : {}),
         };
+        // Recovery can see the saved review before this request returns.
+        // Replace that placeholder instead of displaying the same result twice.
+        const existing = frameReview && messages.find(item => item.role === "assistant" && item.frameReview?.id === frameReview.id && item.frameReview.revision >= frameReview.revision);
+        if (existing) return existing.frameReview!.revision > frameReview!.revision ? messages :
+          messages.map(item => item === existing ? { ...message, id: item.id, timestamp: item.timestamp } : item);
         return [...messages, message];
       });
   };
@@ -241,7 +252,15 @@ export function usePausedFrameChat(input: {
         return await quotePalette(d,frame.storyId,frame.imageId,input.selectedImageId!,text,frame);
       } else if (input.selectedImageId && /参考|@图片|reference|selected image/i.test(text)) {
         record(d, en ? "This reference request cannot be applied as a palette-only change. Nothing was changed." : "这项参考要求不能按“只换配色”处理，尚未修改图片。", "assistant", frame);
-      } else if (pausedFrameEditRequested(text)) await input.proposeFrame(frame, text);
+      } else if (pausedFrameEditRequested(text) || isRegionRefinement(text)) {
+        const inspected = await d.inspection;
+        if (d.suppressed || !pausedDraftIsCurrent(d, frame.storyId)) return "blocked" as const;
+        const reviewed = inspected?.frameReview
+          ? await input.reviewFrame?.(frame, text, { review: inspected.frameReview })
+          : await input.reviewFrame?.(frame, text);
+        if (reviewed) record(d, reviewed.reply, "assistant", frame, reviewed.frameReview);
+        else await input.proposeFrame(frame, text);
+      }
       else
         record(
           d,
@@ -343,7 +362,13 @@ export function usePausedFrameChat(input: {
                 : detail.kind === "capture" && detail.extraction ? "静帧已放入剪辑线并引用到这里，直接说想怎么改。" : "已引用这一帧，直接说想怎么改。"
               : ""
           );
-
+          if (!frame || !input.reviewFrame || !pausedDraftIsCurrent(d, frame.storyId)) return;
+          const selected = storySpineStore.getState().activeSelection;
+          d.inspection = input.reviewFrame(frame, en ? "Review this frame" : "查看这一帧", { inspectOnly: true });
+          const result = await d.inspection;
+          if (draft.current !== d || storySpineStore.getState().activeSelection !== selected || !pausedDraftIsCurrent(d, frame.storyId)) return;
+          if (result) record(d, result.reply, "assistant", frame, result.frameReview);
+          setNotice("");
         })
         .catch(error => {
           if (draft.current === d)
@@ -374,13 +399,8 @@ export function usePausedFrameChat(input: {
   const panel = input.enabled ? (
     <div className="relative z-[2] text-[10px] text-muted-foreground" aria-live="polite">
       {input.selectedImageId && input.selectedImageUrl && (
-        <details className="inline-block align-top mr-2">
-          <summary className="inline-flex h-6 cursor-pointer list-none items-center gap-1" aria-label={en ? "Selected image reference" : "选中图片引用 / Image reference"}>
-            <ImageIcon className="h-3.5 w-3.5" />
-            @{en ? "Image" : "图片"} #{input.selectedImageId}
-          </summary>
-          <img src={input.selectedImageUrl} alt={en ? "Selected image reference" : "选中的参考图片"} className="max-h-32 max-w-full rounded object-contain" />
-        </details>
+        <ChatImageReferenceChip key={`${input.selectedImageId}:${input.selectedImageUrl}`}
+          imageId={input.selectedImageId} imageUrl={input.selectedImageUrl} />
       )}
       {relevant && pinned && (pinned.snapshot || pinned.warehouseFrame) && !pinned.suppressed ? (
         <>

@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { trpc } from "@/lib/trpc";
+import { LOCAL_VOICE_MAX_BYTES, LOCAL_VOICE_MAX_SECONDS } from "@shared/localVoiceInput";
 import {
   liveRecognitionConstructor,
   startLiveDictation,
+  type DictationState,
 } from "@/features/mobileWorkspace/liveDictation";
 
 type VoiceInputStatus = "idle" | "requesting" | "recording" | "transcribing";
@@ -12,6 +14,7 @@ type UseVoiceInputOptions = {
   onTranscribed: (text: string) => void;
   onError?: (message: string) => void;
   preferLive?: boolean;
+  allowLocalTranscription?: boolean;
   onPreview?: (text: string) => void;
   scopeKey?: string | number;
 };
@@ -60,13 +63,15 @@ export function useVoiceInput({
   onTranscribed,
   onError = message => alert(message),
   preferLive = false,
+  allowLocalTranscription = false,
   onPreview,
   scopeKey,
 }: UseVoiceInputOptions) {
   const [status, setStatus] = useState<VoiceInputStatus>("idle");
   const [isLive, setIsLive] = useState(false);
+  const [localRecovery, setLocalRecovery] = useState(false);
   const liveSession = useRef<ReturnType<typeof startLiveDictation> | null>(null);
-  const liveActive = useRef(false);
+  const liveState = useRef<DictationState>("idle");
   const callbacks = useRef({ onTranscribed, onPreview, onError });
   callbacks.current = { onTranscribed, onPreview, onError };
   const currentScope = useRef(scopeKey);
@@ -77,7 +82,10 @@ export function useVoiceInput({
   const mountedRef = useRef(true);
   const lifecycle = useRef(0);
   const starting = useRef(false);
+  const transcribing = useRef(false);
+  const recordingLimit = useRef<ReturnType<typeof setTimeout> | null>(null);
   const transcribeMutation = trpc.voice.transcribe.useMutation();
+  const localMutation = trpc.voice.transcribeLocal.useMutation();
 
   const releaseStream = useCallback(() => {
     streamRef.current?.getTracks().forEach(track => track.stop());
@@ -85,13 +93,19 @@ export function useVoiceInput({
   }, []);
 
   const resetRecorder = useCallback(() => {
+    if (recordingLimit.current !== null) clearTimeout(recordingLimit.current);
+    recordingLimit.current = null;
     mediaRecorderRef.current = null;
     chunksRef.current = [];
     releaseStream();
   }, [releaseStream]);
 
   const stopRecording = useCallback(() => {
-    if (liveActive.current) {
+    if (liveState.current === "requesting") {
+      liveSession.current?.cancelStart();
+      return;
+    }
+    if (liveState.current !== "idle") {
       liveSession.current?.stop();
       return;
     }
@@ -104,11 +118,47 @@ export function useVoiceInput({
     recorder.stop();
   }, [resetRecorder]);
 
-  const startRecording = useCallback(async () => {
-    if (status !== "idle" || starting.current || liveActive.current) return;
+  const transcribeBlob = useCallback(async (audio: Blob, local: boolean, active: () => boolean) => {
+    if (transcribing.current || !active()) return;
+    if (!audio.size || (local && audio.size > LOCAL_VOICE_MAX_BYTES)) {
+      callbacks.current.onError(audio.size ? "请选择 8 MB 以内的录音。" : "没有录到声音，可以再试一次。");
+      setStatus("idle");
+      return;
+    }
+    transcribing.current = true;
+    setStatus("transcribing");
+    try {
+      const audioBase64 = await blobToBase64(audio);
+      if (!active()) return;
+      const result = local
+        ? await localMutation.mutateAsync({ audioBase64 })
+        : await transcribeMutation.mutateAsync({ audioBase64, mimeType: audio.type, language });
+      if (!active()) return;
+      if ("error" in result) callbacks.current.onError(result.error);
+      else if (result.text.trim()) callbacks.current.onTranscribed(result.text.trim());
+      else callbacks.current.onError("这段语音没有识别出文字，可以再说一遍。");
+    } catch (error) {
+      if (active()) callbacks.current.onError(local ? "本机转写未完成，请检查本机语音模型和音频解码环境。" : getErrorMessage(error));
+    } finally {
+      if (active()) {
+        transcribing.current = false;
+        setStatus("idle");
+      }
+    }
+  }, [language, localMutation, transcribeMutation]);
+
+  const transcribeLocalFile = async (file: File) => {
+    if (!allowLocalTranscription || status !== "idle" || starting.current || liveState.current !== "idle") return;
+    const epoch = lifecycle.current;
+    await transcribeBlob(file, true, () => mountedRef.current && lifecycle.current === epoch && currentScope.current === scopeKey);
+  };
+
+  const startRecording = useCallback(async (localOnly = false) => {
+    if (localOnly && !allowLocalTranscription) return;
+    if (status !== "idle" || starting.current || transcribing.current || liveState.current !== "idle") return;
     const epoch = lifecycle.current;
     const active = () => mountedRef.current && lifecycle.current === epoch && currentScope.current === scopeKey;
-    const Recognition = preferLive ? liveRecognitionConstructor() : undefined;
+    const Recognition = preferLive && !localRecovery && !localOnly ? liveRecognitionConstructor() : undefined;
     if (Recognition) {
       liveSession.current?.dispose();
       setIsLive(true);
@@ -116,21 +166,27 @@ export function useVoiceInput({
         liveSession.current = startLiveDictation(new Recognition(), {
           onText: text => { if (active()) callbacks.current.onTranscribed(text); },
           onPreview: text => { if (active()) callbacks.current.onPreview?.(text); },
-          onError: message => { if (active()) callbacks.current.onError(message); },
+          onError: message => {
+            if (!active()) return;
+            if (allowLocalTranscription) setLocalRecovery(true);
+            callbacks.current.onError(message);
+          },
           onState: next => {
             if (!active()) return;
-            liveActive.current = next !== "idle";
+            liveState.current = next;
             setStatus(next === "listening" ? "recording" : next === "stopping" ? "transcribing" : next);
           },
         });
       } catch {
-        liveActive.current = false;
+        liveState.current = "idle";
         setStatus("idle");
+        if (allowLocalTranscription) setLocalRecovery(true);
         callbacks.current.onError("无法启动实时听写，请检查浏览器的麦克风与语音识别权限。");
       }
       return;
     }
     setIsLive(false);
+    if (allowLocalTranscription) setLocalRecovery(true);
     if (
       !navigator.mediaDevices?.getUserMedia ||
       typeof MediaRecorder === "undefined"
@@ -179,44 +235,16 @@ export function useVoiceInput({
           stream.getTracks().forEach(track => track.stop());
           return;
         }
-        releaseStream();
-
-        setStatus("transcribing");
-
-        try {
-          const audioBlob = new Blob(chunks, { type: outputMimeType });
-          if (audioBlob.size === 0) {
-            onError("没有录到声音，可以再试一次。");
-            return;
-          }
-
-          const audioBase64 = await blobToBase64(audioBlob);
-          if (!active()) return;
-          const result = await transcribeMutation.mutateAsync({
-            audioBase64,
-            mimeType: outputMimeType,
-            language,
-          });
-          if (!active()) return;
-          const text = result.text.trim();
-
-          if (!text) {
-            onError("这段语音没有识别出文字，可以再说一遍。");
-            return;
-          }
-
-          onTranscribed(text);
-        } catch (error) {
-          if (active()) onError(getErrorMessage(error));
-        } finally {
-          if (active()) {
-            resetRecorder();
-            setStatus("idle");
-          }
-        }
+        resetRecorder();
+        await transcribeBlob(new Blob(chunks, { type: outputMimeType }), allowLocalTranscription, active);
       };
 
       recorder.start();
+      if (allowLocalTranscription) {
+        recordingLimit.current = setTimeout(() => {
+          if (active() && recorder.state === "recording") recorder.stop();
+        }, (LOCAL_VOICE_MAX_SECONDS - 1) * 1000);
+      }
       setStatus("recording");
     } catch (error) {
       if (active()) {
@@ -225,23 +253,29 @@ export function useVoiceInput({
         onError(getErrorMessage(error));
       }
     } finally {
-      starting.current = false;
+      if (active()) starting.current = false;
     }
   }, [
-    language,
     onError,
-    onTranscribed,
     resetRecorder,
-    releaseStream,
     status,
-    transcribeMutation,
+    transcribeBlob,
+    allowLocalTranscription,
+    localRecovery,
     preferLive,
     scopeKey,
   ]);
 
   const toggleRecording = useCallback(() => {
-    if (status === "recording") {
+    if (liveState.current !== "idle" || status === "recording") {
       stopRecording();
+      return;
+    }
+    if (starting.current) {
+      // getUserMedia cannot be aborted. Its late stream belongs to the cancelled request.
+      lifecycle.current += 1;
+      starting.current = false;
+      setStatus("idle");
       return;
     }
     if (status === "idle") {
@@ -252,13 +286,16 @@ export function useVoiceInput({
   useEffect(() => {
     mountedRef.current = true;
     starting.current = false;
+    transcribing.current = false;
+    setLocalRecovery(false);
     setStatus("idle");
     return () => {
+      if (recordingLimit.current !== null) clearTimeout(recordingLimit.current);
       lifecycle.current += 1;
       mountedRef.current = false;
       liveSession.current?.dispose();
       liveSession.current = null;
-      liveActive.current = false;
+      liveState.current = "idle";
       const recorder = mediaRecorderRef.current;
       if (recorder && recorder.state !== "inactive") {
         recorder.stop();
@@ -270,6 +307,9 @@ export function useVoiceInput({
   return {
     status,
     isLive,
+    localRecovery,
+    transcribeLocalFile,
+    startLocalRecording: () => startRecording(true),
     isRecording: status === "recording",
     isTranscribing: status === "transcribing" || status === "requesting",
     isBusy: status !== "idle",

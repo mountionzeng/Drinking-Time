@@ -1,4 +1,25 @@
 {
+  "多选画面 / Select clips": { "en": "Select clips", "fr": "Sélectionner des plans" },
+  "全选 V{0} / Select all": { "en": "Select all V{0}", "fr": "Tout sélectionner V{0}" },
+  "V{0} · 已选 {1} 项": { "en": "V{0} · {1} selected", "fr": "V{0} · {1} sélectionnés" },
+  "点击同一画面层的片段，可逐个选择或取消": { "en": "Click clips on one visual track to select or deselect them", "fr": "Cliquez sur les plans d’une piste pour les sélectionner ou désélectionner" },
+  "删除所选 V{0} · {1} 项 / Delete": { "en": "Delete V{0} · {1} selected", "fr": "Supprimer V{0} · {1} sélectionnés" },
+  "删除所选 / Delete selected": { "en": "Delete selected", "fr": "Supprimer la sélection" },
+  "取消多选 / Cancel selection": { "en": "Cancel selection", "fr": "Annuler la sélection" },
+  "取消 / Cancel": { "en": "Cancel", "fr": "Annuler" },
+  "删除 V{0} · {1} 项": { "en": "Delete V{0} · {1} items", "fr": "Supprimer V{0} · {1} éléments" },
+  "确认删除所选画面 / Delete selected": { "en": "Delete selected clips", "fr": "Supprimer les plans sélectionnés" },
+  "选区包含完整镜头，会同时删除对应镜头文字及主画面。素材仍保留在仓库，可从历史恢复。": { "en": "The selection includes entire shots. Their shot text and primary visuals will also be removed. Assets stay in the warehouse; visuals can be recovered from history.", "fr": "La sélection inclut des plans entiers : leurs textes et images principales seront supprimés. Les médias restent dans la réserve et peuvent être restaurés depuis l’historique." },
+  "只删除所选时间线片段，其他画面层保持原样。素材仍保留在仓库，可撤销或从历史恢复。": { "en": "Only the selected timeline clips will be removed. Other visual tracks stay unchanged. Assets remain in the warehouse; undo or recover from history.", "fr": "Seuls les plans sélectionnés seront supprimés. Les autres pistes restent inchangées. Les médias restent dans la réserve ; annulez ou restaurez depuis l’historique." },
+  "恢复误删 / Recover": { "en": "Recover deleted clips", "fr": "Restaurer les plans supprimés" },
+  "恢复此修订的镜头和画面 / Restore visuals": { "en": "Restore shots and visuals from this revision", "fr": "Restaurer les plans et images de cette révision" },
+  "恢复剪辑修订 {0}": { "en": "Restore editing revision {0}", "fr": "Restaurer la révision {0}" },
+  "确认恢复镜头和画面 / Restore": { "en": "Restore shots and visuals", "fr": "Restaurer les plans et images" },
+  "恢复这次修订的镜头和画面排列，当前画面作为新修订保留。聊天、现有镜头文字、音乐和字幕保持当前内容。": { "en": "Restore the shots and visual arrangement from this revision. The current visuals remain in history. Current chat, existing shot text, music and subtitles are preserved.", "fr": "Restaurez les plans et leur disposition depuis cette révision. Les images actuelles restent dans l’historique. La conversation, les textes existants, la musique et les sous-titres sont conservés." },
+  "最近 30 次剪辑修订会自动保留，刷新后仍可恢复镜头和画面。查看不会采用；恢复保留当前聊天、现有镜头文字、音乐和字幕。": { "en": "The last 30 editing revisions are saved automatically and can be recovered after refresh. Viewing does not apply a version. Recovery preserves current chat, existing shot text, music and subtitles.", "fr": "Les 30 dernières révisions sont conservées après actualisation. Consulter n’applique pas une version. La restauration conserve la conversation, les textes existants, la musique et les sous-titres." },
+  "删除整个镜头 {0} / Delete shot": { "en": "Delete entire shot {0}", "fr": "Supprimer le plan entier {0}" },
+  "确认删除整个镜头 / Delete entire shot": { "en": "Delete entire shot", "fr": "Supprimer le plan entier" },
+  "将删除整个镜头及其主画面。若只想删除 V2 的内容，请取消并使用“多选画面”。删除后可从“恢复误删”恢复镜头和画面。": { "en": "This deletes the entire shot and its primary visual. To remove only V2 content, cancel and use Select clips. Shots and visuals can be restored using Recover deleted clips.", "fr": "Le plan entier et son image principale seront supprimés. Pour retirer uniquement V2, annulez et sélectionnez les plans. Ils peuvent ensuite être restaurés depuis l’historique." },
   "第 {0} 章 · 第 {1} 段": {
     "en": "Chapter {0} · Paragraph {1}",
     "fr": "Chapitre {0} · Paragraphe {1}"
@@ -1935,13 +1956,9 @@
     "en": "Unlimited",
     "fr": "Illimité"
   },
-  "本机累计使用": {
-    "en": "Local usage: ",
-    "fr": "Utilisation locale : "
-  },
-  "（仅已接入账本的调用）": {
-    "en": "(tracked requests only)",
-    "fr": "(requêtes comptabilisées uniquement)"
+  "已记账 {0} · 用量记录不完整": {
+    "en": "Recorded: {0} · Usage records incomplete",
+    "fr": "Comptabilisé : {0} · Relevé incomplet"
   },
   "账目对不上，请联系我们，先别继续生成": {
     "en": "Balance mismatch. Contact us before generating more.",
@@ -2907,9 +2924,9 @@
     "en": "Video clip {0}",
     "fr": "Séquence vidéo {0}"
   },
-  "本机开发不限额，累计使用 {0}": {
-    "en": "Local development, unlimited. Used {0}",
-    "fr": "Développement local, illimité. Utilisé : {0}"
+  "本机开发不限额，已记账 {0}，用量记录不完整": {
+    "en": "Local development, unlimited. Recorded: {0}. Usage records incomplete",
+    "fr": "Développement local, illimité. Comptabilisé : {0}. Relevé incomplet"
   },
   "可用余额 {0}": {
     "en": "Available balance {0}",
@@ -3770,6 +3787,30 @@
   "正在把声音转成文字…": {
     "en": "Transcribing audio…",
     "fr": "正在把声音转成文字…"
+  },
+  "等待浏览器启动语音输入，再点一次可取消": {
+    "en": "Waiting for voice input to start. Click again to cancel.",
+    "fr": "En attente du démarrage de la saisie vocale. Cliquez à nouveau pour annuler."
+  },
+  "取消语音输入": {
+    "en": "Cancel voice input",
+    "fr": "Annuler la saisie vocale"
+  },
+  "再点麦克风录音，停止后文字会出现在聊天输入框里（最多两分钟）。": {
+    "en": "Click the microphone again to record up to two minutes. When you stop, the text appears in the chat input.",
+    "fr": "Cliquez à nouveau sur le micro pour enregistrer jusqu’à deux minutes. Le texte apparaît dans le champ de discussion à l’arrêt."
+  },
+  "本机录音": {
+    "en": "Record locally",
+    "fr": "Enregistrer sur cet appareil"
+  },
+  "录音中，点停止后文字会出现在聊天输入框里": {
+    "en": "Recording. Click stop to put the text in the chat input.",
+    "fr": "Enregistrement en cours. Cliquez sur arrêter pour afficher le texte dans le champ de discussion."
+  },
+  "选择录音转文字": {
+    "en": "Transcribe an audio file",
+    "fr": "Transcrire un fichier audio"
   },
   "添加图片或视频": {
     "en": "Add images or video",
@@ -14270,5 +14311,33 @@
   "只参考笔触、色彩和材质。可在对话中说“用图片 #编号作为全片画风参考”或“停用全片画风参考”。": {
     "en": "Drawing style, colors and textures only. In chat, say “Use image #ID as the film style reference” or “Disable the film style reference”.",
     "fr": "Traits, couleurs et matières uniquement. Dans le chat : « Use image #ID as the film style reference » ou « Disable the film style reference »."
+  },
+  "视频提交未完成 / Video submission incomplete": {
+    "en": "Video submission incomplete",
+    "fr": "Envoi de la vidéo incomplet"
+  },
+  "请先核对任务状态；新生成仍需确认报价。": {
+    "en": "Check the task status first. A new generation still requires quote confirmation.",
+    "fr": "Vérifiez d’abord la tâche. Une nouvelle génération nécessite la confirmation du devis."
+  },
+  "有 {0} 次旧任务的结果和费用仍待核对，不包含在本次报价内。确认后会创建新的付费任务，旧记录保留。": {
+    "en": "Results and charges for {0} earlier tasks are still unresolved and excluded from this quote. Confirmation starts a new paid task and keeps the previous records.",
+    "fr": "Le résultat et les frais de {0} tâches antérieures restent à vérifier, hors de ce devis. Confirmer crée une nouvelle tâche payante et conserve les anciens enregistrements."
+  },
+  "确认新任务 / Confirm new task": {
+    "en": "Confirm new task",
+    "fr": "Confirmer la nouvelle tâche"
+  },
+  "在仓库查看本镜图片 · {0} 张 / Warehouse": {
+    "en": "View this shot's images in Warehouse · {0}",
+    "fr": "Voir les images de ce plan dans les ressources · {0}"
+  },
+  "在仓库查看未归类图片 · {0} 张 / Warehouse": {
+    "en": "View unassigned images in Warehouse · {0}",
+    "fr": "Voir les images non classées dans les ressources · {0}"
+  },
+  "来源 Take {0} · 保留{1}秒。关键帧生成无法保证逐帧复现原运镜，需审看新候选再决定是否采用；原视频、声音和字幕保留。": {
+    "en": "Source Take {0} · {1}s retained. Keyframe synthesis cannot guarantee the original camera motion. Review the new candidate before adopting it; existing video, sound and subtitles remain.",
+    "fr": "Source Take {0} · Durée conservée : {1}s. La génération à partir des images clés ne garantit pas les mouvements de caméra originaux. Examinez la nouvelle proposition avant de l’adopter ; la vidéo, le son et les sous-titres existants sont conservés."
   }
 }

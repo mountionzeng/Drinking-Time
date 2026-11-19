@@ -96,18 +96,44 @@ export function regionalGrid(spec: RegionalGradeSpec, size = 65): Float32Array {
   return grid;
 }
 
-export function regionalCube(grid: Float32Array, size: number, k: number): string {
-  const lines = [`TITLE "${REGIONAL_GRADE_ALGORITHM} k=${k.toFixed(3)}"`, `LUT_3D_SIZE ${size}`, "DOMAIN_MIN 0 0 0", "DOMAIN_MAX 1 1 1"];
-  let o = 0;
-  for (let bi = 0; bi < size; bi++)
-    for (let gi = 0; gi < size; gi++)
-      for (let ri = 0; ri < size; ri++) {
-        const base = [ri / (size - 1), gi / (size - 1), bi / (size - 1)];
-        const row = base.map((value, c) => (value + k * (grid[o + c] - value)).toFixed(6));
-        o += 3;
-        lines.push(row.join(" "));
+function regionalCubeRamp(grid: Float32Array, size: number) {
+  const coordinates = Array.from({ length: size }, (_, index) => index / (size - 1));
+  const labels = coordinates.map(value => value.toFixed(6));
+  const fixedRows: string[] = [];
+  const varyingRows: number[] = [];
+  let row = 0;
+  for (let b = 0; b < size; b++) {
+    for (let g = 0; g < size; g++) {
+      for (let r = 0; r < size; r++, row++) {
+        const offset = row * 3;
+        if (grid[offset] === coordinates[r] && grid[offset + 1] === coordinates[g] && grid[offset + 2] === coordinates[b]) {
+          fixedRows[row] = `${labels[r]} ${labels[g]} ${labels[b]}`;
+        } else {
+          varyingRows.push(row);
+        }
       }
-  return `${lines.join("\n")}\n`;
+    }
+  }
+  return (strength: number) => {
+    const rows = Number.isFinite(strength) ? fixedRows.slice() : fixedRows.map(() => "NaN NaN NaN");
+    const channel = (index: number, target: number) => {
+      const source = coordinates[index];
+      return (source + strength * (target - source)).toFixed(6);
+    };
+    for (const index of varyingRows) {
+      const offset = index * 3;
+      const r = index % size;
+      const g = Math.floor(index / size) % size;
+      const b = Math.floor(index / (size * size));
+      rows[index] = `${channel(r, grid[offset])} ${channel(g, grid[offset + 1])} ${channel(b, grid[offset + 2])}`;
+    }
+    const header = [`TITLE "${REGIONAL_GRADE_ALGORITHM} k=${strength.toFixed(3)}"`, `LUT_3D_SIZE ${size}`, "DOMAIN_MIN 0 0 0", "DOMAIN_MAX 1 1 1"];
+    return header.concat(rows).join("\n") + "\n";
+  };
+}
+
+export function regionalCube(grid: Float32Array, size: number, strength: number): string {
+  return regionalCubeRamp(grid, size)(strength);
 }
 
 /** 每帧里「森林」颜色的占比（加权）。 */
@@ -295,8 +321,7 @@ async function runRegional(request: VideoRegionalGradeRequest): Promise<VideoReg
     return { takeId: existing.id, parentTakeId: parent.id, stableShotId: parent.stableShotId, shotNo: shot.shotNo, videoUrl: existing.videoUrl, replayed: true, metrics: snap.metrics as RegionalMetrics };
   }
   const source = localTakeFile(parent);
-  const probe = await probeVideo(source);
-  const info = await probeFrames(source);
+  const [probe, info] = await Promise.all([probeVideo(source), probeFrames(source)]);
   const total = info.frames.length;
   const durationSec = total / info.fps;
   const presence = (await sampleRgb(source, PRESENCE_FPS, 128)).map(frame => subjectPresence(frame, spec.subject));
@@ -325,7 +350,7 @@ async function runRegional(request: VideoRegionalGradeRequest): Promise<VideoReg
     try { fs.lstatSync(output); exists = true; } catch { /* 不存在才继续 */ }
     if (exists) throw new Error(`${file} 已存在，未覆盖`);
     // 1) 渐变 LUT：rampFrames 个过渡档 + 全强度。
-    const grid = regionalGrid(spec, 65);
+    const cubeAtStrength = regionalCubeRamp(regionalGrid(spec, 65), 65);
     const segments: Array<{ from: number; to: number; cube: string | null }> = [];
     const first = cut.copyFrames;
     for (let f = first; f < total; ) {
@@ -336,13 +361,13 @@ async function runRegional(request: VideoRegionalGradeRequest): Promise<VideoReg
         const kIn = inRamp < rampFrames ? smooth(0, 1, (inRamp + 1) / (rampFrames + 1)) : 1;
         const kOut = outRamp < rampFrames ? smooth(0, 1, (outRamp + 1) / (rampFrames + 1)) : 1;
         const cubePath = path.join(work, `k${f}.cube`);
-        fs.writeFileSync(cubePath, regionalCube(grid, 65, Math.min(kIn, kOut)));
+        fs.writeFileSync(cubePath, cubeAtStrength(Math.min(kIn, kOut)));
         segments.push({ from: f, to: f + 1, cube: cubePath });
         f += 1;
       } else {
         const to = endFrame < total ? Math.max(f + 1, endFrame - rampFrames) : total;
         const cubePath = path.join(work, "full.cube");
-        if (!fs.existsSync(cubePath)) fs.writeFileSync(cubePath, regionalCube(grid, 65, 1));
+        if (!fs.existsSync(cubePath)) fs.writeFileSync(cubePath, cubeAtStrength(1));
         segments.push({ from: f, to, cube: cubePath });
         f = to;
       }
@@ -381,7 +406,8 @@ async function runRegional(request: VideoRegionalGradeRequest): Promise<VideoReg
     const winFps = 4;
     const sampleSlice = async (file: string) => (await sampleRgb(file, winFps, 256))
       .filter((_, i) => i / winFps >= window.startSec + RAMP_SEC && i / winFps < window.endSec);
-    const paired = pairedStats(await sampleSlice(source), await sampleSlice(output), spec);
+    const [before, after] = await Promise.all([sampleSlice(source), sampleSlice(output)]);
+    const paired = pairedStats(before, after, spec);
     const metrics: RegionalMetrics = {
       windowStartSec: Math.round(window.startSec * 1000) / 1000, windowEndSec: Math.round(window.endSec * 1000) / 1000,
       subjectStartSec: Math.round(window.subjectStart * 1000) / 1000, subjectEndSec: Math.round(window.subjectEnd * 1000) / 1000, rampSec: RAMP_SEC,

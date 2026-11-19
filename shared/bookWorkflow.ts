@@ -46,6 +46,8 @@ export type ManuscriptVersion = ManuscriptReference & {
 export type ConversionDraft = {
   videoTextMethod?: "rewrite" | "local-transcript";
   submissionUncertain?: boolean;
+  /** Old unresolved tasks explicitly acknowledged under the new quote. */
+  acknowledgedUnknownIds?: string[];
   conversation?: Array<{ role: "user" | "assistant"; content: string }>;
   id: string;
   target: ManuscriptKind;

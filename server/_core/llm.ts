@@ -144,7 +144,7 @@ const legacyFallbackBaseUrl = () => {
 
 /** An explicit recovery model opts text-only requests into the existing 302
  * service account. Never route image/file messages to a text-only model. */
-function fallbackCandidates(messages: Message[]) {
+export function textOnlyRecoveryCandidates(messages: Message[]) {
   const textOnly = messages.every(message =>
     (Array.isArray(message.content) ? message.content : [message.content])
       .every(part => typeof part === "string" || part.type === "text")
@@ -155,6 +155,12 @@ function fallbackCandidates(messages: Message[]) {
     fallback302ApiKey: ENV.api302Key,
     fallback302BaseUrl: ENV.api302BaseUrl,
   };
+  return null;
+}
+
+function fallbackCandidates(messages: Message[]) {
+  const recovery = textOnlyRecoveryCandidates(messages);
+  if (recovery) return recovery;
   return {
     fallback302Model: ENV.llmModel,
     fallback302ApiKey: ENV.forgeApiKey,

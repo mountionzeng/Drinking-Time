@@ -111,7 +111,7 @@ exports[`render profile contracts (mock fetch, request body snapshot) > image.gp
     "prompt": [
       "Edit image 1 only. It is a cropped detail with surrounding context. Keep its exact framing and positions; preserve any black padding.
 Image 2 is the whole original artwork, for style reference only. Never return image 2 or a collage.
-Change only the transparent area of the mask on image 1. Inherit the original medium, brushwork, grain, line weight, palette, lighting direction, contrast, perspective and object scale. Do not restyle or redesign the surrounding artwork.
+Change only the transparent area of the mask on image 1. Inherit the original medium, brushwork, grain, line weight, palette, lighting direction, contrast and perspective. Keep object scale unless the user explicitly asks to resize the selected object within the mask. Do not restyle or redesign the surrounding artwork.
 Return the edited crop on the same square canvas, not an isolated object. The application will extract a transparent patch using the confirmed mask and place it back in the original artwork.
 Requested local change: fix the cup",
     ],
@@ -280,7 +280,7 @@ exports[`render profile contracts (mock fetch, request body snapshot) > video.30
     "duration": 5,
     "image_url": "https://cdn.example/frame.png",
     "model": "contract-video-model",
-    "prompt": "slow push in",
+    "prompt": "Only show elements visible in the source frames or explicitly requested by the user. Add nothing else. Match lens, scale and direction. Cut on action across incompatible views; never stitch. slow push in",
   },
   "method": "POST",
   "url": "https://api.302.test/contract/video/submit",
@@ -292,7 +292,7 @@ exports[`render profile contracts (mock fetch, request body snapshot) > video.mj
   "body": {
     "image": "https://cdn.example/frame.png",
     "motion": "low",
-    "prompt": "slow push in",
+    "prompt": "Only show elements visible in the source frames or explicitly requested by the user. Add nothing else. Match lens, scale and direction. Cut on action across incompatible views; never stitch. slow push in",
   },
   "method": "POST",
   "url": "https://api.302.test/mj-turbo/submit/video",
@@ -308,7 +308,7 @@ exports[`render profile contracts (mock fetch, request body snapshot) > video.vi
       "https://cdn.example/frame.png",
     ],
     "model": "viduq2-pro-fast",
-    "prompt": "slow push in",
+    "prompt": "Only show elements visible in the source frames or explicitly requested by the user. Add nothing else. Match lens, scale and direction. Cut on action across incompatible views; never stitch. slow push in",
     "resolution": "720p",
   },
   "method": "POST",
@@ -326,7 +326,7 @@ exports[`render profile contracts (mock fetch, request body snapshot) > video.vi
     ],
     "model": "viduq2-turbo",
     "movement_amplitude": "auto",
-    "prompt": "door opens",
+    "prompt": "Only show elements visible in the source frames or explicitly requested by the user. Add nothing else. Match lens, scale and direction. Cut on action across incompatible views; never stitch. door opens",
     "resolution": "720p",
   },
   "method": "POST",

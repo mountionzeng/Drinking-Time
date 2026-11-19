@@ -100,7 +100,7 @@ export function localImagePatchPrompt(instruction: string): string {
   return [
     "Edit image 1 only. It is a cropped detail with surrounding context. Keep its exact framing and positions; preserve any black padding.",
     "Image 2 is the whole original artwork, for style reference only. Never return image 2 or a collage.",
-    "Change only the transparent area of the mask on image 1. Inherit the original medium, brushwork, grain, line weight, palette, lighting direction, contrast, perspective and object scale. Do not restyle or redesign the surrounding artwork.",
+    "Change only the transparent area of the mask on image 1. Inherit the original medium, brushwork, grain, line weight, palette, lighting direction, contrast and perspective. Keep object scale unless the user explicitly asks to resize the selected object within the mask. Do not restyle or redesign the surrounding artwork.",
     "Return the edited crop on the same square canvas, not an isolated object. The application will extract a transparent patch using the confirmed mask and place it back in the original artwork.",
     `Requested local change: ${instruction.trim()}`,
   ].join("\n");
@@ -111,7 +111,8 @@ export function localImagePatchPrompt(instruction: string): string {
 export async function compositeLocalImagePatch(
   sourceBytes: Uint8Array,
   generatedBytes: Uint8Array,
-  maskBytes: Uint8Array
+  maskBytes: Uint8Array,
+  featherPixels = 0
 ) {
   const { source, mask, bounds, frame } = await readSelection(
     sourceBytes,
@@ -131,13 +132,28 @@ export async function compositeLocalImagePatch(
     .toBuffer();
   const patch = Buffer.alloc(bounds.width * bounds.height * 4);
   const composited = Buffer.from(source.data);
+  const distances = new Float32Array(source.info.width * source.info.height);
+  const w=source.info.width,h=source.info.height;
+  if(featherPixels>0) {
+    for(let y=0;y<h;y++) for(let x=0;x<w;x++) {
+      const i=y*w+x;
+      distances[i]=mask.data[i*4+3]!==0?0:Math.min(featherPixels,x?distances[i-1]+1:1,y?distances[i-w]+1:1);
+    }
+    for(let y=h-1;y>=0;y--) for(let x=w-1;x>=0;x--) {
+      const i=y*w+x;
+      distances[i]=Math.min(distances[i],x<w-1?distances[i+1]+1:1,y<h-1?distances[i+w]+1:1);
+    }
+  }
   for (let y = 0; y < bounds.height; y++)
     for (let x = 0; x < bounds.width; x++) {
       const src = ((bounds.top + y) * source.info.width + bounds.left + x) * 4;
       if (mask.data[src + 3] !== 0) continue;
       const dst = (y * bounds.width + x) * 4;
       generated.copy(patch, dst, dst, dst + 4);
-      generated.copy(composited, src, dst, dst + 4);
+      const t=featherPixels>0?Math.min(1,distances[src/4]/featherPixels):1;
+      const weight=t*t*(3-2*t);
+      for(let c=0;c<3;c++) composited[src+c]=Math.round(source.data[src+c]*(1-weight)+generated[dst+c]*weight);
+      composited[src+3]=source.data[src+3];
     }
   const [patchPng, compositedPng] = await Promise.all([
     sharp(patch, {

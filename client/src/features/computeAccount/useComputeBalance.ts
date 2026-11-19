@@ -17,7 +17,7 @@ export type ComputeBalanceView = {
   text: string | null;
   /** 生成中被占住的钱，没有占用时为 null。 */
   reservedText: string | null;
-  /** 本机开发模式下，不拦余额，但仍显示本机实际累计供应商成本。 */
+  /** 本机开发模式下不拦余额；仅展示账本已记录的消费，不代表完整用量或供应商实收。 */
   localUnlimited: boolean;
   localCostText: string | null;
   /**

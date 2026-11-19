@@ -112,13 +112,13 @@ export default function SelectionContextCard({
       <div className="min-w-0 flex-1" role={onOpen ? "button" : undefined} tabIndex={onOpen ? 0 : undefined} onClick={onOpen} onKeyDown={event => { if (onOpen && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); onOpen(); } }} style={onOpen ? {cursor: "pointer"} : undefined}>
         <div className="flex flex-wrap items-center gap-1 text-[9px] font-mono uppercase tracking-wider text-muted-foreground">
           <span>{_ui(contextLabel(selection, _ui))}</span>
-          {selection.objectVersion ? (
+          {selection.objectVersion && selection.sourceType !== "timeline-range" ? (
             <span>{_ui("· 版本")}{" "}{selection.objectVersion}</span>
           ) : null}
           {readiness ? (
             <span>
               ·{" "}
-              {productionContext ? _ui("制作上下文") : readiness.status === "executable"
+              {selection.sourceType === "timeline-range" && readiness.status !== "stale" ? _ui("已引用 / Referenced") : productionContext ? _ui("制作上下文") : readiness.status === "executable"
                 ? _ui("可修改")
                 : readiness.status === "stale"
                   ? _ui("已失效")

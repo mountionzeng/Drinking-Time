@@ -48,6 +48,7 @@ type VisualSessionEditor = Pick<
   | "extractTimelineFrame"
   | "pasteVisualImage"
   | "deleteVisualObject"
+  | "deleteSelectedVisualObjects"
   | "timelineItems"
   | "timelineOverlays"
   | "timelineVisualLayerState"
@@ -657,6 +658,7 @@ export function useVisualObjectEditingSession(input: {
       }
       if (command === "delete") {
         if (object.type === "story-shot") {
+          if (!window.confirm("删除整个镜头及其主画面？如果只想删除 V2 的内容，请取消并选择 V2 中的片段。删除后可在历史版本中恢复画面。")) return;
           const intentKey = visualObjectRefKey(object);
           const operation =
             visualDeleteIntentRef.current.get(intentKey) ??
@@ -761,6 +763,15 @@ export function useVisualObjectEditingSession(input: {
   );
 
   return {
+    deleteSelectedVisualObjects: async (objects: VisualObjectRef[], visualLayer: number) => {
+      if (!isEditingStorySessionCurrent()) throw new Error("剪辑会话已切换，请重新选择");
+      const intentKey = `batch:${visualLayer}:${objects.map(visualObjectRefKey).sort().join("|")}`;
+      const operation = visualDeleteIntentRef.current.get(intentKey) ?? newVisualOperation();
+      visualDeleteIntentRef.current.set(intentKey, operation);
+      await input.editor.deleteSelectedVisualObjects({ operation, objects, visualLayer });
+      clearVisualIntentIfCurrent(visualDeleteIntentRef.current, intentKey, operation);
+      if (isEditingStorySessionCurrent()) toast.success("所选画面已删除，可撤销或从历史版本恢复");
+    },
     editingStorySessionKey,
     isEditingStorySessionCurrent,
     visualClipboard,

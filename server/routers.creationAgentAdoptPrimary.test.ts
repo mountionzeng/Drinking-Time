@@ -7,6 +7,8 @@ import type { TrpcContext } from "./_core/context";
 import { ENV } from "./_core/env";
 import { createVideoTake, getStoryTimeline, getStoryVideoTimelineSelections, getVideoTakeById, resetMemoryStateForTesting, updateStoryTimeline } from "./db";
 import { appRouter } from "./routers";
+import { getStoryMaterialState } from "./services/storyMaterials";
+import { restoreVisualRevision } from "./services/storyVisualObjectEditing";
 import type { VisualEditDocument } from "../shared/visualClipModel";
 
 const USER = 731;
@@ -39,6 +41,68 @@ async function seed() {
 }
 
 describe("creationAgent.adoptVideoTake replacePrimary（对话「采用视频 Take N」）", () => {
+  it("swaps only the primary source, persists the trim and permits an exact inverse", async () => {
+    const { storyId, original, graded } = await seed();
+    const api=caller().warehouseVideoSequence;
+    const command={storyId,stableShotId:"sh-03",takeId:graded,expectedTakeId:original,expectedVersion:1};
+    await expect(api.replacePrimary(command)).rejects.toThrow("不能覆盖");
+    expect(await getStoryVideoTimelineSelections(storyId,USER)).toEqual([]);
+    const before=(await getStoryTimeline(storyId,USER))!;
+    const item=(before.items as VisualEditDocument["items"])[0];
+    const trimmed={...item,timelineStartFrame:55,visualLayer:2,durationFrames:90,plannedDurationMs:3000,
+      primaryVideoEdit:{...item.primaryVideoEdit!,sourceStartSec:2,sourceEndSec:5}};
+    await updateStoryTimeline({storyId,userId:USER,expectedVersion:1,items:[trimmed]});
+    await expect(api.replacePrimary(command)).rejects.toThrow("已更新");
+    await api.replacePrimary({...command,expectedVersion:2});
+    await api.replacePrimary({...command,expectedVersion:2});
+    const after=(await getStoryTimeline(storyId,USER))!;
+    expect(after.version).toBe(3);
+    expect(after.items).toEqual([{...trimmed,primaryVideoEdit:{...trimmed.primaryVideoEdit,takeId:graded}}]);
+    expect(await getStoryVideoTimelineSelections(storyId,USER)).toMatchObject([{takeId:graded,selectionType:"range"}]);
+    await api.replacePrimary({...command,takeId:original,expectedVersion:3,expectedTakeId:graded});
+    expect((await getStoryTimeline(storyId,USER))?.items).toEqual([trimmed]);
+    expect(await getStoryVideoTimelineSelections(storyId,USER)).toMatchObject([{takeId:original}]);
+  });
+  it("places the first reviewed video in a still-only shot, survives reload and restores the original still-only edit", async () => {
+    const { storyId, original, graded } = await seed();
+    const before = (await getStoryTimeline(storyId, USER))!;
+    const { primaryVideoEdit: _old, ...item } = (before.items as VisualEditDocument["items"])[0];
+    const still = { id: "opening", imageId: 99, imageUrl: "/forest.png", label: "开场", offsetFrames: 0, timelineStartFrame: 788, durationFrames: 30, visualLayer: 0 };
+    const empty = { ...item, timelineStartFrame: 788, durationFrames: 90, plannedDurationMs: 3000, imageClips: [still] };
+    const next = { ...item, stableShotId: "next", position: 1, timelineStartFrame: 1500 };
+    const items = [empty, next];
+    await updateStoryTimeline({ storyId, userId: USER, expectedVersion: 1, items });
+    const command = { storyId, stableShotId: "sh-03", expectedTakeId: null, takeId: graded, expectedVersion: 2 };
+    const api = caller().warehouseVideoSequence;
+    await expect(api.replacePrimary({ ...command, expectedVersion: 1 })).rejects.toThrow("已更新");
+    await expect(api.replacePrimary({ ...command, stableShotId: "next" })).rejects.toThrow("不可用");
+    await Promise.all([api.replacePrimary(command), api.replacePrimary(command)]);
+    await expect(api.replacePrimary({ ...command, takeId: original })).rejects.toThrow("已更新");
+    const placed = (await getStoryTimeline(storyId, USER))!;
+    expect(placed.version).toBe(3);
+    expect(placed.items).toMatchObject([{ ...empty, durationFrames: 240, plannedDurationMs: 8000, primaryVideoEdit: { takeId: graded, sourceStartSec: 0, sourceEndSec: 8 } }, next]);
+    const current = async () => (await getStoryMaterialState(storyId, USER))?.shots.find(s => s.stableShotId === "sh-03")?.currentVideo?.id;
+    expect(await current()).toBe(graded);
+    expect(await restoreVisualRevision({ storyId, userId: USER, expectedTimelineVersion: 3, version: 2, operation: {operationId:"undo-review-save", editorSessionEpoch:"new-session"} })).toMatchObject({status:"ok"});
+    expect((await getStoryTimeline(storyId, USER))!.items).toEqual(items);
+    expect(await current()).toBeUndefined();
+    expect(await getVideoTakeById(graded, USER)).toMatchObject({status:"available"});
+  });
+
+  it.each([false, true])("keeps the following shot in place when its start is implicit=%s", async implicit => {
+    const { storyId, graded } = await seed();
+    const before = (await getStoryTimeline(storyId, USER))!;
+    const { primaryVideoEdit: _old, ...item } = (before.items as VisualEditDocument["items"])[0];
+    const empty = { ...item, timelineStartFrame: 0, durationFrames: 90, plannedDurationMs: 3000 };
+    const next = { ...empty, stableShotId: "next", position: 1, timelineStartFrame: implicit ? undefined : 150 };
+    await updateStoryTimeline({ storyId, userId: USER, expectedVersion: 1, items: [empty, next] });
+    await caller().warehouseVideoSequence.replacePrimary({ storyId, stableShotId: "sh-03", expectedTakeId: null, takeId: graded, expectedVersion: 2 });
+    const placed = (await getStoryTimeline(storyId, USER))!.items as VisualEditDocument["items"];
+    expect(placed[0].primaryVideoEdit?.sourceEndSec).toBe(implicit ? 3 : 5);
+    expect(placed[0].durationFrames).toBe(implicit ? 90 : 150);
+    expect(placed[1]).toEqual(next);
+  });
+
   it("serializes competing adoptions so the selection and primary cannot diverge", async () => {
     const { storyId, original, graded } = await seed();
     const results = await Promise.all([graded, original, graded].map(takeId =>

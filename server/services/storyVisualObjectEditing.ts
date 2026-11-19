@@ -1,4 +1,6 @@
 import { getStoryGeneratedImages } from "../repositories/images";
+import { deleteVisualObjectBatch } from "../../shared/visualObjectBatch";
+import { readVideoEditHistory } from "../../shared/videoEditHistory";
 import { splitFrameParams, type ShotSplitPlan } from "../../shared/shotSplitChat";
 import { createHash } from "node:crypto";
 import type { VisualObjectRef } from "../../shared/visualObject";
@@ -25,6 +27,7 @@ import { shotIdentityFromShot } from "../../shared/shotIdentity";
 import {
   authorizeStoryVisualReferences,
   loadOwnedStoryVisualAggregate,
+  visualDocumentFromTimeline,
 } from "../persistence/storyVisualPersistence";
 import {
   getStoryMaterialState,
@@ -40,7 +43,7 @@ import {
   publicVisualEditReceipt,
   recordAggregateVisualEditUndo,
 } from "./visualEditUndoJournal";
-import { withVisualEditServiceLock } from "./visualClipEditing";
+import { withVisualEditServiceLock, deleteSelectedVisualClipReferences, type VisualClipEditResult } from "./visualClipEditing";
 import { isVisualEditSessionEpochAllowed } from "./visualEditSessionRegistry";
 
 const MAX_CLIPBOARDS_PER_SCOPE = 12;
@@ -479,6 +482,69 @@ async function pasteStoryVisualObjectUnlocked(input: {
             document: plan.aggregate.document,
           };
     },
+  });
+}
+
+export async function deleteSelectedVisualObjects(input: {
+  storyId: number;
+  userId: number;
+  operation: VisualEditOperationRef;
+  objects: VisualObjectRef[];
+  visualLayer: number;
+}): Promise<StoryVisualObjectEditResult | VisualClipEditResult> {
+  if (input.objects.every(object => object.type !== "story-shot"))
+    return deleteSelectedVisualClipReferences(input);
+  return runAggregateCommand({
+    ...input,
+    payload: { kind: "delete-selected-visuals", objects: input.objects, visualLayer: input.visualLayer },
+    failureMessage: "所选画面删除失败",
+    planner: context => {
+      const plan = deleteVisualObjectBatch({
+        shots: shotsOf(context.storyBody), document: context.document,
+        objects: input.objects, visualLayer: input.visualLayer,
+      });
+      return plan.status === "error" ? plan : {
+        status: "ok", value: {},
+        storyBody: { ...context.storyBody, shots: plan.aggregate.shots },
+        document: plan.aggregate.document,
+      };
+    },
+  });
+}
+
+/** Restore visual editing only; current chat, text, audio and subtitles survive. */
+export async function restoreVisualRevision(input: {
+  storyId: number;
+  userId: number;
+  operation: VisualEditOperationRef;
+  version: number;
+  expectedTimelineVersion: number;
+}): Promise<StoryVisualObjectEditResult> {
+  return withVisualEditServiceLock(input.storyId, input.userId, async () => {
+    const aggregate = await loadOwnedStoryVisualAggregate(input);
+    if (!aggregate) return { status: "error", error: "故事不存在或无权访问", errorKind: "invalid" };
+    const revision = readVideoEditHistory(aggregate.timeline?.extensions?.videoEditHistory)
+      .find(revision => revision.version === input.version);
+    return runAggregateCommand({
+      ...input, lockHeld: true,
+      payload: { kind: "restore-visual-revision", version: input.version, expectedTimelineVersion: input.expectedTimelineVersion },
+      failureMessage: "画面修订恢复失败",
+      planner: context => {
+        if (context.timelineVersion !== input.expectedTimelineVersion)
+          return { status: "error", message: "当前剪辑已经更新，请重新查看历史后恢复" };
+        if (!revision || !revision.shots.length)
+          return { status: "error", message: "这条历史修订已不可用" };
+        const document = visualDocumentFromTimeline({ ...revision.timeline } as Parameters<typeof visualDocumentFromTimeline>[0]);
+        if (!document) return { status: "error", message: "历史画面数据不完整，无法恢复" };
+        const currentShots = new Map(shotsOf(context.storyBody).map((shot, index) => [shotIdentityFromShot(shot, index), shot]));
+        const shots = revision.shots.map((shot, index) => ({
+          ...shot,
+          ...currentShots.get(shotIdentityFromShot(shot, index)),
+          shotNo: index + 1,
+        }));
+        return { status: "ok", value: {}, storyBody: { ...context.storyBody, shots }, document };
+      },
+    });
   });
 }
 

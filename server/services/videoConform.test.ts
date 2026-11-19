@@ -197,7 +197,7 @@ describe("videoConform", () => {
         prompt: "preserve camera movement",
       })
     ).toEqual({
-      text_prompt: "preserve camera movement",
+      text_prompt: "Only show elements visible in the source frames or explicitly requested by the user. Add nothing else. Match lens, scale and direction. Cut on action across incompatible views; never stitch. preserve camera movement",
       seconds: "10",
       outpaint_aspect_ratio: "5:3",
     });

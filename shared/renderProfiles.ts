@@ -186,10 +186,10 @@ const PROFILES: Record<RenderProfileId, RenderProfile> = {
   "image.legnext-v7-fast": {
     id: "image.legnext-v7-fast", media: "image", operation: "generate", adapter: "legnext",
     label: "Legnext Midjourney V7 Fast（分镜、书内插图）", provider: "legnext", model: "midjourney-v7", endpoint: "/v1/diffusion",
-    fixedParams: { flags: "--v 7 --fast --ar 3:4|16:9" },
+    fixedParams: { flags: "--v 7 --fast" },
     allowedParams: ["aspectRatio", "inlinePoll", "referenceImageUrl", "referenceContextImageUrls", "characterRef", "styleRef", "characterWeight", "imageWeight"],
     price: storyboardMjPrice, maxPromptChars: 8192, overLimit: "reject", outputCount: 4, enabled: true,
-    note: "报价沿用 estimateStoryboardImageCost（按 302 MJ Turbo 报 ¥0.68）；Legnext 实际 80 credits ≈ ¥0.54，报价未改。",
+    note: "报价沿用 estimateStoryboardImageCost（按 302 MJ Turbo 报 ¥0.68）；Legnext 实际 80 credits ≈ ¥0.54，报价未改。画幅由入口使用的 aspectRatio 确定，对话改图沿用底图画幅。",
   },
   "image.legnext-retexture": {
     id: "image.legnext-retexture", media: "image", operation: "edit", adapter: "legnext",

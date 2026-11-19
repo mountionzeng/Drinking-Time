@@ -6,6 +6,7 @@ import { storeImageBytes, type ImageGenResult } from "./imageGen";
 import { providerErrorFromBody, shortProviderReason } from "./providerError";
 import {
   buildLegnextDiffusionRequest,
+  legnextAspectRatio,
   legnextDiffusionPrompt,
   legnextPrompt,
   LEGNEXT_BASE as BASE,
@@ -89,7 +90,7 @@ export async function generateLegnextImage(text: string, onAccepted: (id: string
   // Retexture retains the uploaded canvas; do not impose the old 16:9 diffusion preset.
   let prompt = retexture
     ? legnextRetexturePrompt(text)
-    : legnextPrompt(text, options.aspectRatio === "16:9" ? "16:9" : "3:4");
+    : legnextPrompt(text, legnextAspectRatio(options.aspectRatio));
   if (retexture && prompt.length > LEGNEXT_RETEXTURE_MAX_PROMPT_CHARS)
     return { status: "error", message: `原图精修描述超过 ${LEGNEXT_RETEXTURE_MAX_PROMPT_CHARS} 字，本次未提交。请缩短修改要求后再试。` };
   // Never strip characters silently: a non-ASCII remixPrompt (Chinese, full-width punctuation) is refused before the paid POST.
@@ -110,7 +111,7 @@ export async function generateLegnextImage(text: string, onAccepted: (id: string
     if (!retexture) {
     prompt = legnextDiffusionPrompt({
       text,
-      aspectRatio: options.aspectRatio === "16:9" ? "16:9" : "3:4",
+      aspectRatio: legnextAspectRatio(options.aspectRatio),
       referenceUrls: [...new Set(refs)].map(source => uploaded.get(source)!),
       imageWeight: options.imageWeight,
       characterRefUrl: options.characterRef ? uploaded.get(options.characterRef) : undefined,

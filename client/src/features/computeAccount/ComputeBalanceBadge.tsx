@@ -96,7 +96,7 @@ function ComputeBalanceBadgeInner({
       className={cn("inline-flex flex-col gap-0.5", className)}
       aria-label={
         balance.localUnlimited
-          ? t("本机开发不限额，累计使用 {0}", [balance.localCostText])
+          ? t("本机开发不限额，已记账 {0}，用量记录不完整", [balance.localCostText])
           : t("可用余额 {0}", [balance.text])
       }
     >
@@ -124,9 +124,7 @@ function ComputeBalanceBadgeInner({
 
       {balance.localUnlimited ? (
         <span className="text-[10px] leading-4 text-muted-foreground">
-          {t("本机累计使用")}
-          {balance.localCostText}
-          {t("（仅已接入账本的调用）")}
+          {t("已记账 {0} · 用量记录不完整", [balance.localCostText])}
         </span>
       ) : balance.negative ? (
         <span className="text-[10px] leading-4 text-destructive">

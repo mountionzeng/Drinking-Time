@@ -66,11 +66,23 @@ curl -fsS http://127.0.0.1:3000/readyz || true
 
 先核对主仓工作区、main提交、构建源码和线上manifest四者，不以main已push代表全部本地功能已上线。
 
-1. 按功能列出本次上线与暂缓项，覆盖所有未提交/未跟踪文件；已测通UI不能因与未验收美术代码共处一文件而被无说明排除。
-2. 在主仓运行 `node --import tsx <发布源码>/scripts/release-scope-audit.ts <发布源码>`；首次返回未纳入的文件、两侧SHA和非零退出码。不得把失败当成通过。
-3. 逐项核查后写暂缓JSON数组，每项为 `path/workspaceHash/releaseHash/reason`。再次传入该JSON运行；新增文件、内容变化、失效或空白说明会失败，禁止通配放行。报告与本次QA一起保留。截图等附件可说明为非部署资产；密钥和业务数据仍按gitignore排除。
-4. 测试/构建/提交使用同一个隔离源码快照；提交前后核对工作区内容以保留其他会话改动。上传前重新执行范围检查，核对构建源码与提交一致；并核对生产基线防止覆盖其他发布。
-5. 发布结论必须分开写“服务上线”“本次功能入口验收”“仍未发布/未验收能力”。用户旧标签页缓存需另行确认，不能以缓存解释实际源码漏发。
+1. 从明确的 main 提交准备独立源码快照，再整合本次已验证的功能。列出上线、暂缓和验收缺口，不能把“主仓已提交”当作其他工作树已全部合入。
+2. **所有日常发布统一使用 `release:audit → release:build → release:verify`**。在主仓运行 `node --import tsx <快照>/scripts/release-inventory-audit.ts <快照> [decisions.json]`。检查覆盖主仓全部受版本控制文件（含干净已提交文件）、双方未跟踪源码、其他登记工作树的独有提交与未提交改动；忽略凭据、业务数据和构建目录。
+3. 首次失败应逐项审查，不得自动生成理由后直接通过。处理记录格式为 `{ "primary": [{ "path", "workspaceHash", "releaseHash", "reason" }], "worktrees": [{ "path", "fingerprint", "reason" }] }`。工作树指纹绑定 HEAD、独有提交和差异文件双方哈希；目录已丢失也要明确说明。等价实现可以记录为已整合/后续替代，不机械重复合并旧分支。
+4. 提交/类型检查/相关回归使用相同源码。最终提交后重新保存成功审计报告，再用 `node --import tsx <快照>/scripts/release-build.ts <audit.json> <manifest.json>` 构建。它在构建前和完成后检查范围未变化；任何变化都拒绝封存。`manifest.json` 绑定提交、完整源码指纹、所有 dist 产物，以及 bundle 外执行的 `scripts/frame-regions/*.py` 与依赖清单。模型权重/环境/数据库仍独立管理，不能漏发 Python 代码，也不能顺带覆盖模型和密钥。
+5. 上传前运行 `node --import tsx <快照>/scripts/release-artifacts.ts verify <audit.json> <manifest.json>`。源码、任何工作树或产物有变化均停止，重新核对，必要时重测重构建。远端再核对当前生产基线、获取发布锁、备份变更文件，按 manifest 精确上传；保留旧 hash 静态资源。后端/worker 改动需重启现有 PM2 并验证，纯前端无需重启。
+6. 发布后核对公网版本、资源 SHA、health/ready/鉴权，以及本次实际页面入口。发布结论分开写“已上线”“入口已验收”“美术或付费全链路尚未验收”。上传哈希通过不代表产品功能完成，失败不根据猜测归因于缓存。
+
+以下是生产构建入口，不替代前面的类型/回归/MySQL及人工页面验收。报告/manifest 放在快照外，避免产生自引用哈希；不手改失败报告的 `ok` 字段：
+
+```bash
+# 在主仓执行；RELEASE_SOURCE、RELEASE_RECORDS 是本次明确设置的绝对路径。
+node --import tsx "$RELEASE_SOURCE/scripts/release-inventory-audit.ts" "$RELEASE_SOURCE" "$RELEASE_RECORDS/decisions.json" > "$RELEASE_RECORDS/audit.json"
+node --import tsx "$RELEASE_SOURCE/scripts/release-build.ts" "$RELEASE_RECORDS/audit.json" "$RELEASE_RECORDS/manifest.json"
+node --import tsx "$RELEASE_SOURCE/scripts/release-artifacts.ts" verify "$RELEASE_RECORDS/audit.json" "$RELEASE_RECORDS/manifest.json"
+```
+
+每条命令必须成功才进入下一步。旧 `release-scope-audit` 保留作单仓诊断，不能再单独作为发布许可。新工具不自动合并、上传、删除工作树或购买媒体；脚本检查无法替代真实功能验收。
 
 2026-11-15生产HTTP现状为301跳转同域HTTPS；现有部署不改nginx。验证现有站点接受301/308且必须核对确切HTTPS目标，不能因错误硬编码308误报发布失败。
 

@@ -20,6 +20,7 @@ beforeEach(() => { mock.images = undefined; vi.stubGlobal('React', React); chatI
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); chatImageRefsStore.getState().clear(); });
 
 function draw(videoActions: boolean, insertIntoLayout = false) {
+  const close = vi.fn();
   let select: (() => void) | undefined;
   let preview: (() => void) | undefined;
   let hover: ((event: {pointerType:string}) => void) | undefined;
@@ -31,8 +32,8 @@ function draw(videoActions: boolean, insertIntoLayout = false) {
     if (type === 'button' && props?.['aria-label'] === '编辑图片 / Edit image 19') edit = props.onClick;
     return create(type, props, ...children);
   }) as typeof React.createElement);
-  const html = renderToStaticMarkup(<MaterialWarehousePanel variant="drawer" videoActions={videoActions} insertIntoLayout={insertIntoLayout} onClose={vi.fn()} />);
-  return { html, select: () => select!(), edit: () => edit!({preventDefault: vi.fn()}), preview: () => preview!(), hover: () => hover!({pointerType:"mouse"}) };
+  const html = renderToStaticMarkup(<MaterialWarehousePanel variant="drawer" videoActions={videoActions} insertIntoLayout={insertIntoLayout} onClose={close} />);
+  return { html, close, select: () => select!(), edit: () => edit!({preventDefault: vi.fn()}), preview: () => preview!(), hover: () => hover!({pointerType:"mouse"}) };
 }
 
 it('puts newest images at the left, with missing dates last and stable ties', () => {
@@ -74,11 +75,12 @@ it('preserves video selection and shot binding when opened from video', () => {
   const view = draw(true);
   expect(view.html).toContain('绑定到当前镜头');
   view.edit();
+  expect(view.close).not.toHaveBeenCalled();
   expect(mock.select).toHaveBeenCalledWith(expect.objectContaining({ imageId: 19, storyId: 7 }));
   expect(chatImageRefsStore.getState().refs).toEqual([]);
   expect(dispatchEvent.mock.calls[0][0].detail).toEqual({ kind: 'clear', storyId: 7 });
   expect(dispatchEvent.mock.calls[1][0].type).toBe('dt:open-creation-chat');
-  expect(dispatchEvent.mock.calls[1][0].detail).toMatchObject({ preserveSelection: true, focusComposer: true });
+  expect(dispatchEvent.mock.calls[1][0].detail).toMatchObject({ preserveSelection: true, focusComposer: true, imageId: 19, storyId: 7 });
   expect(view.html).not.toContain('使用图片 19');
 });
 

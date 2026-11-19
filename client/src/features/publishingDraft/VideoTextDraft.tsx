@@ -110,16 +110,6 @@ export function VideoTextDraft({
     ) ?? [];
   const displayedTexts =
     edited?.key === previewKey ? edited.texts : previewTexts;
-  const uncertain =
-    method !== "local-transcript" &&
-    history.data?.state.conversions.some(
-      d =>
-        d.source.kind === "video" &&
-        (d.submissionUncertain ||
-          /submission outcome unknown|reconciliation required/.test(
-            d.error ?? ""
-          ))
-    );
   const generating =
     preview?.status === "generating" &&
     Date.now() - preview.createdAt < 15 * 60_000;
@@ -167,6 +157,7 @@ export function VideoTextDraft({
         method,
         id: token.current.id,
         quoteFingerprint: key,
+        acknowledgedUnknownIds: quote.unresolvedRequestIds,
       });
       if (!current()) return;
       setDraft(result);
@@ -244,6 +235,14 @@ export function VideoTextDraft({
           <p>
             {_ui("本次最多")} {String(quote.estimatedCompute)} {_ui("算力")}
           </p>
+          {quote.unresolvedRequestIds.length > 0 && (
+            <p className="mt-2 text-sm text-muted-foreground">
+              {_ui(
+                "有 {0} 次旧任务的结果和费用仍待核对，不包含在本次报价内。确认后会创建新的付费任务，旧记录保留。",
+                [quote.unresolvedRequestIds.length]
+              )}
+            </p>
+          )}
           <p className="mt-1 text-xs text-muted-foreground">
             {quote.method === "local-transcript" ? (
               _ui("本地原文读取")
@@ -283,13 +282,9 @@ export function VideoTextDraft({
           ))}
         </div>
       )}
-      {(uncertain || error || preview?.error) && (
+      {(error || preview?.error) && (
         <p role="alert" className="text-sm text-destructive">
-          {uncertain
-            ? _ui(
-                "视频转文字响应中断，结果和费用待核对；未产生新文字，请勿重复提交。"
-              )
-            : error || preview?.error}
+          {error || preview?.error}
         </p>
       )}
       <div className="flex justify-end gap-2">
@@ -306,13 +301,17 @@ export function VideoTextDraft({
         ) : (
           <button
             className={button}
-            disabled={busy || blocked || Boolean(uncertain) || !request.trim()}
+            disabled={busy || blocked || !request.trim()}
             onClick={() => void (quoteMatches ? submit() : prepare())}
           >
             {busy
               ? _ui("正在整理…")
               : quoteMatches
-                ? _ui("确认生成 / Confirm generation")
+                ? _ui(
+                    quote && quote.unresolvedRequestIds.length > 0
+                      ? "确认新任务 / Confirm new task"
+                      : "确认生成 / Confirm generation"
+                  )
                 : _ui("生成文字 / Generate text")}
           </button>
         )}

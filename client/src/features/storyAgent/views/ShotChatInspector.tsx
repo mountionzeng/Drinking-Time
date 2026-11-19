@@ -1,4 +1,8 @@
 import { shotConversationImages } from "../shotConversation";
+import {
+  openShotWarehouse,
+  UNASSIGNED_MEDIA,
+} from "@/features/creationEditor/warehouseShotMedia";
 import { trpc } from "@/lib/trpc";
 import { useUiText } from "@/features/uiLanguage/UiLanguage";
 import { shotChangeHistory, type ShotChange } from "@shared/shotChangeHistory";
@@ -191,29 +195,25 @@ export function ShotChatInspector({
           </p>
         </div>
       </div>
-      <details open className="mt-2">
-        <summary className="cursor-pointer text-xs">
-          {ui("本镜图片 · {0} 张", [allImages.size])}
-        </summary>
-        <div className="mt-2 grid grid-cols-2 gap-2">
-          {[...allImages.values()].map(renderImage)}
-        </div>
-      </details>
-      {unassigned.length > 0 && (
-        <details className="mt-2">
-          <summary className="cursor-pointer text-[11px] text-muted-foreground">
-            {ui("未标记镜头的旧图片 · {0} 张", [unassigned.length])}
-          </summary>
-          <p className="my-1 text-[10px] text-muted-foreground">
-            {ui("旧流程未保存这些图片的镜头归属，原图仍在这里。")}
-          </p>
-          <div className="grid grid-cols-2 gap-2">
-            {unassigned.map(image =>
-              renderImage({ imageId: image.id, imageUrl: image.imageUrl })
-            )}
-          </div>
-        </details>
-      )}
+      <div className="mt-2 flex flex-col items-start gap-1 text-xs">
+        <button
+          type="button"
+          disabled={!stableShotId}
+          className="py-1 text-left underline underline-offset-4 focus-visible:outline focus-visible:outline-2 disabled:opacity-50"
+          onClick={() => openShotWarehouse(storyId, stableShotId)}
+        >
+          {ui("在仓库查看本镜图片 · {0} 张 / Warehouse", [allImages.size])}
+        </button>
+        {unassigned.length > 0 && (
+          <button
+            type="button"
+            className="py-1 text-left text-muted-foreground underline underline-offset-4 focus-visible:outline focus-visible:outline-2"
+            onClick={() => openShotWarehouse(storyId, UNASSIGNED_MEDIA)}
+          >
+            {ui("在仓库查看未归类图片 · {0} 张 / Warehouse", [unassigned.length])}
+          </button>
+        )}
+      </div>
       <div className="mt-2">
         <details className="text-[11px]">
           <summary className="cursor-pointer py-1">

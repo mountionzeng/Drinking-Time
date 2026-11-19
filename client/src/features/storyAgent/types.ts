@@ -2,6 +2,7 @@ import { frameRegionReviewSchema, type FrameRegionReview } from "@shared/frameRe
 import { chatFrameReferenceSchema, type ChatFrameReference } from "@shared/chatFrameReference";
 import type { SelectionContext } from "@shared/selectionContext";
 import { bookRewriteProposalSchema } from '@shared/bookRewrite';
+import { chatImageEditPlanSchema, type ChatImageEditPlan } from '@shared/chatImageEditPlan';
 
 /**
  * Story Guide Agent — shared types
@@ -107,6 +108,7 @@ export interface ChatMessage {
   interfaceAction?: true;
   bookRewrite?: import('@shared/bookRewrite').BookRewriteProposal;
   imageRevision?: ImageRevision;
+  imageEditPlan?: ChatImageEditPlan;
   frameReferences?: ChatFrameReference[];
   frameReview?: FrameRegionReview;
   id: string;
@@ -658,6 +660,8 @@ export function normalizeChatMessages(
       }
       const frameReview = frameRegionReviewSchema.safeParse(obj.frameReview);
       if (frameReview.success) message.frameReview = frameReview.data;
+      const imageEditPlan = chatImageEditPlanSchema.safeParse(obj.imageEditPlan);
+      if (imageEditPlan.success) message.imageEditPlan = imageEditPlan.data;
       if (Array.isArray(obj.frameReferences)) {
         message.frameReferences = obj.frameReferences.slice(0, 6).flatMap(value => {
           const parsed = chatFrameReferenceSchema.safeParse(value);

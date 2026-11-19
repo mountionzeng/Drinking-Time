@@ -11,7 +11,8 @@ import { normalizeImageEditResult, readImageDimensions } from "./imageEditDimens
 const resumeTask = (id: string, meta?: Meta) => meta?.provider === "local-palette" ? Promise.resolve<ImageGenResult>({status:"error",message:"Local results do not have provider tasks"})
   : meta?.provider === "flux-kontext-pro" ? resume302FluxEdit(id)
   : meta?.provider === "302-mj-edit" ? resume302MjEdit(id)
-  : meta?.provider === "gpt-image" ? resume302GptImageTask(id, { gptImageModel: "gpt-image-2", gptTimeoutMs: 8000, gptPollIntervalMs: 1000 })
+  : meta?.provider === "gpt-image" ? resume302GptImageTask(id, { gptImageModel: "gpt-image-2", gptTimeoutMs: 8000, gptPollIntervalMs: 1000,
+      ...(meta.maskedEdit ? {referenceImageUrl:meta.maskedEdit.sourceImageUrl,editMaskImageUrl:meta.maskedEdit.maskImageUrl,localImagePatch:true,localImagePatchFeatherPixels:meta.maskedEdit.featherPixels} : {}) })
   : meta?.editMode ? resumeLegnextImage(id, meta.editMode) : resumeLegnextImage(id);
 const resumeOutput = (url: string, id: string, meta?: Meta): Promise<ImageGenResult> => meta?.provider === "local-palette"
   ? Promise.resolve({status:"ok",imageUrl:url}) : resume302FluxResult(url,id);
@@ -20,7 +21,7 @@ import { SHOT_LOCK_LEASE_MS, UNKNOWN_TASK_STALE_MS, staleShotLockReason } from "
 export { SHOT_LOCK_LEASE_MS, UNKNOWN_TASK_STALE_MS, staleShotLockReason } from "./shotLock";
 const KEY = "storyboardImageTasks";
 type Result = { status: "ok"; imageId: number; imageUrl: string; candidates: ChatImageRevision["candidates"]; providerResultUrl?: string; providerTaskId?: string; submissionUncertain?: boolean } | { status: "error"; error: string; providerResultUrl?: string; providerTaskId?: string; submissionUncertain?: boolean; recoveryPending?: boolean; providerError?: ProviderErrorDetail; staleReleased?: boolean };
-type Meta = { renderProfile?: RenderProfileSnapshot; paletteAnalysis?: unknown; localPalette?: unknown; paletteReferenceImageId?: number; paletteReading?: unknown; sourceDimensions?: ImageDimensions; editMode?: "retexture"; referenceOnly?: boolean; provider?: "gpt-image" | "302-mj-edit" | "flux-kontext-pro" | "flux-kontext-dev" | "local-palette"; parentImageId?: number; conversationRevision?: boolean; instruction?: string; prompt: string; shotNo: string; promptCompilationId?: number | null; generationType: "initial" | "inpaint"; detached?: boolean };
+type Meta = { maskedEdit?: {sourceImageUrl:string;maskImageUrl:string;featherPixels:number}; renderProfile?: RenderProfileSnapshot; paletteAnalysis?: unknown; localPalette?: unknown; paletteReferenceImageId?: number; paletteReading?: unknown; sourceDimensions?: ImageDimensions; editMode?: "retexture"; referenceOnly?: boolean; provider?: "gpt-image" | "302-mj-edit" | "flux-kontext-pro" | "flux-kontext-dev" | "local-palette"; parentImageId?: number; conversationRevision?: boolean; instruction?: string; prompt: string; shotNo: string; promptCompilationId?: number | null; generationType: "initial" | "inpaint"; detached?: boolean };
 export type Task = { analysisStartedAt?: number; continuedBy?: { requestId: string; userId: number; at: number }; createdAt?: number; decision?: { kind: "kept" | "replaced"; referenceOnly?: boolean; imageId?: number; at: number; userId: number }; leaseOwner?: string; leaseUntil?: number; meta?: Meta; id: string; requestId: string; shotIdentity: string; status: "preparing" | "unknown" | "accepted" | "failed" | "succeeded"; providerResultUrl?: string; providerTaskId?: string; result?: Result };
 type Scope = { continueAfterUnknownRequestId?: string; requireNewIntent?: boolean; storyId: number; userId: number; shotIdentity: string; requestId: string };
 async function change<T>(scope: Scope, mutate: (tasks: Task[]) => T): Promise<T> {
@@ -126,7 +127,7 @@ export async function runStoryboardImageTask(scope: Scope, execute: (render: Sto
     if (!story || !task.meta) return { status: "error", providerTaskId: task.providerTaskId, error: "任务已完成，恢复元数据缺失，请联系支持；不要重新购买。" };
     const existing = await getStoryGeneratedImages(scope.storyId, scope.userId);
     const candidates = [];
-    const { paletteAnalysis, localPalette, paletteReferenceImageId, paletteReading, sourceDimensions, detached, provider, conversationRevision, instruction, editMode, referenceOnly, renderProfile: _renderProfile, ...imageMeta } = task.meta;
+    const { maskedEdit, paletteAnalysis, localPalette, paletteReferenceImageId, paletteReading, sourceDimensions, detached, provider, conversationRevision, instruction, editMode, referenceOnly, renderProfile: _renderProfile, ...imageMeta } = task.meta;
     for (const candidate of recovered.candidates?.length ? recovered.candidates : recovered.imageUrl ? [{ imageUrl: recovered.imageUrl, imageKey: recovered.imageKey }] : []) {
       const image = existing.find(image => (provider === "local-palette" ? image.imageUrl === candidate.imageUrl : Boolean(candidate.imageKey) && image.imageKey === candidate.imageKey) && image.parentImageId === (imageMeta.parentImageId ?? null) && image.shotIdentity === (detached ? null : scope.shotIdentity)) ?? await createGeneratedImage({
         ...imageMeta, projectId: story.projectId, storyId: scope.storyId, userId: scope.userId,

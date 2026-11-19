@@ -43,3 +43,12 @@ it('treats the reviewed description as authoritative, retaining style without ol
   expect(prompt).toContain('图1中的花'); expect(prompt).toContain('现代海边'); expect(prompt).toContain('Black ink');
   expect(prompt).not.toMatch(/旧人物|旧城堡|废弃描述|旧茶壶|字幕/);
 });
+
+it("retains each object and its distinct action when composing a frame", async () => {
+  const { composedStoryboardImagePrompt } = await import("./confirmedStoryboardImagePrompt");
+  const action = "飞机飞进屏幕，旁边的小车倒退出画，电脑保持原位";
+  const prompt = composedStoryboardImagePrompt({}, action);
+  expect(prompt).toContain(action);
+  expect(prompt).toContain("unless the action specifies otherwise");
+  expect(prompt).toContain("local palette, material rendering and brush strokes");
+});

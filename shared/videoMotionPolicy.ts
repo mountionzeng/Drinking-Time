@@ -1,10 +1,26 @@
-export const VIDEO_VISUAL_FIDELITY_POLICY_VERSION = 1;
+import { SCENE_OBJECT_DIRECTION } from "./sceneObjectDirection";
 
-export const VIDEO_VISUAL_FIDELITY_CLAUSE_EN =
+export const VIDEO_VISUAL_FIDELITY_POLICY_VERSION = 3;
+
+const previousElementRule = "Only show elements visible in the source frames or explicitly requested by the user. Add nothing else.";
+export const VIDEO_ELEMENT_RULE = previousElementRule +
+  " Match lens, scale and direction. Cut on action across incompatible views; never stitch.";
+
+/** Put the rule first so providers with a short prompt limit retain it. */
+export function withVideoElementRule(prompt: string): string {
+  const value = prompt.trim();
+  if (value.startsWith(VIDEO_ELEMENT_RULE)) return value;
+  const authored = value.startsWith(previousElementRule) ? value.slice(previousElementRule.length).trimStart() : value;
+  return [VIDEO_ELEMENT_RULE, authored].filter(Boolean).join(" ");
+}
+
+const legacySourceFrameClause =
   "Treat the supplied source frames as visual truth. Preserve every visible person's identity, face, hairstyle, body, clothing, every prop and object, object count and placement, background geometry, composition, lighting, colors, materials, surface texture, brushwork, and edge detail through the intended motion. Do not add, remove, duplicate, replace, redesign, morph, or reveal anything unless the shot instruction explicitly requests that exact change.";
 
+export const VIDEO_VISUAL_FIDELITY_CLAUSE_EN = `${legacySourceFrameClause} ${SCENE_OBJECT_DIRECTION}`;
+
 export const VIDEO_VISUAL_FIDELITY_CLAUSE_ZH =
-  "以锁定的源图片为视觉事实：人物身份、脸、发型、身体、服装，以及所有道具和物体、物体数量与位置、背景空间结构、构图、光线、色彩、材质、表面纹理、笔触和边缘细节都必须连续保留。除非镜头文字明确要求某项具体变化，否则不得新增、删除、复制、替换、重设计、融化变形或凭空显露任何内容。";
+  "以锁定的源图片为视觉事实：人物身份、脸、发型、身体、服装，以及所有道具和物体、物体数量与位置、背景空间结构、构图、光线、色彩、材质、表面纹理、笔触和边缘细节都必须连续保留。除非镜头文字明确要求某项具体变化，否则不得新增、删除、复制、替换、重设计、融化变形或凭空显露任何内容。各物体有独立朝向；指向目标的动作按前端与目标的位置关系绘制，明确要求倒退或侧移时服从动作。新增部分在落点沿用局部材质画法、配色、笔触、边缘、遮挡和接触阴影。连续运镜先核对焦距感、机位、透视和视差。多张参考的视角不兼容时，分别取景，在相同的主体位置、运动方向和大小上切换；不能拼成横移长图。要求一镜到底时，在同一空间内保持可解释的摄影机路径。";
 
 export type LocalCameraMotion = {
   kind: "hold" | "zoom" | "pan" | "zoom-pan";
@@ -41,7 +57,7 @@ const COMPLEX_CAMERA_PATTERN =
   /推轨|拉轨|摄影车|滑轨|摇摄|俯仰|跟拍|跟随|追随|环绕|绕拍|旋转|升降|摇臂|手持|肩扛|视差|轨道镜头|dolly|truck|tracking|follow|orbit|crane|jib|handheld|shoulder|parallax|arc\s+(?:left|right)|roll\s+camera/i;
 
 const VISIBLE_CHANGE_PATTERN =
-  /走|跑|冲|追|转身|转头|回头|抬手|抬头|抬腿|低头|伸手|张开|闭上|睁开|眨眼|呼吸|说话|开口|哭|笑|触碰|抓住|推开|拉开|撑开|弯腰|起身|坐下|躺下|倒下|坠落|飞过|游动|摇摆|飘动|流动|燃烧|冒烟|生长|裂开|破碎|折叠|扩张|收缩|变形|变成|出现|消失|进入|离开|穿过|落下|升起|下沉|包围|风吹|下雨|波动|晃动|主体移动|人物移动|环境变化|actor\s+(?:moves|walks|runs|turns|raises|opens|closes|breathes|blinks)|woman\s+(?:moves|walks|runs|turns|raises|opens|closes|breathes|blinks)|man\s+(?:moves|walks|runs|turns|raises|opens|closes|breathes|blinks)|subject\s+(?:moves|walks|runs|turns|raises|opens|closes)|background\s+(?:moves|changes|morphs)|environment\s+(?:moves|changes|morphs)|morphs?|transforms?|appears?|disappears?/i;
+  /走|跑|冲|追|转身|转头|回头|抬手|抬头|抬腿|低头|伸手|张开|闭上|睁开|眨眼|呼吸|说话|开口|哭|笑|触碰|抓住|推开|拉开|撑开|弯腰|起身|坐下|躺下|倒下|坠落|飞(?:过|进|入|向|出)|(?:fly|flies|flying)\s+(?:into|towards?|across|out of)\b|游动|摇摆|飘动|流动|燃烧|冒烟|生长|裂开|破碎|折叠|扩张|收缩|变形|变成|出现|消失|进入|离开|穿过|落下|升起|下沉|包围|风吹|下雨|波动|晃动|主体移动|人物移动|环境变化|actor\s+(?:moves|walks|runs|turns|raises|opens|closes|breathes|blinks)|woman\s+(?:moves|walks|runs|turns|raises|opens|closes|breathes|blinks)|man\s+(?:moves|walks|runs|turns|raises|opens|closes|breathes|blinks)|subject\s+(?:moves|walks|runs|turns|raises|opens|closes)|background\s+(?:moves|changes|morphs)|environment\s+(?:moves|changes|morphs)|morphs?|transforms?|appears?|disappears?/i;
 
 function motionText(values: Array<string | null | undefined>): string {
   return values
@@ -135,5 +151,6 @@ export function withVideoVisualFidelity(prompt: string): string {
   const value = prompt.trim();
   if (!value) return VIDEO_VISUAL_FIDELITY_CLAUSE_EN;
   if (value.includes(VIDEO_VISUAL_FIDELITY_CLAUSE_EN)) return value;
+  if (value.includes(legacySourceFrameClause)) return value.replace(legacySourceFrameClause, VIDEO_VISUAL_FIDELITY_CLAUSE_EN);
   return `${value}\n${VIDEO_VISUAL_FIDELITY_CLAUSE_EN}`;
 }

@@ -1,4 +1,5 @@
 import { bookMediaTargetIsCurrent } from "./bookMediaTarget";
+import { deleteVisualObjectBatch } from "../../shared/visualObjectBatch";
 /**
  * 多轨剪辑的唯一写入口。
  *
@@ -790,6 +791,21 @@ export async function pasteVisualImageForStory(input: {
 }
 
 /** Delete only a canonical clip reference; full shots use the aggregate path. */
+export async function deleteSelectedVisualClipReferences(input: {
+  storyId: number; userId: number; operation: VisualEditOperationRef;
+  objects: VisualObjectRef[]; visualLayer: number;
+}): Promise<VisualClipEditResult> {
+  return withVisualEditDocument({
+    ...input, failureMessage: "所选画面删除失败",
+    commandPayload: { kind: "delete-selected-clips", objects: input.objects, visualLayer: input.visualLayer },
+  }, document => {
+    if (input.objects.some(object => object.type === "story-shot"))
+      return { status: "error", message: "完整镜头必须使用整镜删除" };
+    const plan = deleteVisualObjectBatch({ ...input, shots: [], document });
+    return plan.status === "error" ? plan : { status: "ok", document: plan.aggregate.document };
+  });
+}
+
 export async function deleteVisualObjectForStory(input: {
   storyId: number;
   userId: number;

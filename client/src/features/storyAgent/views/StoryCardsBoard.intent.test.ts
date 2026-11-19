@@ -1369,8 +1369,8 @@ describe("StoryCardsBoard intent entry", () => {
       "utf8"
     );
     expect((boardSource.match(/<DeleteShotButton/g) ?? []).length).toBe(2);
-    expect(boardSource).toContain('const label = _ui("删除 {0}", [shotLabel])');
-    expect(boardSource).toContain("删除");
+    expect(simpleSource).toContain('const label = _ui("删除整个镜头 {0} / Delete shot", [shotLabel])');
+    expect(simpleSource).toContain("<EditingConfirmationDialog open={confirmDelete} title={label}");
     expect(boardSource).toContain("至少保留一个镜头");
     expect(panelSource).toContain("deletePersistedShot");
     expect(panelSource).toContain("onDeleteShot");

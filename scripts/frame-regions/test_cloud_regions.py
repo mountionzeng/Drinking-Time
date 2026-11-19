@@ -1,7 +1,7 @@
 import unittest
 import numpy as np
 from PIL import Image
-from cloud_regions import cloud_support, semantic_points, choose_instance, finish_mask, tiled_maps
+from cloud_regions import cloud_support, semantic_points, choose_instance, finish_mask, tiled_maps, consensus_clouds
 
 class CloudRegions(unittest.TestCase):
     def test_points_cover_disconnected_clouds_without_manual_coordinates(self):
@@ -22,6 +22,19 @@ class CloudRegions(unittest.TestCase):
         variants[2,60:80,60:80]=True;protected[60:80,60:80]=True
         selected=choose_instance(variants,np.array([.99,.8,.95]),eligible,protected)
         np.testing.assert_array_equal(selected,variants[1])
+
+    def test_stable_whole_cloud_requires_three_spaced_supported_seeds(self):
+        cloud=np.zeros((100,100),bool);cloud[10:50,10:50]=True
+        protected=np.zeros_like(cloud)
+        proposals=[(p,cloud.copy()) for p in [[15,15],[30,30],[40,40]]]
+        self.assertFalse(consensus_clouds(proposals[:2],cloud,protected).any())
+        np.testing.assert_array_equal(consensus_clouds(proposals,cloud,protected),cloud)
+        self.assertFalse(consensus_clouds([(p,cloud) for p in [[15,15],[16,16],[17,17]]],cloud,protected).any())
+        self.assertFalse(consensus_clouds(proposals,np.zeros_like(cloud),protected).any())
+        protected[10:30,10:30]=True
+        self.assertFalse(consensus_clouds(proposals,cloud,protected).any())
+        background=np.ones_like(cloud)
+        self.assertFalse(consensus_clouds([(p,background) for p,_ in proposals],background,np.zeros_like(cloud)).any())
 
     def test_low_semantic_support_rejects_confident_foreign_object(self):
         variants=np.zeros((1,30,30),bool);variants[:,5:15,5:15]=True

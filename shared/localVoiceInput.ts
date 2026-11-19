@@ -1,0 +1,2 @@
+export const LOCAL_VOICE_MAX_BYTES = 8 * 1024 * 1024;
+export const LOCAL_VOICE_MAX_SECONDS = 120;

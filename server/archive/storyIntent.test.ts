@@ -14,7 +14,8 @@ const envMock = vi.hoisted(() => ({
   },
 }));
 
-vi.mock("../_core/llm", () => ({
+vi.mock("../_core/llm", async importOriginal => ({
+  ...(await importOriginal<typeof import("../_core/llm")>()),
   invokeLLM: llmMocks.invokeLLM,
 }));
 

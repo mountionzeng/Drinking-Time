@@ -371,6 +371,41 @@ describe("generateImage", () => {
     expect(result.message).toContain("502");
   });
 
+  it("keeps an accepted GPT task pending after a poll timeout without a second POST", async () => {
+    ENV.api302Key = "test-302-key";
+    const fetcher = makeFetcher([{ ok: true, status: 200, json: { status_code: 202 } }]);
+    const result = await resume302GptImageTask("slow-cloud-task", { fetcher, gptPollIntervalMs: 1, gptTimeoutMs: 15 });
+    expect(result).toMatchObject({ status: "error", providerTaskId: "slow-cloud-task", errorCode: "timeout_pending" });
+    expect(result.providerConfirmedFailure).not.toBe(true);
+    expect(fetcher.mock.calls.length).toBeGreaterThan(0);
+    expect(fetcher.mock.calls.every(([, options]) => options.method === "GET")).toBe(true);
+  });
+
+  it("keeps a dropped response body recoverable and never marks the provider failed", async () => {
+    ENV.api302Key = "test-302-key";
+    const fetcher = vi.fn().mockResolvedValue({ ok: true, status: 200,
+      json: async () => { throw new TypeError("terminated", { cause: new Error("other side closed") }); } });
+    const result = await resume302GptImageTask("accepted-body-drop", { fetcher, gptPollIntervalMs: 1, gptTimeoutMs: 30 });
+    expect(result).toMatchObject({ status: "error", providerTaskId: "accepted-body-drop", errorCode: "timeout_pending" });
+    expect(result.providerConfirmedFailure).not.toBe(true);
+    expect(fetcher.mock.calls.every(([, options]) => options.method === "GET")).toBe(true);
+    expect(isCircuitOpen("gpt-image")).toBe(false);
+  });
+
+  it("bounds response-body reads, not only response headers", async () => {
+    ENV.api302Key = "test-302-key";
+    const fetcher = vi.fn().mockResolvedValue({ ok: true, status: 200, json: () => new Promise(() => {}) });
+    const result = await resume302GptImageTask("body-stall", { fetcher, gptPollIntervalMs: 1, gptTimeoutMs: 15 });
+    expect(result).toMatchObject({ errorCode: "timeout_pending", providerTaskId: "body-stall" });
+  }, 500);
+
+  it("only a definite provider failure ends an accepted task", async () => {
+    ENV.api302Key = "test-302-key";
+    const fetcher = makeFetcher([{ ok: true, status: 200, json: { status_code: 500, data: { error: { err_code: -10008 } } } }]);
+    expect(await resume302GptImageTask("provider-failed", { fetcher, gptPollIntervalMs: 1, gptTimeoutMs: 50 }))
+      .toMatchObject({ providerConfirmedFailure: true });
+  });
+
   it("returns error when 302 GPT-image returns no images", async () => {
     ENV.api302Key = "test-302-key";
     const fetcher = makeFetcher([

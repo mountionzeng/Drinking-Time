@@ -55,16 +55,18 @@ export default function StoryChatContents({
   return (
     <nav
       aria-label={_ui("故事对话内容")}
-      className="flex shrink-0 items-center justify-between gap-2 border-b border-border/50 px-3 py-1 text-xs text-muted-foreground"
+      className="flex shrink-0 items-center gap-1 border-b border-border/50 px-3 py-0.5 text-xs text-muted-foreground"
     >
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <button
             type="button"
-            className="inline-flex min-h-9 items-center gap-1.5 hover:text-foreground"
+            aria-label={_ui("聊天目录")}
+            title={_ui("聊天目录")}
+            className="grid size-7 place-items-center rounded hover:bg-muted hover:text-foreground"
           >
             <List size={14} />
-            {_ui("聊天目录")}</button>
+          </button>
         </PopoverTrigger>
         <PopoverContent
           align="start"
@@ -135,16 +137,18 @@ export default function StoryChatContents({
       <button
         type="button"
         disabled={disabled}
-        className="inline-flex min-h-9 items-center gap-1.5 hover:text-foreground disabled:opacity-40"
+        aria-label={_ui("记事与文章来源")}
+        title={_ui("记事与文章来源")}
+        className="grid size-7 place-items-center rounded hover:bg-muted hover:text-foreground disabled:opacity-40"
         onClick={() => openMemoryWarehouse("story")}
       >
         <BookOpen size={14} />
-        {_ui("记事与文章来源")}</button>
+      </button>
       <button
         type="button"
         aria-label={_ui("回到最新对话")}
         title={_ui("回到最新对话")}
-        className="grid size-9 place-items-center rounded hover:bg-muted"
+        className="grid size-7 place-items-center rounded hover:bg-muted"
         onClick={onLatest}
       >
         <ArrowDown size={14} />

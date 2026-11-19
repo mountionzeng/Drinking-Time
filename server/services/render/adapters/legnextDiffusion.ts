@@ -6,6 +6,15 @@ export const LEGNEXT_RECEIPT_PREFIX = "legnext:";
 export const LEGNEXT_MAX_PROMPT_CHARS = 8192;
 
 /** Fixed V7 Fast price profile. Never forward model/speed switches from generated prose. */
+export function legnextAspectRatio(value?: string) {
+  if (!value || !/^\d{1,5}:\d{1,5}$/.test(value)) return "3:4";
+  const [w, h] = value.split(":").map(Number);
+  if (!w || !h) return "3:4";
+  let a = w, b = h;
+  while (b) [a, b] = [b, a % b];
+  return `${w / a}:${h / a}`;
+}
+
 export function legnextPrompt(text: string, aspectRatio = "3:4") {
   return text.replace(/--(?:version|v|quality|q|ar|aspect)\s+\S+/gi, "")
     .replace(/--(?:turbo|fast|relax|draft|hd)\b/gi, "").trim() + ` --v 7 --fast --ar ${aspectRatio}`;
@@ -14,7 +23,7 @@ export function legnextPrompt(text: string, aspectRatio = "3:4") {
 /** Reference URLs and --iw/--oref/--sref are appended exactly like the original inline code. */
 export function legnextDiffusionPrompt(input: {
   text: string;
-  aspectRatio: "3:4" | "16:9";
+  aspectRatio: string;
   referenceUrls?: string[];
   imageWeight?: number;
   characterRefUrl?: string;

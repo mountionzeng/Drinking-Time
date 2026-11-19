@@ -9,7 +9,7 @@ from pathlib import Path
 import numpy as np
 from scipy.ndimage import binary_closing, distance_transform_edt, label
 
-REVISION = 'cloud-crops-sam2-v1'
+REVISION = 'cloud-crops-sam2-v3'
 
 
 def boundary_fingerprint(folder):
@@ -75,6 +75,32 @@ def choose_instance(variants, scores, eligible, protected):
     return None if not candidates else variants[max(candidates)[1]]
 
 
+def consensus_clouds(proposals, eligible, protected):
+    """Recover whole stylized clouds only when independent prompts agree.
+
+    A single low-confidence SAM boundary never expands the edit. Three spaced
+    seeds, almost identical boundaries and strong cloud semantics are required.
+    The result still needs the user's normal scope confirmation.
+    """
+    result = np.zeros(eligible.shape, bool)
+    groups = []
+    for point, mask in proposals:
+        size = int(mask.sum())
+        if not (64 <= size <= mask.size * .25) or not mask[point[1], point[0]]:
+            continue
+        if eligible[mask].mean() < .9 or protected[mask].mean() > .01:
+            continue
+        group = next((g for g in groups if (g[0] & mask).sum() / (g[0] | mask).sum() >= .9), None)
+        if group is None:
+            groups.append([mask, [point]])
+        elif all(np.linalg.norm(np.subtract(point, previous)) >= min(mask.shape) / 12 for previous in group[1]):
+            group[1].append(point)
+    for mask, points in groups:
+        if len(points) >= 3:
+            result |= mask
+    return result & ~protected
+
+
 def finish_mask(mask, maps, protected):
     # Discard spill into semantically unrelated trees/ground; preserve aircraft pixels.
     allowed = (maps[2] > .08) & ~protected
@@ -106,10 +132,15 @@ class CloudBoundaryRefiner:
         with torch.inference_mode():
             output = self.model(**inputs)
         # Upsample one prompt at a time: native-size frames must not multiply peak memory by 64.
+        consensus = []
         for index in range(len(points)):
             variants = self.processor.post_process_masks(output.pred_masks[:, index:index+1].cpu(),
                                                         inputs['original_sizes'])[0][0].numpy().astype(bool)
             selected = choose_instance(variants, output.iou_scores[0, index].cpu().numpy(), eligible, protected)
             if selected is not None:
                 union |= selected
+            # Keep at most one whole-object proposal per seed for consensus.
+            whole = max(variants, key=lambda mask: int(mask.sum()))
+            consensus.append((points[index], whole.copy()))
+        union |= consensus_clouds(consensus, eligible, protected)
         return np.stack([finish_mask(union, maps, protected), protected]).astype(np.float32)

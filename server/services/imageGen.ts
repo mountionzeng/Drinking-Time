@@ -200,6 +200,8 @@ export interface ImageGenOptions {
   editMaskImageUrl?: string;
   /** Confirmed local edit: generate a low-cost crop, then extract an RGBA patch. */
   localImagePatch?: boolean;
+  /** Feather inside the allowed mask; protected pixels stay exact. */
+  localImagePatchFeatherPixels?: number;
   /** Persist this opaque receipt before polling; nonstandard MJ channels include a prefix. */
   onMidjourneyTaskAccepted?: (taskId: string) => void | Promise<void>;
   /** Called after any asynchronous provider accepts a paid task. */
@@ -1168,7 +1170,7 @@ async function storeGptEditResult(payload: unknown, options: ImageGenOptions, fe
   ]);
   if (!generated) throw new Error("302 图生图没有返回图片。");
   const pixels = options.localImagePatch
-    ? (await compositeLocalImagePatch(source.bytes, generated, mask.bytes)).compositedPng
+    ? (await compositeLocalImagePatch(source.bytes, generated, mask.bytes, options.localImagePatchFeatherPixels)).compositedPng
     : await compositeMaskedEditPixels(source.bytes, generated, mask.bytes);
   return storeImageBytes(pixels, "image/png");
 }
@@ -1194,21 +1196,17 @@ async function poll302GptImageTask(
     const remainingMs = timeoutMs - (Date.now() - startedAt);
     if (remainingMs <= 0) break;
 
-    const pollResponse = await withTimeout(
-      fetcher(pollUrl.toString(), {
+    // Bound headers AND body: undici can deliver headers and then stall/drop
+    // while reading a large base64 image. A read failure never cancels the job.
+    const polled = await withTimeout((async () => {
+      const response = await fetcher(pollUrl.toString(), {
         method: "GET",
         headers: build302Headers("openai"),
-      }),
-      remainingMs
-    );
-    const polled = (await pollResponse.json()) as {
-      status_code?: number;
-      err?: string;
-      data?: unknown;
-    };
-    if (!pollResponse.ok) {
-      throw new Error(`异步查询 HTTP ${pollResponse.status}`);
-    }
+        signal: AbortSignal.timeout(Math.max(1, remainingMs)),
+      });
+      if (!response.ok) throw new Error(`异步查询 HTTP ${response.status}`);
+      return await response.json() as { status_code?: number; err?: string; data?: unknown };
+    })(), remainingMs);
     if (polled.status_code === 200 && polled.data) {
       const payload =
         typeof polled.data === "string"
@@ -1253,6 +1251,11 @@ export async function resume302GptImageTask(
     return result;
   } catch (error) {
     const message = `302 GPT-image 任务恢复失败：${readableError(error, "未知错误")}`;
+    // A bounded poll can expire while the accepted job is still running.
+    // Keep following that receipt; this is not a terminal generation failure.
+    if (!(error instanceof GptImageTaskFailed)) {
+      return { status: "error", message: IMAGE_TASK_PENDING_MESSAGE, providerTaskId: taskId, errorCode: "timeout_pending" };
+    }
     recordProviderFailure("gpt-image", message, gptHealthModel(options));
     return { status: "error", message, providerTaskId: taskId, ...(error instanceof GptImageTaskFailed ? { providerConfirmedFailure: true } : {}) };
   }

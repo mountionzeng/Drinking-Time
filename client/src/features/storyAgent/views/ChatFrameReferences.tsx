@@ -2,14 +2,15 @@ import { PausedFrameBadge } from "./PausedFrameBadge";
 import type { ChatFrameReference } from "@shared/chatFrameReference";
 import { useUiLanguage } from "@/features/uiLanguage/UiLanguage";
 
-export function ChatFrameReferences({ frames, storyId, selectedImageId, onSelect }: {
+export function ChatFrameReferences({ frames, storyId, selectedImageId, onSelect, showThumbnails = false }: {
   frames: ChatFrameReference[];
   storyId: number | null;
+  showThumbnails?: boolean;
   selectedImageId?: number | null;
   onSelect: (frame: ChatFrameReference) => void;
 }) {
   const { language } = useUiLanguage();
-  if (frames.every(frame => frame.origin === "paused-preview" || frame.origin === "warehouse-video")) return <>{frames.map(frame => <PausedFrameBadge key={frame.imageId} frame={frame} onSelect={storyId === frame.storyId ? onSelect : undefined} />)}</>;
+  if (!showThumbnails && frames.every(frame => frame.origin === "paused-preview" || frame.origin === "warehouse-video")) return <>{frames.map(frame => <PausedFrameBadge key={frame.imageId} frame={frame} onSelect={storyId === frame.storyId ? onSelect : undefined} />)}</>;
   return <div className="mb-2 grid grid-cols-2 gap-2" aria-label={language === "zh" ? "视频参考帧 / Video references" : "Video references"}>
     {frames.map(frame => <figure key={frame.imageId}>
       <button type="button" disabled={storyId !== frame.storyId} aria-pressed={selectedImageId === frame.imageId}

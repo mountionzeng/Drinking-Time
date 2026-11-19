@@ -85,6 +85,8 @@ import {
 import {
   copyStoryVisualObject,
   deleteStoryVisualShot,
+  deleteSelectedVisualObjects,
+  restoreVisualRevision,
   pasteStoryVisualObject,
   retireStoryVisualClipboardScope,
   splitStoryVisualShot,
@@ -2446,6 +2448,24 @@ export const creationAgentRouter = router({
         snapshot: { ...input.snapshot, imageUrl: "" },
       })
     ),
+
+  deleteSelectedVisualObjects: protectedProcedure
+    .input(z.object({
+      storyId: z.number().int().positive(),
+      operation: visualEditOperationSchema,
+      objects: z.array(visualObjectRefSchema).min(1).max(500),
+      visualLayer: z.number().int().min(0),
+    }).strict())
+    .mutation(({ ctx, input }) => deleteSelectedVisualObjects({ ...input, userId: ctx.user.id })),
+
+  restoreVisualRevision: protectedProcedure
+    .input(z.object({
+      storyId: z.number().int().positive(),
+      operation: visualEditOperationSchema,
+      version: z.number().int().min(0),
+      expectedTimelineVersion: z.number().int().min(0),
+    }).strict())
+    .mutation(({ ctx, input }) => restoreVisualRevision({ ...input, userId: ctx.user.id })),
 
   deleteVisualObject: protectedProcedure
     .input(

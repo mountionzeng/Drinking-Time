@@ -106,3 +106,18 @@ describe("local transparent image patch", () => {
     }
   });
 });
+
+it('feathers only inside the editable boundary and keeps outside source pixels exact', async () => {
+  const width=40,height=40;
+  const source=await sharp({create:{width,height,channels:4,background:'#202020'}}).png().toBuffer();
+  const raw=Buffer.alloc(width*height*4,255);
+  for(let y=10;y<30;y++) for(let x=10;x<30;x++) raw[(y*width+x)*4+3]=0;
+  const mask=await sharp(raw,{raw:{width,height,channels:4}}).png().toBuffer();
+  const generated=await sharp({create:{width:1024,height:1024,channels:4,background:'#ffffff'}}).png().toBuffer();
+  const out=await compositeLocalImagePatch(source,generated,mask,6);
+  const pixels=await sharp(out.compositedPng).raw().toBuffer();
+  expect(pixels[(10*width+9)*4]).toBe(32);
+  expect(pixels[(10*width+10)*4]).toBeGreaterThan(32);
+  expect(pixels[(10*width+10)*4]).toBeLessThan(100);
+  expect(pixels[(20*width+20)*4]).toBe(255);
+});

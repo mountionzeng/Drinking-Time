@@ -1,3 +1,5 @@
+import { creationTimelineShotId, SHOT_STORY_IDENTITY_FIELDS } from "./timelineShotIdentity";
+export { creationTimelineShotId, resolveTimelineShots } from "./timelineShotIdentity";
 import { askMediaChatConfirmation } from "@/features/storyAgent/mediaChatSession";
 import { formatComputeQuote } from "@shared/computeMoney";
 import {
@@ -12,7 +14,7 @@ import {
   type PropsWithChildren,
 } from "react";
 import { trpc } from "@/lib/trpc";
-import { useTimelineCommands } from "./useTimelineCommands";
+import { useTimelineCommands, replayVisualOperationOnce } from "./useTimelineCommands";
 import type { NarrativeJob, StoryShot } from "@/features/storyAgent/types";
 import {
   resolveEditCandidatePlans,
@@ -547,6 +549,16 @@ type CreationEditorContextValue = {
     operation: VisualEditOperationRef;
     object: VisualObjectRef;
   }) => Promise<void>;
+  deleteSelectedVisualObjects: (input: {
+    operation: VisualEditOperationRef;
+    objects: VisualObjectRef[];
+    visualLayer: number;
+  }) => Promise<void>;
+  restoreVisualRevision: (input: {
+    operation: VisualEditOperationRef;
+    version: number;
+    expectedTimelineVersion: number;
+  }) => Promise<void>;
   removeTimelineVideoClip: (input: {
     stableShotId: string;
     clipId: string;
@@ -601,64 +613,6 @@ const CreationEditorContext = createContext<CreationEditorContextValue | null>(
   null
 );
 const EMPTY_STORY_SHOTS: readonly StoryShot[] = [];
-
-const SHOT_STORY_IDENTITY_FIELDS = [
-  "shotNo",
-  "subject",
-  "action",
-  "scriptText",
-  "dialogue",
-  "shotType",
-  "beat",
-  "cameraAngle",
-  "cameraMove",
-  "location",
-  "timeLight",
-  "mood",
-  "sound",
-  "styleRef",
-  "note",
-  "emotion",
-  "sourceCardContent",
-  "intent",
-  "rationale",
-  "videoStart",
-  "videoEnd",
-  "transitionIn",
-  "transitionOut",
-  "videoPrompt",
-  "emotionCharge",
-  "emotionDelta",
-  "visualAnchorText",
-  "negativePrompt",
-] as const;
-
-export function creationTimelineShotId(
-  shot: Pick<
-    CreationEditorShot,
-    "stableShotId" | "shotIdentity" | "shotKey" | "shotNo"
-  >,
-  index = 0
-): string {
-  return (
-    normalizeShotIdentity(shot.stableShotId) ??
-    normalizeShotIdentity(shot.shotIdentity) ??
-    normalizeShotIdentity(shot.shotKey) ??
-    `legacy-sh${String(shot.shotNo).padStart(2, "0")}-${index + 1}`
-  );
-}
-
-export function resolveTimelineShots(
-  shots: readonly CreationEditorShot[],
-  shotIds: readonly string[]
-): CreationEditorShot[] {
-  const byId = new Map(
-    shots.map((shot, index) => [creationTimelineShotId(shot, index), shot])
-  );
-  return shotIds
-    .map(id => byId.get(id))
-    .filter((shot): shot is CreationEditorShot => Boolean(shot));
-}
 
 function stringValue(value: unknown): string {
   return typeof value === "string" ? value : "";
@@ -1630,6 +1584,8 @@ export function CreationEditorProvider({
     trpc.creationAgent.pasteStoryVisualObject.useMutation();
   const deleteStoryVisualShotMut =
     trpc.creationAgent.deleteStoryVisualShot.useMutation();
+  const deleteSelectedVisualObjectsMut = trpc.creationAgent.deleteSelectedVisualObjects.useMutation();
+  const restoreVisualRevisionMut = trpc.creationAgent.restoreVisualRevision.useMutation();
   const splitStoryVisualShotMut =
     trpc.creationAgent.splitStoryVisualShot.useMutation();
   const generateForMobileMut = trpc.storyAgent.generateForMobile.useMutation();
@@ -2780,6 +2736,37 @@ export function CreationEditorProvider({
     if (result.receipt) recordTimelineCommandUndo(storyId, result.receipt);
     await refreshAggregateStory(storyId, result.stableShotId);
     return result.stableShotId;
+  };
+
+  const deleteSelectedVisualObjects = async (input: {
+    operation: VisualEditOperationRef;
+    objects: VisualObjectRef[];
+    visualLayer: number;
+  }) => {
+    if (activeId == null) throw new Error("故事尚未加载");
+    const storyId = activeId;
+    const result = await runAggregateVisualEdit(storyId, () =>
+      replayVisualOperationOnce(() => deleteSelectedVisualObjectsMut.mutateAsync({ storyId, ...input }))
+    );
+    if (result.status !== "ok") throw new Error(result.error);
+    if (result.receipt) recordTimelineCommandUndo(storyId, result.receipt);
+    if (result.receipt?.kind === "aggregate") await refreshAggregateStory(storyId);
+    else if (activeStoryIdRef.current === storyId) await storyMaterialQuery.refetch();
+  };
+
+  const restoreVisualRevision = async (input: {
+    operation: VisualEditOperationRef;
+    version: number;
+    expectedTimelineVersion: number;
+  }) => {
+    if (activeId == null) throw new Error("故事尚未加载");
+    const storyId = activeId;
+    const result = await runAggregateVisualEdit(storyId, () =>
+      replayVisualOperationOnce(() => restoreVisualRevisionMut.mutateAsync({ storyId, ...input }))
+    );
+    if (result.status !== "ok") throw new Error(result.error);
+    if (result.receipt) recordTimelineCommandUndo(storyId, result.receipt);
+    await refreshAggregateStory(storyId);
   };
 
   const deleteStoryVisualShot = async (input: {
@@ -4211,6 +4198,8 @@ export function CreationEditorProvider({
       moveVisualClip,
       pasteVisualImage,
       deleteVisualObject,
+      deleteSelectedVisualObjects,
+      restoreVisualRevision,
       removeTimelineVideoClip,
       updateTimelineVideoEdit,
       updateTimelineImageTransform,

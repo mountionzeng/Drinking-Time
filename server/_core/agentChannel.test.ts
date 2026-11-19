@@ -13,6 +13,7 @@ const saved = {
   dropZoneApiUrl: ENV.dropZoneApiUrl,
   dropZoneModel: ENV.dropZoneModel,
   llmModel: ENV.llmModel,
+  llmTextOnly302Model: ENV.llmTextOnly302Model,
 };
 
 const NEXT_URL = "https://api.openai-next.com/v1/chat/completions";
@@ -73,6 +74,7 @@ beforeEach(() => {
   ENV.dropZoneModel = "cc-opus-4-7";
   ENV.llmModel = "deepseek-ai/DeepSeek-R1-Distill-Qwen-32B";
   ENV.api302Key = "";
+  ENV.llmTextOnly302Model = "";
   vi.spyOn(console, "warn").mockImplementation(() => {});
 });
 
@@ -83,6 +85,35 @@ afterEach(() => {
 });
 
 describe("invokeAgent — story agent routing (F1 / AE1)", () => {
+  it("uses the explicitly configured text recovery path after Next auth rejection", async () => {
+    ENV.llmTextOnly302Model = "deepseek-v3.2";
+    ENV.api302Key = "service-key";
+    ENV.api302BaseUrl = "https://api.302ai.cn";
+    stubFetch(index => index === 0 ? failure(401) : openAiOk("recovered"));
+    const result = await invokeAgent([{role:"user",content:[{type:"text",text:"只讨论文字"}]}],128,{type:"json_object"});
+    expect(calls.map(call=>call.url)).toEqual([NEXT_URL,"https://api.302ai.cn/v1/chat/completions"]);
+    expect(calls[1].payload.model).toBe("deepseek-v3.2");
+    expect((calls[1].init.headers as Record<string,string>).authorization).toBe("Bearer service-key");
+    expect(calls[1].payload.response_format).toEqual({type:"json_object"});
+    expect(result.text).toBe("recovered");
+  });
+
+  it("keeps image messages on the original vision-capable chain despite text recovery configuration", async () => {
+    ENV.llmTextOnly302Model = "deepseek-v3.2";
+    ENV.api302Key = "service-key";
+    stubFetch(index => index === 0 ? failure(401) : claudeOk());
+    await invokeAgent([{role:"user",content:[{type:"text",text:"看图"},{type:"image_url",image_url:{url:"data:image/png;base64,AA=="}}]}],128);
+    expect(calls.map(call=>call.url)).toEqual([NEXT_URL,CLAUDE_URL]);
+    expect((calls[1].init.headers as Record<string,string>)["x-api-key"]).toBe("forge-key");
+  });
+
+  it("does not replay an uncertain request through text recovery", async () => {
+    ENV.llmTextOnly302Model = "deepseek-v3.2";
+    ENV.api302Key = "service-key";
+    stubFetch(()=>{throw new TypeError("fetch failed");});
+    await expect(invokeAgent([{role:"user",content:"edit"}],128,undefined,{replaySafe:false})).rejects.toThrow();
+    expect(calls).toHaveLength(1);
+  });
   it("uses OpenAI Next first even though cc-opus-4-7 is configured", async () => {
     stubFetch(() => openAiOk());
 
@@ -180,6 +211,18 @@ describe("invokeAgent — cross-protocol fallback (F2 / AE3)", () => {
 });
 
 describe("hasStoryAgentCompute", () => {
+  it("recognizes the explicitly configured recovery channel without Next or legacy credentials", () => {
+    ENV.openaiNextApiKey = "";
+    ENV.forgeApiKey = "";
+    ENV.dropZoneApiUrl = "";
+    ENV.dropZoneModel = "";
+    ENV.llmModel = "";
+    ENV.api302Key = "service-key";
+    ENV.llmTextOnly302Model = "deepseek-v3.2";
+    expect(hasStoryAgentCompute()).toBe(true);
+    ENV.llmTextOnly302Model = "";
+    expect(hasStoryAgentCompute()).toBe(false);
+  });
   it("is true when only OpenAI Next is configured — the legacy key is not the gate", async () => {
     ENV.forgeApiKey = "";
     ENV.dropZoneApiUrl = "";

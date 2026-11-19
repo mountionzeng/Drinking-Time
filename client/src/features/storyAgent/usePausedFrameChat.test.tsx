@@ -84,7 +84,7 @@ const frame = {
   sourceTimeSec: 3,
   shotTimeSec: 3,
 };
-function setup(selectedImageId?: number) {
+function setup(selectedImageId?: number, reviewFrame?: Parameters<typeof usePausedFrameChat>[0]["reviewFrame"]) {
   let api!: ReturnType<typeof usePausedFrameChat>;
   function Host() {
     api = usePausedFrameChat({
@@ -93,6 +93,7 @@ function setup(selectedImageId?: number) {
       text: "这一帧颜色更细腻",
       selectedImageId,
       proposeFrame: m.propose,
+      reviewFrame,
       focusComposer: m.focus,
     });
     return null;
@@ -300,6 +301,82 @@ it("reuses the frame inserted on the timeline without recapturing it for chat", 
   expect(m.messages[0].frameReferences[0].imageId).toBe(211);
 });
 
+it("sends a pinned frame to local region review before paid image quoting", async () => {
+  const reviewFrame = vi.fn(async () => ({ reply: "范围已标出", frameReview: { id: "saved-review" } as any }));
+  const api = setup(undefined, reviewFrame);
+  window.dispatchEvent(new CustomEvent(PAUSED_FRAME_SHORTCUT_EVENT, { detail: { kind: "capture", snapshot: m.state.pausedPreviewFrame, extraction: Promise.resolve(frame) } }));
+  await api.handle("这一帧只定位云层范围");
+  expect(reviewFrame).toHaveBeenCalledWith(frame, "这一帧只定位云层范围");
+  expect(m.propose).not.toHaveBeenCalled();
+  expect(m.capture).not.toHaveBeenCalled();
+  expect(m.messages.at(-1)?.frameReview).toEqual({ id: "saved-review" });
+});
+
+it("asks once after a shared capture, then reuses that exact review for the combined request", async () => {
+  const review = { id: "new-frame-review" } as any;
+  const reviewFrame = vi.fn(async () => ({ reply: "Edit this forest too?", frameReview: review }));
+  const api = setup(undefined, reviewFrame);
+  const extraction = Promise.resolve(frame);
+  const detail = { kind: "capture", snapshot: m.state.pausedPreviewFrame, extraction };
+  window.dispatchEvent(new CustomEvent(PAUSED_FRAME_SHORTCUT_EVENT, { detail }));
+  window.dispatchEvent(new CustomEvent(PAUSED_FRAME_SHORTCUT_EVENT, { detail }));
+  await vi.waitFor(() => expect(m.messages).toHaveLength(1));
+  expect(reviewFrame).toHaveBeenCalledOnce();
+  expect(reviewFrame).toHaveBeenCalledWith(frame, "Review this frame", { inspectOnly: true });
+  expect(m.messages[0].frameReferences).toEqual([frame]);
+  await api.handle("森林和云一起改，森林绿色，云更大更厚");
+  expect(reviewFrame).toHaveBeenLastCalledWith(frame, "森林和云一起改，森林绿色，云更大更厚", { review });
+  expect(m.capture).not.toHaveBeenCalled();
+  expect(m.propose).not.toHaveBeenCalled();
+});
+
+it.each(["clear", "story", "frame"])("drops a late automatic question after changing %s", async change => {
+  let finish!: (value: any) => void;
+  const reviewFrame = vi.fn(() => new Promise<any>(resolve => { finish = resolve; }));
+  setup(undefined, reviewFrame);
+  shortcut("capture");
+  await vi.waitFor(() => expect(reviewFrame).toHaveBeenCalledOnce());
+  if (change === "clear") shortcut("clear");
+  if (change === "story") m.state.activeStoryId = 8;
+  if (change === "frame") {
+    m.capture.mockReturnValue(new Promise(() => {}));
+    shortcut("capture");
+  }
+  finish({ reply: "Old frame question", frameReview: { id: "old" } });
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(m.messages).toEqual([]);
+});
+
+it("accepts a request while inspection is pending without appending a stale question afterwards", async () => {
+  let finish!: (value: any) => void;
+  const review = { id: "new" } as any;
+  const reviewFrame = vi.fn().mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }))
+    .mockResolvedValue({ reply: "Combined regions", frameReview: review });
+  const api = setup(undefined, reviewFrame);
+  shortcut("capture");
+  await vi.waitFor(() => expect(reviewFrame).toHaveBeenCalledOnce());
+  const pending = api.handle("森林和云一起改");
+  finish({ reply: "Edit the forest?", frameReview: review });
+  await pending;
+  expect(reviewFrame).toHaveBeenLastCalledWith(frame, "森林和云一起改", { review });
+  expect(m.messages.map(message => message.content)).toEqual(["森林和云一起改", "Combined regions"]);
+});
+
+it("replaces a concurrently recovered review instead of duplicating its question", async () => {
+  const review = { id: "saved", revision: 0 } as any;
+  const reviewFrame = vi.fn(async () => {
+    m.messages.push({ id: "recovery", role: "assistant", content: "Restored", timestamp: 1, frameReview: review });
+    return { reply: "Edit this forest too?", frameReview: review };
+  });
+  setup(undefined, reviewFrame);
+  shortcut("capture");
+  await vi.waitFor(() => expect(reviewFrame).toHaveBeenCalledOnce());
+  expect(m.messages).toHaveLength(1);
+  expect(m.messages[0]).toMatchObject({ id: "recovery", content: "Edit this forest too?" });
+});
+
+
 it("reuses a warehouse source frame instead of capturing the live timeline", async () => {
   const api = setup();
   const sourceFrame = { ...frame, takeId: 11, origin: "warehouse-video" as const, timelineFrame: undefined, timelineVersion: undefined, sourceTimeSec: 2.375, shotTimeSec: 2.375 };
@@ -310,4 +387,15 @@ it("reuses a warehouse source frame instead of capturing the live timeline", asy
   expect(m.propose).toHaveBeenCalledWith(sourceFrame, "只改森林");
   expect(m.messages[0].frameReferences[0].takeId).toBe(11);
   expect(chatFrameReferenceSchema.parse(JSON.parse(JSON.stringify(sourceFrame))).timelineFrame).toBeUndefined();
+});
+it("does not deliver an old warehouse capture after another frame is attached", async () => {
+  const review = vi.fn(async () => ({reply:"source inspected"}));
+  setup(undefined, review);
+  let finish!: (frame: any) => void;
+  const source = {storyId:7,takeId:11,sourceTimeSec:2.375};
+  window.dispatchEvent(new CustomEvent(PAUSED_FRAME_SHORTCUT_EVENT, {detail:{kind:"warehouse",source,extraction:new Promise(resolve => {finish=resolve;})}}));
+  shortcut("capture");
+  finish({...frame, origin:"warehouse-video", takeId:11});
+  await vi.waitFor(() => expect(review).toHaveBeenCalledOnce());
+  expect(review).toHaveBeenCalledWith(expect.objectContaining({takeId:10}), expect.any(String), {inspectOnly:true});
 });

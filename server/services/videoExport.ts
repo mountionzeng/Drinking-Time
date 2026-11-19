@@ -1185,7 +1185,9 @@ export async function exportStoryTimeline(params: {
   const key = `export-${params.storyId}-${stamp}.mp4`;
   const outputPath = path.join(dir, key);
   const visualMasterPath = path.join(workDir, "visual-master.mp4");
-  const mediaDiagnostics: string[] = [];
+  const mediaDiagnostics: string[] = plan.parts.flatMap(part => part.kind === "gap"
+    ? [`${(part.startFrame / STORY_TIMELINE_FPS).toFixed(2)}–${((part.startFrame + part.durationFrames) / STORY_TIMELINE_FPS).toFixed(2)}s 无画面 / No picture; retained timeline gap`]
+    : []);
 
   try {
     const parts: string[] = [];

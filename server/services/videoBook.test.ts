@@ -41,6 +41,7 @@ vi.mock("../_core/inferenceOrchestrator", () => ({
   runInference: mocks.inference,
   inferenceFailureOutcome: () => ({ kind: "submission_unknown" }),
 }));
+import { mutateBookWorkflow } from "../repositories/bookWorkflow";
 import { createStory } from "../repositories/stories";
 import {
   insertChapter,
@@ -225,10 +226,11 @@ it("preserves a failed request and does not repeat it under the same id", async 
   expect(draft.status).toBe("failed");
   expect(draft.submissionUncertain).toBe(true);
   expect(await generateVideoBook(request)).toEqual(draft);
-  await expect(quoteVideoBook(owner)).rejects.toThrow("费用仍待核对");
+  const nextQuote = await quoteVideoBook(owner);
+  expect(nextQuote.unresolvedRequestIds).toEqual([draft.id]);
   await expect(
     generateVideoBook({ ...request, id: randomUUID() })
-  ).rejects.toThrow("费用仍待核对");
+  ).rejects.toThrow("报价已变化");
   expect(mocks.inference).toHaveBeenCalledOnce();
   expect(await listChapters(owner.storyId, owner.userId, "text")).toHaveLength(
     0
@@ -384,9 +386,9 @@ it("restores local text with zero compute even when the prior paid result is unk
   expect((await listChapters(owner.storyId, owner.userId, "text"))[0].id).toBe(
     blank.id
   );
-  await expect(quoteVideoBook({ ...local, method: "rewrite" })).rejects.toThrow(
-    "费用仍待核对"
-  );
+  expect(
+    (await quoteVideoBook({ ...local, method: "rewrite" })).unresolvedRequestIds
+  ).toEqual([failed.id]);
 });
 it("cannot reuse a zero-cost quote to start paid rewriting", async () => {
   const owner = await fixture();
@@ -401,11 +403,179 @@ it("cannot reuse a zero-cost quote to start paid rewriting", async () => {
   expect(mocks.inference).not.toHaveBeenCalled();
 });
 
-it("reuses video sources after JSON persistence removes undefined values and serializes dates",async()=>{
- await fixture();
- const live = structuredClone(material);
- (live.timeline as any).updatedAt=new Date("2026-11-12T10:00:00Z");
- (live.timeline as any).optionalValue=undefined;
- const saved=JSON.parse(JSON.stringify(live));
- expect(videoBookSourceFingerprint(live,{})).toBe(videoBookSourceFingerprint(saved,{}));
+it("reuses video sources after JSON persistence removes undefined values and serializes dates", async () => {
+  await fixture();
+  const live = structuredClone(material);
+  (live.timeline as any).updatedAt = new Date("2026-11-12T10:00:00Z");
+  (live.timeline as any).optionalValue = undefined;
+  const saved = JSON.parse(JSON.stringify(live));
+  expect(videoBookSourceFingerprint(live, {})).toBe(
+    videoBookSourceFingerprint(saved, {})
+  );
+});
+
+it("requires explicit acknowledgement of old unknown requests under a fresh quote before a new paid task", async () => {
+  const owner = await fixture();
+  const q = await quoteVideoBook(owner);
+  mocks.inference.mockRejectedValueOnce(new Error("timeout"));
+  const old = await generateVideoBook({
+    ...owner,
+    quoteFingerprint: q.quoteFingerprint,
+  });
+  const next = await quoteVideoBook(owner);
+  const id = randomUUID();
+  expect(next.unresolvedRequestIds).toEqual([old.id]);
+  await expect(
+    generateVideoBook({ ...owner, id, quoteFingerprint: next.quoteFingerprint })
+  ).rejects.toThrow("确认新任务");
+  expect(mocks.inference).toHaveBeenCalledOnce();
+  const request = {
+    ...owner,
+    id,
+    quoteFingerprint: next.quoteFingerprint,
+    acknowledgedUnknownIds: next.unresolvedRequestIds,
+  };
+  const result = await generateVideoBook(request);
+  expect(result.status).toBe("review");
+  expect(result.acknowledgedUnknownIds).toEqual([old.id]);
+  expect(mocks.inference).toHaveBeenCalledTimes(2);
+  expect(await generateVideoBook(request)).toEqual(result);
+  expect(mocks.inference).toHaveBeenCalledTimes(2);
+  expect(
+    (await getBookWorkflow(owner)).state.conversions.find(d => d.id === old.id)
+  ).toMatchObject({ status: "failed", submissionUncertain: true });
+});
+
+it("rejects incorrect acknowledgements and quotes made before another uncertain result", async () => {
+  const owner = await fixture();
+  const firstQuote = await quoteVideoBook(owner);
+  mocks.inference.mockRejectedValueOnce(new Error("timeout"));
+  const first = await generateVideoBook({
+    ...owner,
+    quoteFingerprint: firstQuote.quoteFingerprint,
+  });
+  const next = await quoteVideoBook(owner);
+  for (const acknowledgedUnknownIds of [
+    [randomUUID()],
+    [first.id, randomUUID()],
+    [first.id, first.id],
+  ]) {
+    await expect(
+      generateVideoBook({
+        ...owner,
+        id: randomUUID(),
+        quoteFingerprint: next.quoteFingerprint,
+        acknowledgedUnknownIds,
+      })
+    ).rejects.toThrow("确认新任务");
+  }
+  expect(mocks.inference).toHaveBeenCalledOnce();
+  mocks.inference.mockRejectedValueOnce(new Error("timeout"));
+  const second = await generateVideoBook({
+    ...owner,
+    id: randomUUID(),
+    quoteFingerprint: next.quoteFingerprint,
+    acknowledgedUnknownIds: [first.id],
+  });
+  expect(second.submissionUncertain).toBe(true);
+  await expect(
+    generateVideoBook({
+      ...owner,
+      id: randomUUID(),
+      quoteFingerprint: next.quoteFingerprint,
+      acknowledgedUnknownIds: [first.id, second.id],
+    })
+  ).rejects.toThrow("报价已变化");
+  expect(mocks.inference).toHaveBeenCalledTimes(2);
+  expect((await quoteVideoBook(owner)).unresolvedRequestIds).toEqual(
+    [first.id, second.id].sort()
+  );
+});
+
+it("checks the acknowledged unknown tasks again after reading video evidence", async () => {
+  const owner = await fixture();
+  const firstQuote = await quoteVideoBook(owner);
+  mocks.inference.mockRejectedValueOnce(new Error("timeout"));
+  const first = await generateVideoBook({
+    ...owner,
+    quoteFingerprint: firstQuote.quoteFingerprint,
+  });
+  const next = await quoteVideoBook(owner);
+  mocks.evidence.mockImplementationOnce(async () => {
+    await mutateBookWorkflow(owner, ({ state }) => {
+      state.conversions.push({ ...first, id: randomUUID() });
+      return { result: true };
+    });
+    return { transcript: "text", images: [], videoSha256: "a" };
+  });
+  const result = await generateVideoBook({
+    ...owner,
+    id: randomUUID(),
+    quoteFingerprint: next.quoteFingerprint,
+    acknowledgedUnknownIds: [first.id],
+  });
+  expect(result).toMatchObject({
+    status: "failed",
+    submissionUncertain: false,
+  });
+  expect(result.error).toContain("确认新任务");
+  expect(mocks.inference).toHaveBeenCalledOnce();
+});
+
+it("allows only one concurrent new task under a fresh quote", async () => {
+  const owner = await fixture();
+  const q = await quoteVideoBook(owner);
+  let release!: () => void;
+  const pending = new Promise<void>(resolve => {
+    release = resolve;
+  });
+  mocks.evidence.mockImplementationOnce(async () => {
+    await pending;
+    return { transcript: "text", images: [], videoSha256: "a" };
+  });
+  const first = generateVideoBook({
+    ...owner,
+    quoteFingerprint: q.quoteFingerprint,
+  });
+  try {
+    await vi.waitFor(() => expect(mocks.evidence).toHaveBeenCalledOnce());
+    await expect(
+      generateVideoBook({
+        ...owner,
+        id: randomUUID(),
+        quoteFingerprint: q.quoteFingerprint,
+      })
+    ).rejects.toThrow("已有版本正在生成");
+  } finally {
+    release();
+  }
+  expect((await first).status).toBe("review");
+  expect(mocks.inference).toHaveBeenCalledOnce();
+});
+
+it("includes legacy unknown-result records without the newer boolean flag in fresh quotes", async () => {
+  const owner = await fixture();
+  const quote = await quoteVideoBook(owner);
+  mocks.inference.mockRejectedValueOnce(new Error("timeout"));
+  const first = await generateVideoBook({
+    ...owner,
+    quoteFingerprint: quote.quoteFingerprint,
+  });
+  await mutateBookWorkflow(owner, ({ state }) => {
+    const old = state.conversions.find(d => d.id === first.id)!;
+    delete old.submissionUncertain;
+    old.error =
+      "视频转文字未完成，原视频和旧书稿保留。LLM submission outcome unknown; reconciliation required";
+    return { result: true };
+  });
+  const next = await quoteVideoBook(owner);
+  expect(next.unresolvedRequestIds).toEqual([first.id]);
+  await expect(
+    generateVideoBook({
+      ...owner,
+      id: randomUUID(),
+      quoteFingerprint: next.quoteFingerprint,
+    })
+  ).rejects.toThrow("确认新任务");
+  expect(mocks.inference).toHaveBeenCalledOnce();
 });

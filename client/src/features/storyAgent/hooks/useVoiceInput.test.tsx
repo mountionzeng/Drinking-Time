@@ -4,6 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 const mock = vi.hoisted(() => ({
   effects: [] as (() => void | (() => void))[],
   transcribe: vi.fn(),
+  transcribeLocal: vi.fn(),
 }));
 vi.mock("react", async () => ({
   ...(await vi.importActual<typeof React>("react")),
@@ -13,6 +14,7 @@ vi.mock("@/lib/trpc", () => ({
   trpc: {
     voice: {
       transcribe: { useMutation: () => ({ mutateAsync: mock.transcribe }) },
+      transcribeLocal: { useMutation: () => ({ mutateAsync: mock.transcribeLocal }) },
     },
   },
 }));
@@ -66,13 +68,13 @@ beforeEach(() => {
   );
 });
 afterEach(() => vi.unstubAllGlobals());
-function setup(preferLive = false) {
+function setup(preferLive = false, allowLocalTranscription = false) {
   const onTranscribed = vi.fn();
   const onError = vi.fn();
   const onPreview = vi.fn();
   let voice!: ReturnType<typeof useVoiceInput>;
   function Harness() {
-    voice = useVoiceInput({ onTranscribed, onError, onPreview, preferLive });
+    voice = useVoiceInput({ onTranscribed, onError, onPreview, preferLive, allowLocalTranscription });
     return null;
   }
   renderToStaticMarkup(<Harness />);
@@ -101,7 +103,31 @@ it("stops a late microphone grant after the chat unmounts without recording", as
   expect(chat.onTranscribed).not.toHaveBeenCalled();
 });
 
-function liveBrowser() {
+it("discards a late microphone grant after cancelling and starting a new request", async () => {
+  const first = deferred<typeof stream>();
+  const second = deferred<typeof stream>();
+  const stopFirst = vi.fn();
+  vi.mocked(navigator.mediaDevices.getUserMedia)
+    .mockReturnValueOnce(first.promise as any)
+    .mockReturnValueOnce(second.promise as any);
+  const chat = setup();
+  chat.voice.toggleRecording();
+  chat.voice.toggleRecording();
+  chat.voice.toggleRecording();
+  expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledTimes(2);
+  first.resolve({ getTracks: () => [{ stop: stopFirst }] });
+  await first.promise;
+  expect(stopFirst).toHaveBeenCalledOnce();
+  chat.voice.toggleRecording(); // Cancel the second request after the first has settled.
+  second.resolve(stream);
+  await second.promise;
+  expect(stop).toHaveBeenCalledOnce();
+  expect(mock.transcribe).not.toHaveBeenCalled();
+  expect(chat.onTranscribed).not.toHaveBeenCalled();
+  chat.cleanup();
+});
+
+function liveBrowser(autoStart = true) {
   let recognition!: LiveRecognition;
   class Recognition implements LiveRecognition {
     lang = "";
@@ -111,7 +137,7 @@ function liveBrowser() {
     onresult: LiveRecognition["onresult"] = null;
     onerror: LiveRecognition["onerror"] = null;
     onend: LiveRecognition["onend"] = null;
-    start = vi.fn(() => this.onstart?.());
+    start = vi.fn(() => { if (autoStart) this.onstart?.(); });
     stop = vi.fn(() => this.onend?.());
     abort = vi.fn();
     constructor() { recognition = this; }
@@ -119,6 +145,21 @@ function liveBrowser() {
   vi.stubGlobal("window", { webkitSpeechRecognition: Recognition });
   return () => recognition;
 }
+
+it("cancels a stalled live start on the second tap and allows a new session", () => {
+  const current = liveBrowser(false);
+  const chat = setup(true);
+  chat.voice.toggleRecording();
+  const first = current();
+  chat.voice.toggleRecording();
+  expect(first.abort).toHaveBeenCalledOnce();
+  chat.voice.toggleRecording();
+  expect(current()).not.toBe(first);
+  expect(current().start).toHaveBeenCalledOnce();
+  expect(navigator.mediaDevices.getUserMedia).not.toHaveBeenCalled();
+  expect(mock.transcribe).not.toHaveBeenCalled();
+  chat.cleanup();
+});
 
 it("previews desktop dictation immediately and commits final text without calling the old transcription provider", () => {
   const current = liveBrowser();
@@ -201,5 +242,97 @@ it("returns recognized words for confirmation and releases the microphone", asyn
   await recorder.onstop?.();
   expect(chat.onTranscribed).toHaveBeenCalledWith("想起那把旧伞");
   expect(stop).toHaveBeenCalled();
+  chat.cleanup();
+});
+
+it.each([
+  ["NotAllowedError", "麦克风权限被拒绝了"],
+  ["NotFoundError", "没有找到可用的麦克风"],
+])("reports %s instead of silently ignoring a microphone tap", async (name, message) => {
+  vi.mocked(navigator.mediaDevices.getUserMedia).mockRejectedValue(new DOMException("synthetic denial", name));
+  const chat = setup(true);
+  chat.voice.toggleRecording();
+  await Promise.resolve();
+  expect(chat.onError).toHaveBeenCalledWith(expect.stringContaining(message));
+  expect(mock.transcribe).not.toHaveBeenCalled();
+  expect(chat.onTranscribed).not.toHaveBeenCalled();
+  chat.cleanup();
+});
+
+it("explains missing recording APIs without requesting a microphone or sending audio", () => {
+  vi.stubGlobal("MediaRecorder", undefined);
+  const chat = setup(true);
+  chat.voice.toggleRecording();
+  expect(chat.onError).toHaveBeenCalledWith(expect.stringContaining("当前浏览器不支持录音"));
+  expect(navigator.mediaDevices.getUserMedia).not.toHaveBeenCalled();
+  expect(mock.transcribe).not.toHaveBeenCalled();
+  chat.cleanup();
+});
+
+it("stops a synthetic recording and only appends its transcription to the draft", async () => {
+  mock.transcribe.mockResolvedValue({ text: "合成测试文字" });
+  const chat = setup();
+  chat.voice.toggleRecording();
+  await Promise.resolve();
+  expect(recorder.state).toBe("recording");
+  recorder.ondataavailable?.({ data: new Blob(["synthetic audio; no microphone accessed"]) });
+  chat.voice.stopRecording();
+  await vi.waitFor(() => expect(chat.onTranscribed).toHaveBeenCalledWith("合成测试文字"));
+  expect(recorder.state).toBe("inactive");
+  expect(stop).toHaveBeenCalled();
+  expect(chat.onError).not.toHaveBeenCalled();
+  chat.cleanup();
+});
+
+it("transcribes an explicitly selected recording locally and ignores duplicate or late completions", async () => {
+  const pending = deferred<{text: string}>();
+  mock.transcribeLocal.mockReturnValueOnce(pending.promise);
+  const chat = setup(true, true);
+  const file = new File(["audio"], "test.wav", { type: "audio/wav" });
+  const first = chat.voice.transcribeLocalFile(file);
+  await chat.voice.transcribeLocalFile(file);
+  expect(mock.transcribeLocal).toHaveBeenCalledOnce();
+  chat.cleanup();
+  pending.resolve({ text: "旧稿" });
+  await first;
+  expect(chat.onTranscribed).not.toHaveBeenCalled();
+  expect(mock.transcribe).not.toHaveBeenCalled();
+});
+
+it("routes a stopped local microphone recording only to the offline recognizer", async () => {
+  mock.transcribeLocal.mockResolvedValueOnce({ text: "公园散步" });
+  const chat = setup(true, true);
+  chat.voice.toggleRecording();
+  await Promise.resolve();
+  recorder.ondataavailable?.({ data: new Blob(["synthetic"]) });
+  chat.voice.stopRecording();
+  await vi.waitFor(() => expect(chat.onTranscribed).toHaveBeenCalledWith("公园散步"));
+  expect(mock.transcribeLocal).toHaveBeenCalledOnce();
+  expect(mock.transcribe).not.toHaveBeenCalled();
+  chat.cleanup();
+});
+
+it("can record locally on the first tap despite an available live recognition service", async () => {
+  const current = liveBrowser();
+  const chat = setup(true, true);
+  mock.transcribeLocal.mockResolvedValueOnce({ text: "输入框里的文字" });
+  chat.voice.startLocalRecording();
+  await Promise.resolve();
+  expect(current()).toBeUndefined();
+  expect(recorder.state).toBe("recording");
+  recorder.ondataavailable?.({ data: new Blob(["synthetic"]) });
+  chat.voice.stopRecording();
+  await vi.waitFor(() => expect(chat.onTranscribed).toHaveBeenCalledWith("输入框里的文字"));
+  expect(mock.transcribe).not.toHaveBeenCalled();
+  chat.cleanup();
+});
+
+it("keeps a local decoder error actionable and never tries a remote transcription", async () => {
+  const chat = setup(true, true);
+  mock.transcribeLocal.mockResolvedValueOnce({ error: "无法读取这段录音" });
+  await chat.voice.transcribeLocalFile(new File(["invalid"], "sample.wav"));
+  expect(chat.onError).toHaveBeenCalledWith("无法读取这段录音");
+  expect(chat.onTranscribed).not.toHaveBeenCalled();
+  expect(mock.transcribe).not.toHaveBeenCalled();
   chat.cleanup();
 });

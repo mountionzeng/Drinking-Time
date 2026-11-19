@@ -218,6 +218,8 @@ export type StoryboardBoardTimeline = {
     command: VisualObjectCommand,
     context: { timelineFrame: number; visualLayer: number }
   ) => Promise<void>;
+  onDeleteSelectedVisualObjects?: (objects: VisualObjectRef[], visualLayer: number) => Promise<void>;
+  multipleSelectedKeys?: ReadonlySet<string>;
   onPasteVisualObject?: (context: {
     timelineFrame: number;
     visualLayer?: number;
@@ -726,6 +728,9 @@ type MenuState = {
   magneticJoin: StoryboardMagneticJoin | null;
 };
 
+const FRAME_THUMBNAIL_WIDTH_PX = 40;
+const FRAME_LANE_STEP_REM = 2;
+
 export function StoryboardVisualLayerRow({
   shots,
   timeline,
@@ -767,7 +772,7 @@ export function StoryboardVisualLayerRow({
     gestureId: symbol
   ) => void;
   selectedVisualObject: VisualObjectRef | null;
-  onSelectVisualObject: (object: VisualObjectRef, target: HTMLElement) => void;
+  onSelectVisualObject: (object: VisualObjectRef | null, target: HTMLElement) => void;
   onOpenMenu: (menu: MenuState) => void;
   onOpenObjectMenu: (menu: VisualObjectMenuState) => void;
   onOpenPasteMenu: (menu: VisualPasteMenuState) => void;
@@ -777,8 +782,12 @@ export function StoryboardVisualLayerRow({
   const isCurrentStorySession = () =>
     timeline.isStorySessionCurrent?.() !== false;
   const frames = useMemo(
-    () =>
-      shots
+    () => {
+      // A moved clip can retain its extraction record on the source shot. That
+      // record is warehouse provenance, not another timeline object on V2.
+      const persistedImageIds = new Set(shots.flatMap(shot =>
+        (shot.timelineItem?.imageClips ?? []).map(clip => clip.imageId)));
+      return shots
         .flatMap(shot => {
           const extractedFrames = shot.extractedFrames ?? [];
           const imageClips = shot.timelineItem?.imageClips ?? [];
@@ -802,10 +811,12 @@ export function StoryboardVisualLayerRow({
               shot,
             };
           });
-          const persistedImageIds = new Set(
-            imageClips.map(clip => clip.imageId)
-          );
-          const legacy = extractedFrames
+          // An explicit clip list (including []) is the placement authority.
+          // Archive images survive deletion and must not recreate deleted clips.
+          // Only pre-clip documents may fall back to extraction provenance.
+          const legacy = (shot.timelineItem?.imageClips != null
+            ? []
+            : extractedFrames)
             .filter(frame => !persistedImageIds.has(frame.imageId))
             .map(frame => ({ ...frame, clip: undefined, shot }));
           return [...persisted, ...legacy];
@@ -818,9 +829,23 @@ export function StoryboardVisualLayerRow({
         .sort(
           (left, right) =>
             left.atMs - right.atMs || left.id.localeCompare(right.id)
-        ),
+        );
+    },
     [shots, visualLayer]
   );
+  // Keep each thumbnail on its frame's time coordinate. Close timestamps
+  // share a visual layer, but need separate rows for pointer hit testing.
+  const frameLayout = useMemo(() => {
+    const nextFreeX: number[] = [];
+    const placements = frames.map(frame => {
+      const x = msToPx(viewport, frame.atMs);
+      const freeLane = nextFreeX.findIndex(start => start <= x);
+      const lane = freeLane < 0 ? nextFreeX.length : freeLane;
+      nextFreeX[lane] = x + FRAME_THUMBNAIL_WIDTH_PX + 2; // Allow for hover scale.
+      return { frame, x, lane };
+    });
+    return { placements, laneCount: Math.max(1, nextFreeX.length) };
+  }, [frames, viewport]);
   const [transitionMenu, setTransitionMenu] = useState<{
     clientX: number;
     clientY: number;
@@ -1234,6 +1259,7 @@ export function StoryboardVisualLayerRow({
         <div
           ref={trackRef}
           className="relative isolate h-9 overflow-hidden rounded-sm border border-border/70 bg-muted/15"
+          style={{ height: `${2.25 + (frameLayout.laneCount - 1) * FRAME_LANE_STEP_REM}rem` }}
           data-testid={`storyboard-visual-layer-track-${visualLayer + 1}`}
           data-storyboard-visual-layer={visualLayer}
           aria-label={_ui("视觉层 {0} 时间线", [visualLayer + 1])}
@@ -1542,7 +1568,9 @@ export function StoryboardVisualLayerRow({
                   data-visual-clip-move-target="true"
                   data-visual-object-type="story-shot"
                   data-visual-object-id={shot.stableShotId}
+                  data-batch-selected={timeline.multipleSelectedKeys?.has(`story-shot:${shot.stableShotId}`) || undefined}
                   aria-selected={
+                    timeline.multipleSelectedKeys?.has(`story-shot:${shot.stableShotId}`) ||
                     selectedVisualObject?.type === "story-shot" &&
                     selectedVisualObject.stableShotId === shot.stableShotId
                   }
@@ -1585,8 +1613,8 @@ export function StoryboardVisualLayerRow({
                 />
               ))
           )}
-          {frames.map(({ shot, clip, ...frame }) => {
-            const leftPx = msToPx(viewport, frame.atMs);
+          {frameLayout.placements.map(({ frame, x, lane }) => {
+            const { shot, clip } = frame;
             const active = Math.abs(timeline.playheadMs - frame.atMs) <= 50;
             return (
               <div
@@ -1594,7 +1622,7 @@ export function StoryboardVisualLayerRow({
                 role="button"
                 tabIndex={0}
                 data-pointer-clip-move={clip ? "true" : undefined}
-                className={`absolute bottom-1 h-7 w-10 -translate-x-1/2 overflow-hidden rounded-sm border bg-background shadow-sm transition hover:z-20 hover:scale-105 focus-visible:z-20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
+                className={`absolute h-7 -translate-x-1/2 overflow-hidden rounded-sm border bg-background shadow-sm transition hover:z-20 hover:scale-105 focus-visible:z-20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
                   clip
                     ? "touch-none cursor-grab active:cursor-grabbing"
                     : "cursor-pointer"
@@ -1604,7 +1632,9 @@ export function StoryboardVisualLayerRow({
                     : "z-10 border-white/60"
                 }`}
                 style={{
-                  left: leftPx,
+                  left: x,
+                  top: `${0.125 + lane * FRAME_LANE_STEP_REM}rem`,
+                  width: FRAME_THUMBNAIL_WIDTH_PX,
                   transform:
                     visibleClipPointerPreview?.kind === "image" &&
                     visibleClipPointerPreview.id === clip?.id
@@ -1664,11 +1694,7 @@ export function StoryboardVisualLayerRow({
                           clipId: clip.id,
                           ownerStableShotId: shot.stableShotId,
                         }
-                      : {
-                          type: "story-shot",
-                          stableShotId: shot.stableShotId,
-                          shotNo: shot.shotNo,
-                        },
+                      : null,
                     event.currentTarget
                   );
                   timeline.onTogglePlay(false);
@@ -1691,11 +1717,7 @@ export function StoryboardVisualLayerRow({
                           clipId: clip.id,
                           ownerStableShotId: shot.stableShotId,
                         }
-                      : {
-                          type: "story-shot",
-                          stableShotId: shot.stableShotId,
-                          shotNo: shot.shotNo,
-                        },
+                      : null,
                     event.currentTarget
                   );
                   if (clip) {
@@ -1717,6 +1739,7 @@ export function StoryboardVisualLayerRow({
                     return;
                   }
                   const overlappingFrames = frames.filter(candidate => {
+                    if (candidate.clip) return false;
                     if (totalMs <= 0) {
                       return candidate.imageId === frame.imageId;
                     }
@@ -1774,11 +1797,7 @@ export function StoryboardVisualLayerRow({
                           clipId: clip.id,
                           ownerStableShotId: shot.stableShotId,
                         }
-                      : {
-                          type: "story-shot",
-                          stableShotId: shot.stableShotId,
-                          shotNo: shot.shotNo,
-                        },
+                      : null,
                     event.currentTarget
                   );
                   const rect = event.currentTarget.getBoundingClientRect();
@@ -1817,12 +1836,13 @@ export function StoryboardVisualLayerRow({
                 data-visual-clip-move-target={clip ? "true" : undefined}
                 data-visual-object-type={clip ? "image-clip" : undefined}
                 data-visual-object-id={clip?.id}
+                data-visual-owner={shot.stableShotId}
+                data-batch-selected={clip && (timeline.multipleSelectedKeys?.has(`image-clip:${shot.stableShotId}:${clip.id}`) || undefined)}
                 aria-selected={
                   clip
-                    ? selectedVisualObject?.type === "image-clip" &&
-                      selectedVisualObject.clipId === clip.id
-                    : selectedVisualObject?.type === "story-shot" &&
-                      selectedVisualObject.stableShotId === shot.stableShotId
+                    ? timeline.multipleSelectedKeys?.has(`image-clip:${shot.stableShotId}:${clip.id}`) || (selectedVisualObject?.type === "image-clip" &&
+                      selectedVisualObject.clipId === clip.id)
+                    : false
                 }
                 aria-keyshortcuts={
                   clip

@@ -1,4 +1,5 @@
 import { WarehouseImageSelection, toggleWarehouseImage, MAX_WAREHOUSE_VIDEO_IMAGES, type WarehouseSelectedImage } from "./WarehouseImageSelection";
+import { READ_WAREHOUSE_CHAT_SELECTION, type WarehouseChatSelectionRequest } from "../warehouseChatSelection";
 import { WarehouseVideoSequenceDialog } from "./WarehouseVideoSequenceDialog";
 import { WarehouseConnectionStatus } from "./WarehouseConnectionStatus";
 import { WarehouseVideoThumbnail } from "./WarehouseVideoThumbnail";
@@ -429,7 +430,9 @@ export function buildMaterialWarehouseVideoItems(
 
 function warehouseCreatedOrder(a: { id: number; createdAt?: string | Date | null }, b: { id: number; createdAt?: string | Date | null }) {
   const time = (v: typeof a) => v.createdAt ? (+new Date(v.createdAt) || 0) : 0;
-  return time(b) - time(a) || b.id - a.id;
+  const at = time(a), bt = time(b);
+  if (!at || !bt) return at ? -1 : bt ? 1 : b.id - a.id;
+  return bt - at || b.id - a.id;
 }
 
 function shotLabel(shot: ShotDisplayLike | number | null | undefined) {
@@ -580,6 +583,7 @@ export default function MaterialWarehousePanel({
   const [groupId, setGroupId] = useState<string | null>(focusedShotId ?? null);
   const grouped = useWarehouseShotGroups(activeStoryId, shots, materialState);
   const [conversationFocus, setConversationFocus] = useState<WarehouseConversationFocus | null>(null);
+  const [warehouseOpenRevision, setWarehouseOpenRevision] = useState(0);
   useEffect(() => {
     if (!videoActions || variant !== "drawer") return;
     const follow = (event: Event) => {
@@ -607,6 +611,7 @@ export default function MaterialWarehousePanel({
     const open = (event: Event) => {
       const detail = (event as CustomEvent<{ storyId: number; groupId?: string; stableShotId?: string }>).detail;
       if (detail?.storyId !== activeStoryId) return;
+      setWarehouseOpenRevision(revision => revision + 1);
       setConversationFocus(null); setGroupId(detail.groupId ?? detail.stableShotId ?? null); setDrawerTab("shots"); setPreviewImage(null);
     };
     window.addEventListener(OPEN_SHOT_WAREHOUSE, open);
@@ -623,7 +628,17 @@ export default function MaterialWarehousePanel({
   const selectionScope = `${activeStoryId}:${drawerTab}:${drawerTab === "shots" ? groupId ?? currentStableShotId : currentStableShotId}`;
   const selectedImages = imageSelection.scope === selectionScope ? imageSelection.images : [];
   const setSelectedImages = (value: WarehouseSelectedImage[] | ((rows:WarehouseSelectedImage[])=>WarehouseSelectedImage[])) => setImageSelection(previous=>({scope:selectionScope,images:typeof value === "function" ? value(previous.scope===selectionScope?previous.images:[]) : value}));
-  useEffect(() => { setSequenceOpen(false); }, [selectionScope]);
+  useEffect(() => {
+    setSequenceOpen(false);
+    const readSelection = (event: Event) => {
+      const detail = (event as CustomEvent<WarehouseChatSelectionRequest>).detail;
+      const stableShotId = sequenceShot?.stableShotId ?? sequenceShot?.shotIdentity;
+      if (detail.storyId === activeStoryId && multiSelect && stableShotId && selectedImages.length)
+        detail.selection = { stableShotId, imageIds: selectedImages.map(image => image.id) };
+    };
+    window.addEventListener(READ_WAREHOUSE_CHAT_SELECTION, readSelection);
+    return () => window.removeEventListener(READ_WAREHOUSE_CHAT_SELECTION, readSelection);
+  }, [selectionScope, activeStoryId, multiSelect, imageSelection, sequenceShot?.stableShotId, sequenceShot?.shotIdentity]);
   const toggleSelectedImage = (image: WarehouseSelectedImage) => {
     if (selectedImages.length >= MAX_WAREHOUSE_VIDEO_IMAGES && !selectedImages.some(item => item.id === image.id)) { toast.info(sequenceUi("一次最多选择5张图片 / Select up to 5 images", "Select up to 5 images")); return; }
     setSelectedImages(rows => toggleWarehouseImage(rows, image));
@@ -745,11 +760,11 @@ export default function MaterialWarehousePanel({
     currentMaterial?.timelineItem?.plannedDurationMs
   );
 
-  const openMaterialChat = () => {
+  const openMaterialChat = (keepWarehouseOpen = false, imageId?: number) => {
     window.dispatchEvent(new CustomEvent(PAUSED_FRAME_SHORTCUT_EVENT, { detail: { kind: "clear", storyId: activeStoryId } }));
     setPreviewImage(null);
-    onClose?.();
-    window.dispatchEvent(new CustomEvent("dt:open-creation-chat", { detail: { focusComposer: true, preserveSelection: true } }));
+    if (!keepWarehouseOpen) onClose?.();
+    window.dispatchEvent(new CustomEvent("dt:open-creation-chat", { detail: { focusComposer: true, preserveSelection: true, imageId, storyId: activeStoryId } }));
   };
   const selectImageMaterial = (item: WarehouseImageItem) => {
     if (insertIntoLayout) {
@@ -783,7 +798,7 @@ export default function MaterialWarehousePanel({
       objectVersion: `image:${item.image.id}`,
       materialStatus: item.isCurrent ? "current-image" : "candidate-image",
     });
-    openMaterialChat();
+    openMaterialChat(true, item.image.id);
   };
 
   const selectVideoMaterial = (item: WarehouseVideoItem, sourceTimeSec?: number) => {
@@ -1364,6 +1379,7 @@ export default function MaterialWarehousePanel({
           <WarehouseConnectionStatus error={error ?? grouped.error}
             retry={() => { refetch(); grouped.refetch(); }} />
           {pendingImports.length > 0 ? importQueue : drawerTab === "shots" ? <WarehouseShotGroups
+            key={`${activeStoryId}:${warehouseOpenRevision}`}
             leading={renderCards} storyId={activeStoryId ?? 0} focusedKeys={conversationFocus?.mediaKeys}
             {...grouped} error={null} groupId={groupId ?? currentStableShotId}
             renderImage={renderGroupedImage} onSelectVideo={(id, time) => {const item = videoItems.find(v => v.take.id === id); if (item) selectVideoMaterial(item, time);}} /> : (drawerTab === "music" || drawerTab === "text") && activeStoryId ? <WarehouseBookMedia key={`${activeStoryId}:${drawerTab}`} storyId={activeStoryId} kind={drawerTab} leading={drawerTab === "music" ? renderCards : undefined}/> : drawerTab === "assets" ? (

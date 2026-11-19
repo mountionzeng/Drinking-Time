@@ -1,3 +1,6 @@
+import { archiveMessagesFrom } from "./archiveChatMessages";
+export { archiveMessagesFrom } from "./archiveChatMessages";
+import { hasInlineChatImages, inlineChatInstruction } from "@shared/inlineChatImages";
 import { appendCommandConversation } from "./commandConversation";
 import { type StudioUiContext } from "@shared/studioAssistant";
 import type { StudioCommandOutcome } from "./useStudioAssistant";
@@ -931,41 +934,6 @@ function scriptFromStory(params: {
 // tokenizeForSimilarity / storyCardSearchText / getSimilarCards
 // \u5df2\u642c\u5230 ./storyCardSimilarity\uff08\u89c1\u9876\u90e8 import\uff09\uff0c\u6b64\u5904\u4e0d\u518d\u91cd\u590d\u5b9a\u4e49\u3002
 
-export function archiveMessagesFrom(
-  sourceMessages: ChatMessage[],
-  sourceCards: StoryCard[]
-) {
-  return sourceMessages.map(message => {
-    const spawnedCard = message.spawnedCardId
-      ? sourceCards.find(card => card.id === message.spawnedCardId)
-      : undefined;
-    return {
-      id: message.id,
-      timestamp: message.timestamp,
-      who: message.role === "user" ? "u" : "s",
-      name: message.role === "user" ? "你" : "聊聊",
-      text: message.content,
-      photoUrl: message.photoUrl,
-      selectionQuote: message.selectionQuote,
-      promptCandidate: message.promptCandidate,
-      imageRerenderAction: message.imageRerenderAction,
-      imageRevision: message.imageRevision,
-      frameReferences: message.frameReferences,
-      frameReview: message.frameReview,
-      editingTransitionCandidate: message.editingTransitionCandidate,
-      pendingCard: spawnedCard
-        ? {
-            status: "kept",
-            cardId: spawnedCard.id,
-            content: spawnedCard.content,
-            emotion: spawnedCard.emotion,
-            sensoryDetails: spawnedCard.sensoryDetails,
-          }
-        : undefined,
-    };
-  });
-}
-
 /**
  * 把「从外部恢复的故事状态」统一过一遍继承图补挂(收口点)。
  *
@@ -1034,6 +1002,7 @@ export function StoryAgentProvider({
     reply: string;
     frameReferences?: ChatMessage["frameReferences"];
     frameReview?: ChatMessage["frameReview"];
+    imageEditPlan?: ChatMessage["imageEditPlan"];
     transitionCandidate?: Omit<
       EditingTransitionCandidateReference,
       "status" | "error"
@@ -1619,6 +1588,7 @@ export function StoryAgentProvider({
         spawnedCardId: message.spawnedCardId,
         imageRerenderAction: message.imageRerenderAction,
         imageRevision: message.imageRevision,
+        imageEditPlan: message.imageEditPlan,
         frameReferences: message.frameReferences,
       frameReview: message.frameReview,
       })),
@@ -1795,8 +1765,9 @@ export function StoryAgentProvider({
         storyTitle, storyLogline, storyTheme, storyArc, visualCanvasItems,
         visualPreference, artDirection, publishing, confirmedIntent,
         pendingIntentDraft, activeSelection: currentSelection, activeStoryId, isReplying } = current;
+      const inlineImages = hasInlineChatImages(text);
       const submittedSelection = options?.selection !== undefined ? options.selection : currentSelection;
-      const namedShot = options?.workspaceContext === "video" ? resolveConversationShot(text, storyShots) : undefined;
+      const namedShot = !inlineImages && options?.workspaceContext === "video" ? resolveConversationShot(text, storyShots) : undefined;
       const activeSelection = namedShot && activeStoryId ? shotConversationSelection(activeStoryId, namedShot)
         : options?.workspaceContext === "video" && hasConversationShotReference(text) ? null : submittedSelection;
       const isCurrent = () => {
@@ -1808,9 +1779,9 @@ export function StoryAgentProvider({
       const submittedUi = getInterfaceContext?.();
       const trimmed = text.trim();
       if ((!trimmed && !photoBase64) || isReplying) return false;
-      const emotionCommand = !warehouseFileChatIds(trimmed).length && !photoBase64 && parseCreationEmotionChat(trimmed);
+      const emotionCommand = !inlineImages && !warehouseFileChatIds(trimmed).length && !photoBase64 && parseCreationEmotionChat(trimmed);
       let requestStoryId = activeStoryId;
-      const shouldRecognizeIntent = !parseVisualUnderstandingChat(trimmed) && !warehouseFileChatIds(trimmed).length &&
+      const shouldRecognizeIntent = !inlineImages && !parseVisualUnderstandingChat(trimmed) && !warehouseFileChatIds(trimmed).length &&
         !emotionCommand &&
         !options?.writingContext &&
         interactionMode === "story" &&
@@ -1880,12 +1851,12 @@ export function StoryAgentProvider({
         let nextMessages = [...messages, userMsg];
         setMessages(nextMessages);
 
-        const interfaceOutcome: (StudioCommandOutcome & { frameReferences?: ChatMessage["frameReferences"]; frameReview?: ChatMessage["frameReview"]; transitionCandidate?: Omit<EditingTransitionCandidateReference, "status" | "error"> }) | null = !photoBase64 && interfaceCommandRunner ? await interfaceCommandRunner(trimmed, submittedUi) : null;
+        const interfaceOutcome: (StudioCommandOutcome & { frameReferences?: ChatMessage["frameReferences"]; frameReview?: ChatMessage["frameReview"]; imageEditPlan?: ChatMessage["imageEditPlan"]; transitionCandidate?: Omit<EditingTransitionCandidateReference, "status" | "error"> }) | null = !inlineImages && !photoBase64 && interfaceCommandRunner ? await interfaceCommandRunner(trimmed, submittedUi) : null;
         if (interfaceOutcome?.handled) {
           nextMessages = nextMessages.map(m => m.id === userMsg.id ? { ...m, interfaceAction: true } : m);
           setMessages(nextMessages);
         }
-        const artCommand = !interfaceOutcome?.handled && !parseVisualUnderstandingChat(trimmed) && !warehouseFileChatIds(trimmed).length && !isFrameReferenceChat(trimmed) && !emotionCommand && !photoBase64 && !parseArtPreviewChat(trimmed) && parseArtSystemChat(trimmed, Boolean(artDirection.recipe?.system) && !activeSelection);
+        const artCommand = !inlineImages && !interfaceOutcome?.handled && !parseVisualUnderstandingChat(trimmed) && !warehouseFileChatIds(trimmed).length && !isFrameReferenceChat(trimmed) && !emotionCommand && !photoBase64 && !parseArtPreviewChat(trimmed) && parseArtSystemChat(trimmed, Boolean(artDirection.recipe?.system) && !activeSelection);
         if (artCommand) {
           return sendArtSystemChat({ command: artCommand, instruction: trimmed,
             storyId: resolvePersistedStoryId(activeStoryId, remoteStoryId),
@@ -1903,6 +1874,7 @@ export function StoryAgentProvider({
           !activeSelection.selection && ["shot", "storyboard-image", "animatic-video"].includes(activeSelection.sourceType);
         if (interfaceOutcome?.handled || (
           editingCommandRunner &&
+          !inlineImages &&
           !emotionCommand &&
           !options?.writingContext &&
           trimmed &&
@@ -1937,7 +1909,9 @@ export function StoryAgentProvider({
                   content: outcome.reply,
                   ...(interfaceOutcome?.handled ? { interfaceAction: true as const } : {}),
                   frameReferences: outcome.frameReferences,
-                  frameReview: outcome.frameReview,
+                  frameReview: outcome.imageEditPlan ? undefined : outcome.frameReview,
+                  imageEditPlan: outcome.imageEditPlan,
+                  ...(outcome.imageEditPlan ? { selectionQuote: userMsg.selectionQuote } : {}),
                   timestamp: Date.now(),
                   editingTransitionCandidate: outcome.transitionCandidate
                     ? { ...outcome.transitionCandidate, status: "pending" }
@@ -2086,7 +2060,7 @@ export function StoryAgentProvider({
             outlierSignal: card.outlierSignal,
             softMembership: card.softMembership,
           })),
-          similarCards: getSimilarCards(userContent, cards),
+          similarCards: getSimilarCards(inlineImages ? inlineChatInstruction(userContent) : userContent, cards),
           projectId: projectId ?? undefined,
           photoUrl: photoUrlForLLM, // 传给 LLM 做多模态理解（data URL 最稳）
           confirmedIntent: buildChatIntentPayload(confirmedIntent),
@@ -3531,7 +3505,9 @@ export function StoryAgentProvider({
               role: "assistant",
               content: outcome.reply,
               frameReferences: outcome.frameReferences,
-                  frameReview: outcome.frameReview,
+              frameReview: outcome.imageEditPlan ? undefined : outcome.frameReview,
+              imageEditPlan: outcome.imageEditPlan,
+              ...(outcome.imageEditPlan ? { selectionQuote: selectionQuoteFrom(submittedSelection) } : {}),
               timestamp: Date.now(),
               editingTransitionCandidate: outcome.transitionCandidate
                 ? { ...outcome.transitionCandidate, status: "pending" }
@@ -3673,6 +3649,11 @@ export function StoryAgentProvider({
         );
       } catch (err) {
         console.error("selectionEdit failed", err);
+        if (selectionRequestIsCurrent()) {
+          await commitSelectionReply({ id: newId("msg"), role: "assistant", timestamp: Date.now(),
+            content: `这条消息未完成：${err instanceof Error ? err.message : "服务暂时不可用"}。原话和当前选图已保留，没有自动重试。`,
+          }, "[storyConversation] persist selection failure:", true).catch(error => console.warn("[storyConversation] failure retained locally:", error));
+        }
         toast.error(
           err instanceof Error ? err.message : "修改失败，再试一次？"
         );

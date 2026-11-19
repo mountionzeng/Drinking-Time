@@ -168,7 +168,7 @@ export function WarehouseShotGroups({
         key={group?.id}
       >
         {leading}
-        {[...(group?.items ?? [])].sort((a, b) => warehouseMediaOrder(b, a)).map(item => {
+        {[...(group?.items ?? [])].sort(warehouseMediaOrder).map(item => {
           const name = warehouseMediaName(group, item, ui);
           return (
             <article
@@ -234,12 +234,14 @@ export function WarehouseCompletionNotice({
   materialState,
   stableShotId,
   onContentChange,
+  compact = false,
 }: {
   storyId: number;
   shots: readonly CreationEditorShot[];
   materialState?: StoryMaterialState | null;
   stableShotId?: string | null;
   onContentChange?: () => void;
+  compact?: boolean;
 }) {
   const ui = useUiText();
   const { groups } = useWarehouseShotGroups(
@@ -253,7 +255,7 @@ export function WarehouseCompletionNotice({
     .flatMap(group =>
       group.items.filter(i => i.ready).map(item => ({ group, item }))
     )
-    .sort((a, b) => warehouseMediaOrder(b.item, a.item))[0];
+    .sort((a, b) => warehouseMediaOrder(a.item, b.item))[0];
   useEffect(() => {
     if (latest) onContentChange?.();
   }, [latest?.item.key, latest?.group.id, onContentChange]);
@@ -261,20 +263,21 @@ export function WarehouseCompletionNotice({
   return (
     <p
       role="status"
-      className="py-1 text-[11px] leading-5 text-muted-foreground"
+      className={compact ? "flex min-w-0 items-center gap-1 text-[11px] leading-5 text-muted-foreground" : "py-1 text-[11px] leading-5 text-muted-foreground"}
       aria-label={ui("素材完成通知")}
     >
-      {ui("最近素材：{0}，已保存到", [
+      {compact ? <span className="truncate" title={warehouseMediaName(latest.group, latest.item, ui)}>{ui("最新")} {ui(latest.item.role)} {latest.item.version} ·</span> : ui("最近素材：{0}，已保存到", [
         warehouseMediaName(latest.group, latest.item, ui),
       ])}
       <button
         type="button"
-        className="text-primary underline underline-offset-2"
+        className="shrink-0 text-primary underline underline-offset-2"
+        aria-label={ui("仓库 / Warehouse")}
         onClick={() => openShotWarehouse(storyId, latest.group.id)}
       >
-        {ui("仓库 / Warehouse")}
+        {compact ? ui("仓库") : ui("仓库 / Warehouse")}
       </button>
-      。
+      {!compact && "。"}
     </p>
   );
 }

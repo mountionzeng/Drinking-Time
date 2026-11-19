@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { VideoTake } from "../../drizzle/schema";
 import type { StoryTimelineItem } from "../../shared/storyMaterial";
+import { withVideoElementRule } from "../../shared/videoMotionPolicy";
 import {
   proposeExtractedFrameTransition,
   type TimelineTransitionCandidate,
@@ -530,7 +531,7 @@ describe("confirmEditingTransition", () => {
     expect(result).toMatchObject({ status: "error", retryable: true });
     expect(videoMocks.submitViduTransition).toHaveBeenCalledWith(
       expect.objectContaining({
-        prompt: requested.prompt,
+        prompt: withVideoElementRule(requested.prompt),
         movementAmplitude: "medium",
       })
     );

@@ -1446,6 +1446,7 @@ export default function EditingNleWorkspace({
     pasteVisualObject,
     isVisualObjectCommandAvailable,
     executeVisualObjectCommand,
+    deleteSelectedVisualObjects,
   } = useVisualObjectEditingSession({
     editor: creationEditor,
     timings,
@@ -2251,6 +2252,7 @@ export default function EditingNleWorkspace({
       onPasteVisualObject: pasteVisualObject,
       isVisualObjectCommandAvailable,
       onVisualObjectCommand: executeVisualObjectCommand,
+      onDeleteSelectedVisualObjects: deleteSelectedVisualObjects,
       onPlaceExternalVisual: placeExternalVisual,
       writePending: timelineWritePending,
       magneticJoins: timelineMagneticJoins(
@@ -2568,6 +2570,7 @@ export default function EditingNleWorkspace({
       activeStoryId,
       editingStorySessionKey,
       executeVisualObjectCommand,
+      deleteSelectedVisualObjects,
       isEditingStorySessionCurrent,
       isVisualObjectCommandAvailable,
       addTimelineAnchorAtFrame,

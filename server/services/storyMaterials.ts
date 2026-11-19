@@ -542,6 +542,9 @@ function visualClips(value: unknown): StoryTimelineVisualClip[] {
       rangeId,
       sourceStableShotId,
       videoUrl,
+      ...(nonNegativeInteger(clip.visualLayer) == null
+        ? {}
+        : { visualLayer: nonNegativeInteger(clip.visualLayer)! }),
       label:
         typeof clip.label === "string" && clip.label.trim()
           ? clip.label.trim().slice(0, 120)

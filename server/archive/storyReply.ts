@@ -193,6 +193,7 @@ export async function replyFromStoryAgent(params: {
   projectId?: number;
   userId?: number;
   enableImageGen?: boolean; // 手机端出图开关
+  inlineImageContent?: import("../_core/llm").MessageContent[];
   photoUrl?: string; // 用户上传的照片 URL，传给 LLM 做多模态理解
   confirmedIntent?: StoryChatIntentPayload;
   interactionMode?: "story" | "publishing";
@@ -210,7 +211,7 @@ export async function replyFromStoryAgent(params: {
   const similarCards = Array.isArray(params.similarCards)
     ? params.similarCards.slice(0, 3)
     : [];
-  const readOnlyRequest = isReadOnlyStoryChatRequest(params.message);
+  const readOnlyRequest = Boolean(params.inlineImageContent) || isReadOnlyStoryChatRequest(params.message);
   const userTurnNumber =
     historyBeforeCurrentMessage(params.history, params.message).filter(
       turn => turn.role === "user"
@@ -256,7 +257,7 @@ export async function replyFromStoryAgent(params: {
     ]
       .filter(Boolean)
       .join("\n");
-    const userContent = params.photoUrl
+    const userContent = params.inlineImageContent ?? (params.photoUrl
       ? [
           {
             type: "image_url" as const,
@@ -267,7 +268,7 @@ export async function replyFromStoryAgent(params: {
             text: params.message.trim() || "帮我看看这张照片",
           },
         ]
-      : params.message.trim();
+      : params.message.trim());
     const messages: Message[] = [
       { role: "system", content: publishingPrompt },
       ...referenceMessages,
@@ -346,7 +347,7 @@ export async function replyFromStoryAgent(params: {
   // 构建用户消息：如果有照片就用多模态格式（image_url + text）
   const userContent:
     | import("../_core/llm").MessageContent
-    | import("../_core/llm").MessageContent[] = params.photoUrl
+    | import("../_core/llm").MessageContent[] = params.inlineImageContent ?? (params.photoUrl
     ? [
         {
           type: "image_url" as const,
@@ -357,7 +358,7 @@ export async function replyFromStoryAgent(params: {
           text: params.message.trim() || "帮我看看这张照片",
         },
       ]
-    : params.message.trim();
+    : params.message.trim());
 
   const messages: Message[] = [
     {
@@ -370,7 +371,7 @@ export async function replyFromStoryAgent(params: {
         similarCards,
         editContextBlock,
         params.enableImageGen,
-        Boolean(params.photoUrl), // 有照片 → 注入「先看图」指令
+        Boolean(params.photoUrl || params.inlineImageContent), // 有照片 → 注入「先看图」指令
         params.confirmedIntent,
         params.storyCards
       ),
@@ -403,7 +404,7 @@ export async function replyFromStoryAgent(params: {
         existingCardCount,
         userTurnNumber,
         params.enableImageGen,
-        Boolean(params.photoUrl),
+        Boolean(params.photoUrl || params.inlineImageContent),
         params.confirmedIntent,
         shotDimensionDigest,
         allowStoryTitleSuggestion

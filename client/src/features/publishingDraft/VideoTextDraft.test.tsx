@@ -4,6 +4,9 @@ import { beforeEach, expect, it, vi } from "vitest";
 import { VideoTextDraft } from "./VideoTextDraft";
 const api = vi.hoisted(() => ({
   prepare: vi.fn(),
+  quote: vi.fn(),
+  generate: vi.fn(),
+  conversions: [] as any[],
   refresh: vi.fn(),
   adopt: vi.fn(),
   edit: vi.fn(),
@@ -47,13 +50,13 @@ vi.mock("@/lib/trpc", () => ({
       bookWorkflow: { get: { invalidate: vi.fn() } },
     }),
     bookWorkflow: {
-      quoteVideoText: { useMutation: () => ({ mutateAsync: vi.fn() }) },
-      generateVideoText: { useMutation: () => ({ mutateAsync: vi.fn() }) },
+      quoteVideoText: { useMutation: () => ({ mutateAsync: api.quote }) },
+      generateVideoText: { useMutation: () => ({ mutateAsync: api.generate }) },
       adopt: { useMutation: () => ({ mutateAsync: api.adopt }) },
       edit: { useMutation: () => ({ mutateAsync: api.edit }) },
       get: {
         useQuery: () => ({
-          data: { state: { conversions: [draft] } },
+          data: { state: { conversions: api.conversions } },
           refetch: vi.fn(),
         }),
       },
@@ -62,6 +65,11 @@ vi.mock("@/lib/trpc", () => ({
 }));
 beforeEach(() => {
   vi.clearAllMocks();
+  api.conversions = [draft];
+  api.quote.mockResolvedValue({
+    method: "rewrite",
+    unresolvedRequestIds: ["failed"],
+  });
   vi.stubGlobal("window", { dispatchEvent: api.dispatch });
   vi.stubGlobal(
     "CustomEvent",
@@ -107,6 +115,58 @@ it("loads the adopted version into the mounted book before closing the preview",
     expect(api.refresh.mock.invocationCallOrder[0]).toBeLessThan(
       api.done.mock.invocationCallOrder[0]
     );
+  } finally {
+    capture.mockRestore();
+  }
+});
+
+it("lets an old uncertain task obtain a new quote without submitting generation while retaining the old failure", async () => {
+  api.conversions = [
+    {
+      ...draft,
+      id: "failed",
+      status: "failed",
+      chapters: undefined,
+      videoTextMethod: "rewrite",
+      submissionUncertain: true,
+      error: "旧任务响应中断",
+    },
+  ];
+  let click!: () => void;
+  let disabled: boolean | undefined;
+  const original = React.createElement;
+  const capture = vi.spyOn(React, "createElement").mockImplementation(((
+    type: any,
+    props: any,
+    ...children: any[]
+  ) => {
+    if (type === "button" && String(children).includes("生成文字")) {
+      click = props.onClick;
+      disabled = props.disabled;
+    }
+    return original(type, props, ...children);
+  }) as typeof React.createElement);
+  try {
+    const html = renderToStaticMarkup(
+      <VideoTextDraft
+        storyId={1219}
+        request="原文"
+        blocked={false}
+        onDone={api.done}
+      />
+    );
+    expect(html).toContain('role="alert"');
+    expect(html).toContain("旧任务响应中断");
+    expect(disabled).toBe(false);
+    click();
+    await vi.waitFor(() =>
+      expect(api.quote).toHaveBeenCalledWith({
+        storyId: 1219,
+        request: "原文",
+        method: "rewrite",
+      })
+    );
+    expect(api.generate).not.toHaveBeenCalled();
   } finally {
     capture.mockRestore();
   }

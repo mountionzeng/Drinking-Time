@@ -25,14 +25,14 @@ export function liveRecognitionConstructor():
   };
   return browser.SpeechRecognition ?? browser.webkitSpeechRecognition;
 }
-function speechError(code: string) {
+function speechError(code: string, hasDraftText: boolean) {
   if (["not-allowed", "service-not-allowed", "NotAllowedError"].includes(code))
     return "请在浏览器设置中允许麦克风和语音识别，再点话筒。";
   if (code === "audio-capture")
     return "无法使用麦克风，请检查是否被其他应用占用。";
   if (code === "no-speech") return "没有听清，请靠近话筒再说一次。";
-  if (code === "network") return "语音识别连接中断，已识别的文字已保留。";
-  return "实时听写暂时不可用，已识别的文字已保留；可以使用键盘听写。";
+  const outcome = hasDraftText ? "已识别的文字在聊天输入框里。" : "本次没有识别到文字。";
+  return (code === "network" ? "语音识别连接中断。" : "实时听写暂时不可用。") + outcome;
 }
 /** One explicit tap, one recognition session. Never restart or submit paid work automatically. */
 export function startLiveDictation(
@@ -46,6 +46,7 @@ export function startLiveDictation(
 ) {
   let active = true,
     stopping = false,
+    hasDraftText = false,
     committed = 0,
     preview = "";
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -108,28 +109,38 @@ export function startLiveDictation(
       .join("");
     callbacks.onPreview(preview);
     const text = final.join("").trim();
-    if (text) callbacks.onText(text);
+    if (text) {
+      hasDraftText = true;
+      callbacks.onText(text);
+    }
   };
   recognition.onerror = event => {
     if (!active) return;
-    callbacks.onError(speechError(event.error));
+    const message = speechError(event.error, hasDraftText || Boolean(preview.trim()));
     finish();
+    callbacks.onError(message);
   };
-  recognition.onend = finish;
+  recognition.onend = () => {
+    if (!active) return;
+    const endedEmpty = !stopping && !hasDraftText && !preview.trim();
+    finish();
+    if (endedEmpty) callbacks.onError("听写已结束，本次没有识别到文字。");
+  };
   callbacks.onState("requesting");
   timer = setTimeout(() => {
     if (!active) return;
-    callbacks.onError("未能启动听写，请检查浏览器的麦克风与语音识别权限。");
+    callbacks.onError("浏览器听写启动超时。可以点输入框使用系统听写，或在 Chrome 中打开此页再试。");
     finish();
   }, 15_000);
   try {
     recognition.start();
   } catch (error) {
-    callbacks.onError(speechError(error instanceof Error ? error.name : ""));
+    callbacks.onError(speechError(error instanceof Error ? error.name : "", false));
     finish();
   }
   return {
     stop,
+    cancelStart: finish,
     dispose: () => {
       if (!active) return;
       active = false;

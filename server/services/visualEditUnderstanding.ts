@@ -123,6 +123,10 @@ export async function quoteVisualEdit(input: Owner & { imageId: number; instruct
   const context = await visualReadingContext(input);
   const cached = Boolean(reusableReading(input, context));
   const candidates = visualReadingCandidates(input);
+  if (!cached && !candidates.length) throw new TRPCError({
+    code: "PRECONDITION_FAILED",
+    message: "尚未配置可用的读图模型，暂时无法报价 / Configure a vision model before requesting a quote",
+  });
   const estimatedCny = cached ? 0 : toYuan(estimateInferenceMaxCostMinor({
     useCase: "vision", candidates: { fallback302Model: ENV.vision302Model }, maxTokens: 1800,
     messages: readingMessages(input, context.preferences, context.feedback, "data:,", context.artSystem),

@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { trpc } from "@/lib/trpc";
 import { useUiText } from "@/features/uiLanguage/UiLanguage";
+import type { ChatImageRevision } from "@shared/chatImageRevision";
 
 /** Server-owned receipts survive refresh. Polling only resumes existing purchases. */
 export function ChatImageRevisionGallery({
@@ -25,7 +26,6 @@ export function ChatImageRevisionGallery({
   hidden?: boolean;
   stableShotId?: string | null;
 }) {
-  const ui = useUiText();
   const query = trpc.storyAgent.chatImageRevisions.useQuery(
     { storyId },
     { refetchInterval: 5000 }
@@ -78,6 +78,20 @@ export function ChatImageRevisionGallery({
   const revisions = query.data?.filter(revision => !stableShotId ||
     (revision.stableShotId === stableShotId && !revision.decision && !revision.requestId.startsWith("image:")));
   if (hidden || !revisions?.length) return null;
+  return <ChatImageRevisionCards revisions={revisions} onContentChange={onContentChange}
+    onSelectImage={onSelectImage} selectedImageId={selectedImageId} onOpenShot={onOpenShot} />;
+}
+
+/** Display only; recovery and polling stay in the single gallery controller. */
+export function ChatImageRevisionCards({ revisions, onContentChange, onSelectImage, selectedImageId, onOpenShot }: {
+  revisions: readonly ChatImageRevision[];
+  onContentChange?: () => void;
+  onSelectImage?: (image: { imageId: number; imageUrl: string; shotNo: number; stableShotId: string }) => void;
+  selectedImageId?: number | null;
+  onOpenShot?: (stableShotId: string) => void;
+}) {
+  const ui = useUiText();
+  if (!revisions.length) return null;
   const shownShotCards = new Set<string>();
   return (
     <section className="space-y-4 py-2" aria-label={ui("对话改图")}>

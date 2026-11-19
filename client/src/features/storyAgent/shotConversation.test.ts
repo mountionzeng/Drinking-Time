@@ -4,12 +4,30 @@ import {
   resolveConversationShot,
   shotConversationSelection,
   shotConversationImages,
+  conversationWarehouseShot,
+  isShotConversationNavigation,
 } from "./shotConversation";
 const shots = [
   { stableShotId: "a", shotNo: 1 },
   { stableShotId: "b", shotNo: 2 },
 ];
 describe("shot conversation", () => {
+  it("handles explicit shot archive navigation locally without swallowing editing requests", () => {
+    for (const text of ["打开第03镜仓库", "看看第02镜的素材", "查看第三镜的对话。", "open shot 3 warehouse"])
+      expect(isShotConversationNavigation(text)).toBe(true);
+    for (const text of ["打开第03镜仓库，再生成视频", "看看第02镜素材的配色怎么改", "打开仓库", "查看第一镜和第二镜的素材"])
+      expect(isShotConversationNavigation(text)).toBe(false);
+  });
+  it("opens the named shot's full archive, or the current discussion, without guessing ambiguous or foreign selections", () => {
+    const selected = { storyId: 7, stableShotId: "a" };
+    expect(conversationWarehouseShot("第二镜再调整配色", 7, shots, selected)).toBe(shots[1]);
+    expect(conversationWarehouseShot("还要调整配色", 7, shots, selected)).toBe(shots[0]);
+    expect(conversationWarehouseShot("第一镜和第二镜", 7, shots, selected)).toBeUndefined();
+    expect(conversationWarehouseShot("第99镜", 7, shots, selected)).toBeUndefined();
+    expect(conversationWarehouseShot("这张再改改", 8, shots, selected)).toBeUndefined();
+    expect(conversationWarehouseShot("继续", 7, [], selected)).toBeUndefined();
+    expect(conversationWarehouseShot("", 7, shots, selected)).toBeUndefined();
+  });
   it("resolves explicit Chinese and English shot references without a click", () => {
     for (const text of [
       "第二个镜头的音乐怎么改？",

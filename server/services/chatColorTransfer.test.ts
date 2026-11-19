@@ -19,7 +19,7 @@ process.env.DATABASE_URL = "";
 const { createStory, getStoryById, updateStory } = await import("../repositories/stories");
 const { createGeneratedImage, getStoryGeneratedImages } = await import("../repositories/images");
 const { resetMemoryStateForTesting } = await import("../repositories/runtime");
-const { transferStoryImageColor, gradeStoryImageLuminance } = await import("./chatColorTransfer");
+const { transferStoryImageColor, gradeStoryImageLuminance, attachLuminanceCandidates } = await import("./chatColorTransfer");
 const { readChatImageRevisions, decideChatImageRevision } = await import("./chatImageRevision");
 
 const W = 48, H = 48;
@@ -54,6 +54,19 @@ beforeEach(async () => {
   ids = { source: (await make(1, warm)).id, t1: (await make(2, green)).id, t2: (await make(3, green)).id, loose: (await make(null, green)).id };
 });
 afterEach(() => vi.unstubAllGlobals());
+
+it("does not add unsolicited luminance variants to a masked cloud edit", async () => {
+  const story = (await getStoryById(storyId, userId))!;
+  await updateStory(storyId, userId, { body: { ...story.body as object, storyboardImageTasks: [{
+    id: "cloud-task", requestId: "cloud-task", shotIdentity: "s2", status: "succeeded",
+    meta: { conversationRevision: true, parentImageId: ids.t1, maskedEdit: { sourceImageUrl: "/source.png", maskImageUrl: "/mask.png", featherPixels: 6 } },
+    result: { status: "ok", candidates: [{ imageId: ids.source, imageUrl: "/candidate.png" }] },
+  }] } });
+  const before = await getStoryGeneratedImages(storyId, userId);
+  expect(await attachLuminanceCandidates({ storyId, userId, revisionRequestId: "cloud-task" })).toMatchObject({ status: "skipped" });
+  expect(await getStoryGeneratedImages(storyId, userId)).toEqual(before);
+  expect(fetchSpy).not.toHaveBeenCalled();
+});
 
 describe("transferStoryImageColor (image.local-color-transfer)", () => {
   it("makes new versions for every target, keeps originals, records 替换/保留 candidates, spends nothing", async () => {

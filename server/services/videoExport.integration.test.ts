@@ -133,6 +133,7 @@ it("really encodes selected video, held image, subtitle, sound and an intentiona
   const result = await exportStoryTimeline({ storyId: 1, userId: 1 });
   expect(result.status, JSON.stringify(result)).toBe("ok");
   if (result.status !== "ok") return;
+  expect(result.mediaDiagnostics?.some(message => message.includes("No picture"))).toBe(true);
   const file = path.join(fixture.directory, result.videoKey);
   const probe = JSON.parse(
     execFileSync(

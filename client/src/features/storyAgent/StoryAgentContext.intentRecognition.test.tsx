@@ -1,6 +1,10 @@
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { httpBatchLink } from "@trpc/client";
+import { trpc } from "@/lib/trpc";
+import superjson from "superjson";
+import { selectionContentFingerprint } from "@shared/selectionContext";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChatMessage, SelectionState } from "./types";
 import type { StoryIntent } from "./intentTypes";
@@ -347,8 +351,7 @@ vi.mock("@/features/storyAgent/spine/selectors", async importOriginal => {
   };
 });
 
-// 这个用例只渲染聊天壳，不接 tRPC Provider；图生图托盘要发付费请求，
-// 在这里替换成空实现，免得它把整棵树的渲染带崩。
+// This suite exercises the chat shell; generation actions remain inert.
 vi.mock("@/features/storyAgent/useChatImageRemix", () => ({
   useChatImageRemix: () => ({
     refs: [],
@@ -395,6 +398,7 @@ vi.mock("@/features/nayin/views/EmotiveWuxingIcon", () => ({
 
 vi.mock("@/features/storyAgent/hooks/useVoiceInput", () => ({
   useVoiceInput: () => ({
+    status: "idle",
     isBusy: false,
     isRecording: false,
     isTranscribing: false,
@@ -420,9 +424,11 @@ vi.mock(
 );
 
 function renderChat() {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+  const client = trpc.createClient({ links: [httpBatchLink({ url: "http://localhost/api/trpc", transformer: superjson })] });
   return renderToStaticMarkup(
-    <QueryClientProvider client={new QueryClient()}>
-      <StoryAgentChat />
+    <QueryClientProvider client={queryClient}>
+      <trpc.Provider client={client} queryClient={queryClient}><StoryAgentChat /></trpc.Provider>
     </QueryClientProvider>
   );
 }
@@ -434,6 +440,7 @@ describe("StoryAgentChat intent soft confirm", () => {
     fixtures.chatContextState.confirmedIntent = null;
     fixtures.chatContextState.isReplying = false;
     fixtures.chatContextState.activeSelection = null;
+    fixtures.chatContextState.remoteStoryId = undefined;
   });
 
   it("keeps article generation available when writing in a book module", () => {
@@ -474,6 +481,7 @@ describe("StoryAgentChat intent soft confirm", () => {
     fixtures.chatContextState.pendingIntentDraft = null;
     fixtures.chatContextState.confirmedIntent = fixtures.fictionIntent;
     fixtures.chatContextState.storyShotsCount = 3;
+    fixtures.chatContextState.remoteStoryId = 46;
     fixtures.chatContextState.activeSelection = {
       sourceType: "shot",
       sourceId: "0:intent",
@@ -482,6 +490,8 @@ describe("StoryAgentChat intent soft confirm", () => {
       shotNo: 1,
       stableShotId: "shot-1",
       storyId: 46,
+      selection: { kind: "text", start: 0, end: "月亮掉进菜市场".length },
+      contentFingerprint: selectionContentFingerprint("月亮掉进菜市场"),
     };
     const html = renderChat();
 
@@ -490,7 +500,8 @@ describe("StoryAgentChat intent soft confirm", () => {
     expect(html).toContain("月亮掉进菜市场");
     expect(html).toContain('aria-label="修改故事名称"');
     expect(html).toContain("01 · 镜头意图");
-    expect(html).toContain("下一条消息会带着这个选区交给聊聊");
+    expect(html).toContain("只会替换这段文字");
+    expect(html).not.toContain("选区不属于当前故事");
     expect(html).toContain("告诉聊聊这处想怎么改");
   });
 });

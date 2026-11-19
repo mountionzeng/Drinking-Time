@@ -1076,13 +1076,13 @@ describe("storyboard edit key routing", () => {
     expect(gate({ isButtonTarget: true })).toBe(true);
   });
 
-  it("uses Space for transport when a timeline clip itself owns focus", () => {
+  it("uses Space for transport after focusing either a clip or an ordinary toolbar button", () => {
     expect(
       gate({ key: " ", isButtonTarget: true, isTimelineTarget: true })
     ).toBe(true);
     expect(
       gate({ key: " ", isButtonTarget: true, isTimelineTarget: false })
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("never steals keys from the chat box or any other text field", () => {
@@ -1106,8 +1106,8 @@ describe("storyboard edit key routing", () => {
     expect(gate({ key: " ", isInteractionBoundary: true })).toBe(false);
   });
 
-  it("lets space and enter activate the button they are aimed at", () => {
-    expect(gate({ key: " ", isButtonTarget: true })).toBe(false);
+  it("keeps Space on playback and Enter on the focused button", () => {
+    expect(gate({ key: " ", isButtonTarget: true })).toBe(true);
     expect(gate({ key: "Enter", isButtonTarget: true })).toBe(false);
     expect(gate({ key: "s", isButtonTarget: true })).toBe(true);
     expect(gate({ key: "Delete", isButtonTarget: true })).toBe(false);

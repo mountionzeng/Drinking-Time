@@ -69,8 +69,11 @@ export function StoryboardOwnedVideoClipBlock({
       data-testid={`storyboard-owned-video-clip-${visualLayer + 1}-${clip.id}`}
       data-visual-object-type="owned-video-clip"
       data-visual-object-id={clip.id}
+      data-visual-owner={shot.stableShotId}
+      data-batch-selected={timeline.multipleSelectedKeys?.has(visualObjectRefKey(object)) || undefined}
       data-visual-clip-move-target="true"
       aria-selected={
+        timeline.multipleSelectedKeys?.has(visualObjectRefKey(object)) ||
         selectedVisualObject?.type === "owned-video-clip" &&
         visualObjectRefKey(selectedVisualObject) === visualObjectRefKey(object)
       }

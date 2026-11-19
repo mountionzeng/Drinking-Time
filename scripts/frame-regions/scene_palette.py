@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import numpy as np
 from PIL import Image
-from scipy.ndimage import binary_erosion, gaussian_filter
+from scipy.ndimage import binary_erosion, distance_transform_edt, gaussian_filter
 
 from recolor_selection import from_lab, linear_rgb, to_lab
 from selection import color_mask
@@ -17,8 +17,39 @@ def encode(linear):
     return np.rint(srgb*255).astype(np.uint8)
 
 
+def soften_forest_green(rgb, mask, protected, objects):
+    """Reduce excessive green without flattening existing hue/lightness detail.
+
+    This is a tone correction, not another transfer to a green reference. Blue
+    shades and non-green trunks are retained; only selected foliage can change.
+    """
+    if rgb.dtype != np.uint8 or any(part.shape != rgb.shape[:2] or part.dtype != bool
+                                   for part in [mask, protected, objects]):
+        raise ValueError('Expected original-size forest inputs')
+    active=mask&objects&~protected&color_mask(Image.fromarray(rgb),(70,185),.06)
+    if active.sum()<16:
+        raise ValueError('No selected green foliage to soften')
+    lab=to_lab(linear_rgb(rgb))
+    support=gaussian_filter(active.astype(float),3)
+    smooth=np.stack([gaussian_filter(lab[...,i]*active,3)/np.maximum(support,1e-8) for i in [1,2]],axis=-1)
+    low,high=np.percentile(lab[...,0][active],[10,90])
+    light=np.clip((lab[...,0]-low)/max(high-low,1.),0,1)
+    # Soften brighter green more, retaining the original darker color structure.
+    scale=.82-.12*light
+    ab=lab[...,1:]*scale[...,None]+.15*(lab[...,1:]-smooth)
+    original_chroma=np.linalg.norm(lab[...,1:],axis=-1)
+    ab*=np.minimum(1,original_chroma/np.maximum(np.linalg.norm(ab,axis=-1),1e-8))[...,None]
+    edge=np.clip(distance_transform_edt(active)/3.,0,1)
+    edge=edge*edge*(3-2*edge)
+    target=lab.copy();target[...,1:]=lab[...,1:]*(1-edge[...,None])+ab*edge[...,None]
+    output=encode(from_lab(target))
+    output[~active]=rgb[~active]
+    return output
+
+
 def fit_palette(rgb, objects, protected, minimum_samples=64, max_chroma_gain=1.25,
-                source_mask=None):
+                source_mask=None, reference_rgb=None, reference_objects=None,
+                reference_protected=None, reference_mask=None):
     if rgb.dtype!=np.uint8 or rgb.shape!=(*objects.shape,3) or protected.shape!=objects.shape:
         raise ValueError('Expected matching original-size inputs')
     if objects.dtype!=bool or protected.dtype!=bool:
@@ -28,14 +59,26 @@ def fit_palette(rgb, objects, protected, minimum_samples=64, max_chroma_gain=1.2
     image=Image.fromarray(rgb)
     interior=binary_erosion(objects,iterations=2)&~protected
     # This categorical selector finds existing green; it is not an output hue.
-    reference=interior&color_mask(image,(75,165),.12)
+    if reference_rgb is None:
+        reference_rgb,reference_objects,reference_protected=rgb,objects,protected
+    if (reference_rgb.dtype!=np.uint8 or reference_objects is None or reference_protected is None
+            or reference_rgb.shape!=(*reference_objects.shape,3)
+            or reference_protected.shape!=reference_objects.shape
+            or reference_objects.dtype!=bool or reference_protected.dtype!=bool):
+        raise ValueError('Expected matching reference image and object masks')
+    reference=binary_erosion(reference_objects,iterations=2)&~reference_protected
+    if reference_mask is not None:
+        if reference_mask.shape!=reference_objects.shape or reference_mask.dtype!=bool:
+            raise ValueError('Expected matching reference mask')
+        reference &= reference_mask
+    reference &= color_mask(Image.fromarray(reference_rgb),(75,165),.12)
     if source_mask is not None and (source_mask.shape!=objects.shape or source_mask.dtype!=bool):
         raise ValueError('Expected matching source mask')
     source=interior&(color_mask(image,(175,265),.08) if source_mask is None else source_mask)
     if min(reference.sum(),source.sum())<minimum_samples:
         raise ValueError('Insufficient same-object green/source samples; request a reference rather than invent a palette')
     lab=to_lab(linear_rgb(rgb))
-    ref,src=lab[reference],lab[source]
+    ref,src=to_lab(linear_rgb(reference_rgb))[reference],lab[source]
     lightness=np.arange(5.,100.,5.)
     quantiles=np.linspace(.05,.95,19)
     rows=[]

@@ -16,6 +16,7 @@ import {
 } from "@shared/renderProfiles";
 import type { ImageGenResult } from "../imageGen";
 import type { ShotVideoSubmitResult } from "../videoGen";
+import { withVideoElementRule } from "@shared/videoMotionPolicy";
 import { routeMatchesProfile } from "./routing";
 import type {
   ImageRenderInput,
@@ -62,7 +63,9 @@ export function renderRefusalReason(profileId: RenderProfileId, input: unknown):
   }
   const max = profile.maxPromptChars;
   if (max != null && profile.overLimit === "reject") {
-    const length = promptOf(profile, input).trim().length;
+    const raw = promptOf(profile, input).trim();
+    if (!raw && profile.adapter === "shot-video") return "请填写视频要求后再提交。";
+    const length = profile.media === "video" ? withVideoElementRule(raw).length : raw.length;
     if (length > max) return renderProfileRefusal(profileId, `提示词 ${length} 字，超过${profile.label}的上限 ${max} 字，请精简后再提交。`);
   }
   return null;
@@ -95,5 +98,15 @@ export async function submitRender<P extends RenderProfileId>(
   // Loaded lazily: the adapters import imageGen/videoGen, which import this module.
   const { runRenderAdapter } = await import("./executors");
   console.log("[render] submit", { profileId, provider: profile.provider });
+  if (profile.adapter === "shot-video") {
+    const video = input as ShotVideoRenderInput;
+    const result = await runRenderAdapter(profile, { ...video, input: { ...video.input, prompt: withVideoElementRule(video.input.prompt) } }) as ShotVideoSubmitResult;
+    // Preserve the editor's approved wording. submittedParameters records the exact provider payload.
+    return (result.status === "ok" ? { ...result, prompt: video.input.prompt } : result) as RenderOutputByProfile<P>;
+  }
+  if (profile.adapter === "start-end-video") {
+    const video = input as StartEndVideoRenderInput;
+    return await runRenderAdapter(profile, { ...video, spec: { ...video.spec, prompt: withVideoElementRule(video.spec.prompt) } }) as RenderOutputByProfile<P>;
+  }
   return (await runRenderAdapter(profile, input)) as RenderOutputByProfile<P>;
 }

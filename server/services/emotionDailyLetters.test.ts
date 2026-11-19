@@ -1,4 +1,5 @@
 import path from "node:path";
+import { readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import type {
   EmotionAnalysisProfile,
@@ -260,39 +261,21 @@ describe("来信正文只有一个写入口（U1 门禁）", () => {
   ];
 
   it("除来信仓库和兼容导出外，没有生产代码直接调用日期级 writer", async () => {
-    const { execFile } = await import("node:child_process");
-    const { promisify } = await import("node:util");
-    const run = promisify(execFile);
     const root = path.resolve(import.meta.dirname, "..", "..");
-
-    const { stdout } = await run(
-      "git",
-      [
-        "grep",
-        "-n",
-        "-E",
-        DATE_ROW_WRITERS.join("|"),
-        "--",
-        "server",
-        "client",
-        "shared",
-      ],
-      { cwd: root }
-    ).catch((error: { stdout?: string; code?: number }) =>
-      // git grep 没有命中时退出码为 1，那对我们是「干净」而不是失败。
-      error.code === 1 ? { stdout: "" } : Promise.reject(error)
+    // Inspect the actual release source, including untracked files and archive snapshots.
+    const files = ["server", "client", "shared"].flatMap(dir =>
+      readdirSync(path.join(root, dir), { recursive: true, encoding: "utf8" })
+        .map(file => `${dir}/${file}`)
+        .filter(file => /\.[cm]?[jt]sx?$/.test(file))
     );
-
-    const offenders = stdout
-      .split("\n")
-      .filter(Boolean)
-      .filter(line => {
-        const file = line.split(":")[0];
+    const writers = new RegExp(DATE_ROW_WRITERS.join("|"));
+    const offenders = files.filter(file => {
         // 唯一定义迁至 emotionLetters；db.ts 仅保留兼容导出。
         return (
           file !== "server/db.ts" &&
           file !== "server/repositories/emotionLetters.ts" &&
-          !file.endsWith(".test.ts")
+          !/\.(test|spec)\.[cm]?[jt]sx?$/.test(file) &&
+          writers.test(readFileSync(path.join(root, file), "utf8"))
         );
       });
 

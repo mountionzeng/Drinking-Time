@@ -85,6 +85,13 @@ vi.mock("./services/agentRuntime", () => ({
   runJsonAgent: creationAgentMocks.runJsonAgent,
 }));
 
+// The agent runtime is simulated above; availability must not depend on a
+// developer's private .env. Real availability gates have agentChannel tests.
+vi.mock("./_core/agentChannel", async importOriginal => ({
+  ...await importOriginal<typeof import("./_core/agentChannel")>(),
+  hasStoryAgentCompute: () => true,
+}));
+
 const storageMocks = vi.hoisted(() => ({
   storagePut: vi.fn(async () => ({
     key: "uploads/test.jpg",
@@ -490,6 +497,12 @@ describe("storyAgent tRPC router", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    creationAgentMocks.runJsonAgent.mockReset();
+    imageGenMocks.editImage.mockReset().mockResolvedValue({
+      status: "ok",
+      imageUrl: "https://storage.example/generated/default-edit.png",
+      imageKey: "generated/default-edit.png",
+    });
     imageGenMocks.toPublicImageUrl.mockImplementation(
       async (url?: string) => url
     );

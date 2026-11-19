@@ -13,6 +13,7 @@ import {
   type VideoTargetAspectRatio,
 } from "../../shared/videoConform";
 import { ENV } from "../_core/env";
+import { withVideoElementRule } from "../../shared/videoMotionPolicy";
 import { normalizeShotIdentity } from "../../shared/shotIdentity";
 import {
   createVideoTake,
@@ -190,7 +191,7 @@ export function runwayExpandRequestFields(input: {
   prompt: string;
 }) {
   return {
-    text_prompt: input.prompt,
+    text_prompt: withVideoElementRule(input.prompt),
     seconds: input.durationSec <= 5 ? "5" : "10",
     outpaint_aspect_ratio: input.providerAspectRatio,
   };

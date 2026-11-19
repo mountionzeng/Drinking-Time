@@ -1,3 +1,6 @@
+import { recoverChatImageRemix, readChatImageRemixQuote } from "../services/chatImageRemixRecovery";
+import { hasInlineChatImages, inlineChatInstruction } from "../../shared/inlineChatImages";
+import { inlineChatImageContent } from "../services/inlineChatImageContent";
 import { isWechatImportImage, wechatProviderReference } from "../services/wechatVideoImage";
 import { resolveFilmStyleReference } from "../services/filmStyleReference";
 import { studioUiContextSchema, studioContextDescription } from "../../shared/studioAssistant";
@@ -23,6 +26,8 @@ import { COLOR_TRANSFER_MAX_TARGETS } from "@shared/colorTransferIntent";
 import { detachGeneratedImageFromShot } from "../repositories/images";
 import { artPreviewGenerationInput } from "../services/artPreview";
 import { pendingStoryboardImageTasks, recoverStoryboardImageTask, runStoryboardImageTask, type StoryboardImageRender } from "../services/storyboardImageTask";
+import { readImageDimensions } from '../services/imageEditDimensions';
+import { readChatImageEditBatch } from "../services/chatImageEditBatch";
 import { legnextRetexturePrompt } from "../services/legnextImage";
 import { submitRender } from "../services/render/submitRender";
 import { buildRenderSnapshot } from "../services/render/snapshot";
@@ -395,7 +400,8 @@ export const storyAgentRouter = router({
       const story = input.storyId ? await getStoryById(input.storyId, ctx.user.id) : null;
       if (input.storyId && !story) throw new TRPCError({ code: "NOT_FOUND", message: "故事不存在或无权访问" });
       if (input.uiContext && input.uiContext.storyId !== (input.storyId ?? null)) throw new TRPCError({ code: "BAD_REQUEST", message: "界面上下文不属于当前故事 / Interface context belongs to another story" });
-      if (story) {
+      const inlineContent = hasInlineChatImages(input.message) ? await inlineChatImageContent(input.message, input.storyId, ctx.user.id) : undefined;
+      if (story && !inlineContent) {
         const emotionReply = await handleCreationEmotionChat({ storyId: story.id, userId: ctx.user.id, message: input.message });
         if (emotionReply) return emotionReply;
       }
@@ -420,8 +426,9 @@ export const storyAgentRouter = router({
       }
       return replyFromStoryAgent({
         referenceContext: inheritedStoryReference(story?.body),
-        message: input.message,
-        history: input.history,
+        message: inlineContent ? inlineChatInstruction(input.message) : input.message,
+        inlineImageContent: inlineContent,
+        history: input.history?.map(turn => ({ ...turn, content: hasInlineChatImages(turn.content) ? inlineChatInstruction(turn.content) : turn.content })),
         existingCardCount: input.existingCardCount,
         summary: [input.summary, studioContextDescription(input.uiContext)].filter(Boolean).join("\n"),
         currentShots: input.currentShots as ShotDraft[] | undefined,
@@ -1487,6 +1494,7 @@ export const storyAgentRouter = router({
         storyId: persistedStoryIdSchema,
         stableShotId: stableShotIdSchema,
         dialogue: z.string().optional(),
+        continueWithNext: z.boolean().optional(),
         timelineFrame: z.number().int().min(0).optional(),
         visualLayer: z.number().int().min(0).optional(),
         referencedImageId: z.number().int().positive().optional(),
@@ -1515,6 +1523,12 @@ export const storyAgentRouter = router({
         return shotIdentityFromShot(shot, index) === input.stableShotId;
       });
       const anchor = anchorIndex >= 0 ? shots[anchorIndex] : null;
+      const successor = anchor && shots[anchorIndex+1];
+      if (input.continueWithNext && successor) {
+        return {status:"ok" as const, insertedShotNo:Number(successor.shotNo ?? anchorIndex+2),
+          insertedStableShotId:shotIdentityFromShot(successor,anchorIndex+1), timelineVersion:material.timeline.version,
+          story: await composeStoryWorkspace(story,ctx.user.id)};
+      }
       const anchorShotNo =
         typeof anchor?.shotNo === "number" ? anchor.shotNo : anchorIndex + 1;
       if (!anchor || anchorShotNo == null) {
@@ -1849,12 +1863,22 @@ export const storyAgentRouter = router({
     .input(z.object({ storyId: z.number().int().positive(), chapterId: z.number().int().positive(), moduleId: z.string().min(1).max(240) }))
     .mutation(({ ctx, input }) => recoverModuleImageTask({ ...input, userId: ctx.user.id })),
 
+  recoverChatImageRemix: protectedProcedure
+    .input(z.object({ storyId: z.number().int().positive(), quoteMessageId: z.string().min(1).max(100) }))
+    .mutation(({ ctx, input }) => recoverChatImageRemix({ ...input, userId: ctx.user.id })),
+
+  chatImageEditBatch: protectedProcedure
+    .input(z.object({ storyId: z.number().int().positive(), planMessageId: z.string().min(1).max(500) }))
+    .query(({ ctx, input }) => readChatImageEditBatch({ ...input, userId: ctx.user.id })),
+
   // generateForMobile: 用户确认后触发图片生成（可选传入用户照片作为基底）
   generateForMobile: protectedProcedure
     .input(
       z.object({
         warehouseTextureSourceId: z.number().int().positive().optional(),
         shotImageRequestId: z.string().uuid().optional(),
+        chatImageRemixQuoteId: z.string().min(1).max(500).optional(),
+        imageEditPlanOutput: z.object({ planMessageId: z.string().min(1).max(500), imageId: z.number().int().positive(), copy: z.number().int().min(1).max(4) }).optional(),
         conversationShotId: z.string().min(1).max(96).optional(),
         previewBatchId: z.string().uuid().optional(),
         moduleTarget: z.object({ chapterId: z.number().int().positive(), moduleId: z.string().min(1).max(240), expectedText: z.string().max(200_000), requestId: z.string().uuid() }).optional(),
@@ -1918,6 +1942,38 @@ export const storyAgentRouter = router({
     // Every metered AI call made while preparing the prompt is recorded so that a
     // definite image failure can refund them (each one exactly once).
     .mutation(({ ctx, input }) => collectInferenceBilling(async () => {
+      if (input.chatImageRemixQuoteId) {
+        const quote = await readChatImageRemixQuote({ storyId: input.storyId, userId: ctx.user.id, quoteMessageId: input.chatImageRemixQuoteId });
+        if (!quote) throw new TRPCError({ code: "CONFLICT", message: "原要求或原图不可用，请重新核对；没有提交生成。" });
+        // Replays cannot run prompt preparation or another paid POST.
+        if (quote.task) return recoverStoryboardImageTask(input.storyId, ctx.user.id, quote.requestId);
+        const saved = await recoverChatImageRemix({ storyId: input.storyId, userId: ctx.user.id, quoteMessageId: input.chatImageRemixQuoteId });
+        if (saved && !('pending' in saved)) return { status: "ok" as const, ...saved, candidates: [saved] };
+        const estimate = estimateStoryboardMaskedEditCost();
+        if (!input.costConfirmation?.accepted || Math.abs(input.costConfirmation.estimatedCny - estimate.estimatedCny) > 0.001)
+          return { status: "error" as const, error: `请先确认本次改图报价 ${formatComputeQuote(estimate.estimatedCny)}` };
+        input = { storyId: input.storyId, chatImageRemixQuoteId: input.chatImageRemixQuoteId,
+          ...quote.request, shotImageRequestId: quote.requestId, shotNo: quote.shotNo,
+          conversationShotId: quote.stableShotId, draftImageId: quote.references[0],
+          remixEdit: true, imageProvider: "gpt-image", mode: "final", autoSelect: false,
+          costConfirmation: input.costConfirmation };
+      }
+      if (input.imageEditPlanOutput) {
+        const batch = await readChatImageEditBatch({ storyId: input.storyId, userId: ctx.user.id, planMessageId: input.imageEditPlanOutput.planMessageId });
+        const output = batch.items.find(item => item.imageId === input.imageEditPlanOutput!.imageId && item.copy === input.imageEditPlanOutput!.copy);
+        if (!output) throw new TRPCError({ code: "BAD_REQUEST", message: "这张图不在已确认的修改计划中" });
+        if (output.result) return { status: "ok" as const, ...output.result, candidates: output.candidates ?? [output.result] };
+        if (output.status !== "ready") return { status: "error" as const, error: output.error ?? "原任务尚未完成，请恢复原任务；没有重复购买。" };
+        if (!input.costConfirmation?.accepted || Math.abs(input.costConfirmation.estimatedCny - batch.unitEstimatedCny) > 0.001)
+          return { status: "error" as const, error: `请先确认本批剩余图片的报价，每${batch.renderRoute === "storyboard" ? "组四张" : "张"} ${formatComputeQuote(batch.unitEstimatedCny)}` };
+        // Resolve every reference and the immutable output identity on the server.
+        // Caller-supplied URLs, shot, provider and autoSelect cannot change this plan.
+        input = { storyId: input.storyId, imageEditPlanOutput: input.imageEditPlanOutput,
+          ...output.request, shotImageRequestId: output.requestId, shotNo: batch.shotNo,
+          conversationShotId: batch.stableShotId, draftImageId: output.imageId,
+          remixEdit: true, imageProvider: batch.renderRoute === "storyboard" ? "midjourney" : "gpt-image", mode: "final", autoSelect: false,
+          costConfirmation: { accepted: true, estimatedCny: batch.unitEstimatedCny } };
+      }
       if (input.previewBatchId) {
         const { batch, shot } = await artPreviewGenerationInput(input.storyId, ctx.user.id, input.previewBatchId, input.shotNo ?? 0);
         const estimate = estimateStoryboardImageCost();
@@ -2261,7 +2317,7 @@ export const storyAgentRouter = router({
               }
             : synthesizeCtx
           : null;
-        const promptContext: PromptContext | null = promptShotForCompile
+        const promptContext: PromptContext | null = !input.imageEditPlanOutput && promptShotForCompile
           ? {
               shot: promptShotForCompile,
               story: {
@@ -2410,7 +2466,7 @@ export const storyAgentRouter = router({
           lockedAssets?.sceneRef ??
           lockedAssets?.petRef ??
           (input.renderReferences ? Object.values(lockedAssets?.dimensions ?? {})[0]?.providerReferenceUrl : undefined);
-        const strictReferenceFidelity = !composedFrame && Boolean(referenceImage) &&
+        const strictReferenceFidelity = !input.imageEditPlanOutput && !composedFrame && Boolean(referenceImage) &&
           (input.conversationRevision && input.referenceRevision || requestsStrictReferenceFidelity(input.explicitInstruction ?? ""));
         if (confirmedFramePrompt && referenceImage && referencePlan.referencePurpose === "scene-style") {
           prompt += "\n【已确定画面的连续性】所附图片是本片已经确定的视觉依据：同一人物沿用可见的脸型、发型、服装与身份；沿用对应物体的造型、材质、线条与色调。本镜的内容、构图和动作仍按本镜要求；未在本镜出现的物体不搬过来，不把参考图直接当成本镜首帧。";
@@ -2570,7 +2626,7 @@ export const storyAgentRouter = router({
           // gpt-image 没有 MJ 的 3500 字上限；不放开的话，参考图清单加连续性规格
           // 会把用户要求挤过 1800 字预算，后半段被整段切掉。
           longPrompt:
-            input.imageProvider === "gpt-image" ||
+            Boolean(input.imageEditPlanOutput) || input.imageProvider === "gpt-image" ||
             Boolean(input.editMaskImageUrl),
           referenceImages: lockedAssets
             ? Array.from(
@@ -2754,22 +2810,34 @@ export const storyAgentRouter = router({
               generationType: "inpaint", editMode: "retexture", referenceOnly, parentImageId: input.renderReferences!.imageIds[0],
               conversationRevision: true, instruction: input.explicitInstruction });
           }
+          if (storyboardImage && input.imageProvider === "gpt-image" && (input.imageEditPlanOutput || input.chatImageRemixQuoteId)) {
+            return storyboardImage(accepted => editMobileImage(providerReferenceImage!, renderedFinalPrompt, {
+              provider: "gpt-image", gptImageModel: "gpt-image-2", gptSubmitOnly: true,
+              preferStructuralEdit: true, onProviderTaskAccepted: accepted,
+              referenceImageUrl: providerInputReference,
+              referenceContextImageUrls: providerContextReferences,
+              requireInputImage: true,
+            }), { prompt: renderedFinalPrompt, shotNo: canonicalizeShotNo(input.shotNo)!, promptCompilationId,
+              generationType: "inpaint", provider: "gpt-image", parentImageId: input.draftImageId,
+              conversationRevision: true, instruction: input.explicitInstruction });
+          }
           if (storyboardImage) {
+            const chatBase = input.imageEditPlanOutput ? await readImageDimensions(input.referenceImageUrl!) : undefined;
             const legnextOptions = {
-              ...injection, referenceImageUrl: providerReferenceImage,
-              referenceContextImageUrls: Array.from(new Set([
+              ...(chatBase ? {} : injection), referenceImageUrl: providerReferenceImage,
+              referenceContextImageUrls: chatBase ? providerContextReferences : Array.from(new Set([
                 ...providerContextReferences,
                 ...(input.renderReferences ? Object.values(lockedAssets?.dimensions ?? {}).map(d => d.providerReferenceUrl) : []),
                 ...(lockedAssets?.sceneRef ? [lockedAssets.sceneRef] : []),
                 ...(lockedAssets?.petRef ? [lockedAssets.petRef] : []),
               ])).filter(url => url !== providerReferenceImage).slice(0, 3),
-              imageWeight, aspectRatio: "16:9", inlinePoll: false,
+              imageWeight, aspectRatio: chatBase ? `${chatBase.width}:${chatBase.height}` : "16:9", inlinePoll: false,
             };
             // Use MJ's exclusion parameter, not prose about lettering/layouts,
             // for confirmed standalone frames whose text lives on subtitle tracks.
             if (unreferencedFramePrompt || composedFrame) renderedFinalPrompt += " --no text, lettering, typography, captions, borders, frames";
             return storyboardImage(accepted => submitRender("image.legnext-v7-fast", { prompt: renderedFinalPrompt, onAccepted: accepted, options: legnextOptions }),
-              { prompt: renderedFinalPrompt, shotNo: canonicalizeShotNo(input.shotNo)!, promptCompilationId, generationType: referencePlan.usesStoryboardFrames ? "inpaint" : "initial", ...(input.previewBatchId ? { detached: true } : {}), ...(input.conversationRevision ? { conversationRevision: true, parentImageId: input.renderReferences!.imageIds[0], instruction: input.explicitInstruction } : {}),
+              { prompt: renderedFinalPrompt, shotNo: canonicalizeShotNo(input.shotNo)!, promptCompilationId, generationType: referencePlan.usesStoryboardFrames ? "inpaint" : "initial", ...(input.previewBatchId ? { detached: true } : {}), ...(chatBase ? { conversationRevision: true, sourceDimensions: chatBase, parentImageId: input.draftImageId, instruction: input.explicitInstruction } : {}), ...(input.conversationRevision ? { conversationRevision: true, parentImageId: input.renderReferences!.imageIds[0], instruction: input.explicitInstruction } : {}),
                 renderProfile: buildRenderSnapshot("image.legnext-v7-fast", { params: legnextOptions, promptChars: renderedFinalPrompt.length }) });
           }
           if (moduleImage && (input.imageProvider ?? "midjourney") === "midjourney") {
@@ -2856,6 +2924,7 @@ export const storyAgentRouter = router({
             ...(backgroundTask ? { pending: true, imageTaskId: backgroundTask.id } : {}),
             ...(providerTaskId ? { providerTaskId } : {}),
             ...(providerResultUrl ? { providerResultUrl, recoveryPending:true } : {}),
+            ...(providerTaskId && result.errorCode === "timeout_pending" ? { recoveryPending: true } : {}),
             ...(submissionUncertain ? { submissionUncertain: true } : {}),
             ...(!providerTaskId && !providerResultUrl && !submissionUncertain && result.errorCode
               ? { errorCode: result.errorCode }
@@ -2959,17 +3028,18 @@ export const storyAgentRouter = router({
         console.error("[generateForMobile] 图片生成失败:", err);
         return {
           status: "error" as const,
+          ...((input.imageEditPlanOutput || input.chatImageRemixQuoteId) && storyboardImage ? { submissionUncertain: true } : {}),
           error: err instanceof Error ? err.message : "图片生成失败",
         };
       }
       };
       if (!input.moduleTarget && input.shotImageRequestId && input.shotNo != null &&
-          (((input.imageProvider ?? "midjourney") === "midjourney" && !input.referenceRevision) || (input.conversationRevision && input.referenceRevision)) && input.mode !== "draft" && !input.editMaskImageUrl) {
+          (((input.imageProvider ?? "midjourney") === "midjourney" && !input.referenceRevision) || (input.conversationRevision && input.referenceRevision) || input.imageEditPlanOutput || input.chatImageRemixQuoteId) && input.mode !== "draft" && !input.editMaskImageUrl) {
         const story = await getStoryById(input.storyId, ctx.user.id);
         if (!story) throw new TRPCError({ code: "NOT_FOUND", message: "故事不存在" });
         const identity = shotIdentityForStoryShot(story, input.shotNo);
         if (!identity) throw new TRPCError({ code: "BAD_REQUEST", message: "镜头已变化，请重新打开分镜表" });
-        return runStoryboardImageTask({ continueAfterUnknownRequestId: input.costConfirmation?.accepted ? input.costConfirmation.continueAfterUnknownRequestId : undefined, requireNewIntent: input.conversationRevision, storyId: input.storyId, userId: ctx.user.id, shotIdentity: input.previewBatchId ? `preview:${input.previewBatchId}:${identity}` : identity, requestId: input.shotImageRequestId }, async render => {
+        return runStoryboardImageTask({ continueAfterUnknownRequestId: input.costConfirmation?.accepted ? input.costConfirmation.continueAfterUnknownRequestId : undefined, requireNewIntent: input.conversationRevision || Boolean(input.imageEditPlanOutput || input.chatImageRemixQuoteId), storyId: input.storyId, userId: ctx.user.id, shotIdentity: input.previewBatchId ? `preview:${input.previewBatchId}:${identity}` : identity, requestId: input.shotImageRequestId }, async render => {
           const result = await execute(undefined, render);
           return result.status === "ok" ? { ...result, candidates: "candidates" in result ? result.candidates : [{ imageId: result.imageId, imageUrl: result.imageUrl }] } : result;
         });

@@ -54,6 +54,15 @@ const state = {
   reusableVideoTakes: [],
 } as unknown as StoryMaterialState;
 describe("shot archive projection", () => {
+  it("keeps undated media after dated generations without changing stored assets", () => {
+    const material = { ...state, warehouseImages: [
+      image(3, "a", { createdAt: null }), image(2, "a"), image(1, "a"),
+    ] };
+    const before = JSON.stringify(material);
+    const group = buildWarehouseShotGroups({ storyId: 7, shots, materialState: material })[0];
+    expect(group.items.map(item => item.key)).toEqual(["image:2", "video:10", "image:1", "image:3"]);
+    expect(JSON.stringify(material)).toBe(before);
+  });
   it("mixes whole-story music and every saved art-system version without duplicate current recipes", () => {
     const artDirection = { recipeVersions: [
       { version: 1, updatedAt: 1000, system: { name: "World", referenceImageIds: [] } },
@@ -62,9 +71,9 @@ describe("shot archive projection", () => {
     const groups = buildWarehouseShotGroups({ storyId: 7, shots, materialState: state, artDirection,
       audio: [{ id: 20, displayName: "Music", mediaKind: "music", createdAt: new Date(2000), durationFrames: 300, audioUrl: "/music" }] });
     const items = groups.find(group => group.id === WHOLE_STORY_MEDIA)!.items;
-    expect(items.map(item => item.key)).toEqual(["art-system:1", "audio:20", "art-system:2"]);
-    expect(items[2].url).toBe("/image/1");
-    expect(items[2].version).toBe("V02");
+    expect(items.map(item => item.key)).toEqual(["art-system:2", "audio:20", "art-system:1"]);
+    expect(items[0].url).toBe("/image/1");
+    expect(items[0].version).toBe("V02");
     expect(groups[0].items.every(item => item.kind !== "asset")).toBe(true);
   });
   it("interleaves bound asset versions without renumbering them or guessing ownership", () => {
@@ -76,12 +85,12 @@ describe("shot archive projection", () => {
         { id: "v4", version: 4, createdAt: 1, references: [], views: [] },
       ] }] } } as unknown as StoryMaterialState;
     const groups = buildWarehouseShotGroups({ storyId: 7, shots, materialState: material });
-    expect(groups[0].items.map(item => item.key)).toEqual(["image:1", "asset:forest:v1", "video:10", "asset:forest:v2", "image:2"]);
-    expect(groups[0].items.filter(item => item.kind === "asset").map(item => item.version)).toEqual(["V01", "V02"]);
+    expect(groups[0].items.map(item => item.key)).toEqual(["image:2", "asset:forest:v2", "video:10", "asset:forest:v1", "image:1"]);
+    expect(groups[0].items.filter(item => item.kind === "asset").map(item => item.version)).toEqual(["V02", "V01"]);
     expect(groups.find(group => group.id === UNASSIGNED_MEDIA)?.items.find(item => item.kind === "asset")?.version).toBe("V04");
     expect(buildWarehouseShotGroups({ storyId: 99, shots, materialState: material }).every(group => !group.items.length)).toBe(true);
   });
-  it("mixes every generation in time order without adopting or changing the original assets", () => {
+  it("mixes every generation newest first without adopting or changing the original assets", () => {
     const before = JSON.stringify(state);
     const groups = buildWarehouseShotGroups({
       storyId: 7,
@@ -100,20 +109,20 @@ describe("shot archive projection", () => {
       ],
     });
     expect(groups[0].items.map(i => i.key)).toEqual([
-      "image:1",
-      "video:10",
-      "audio:8",
       "image:2",
+      "audio:8",
+      "video:10",
+      "image:1",
     ]);
     expect(groups[0].items.map(i => i.role)).toEqual([
-      "首帧",
-      "视频",
-      "音效",
       "尾帧",
+      "音效",
+      "视频",
+      "首帧",
     ]);
     expect(
       groups[0].items.filter(i => i.kind === "image").map(i => i.version)
-    ).toEqual(["V01", "V02"]);
+    ).toEqual(["V02", "V01"]);
     expect(groups[0].items.find(i => i.id === 10)?.durationSec).toBe(8);
     expect(groups[1].items.map(i => i.id)).toEqual([3]);
     expect(
@@ -220,7 +229,7 @@ describe("shot archive projection", () => {
     });
     expect(
       groups[0].items.filter(i => i.kind === "image").map(i => i.id)
-    ).toEqual([1, 2, 3]);
+    ).toEqual([3, 2, 1]);
     expect(groups.find(g => g.id === UNASSIGNED_MEDIA)?.items).toMatchObject([
       { id: 4, ready: false },
     ]);

@@ -40,7 +40,9 @@ import { toYuan, COMPUTE_UNITS_PER_YUAN } from "../../shared/computeMoney";
 import type { Message } from "../_core/llm";
 
 const hash = (x: unknown) =>
-  createHash("sha256").update(canonicalJsonStringify(JSON.parse(JSON.stringify(x)))).digest("hex");
+  createHash("sha256")
+    .update(canonicalJsonStringify(JSON.parse(JSON.stringify(x))))
+    .digest("hex");
 const MAX_OUTPUT = 6000;
 export const videoBookInput = z.object({
   storyId: z.number().int().positive(),
@@ -208,32 +210,48 @@ export async function quoteVideoBook(
     method
   );
 }
+function unresolvedVideoTextIds(conversions: ConversionDraft[]) {
+  return conversions
+    .filter(
+      d =>
+        d.source.kind === "video" &&
+        d.target === "text" &&
+        (d.submissionUncertain ||
+          /submission outcome unknown|reconciliation required/.test(
+            d.error ?? ""
+          ))
+    )
+    .map(d => d.id)
+    .sort();
+}
+function requireUnknownAcknowledgement(
+  expected: string[],
+  acknowledged: string[] = []
+) {
+  if (JSON.stringify(expected) !== JSON.stringify([...acknowledged].sort()))
+    throw new Error(
+      "旧任务状态或确认已变化，请重新报价并确认新任务；旧费用仍待核对。"
+    );
+}
 function quoteForContext(
   c: Awaited<ReturnType<typeof context>>,
   request: string,
   model: InferenceCandidate | null,
   method: "rewrite" | "local-transcript" = "rewrite"
 ) {
-  if (
-    method !== "local-transcript" &&
-    readBookWorkflow(c.body.bookWorkflow).conversions.some(
-      d =>
-        d.source.kind === "video" &&
-        (d.submissionUncertain ||
-          /submission outcome unknown|reconciliation required/.test(
-            d.error ?? ""
-          ))
-    )
-  )
-    throw new Error(
-      "上次文字生成结果和费用仍待核对，暂不重复提交；原视频和旧稿保留。"
-    );
+  const unresolvedRequestIds =
+    method === "local-transcript"
+      ? []
+      : unresolvedVideoTextIds(
+          readBookWorkflow(c.body.bookWorkflow).conversions
+        );
   if (!c.available) throw new Error("当前故事还没有可读取的视频");
   if (c.totalFrames > 18000)
     throw new Error("请先将超过10分钟的视频拆成较短作品");
   if (method === "local-transcript")
     return {
       method,
+      unresolvedRequestIds,
       sourceFingerprint: c.sourceFingerprint,
       timelineVersion: c.material.timeline.version,
       frameCount: 0,
@@ -272,6 +290,7 @@ function quoteForContext(
     maxCostMinor,
     estimatedCompute: toYuan(maxCostMinor) * COMPUTE_UNITS_PER_YUAN,
     method,
+    unresolvedRequestIds,
     provider: model.id,
     model: model.model,
     providerLabel: model.label,
@@ -280,7 +299,8 @@ function quoteForContext(
       request: request,
       model: [model.id, model.model],
       maxCostMinor,
-      computeQuoteVersion: 2,
+      unresolvedRequestIds,
+      computeQuoteVersion: 3,
     }),
     videoVersionNumber: c.version?.number,
   };
@@ -337,6 +357,7 @@ export async function generateVideoBook(
     request: string;
     method?: "rewrite" | "local-transcript";
     quoteFingerprint: string;
+    acknowledgedUnknownIds?: string[];
     actor: { userId: number; name: string };
   }
 ) {
@@ -358,6 +379,11 @@ export async function generateVideoBook(
   const quote = quoteForContext(c, input.request, model, method);
   if (quote.quoteFingerprint !== input.quoteFingerprint)
     throw new Error("视频、要求或算力报价已变化，请重新核对");
+  if (method !== "local-transcript")
+    requireUnknownAcknowledgement(
+      quote.unresolvedRequestIds,
+      input.acknowledgedUnknownIds
+    );
   let claimed = false;
   const intent = {
     purpose: input.request.slice(0, 1000),
@@ -377,6 +403,11 @@ export async function generateVideoBook(
           throw new Error("生成请求已变化，请重新核对");
         return { result: previous };
       }
+      if (method !== "local-transcript")
+        requireUnknownAcknowledgement(
+          unresolvedVideoTextIds(state.conversions),
+          input.acknowledgedUnknownIds
+        );
       if (
         state.conversions.some(
           d =>
@@ -390,6 +421,7 @@ export async function generateVideoBook(
         id: input.id,
         target: "text",
         videoTextMethod: method,
+        acknowledgedUnknownIds: quote.unresolvedRequestIds,
         source: {
           kind: "video",
           id: c.version?.id ?? input.id,
@@ -456,8 +488,16 @@ export async function generateVideoBook(
       includeImages: method !== "local-transcript",
     });
     // Never send a changed timeline to a provider under an old quote.
-    if ((await context(input)).sourceFingerprint !== quote.sourceFingerprint)
+    const latest = await context(input);
+    if (latest.sourceFingerprint !== quote.sourceFingerprint)
       throw new Error("读取期间剪辑已改变，未提交文字生成，请重新核对");
+    if (method !== "local-transcript")
+      requireUnknownAcknowledgement(
+        unresolvedVideoTextIds(
+          readBookWorkflow(latest.body.bookWorkflow).conversions
+        ),
+        input.acknowledgedUnknownIds
+      );
     let chapters: ManuscriptContent[],
       modelLabel: string,
       localTextSource:

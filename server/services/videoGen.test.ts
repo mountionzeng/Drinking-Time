@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ENV } from "../_core/env";
+import { withVideoElementRule } from "../../shared/videoMotionPolicy";
 import {
   generateShotVideo,
   getShotVideoProviderStatus,
@@ -105,7 +106,7 @@ describe("generateShotVideo", () => {
     );
     const body = JSON.parse(String((fetcher as any).mock.calls[0][1].body));
     expect(body).toEqual({
-      prompt: "reeds moving gently",
+      prompt: withVideoElementRule("reeds moving gently"),
       motion: "low",
       image: "https://file.302ai.cn/gpt/imgs/frame.png",
     });
@@ -140,7 +141,7 @@ describe("generateShotVideo", () => {
     );
 
     const body = JSON.parse(String((fetcher as any).mock.calls[0][1].body));
-    expect(body.prompt).toMatch(/^MATERIAL LOCK:/);
+    expect(body.prompt.startsWith(withVideoElementRule(materialLock))).toBe(true);
     expect(body.prompt).toContain("cold-pressed paper");
     expect(body.prompt).toContain("texture flicker");
     expect(body.prompt).toContain("The woman turns her head first");

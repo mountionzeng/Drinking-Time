@@ -1,4 +1,5 @@
 import React from "react";
+import { DEFAULT_TIMELINE_TRANSFORM } from "@shared/storyMaterial";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
@@ -652,6 +653,32 @@ describe("StoryboardEditRow", () => {
     expect(html.indexOf('data-testid="storyboard-visual-header-2"')).toBeLessThan(html.indexOf('data-testid="storyboard-visual-header-1"'));
   });
 
+  it("gives overlapping frame thumbnails separate mouse targets and reuses space after zooming", () => {
+    const imageClips = [30, 30, 60, 150].map((offsetFrames, index) => ({
+      id: `clip-${index}`, imageId: index + 1, imageUrl: "/frame.webp",
+      label: "frame", offsetFrames, durationFrames: 1, visualLayer: 1,
+    }));
+    const renderAtScale = (scale: number) => renderToStaticMarkup(
+      <StoryboardEditRow
+        timeline={boardTimeline()}
+        viewport={createTimelineViewport({ totalMs: 8_000, scale })}
+        shots={[{ ...shots[0], timelineItem: { ...shots[0].timelineItem!, imageClips } }]}
+        selectedShotNo={null} onSelectShot={vi.fn()} columnSpan={1}
+      />
+    );
+    const element = (html: string, testId: string) =>
+      html.match(new RegExp(`<div(?=[^>]*data-testid="${testId}")[^>]*>`))?.[0];
+    const compact = renderAtScale(16);
+    expect(element(compact, "storyboard-extracted-frame-1")).toContain("top:0.125rem");
+    expect(element(compact, "storyboard-extracted-frame-2")).toContain("top:2.125rem");
+    expect(element(compact, "storyboard-extracted-frame-3")).toContain("top:4.125rem");
+    expect(element(compact, "storyboard-extracted-frame-4")).toContain("top:0.125rem");
+    expect(element(compact, "storyboard-visual-layer-track-2")).toContain("height:6.25rem");
+    const expanded = renderAtScale(64);
+    expect(element(expanded, "storyboard-extracted-frame-3")).toContain("top:0.125rem");
+    expect(element(expanded, "storyboard-visual-layer-track-2")).toContain("height:4.25rem");
+  });
+
   it("raises the playhead image above nearby one-frame thumbnails", () => {
     const html = renderToStaticMarkup(
       <StoryboardEditRow
@@ -725,6 +752,36 @@ describe("StoryboardEditRow", () => {
     ).toHaveLength(2);
   });
 
+  it("does not redraw a moved image clip as a legacy V2 frame on its source shot", () => {
+    const html = renderToStaticMarkup(
+      <StoryboardEditRow timeline={boardTimeline()} selectedShotNo={null} onSelectShot={vi.fn()} columnSpan={2}
+        shots={[
+          { ...shots[0], timelineItem: { stableShotId: "sh-01", position: 0, included: true, plannedDurationMs: 2000, transform: DEFAULT_TIMELINE_TRANSFORM,
+            imageClips: [{ id: "moved-99", imageId: 99, imageUrl: "/99.webp", label: "Frame 99", offsetFrames: 90, timelineStartFrame: 90, durationFrames: 1, visualLayer: 1 }] } },
+          { ...shots[1], extractedFrames: [{ id: "legacy-99", imageId: 99, imageUrl: "/99.webp", atMs: 3000 }] },
+        ]} />
+    );
+    expect(html.match(/data-testid="storyboard-extracted-frame-99"/g)).toHaveLength(1);
+    expect(html).toContain('data-visual-object-id="moved-99"');
+  });
+
+  it("keeps a deleted frame out after refresh and shows it again only after restoring its clip", () => {
+    const clip = { id: "frame-2064", imageId: 2064, imageUrl: "/2064.png", label: "00:12.700", offsetFrames: 381, durationFrames: 1, visualLayer: 1 };
+    const archiveFrame = { id: "image-2064", imageId: 2064, imageUrl: "/2064.png", atMs: 12700 };
+    const renderWithClips = (imageClips: typeof clip[]) => renderToStaticMarkup(
+      <StoryboardEditRow timeline={boardTimeline()} selectedShotNo={1} onSelectShot={vi.fn()} columnSpan={2}
+        shots={[{ ...shots[0], extractedFrames: [archiveFrame], timelineItem: {
+          stableShotId: "sh-01", included: true, position: 0, plannedDurationMs: 2000,
+          transform: DEFAULT_TIMELINE_TRANSFORM, imageClips,
+        } }, shots[1]]} />
+    );
+    expect(renderWithClips([clip])).toContain('data-testid="storyboard-extracted-frame-2064"');
+    // A fresh render has the archive image but the authoritative clip list is empty.
+    expect(renderWithClips([])).not.toContain('data-testid="storyboard-extracted-frame-2064"');
+    expect(renderWithClips([clip])).toContain('data-visual-object-id="frame-2064"');
+    expect(archiveFrame.imageId).toBe(2064);
+  });
+
   it("keeps legacy extracted frames clickable without advertising a dead drag target", () => {
     const html = renderToStaticMarkup(
       <StoryboardEditRow
@@ -754,7 +811,7 @@ describe("StoryboardEditRow", () => {
 
     expect(legacyFrame).toBeDefined();
     expect(legacyFrame).toContain("cursor-pointer");
-    expect(legacyFrame).toContain("bottom-1");
+    expect(legacyFrame).toContain("top:0.125rem");
     expect(legacyFrame).toContain("h-7");
     expect(legacyFrame).not.toContain("cursor-grab");
     expect(legacyFrame).not.toContain("touch-none");

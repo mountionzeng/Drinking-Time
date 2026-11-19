@@ -7,7 +7,7 @@
  * 「选哪条通道、怎么把结果读成文本」。
  */
 import { ENV } from "./env";
-import { invokeLLM, type Message, type ResponseFormat } from "./llm";
+import { invokeLLM, textOnlyRecoveryCandidates, type Message, type ResponseFormat } from "./llm";
 import {
   runInference,
   type InferenceCandidate,
@@ -85,6 +85,7 @@ function storyAgentCandidates(): InferenceCandidate[] {
  * 不该再报「未配置 API」并退到本地兜底。
  */
 export function hasStoryAgentCompute(): boolean {
+  if (textOnlyRecoveryCandidates([])) return true;
   if (shouldUseClaudeChannel()) return storyAgentCandidates().length > 0;
   return (
     resolveComputeCandidates("text", {
@@ -140,7 +141,9 @@ export async function invokeAgent(
   responseFormat?: ResponseFormat, // 透传给 OpenAI 兼容通道（如 { type: "json_object" }）；Claude 通道会忽略
   options?: AgentExecutionOptions,
 ): Promise<{ text: string; modelLabel: string }> {
-  if (shouldUseClaudeChannel()) {
+  // Use the same explicit text-only recovery configuration as invokeLLM.
+  // Image/file requests retain the original Next -> Claude chain.
+  if (shouldUseClaudeChannel() && !textOnlyRecoveryCandidates(messages)) {
     return invokeViaStoryAgentChain(messages, maxTokens, responseFormat, options);
   }
 

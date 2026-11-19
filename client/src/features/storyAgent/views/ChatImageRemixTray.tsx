@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { formatComputeQuote } from "@shared/computeMoney";
 import { Images, Loader2, Sparkles, X } from "lucide-react";
@@ -18,7 +19,15 @@ export default function ChatImageRemixTray({
 }) {
   const _ui = useDesktopUiText();
   const { refs, status, draft, result, error } = remix;
-  if (refs.length === 0 && !draft && !result && !error) return null;
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (status !== "generating") return;
+    setNow(Date.now());
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [status]);
+  const elapsed = Math.max(0, Math.floor((now - (remix.startedAt ?? now)) / 1000));
+  if (refs.length === 0 && !draft && !result && !error && status !== "generating") return null;
 
   return (
     <div className="mt-2.5 min-w-0" data-testid="chat-image-remix-tray">
@@ -106,9 +115,12 @@ export default function ChatImageRemixTray({
       ) : null}
 
       {status === "generating" ? (
-        <p className="mt-1.5 flex items-center gap-1.5 text-[10px] text-muted-foreground">
-          <Loader2 className="h-3 w-3 animate-spin" />
-          {_ui("正在按你说的合成新图…别重复提交，这一单已经在跑了。")}</p>
+        <div role="status" aria-live="polite" className="mt-1.5 space-y-1 text-[11px] text-muted-foreground" data-testid="chat-remix-progress">
+          <p>{remix.recoveryQuoteId ? "原任务已受理，正在按任务号取回；不会重复购买。" : `已锁定 ${draft?.refs.map(ref => `#${ref.imageId}`).join("、") ?? "原图"}；正在提交修改要求。`}</p>
+          <p className="flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />等待图片服务返回 · {Math.floor(elapsed / 60)}分{elapsed % 60}秒</p>
+          <p>完成后自动进仓库，继续聊即可修改新图。</p>
+          {draft && <p>报价 {formatComputeQuote(draft.estimatedCny)} · 实扣尚无结算回执</p>}
+        </div>
       ) : null}
 
       {result && status === "done" ? (
@@ -138,8 +150,8 @@ export default function ChatImageRemixTray({
             <p className="mt-0.5 truncate text-[10.5px] text-foreground/80">
               {result.instruction}
             </p>
-            <p className="mt-0.5 text-[9.5px] text-muted-foreground">
-              {_ui("拖到时间轴的镜头上或镜头设计表的行里，那一镜就换成它；拖到空白处新建一镜。")}</p>
+            <p className="mt-0.5 text-[9.5px] text-muted-foreground">继续输入即可修改此图；尚未替换剪辑。</p>
+            <p className="mt-0.5 text-[9.5px] text-muted-foreground">实际扣费：尚无结算回执</p>
           </div>
           <button
             type="button"
@@ -151,6 +163,11 @@ export default function ChatImageRemixTray({
           </button>
         </article>
       ) : null}
+
+      {status === "pending" ? <div role="status" className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">
+        <p>{error || "原任务正在核对，不会重新生成。"}</p>
+        {remix.recoveryQuoteId && <button type="button" className="mt-1 rounded border px-2 py-1" onClick={() => void remix.restore(remix.recoveryQuoteId!)}>继续取回原任务</button>}
+      </div> : null}
 
       {error && status === "error" ? (
         <p className="mt-1.5 text-[10px] leading-relaxed text-destructive">

@@ -68,7 +68,7 @@ it("opens the exact video from its thumbnail without requiring the caption", () 
   renderToStaticMarkup(<WarehouseShotGroups groups={[group]} groupId="a" loading={false} error={null} onSelectVideo={select} renderImage={()=>null}/>);
   click!(2.375); expect(select).toHaveBeenCalledTimes(1); expect(select).toHaveBeenCalledWith(2, 2.375);
 });
-it("shows newest media first while preserving names, versions and the archive order", () => {
+it("shows newest media at the left across all kinds, preserving names and versions", () => {
   const renderImage = vi.fn((item, _group, name) => (
     <img key={item.key} src={item.url} alt={name} />
   ));
@@ -125,12 +125,14 @@ it("opens the receipt's exact group and describes existing media as saved, not n
               imageUrl: "/image/1",
               createdAt: 1,
             },
+            { id: 2, storyId: 7, shotIdentity: "a", imageUrl: "/image/2", createdAt: 2 },
+            { id: 3, storyId: 7, shotIdentity: "a", imageUrl: "/image/3" },
           ],
         } as unknown as StoryMaterialState
       }
     />
   );
-  expect(html).toContain("最近素材：第 01 镜 · 图片 V01，已保存到");
+  expect(html).toContain("最近素材：第 01 镜 · 图片 V02，已保存到");
   expect(html).not.toContain("已完成");
   open!();
   expect(dispatchEvent.mock.calls[0][0].detail).toEqual({

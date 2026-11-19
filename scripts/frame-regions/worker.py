@@ -5,17 +5,23 @@ import os
 from pathlib import Path
 import sys
 import tempfile
+import struct
 
 os.environ['HF_HUB_OFFLINE'] = '1'
 os.environ['TRANSFORMERS_OFFLINE'] = '1'
 os.environ['TOKENIZERS_PARALLELISM'] = 'false'
 
 import numpy as np
-from PIL import Image
+from PIL import Image, PngImagePlugin
 from scipy.ndimage import binary_closing, label
 
 PROMPTS = ['tree foliage', 'paper airplane', 'clouds', 'buildings', 'ground', 'tree trunks', 'interface panel']
 INDEX = {'forest': 0, 'plane': 1, 'cloud': 2, 'city': 3}
+
+
+def forest_foliage_scope(image, mask, protected, objects):
+    from selection import color_mask
+    return mask & objects & ~protected & color_mask(image, (70, 265), .06)
 
 
 def select(maps, target, threshold, area):
@@ -132,10 +138,11 @@ def inspect(request):
         image_id = frame['imageId']
         if task['target'] != 'cloud':
             result = select(maps_by_id[image_id], task['target'], task['threshold'], task['area'])
-            if task['target'] != 'forest' or result[0].any():
+            if task['target'] != 'forest' or (result[0].any() and not task.get('forestTone')):
                 return (*result, result[0])
-            # Keep existing successful foliage recognition. A stylized tree can fail
-            # that label entirely; reuse the reviewed tree/SAM2 method in that case.
+            # Green-tone correction needs complete tree instances: a small nonempty
+            # foliage patch does not prove the rest of the trees were recognized.
+            # Retain the existing green-transfer path for previously reviewed edits.
             from tree_regions import refine_trees, PROMPTS as TREE_PROMPTS, REVISION as TREE_REVISION
             from cloud_regions import boundary_fingerprint
             image, key = images_by_id[image_id], keys_by_id[image_id]
@@ -145,6 +152,13 @@ def inspect(request):
             boundary_key = hashlib.sha256((tree_key + boundary_fingerprint(model_path) + str(task['threshold']) + str(task.get('greenEdit', False))).encode()).hexdigest()
             refined = cached_maps(cache, boundary_key, (3, image.height, image.width), lambda: refine_trees(image, maps, task['threshold'], model_path, task.get('greenEdit', False)))
             mask, protected, objects = refined.astype(bool)
+            if task.get('forestTone') in ('harmonize_green', 'harmonize_green_less_blue'):
+                # SAM tree instances can include trunks or a nearby airplane.
+                # Keep the shared semantic protections and show only the same
+                # foliage pixels that the actual color operation may change.
+                protected |= result[1]
+                objects &= ~protected
+                mask = forest_foliage_scope(image, mask, protected, objects)
             height, width = mask.shape
             if task['area'] == 'left': mask[:, width//2:] = False
             elif task['area'] == 'right': mask[:, :width//2] = False
@@ -185,16 +199,45 @@ def inspect(request):
 
 def recolor(request):
     from edge_transfer import transfer_edges
-    from scene_palette import fit_palette
+    from scene_palette import fit_palette, soften_forest_green
+    from selection import color_mask
     from recolor_selection import linear_rgb, XYZ
-    rgb = np.asarray(Image.open(request['source']).convert('RGB'))
+    original = Image.open(request['source'])
+    rgb = np.asarray(original.convert('RGB'))
     mask = np.asarray(Image.open(request['mask']).convert('L')) > 0
     protected = np.asarray(Image.open(request['protected']).convert('L')) > 0
     objects = np.asarray(Image.open(request.get('objects', request['mask'])).convert('L')) > 0
     if any(part.shape != rgb.shape[:2] for part in [mask, protected, objects]) or (mask & ~objects).any():
         raise ValueError('Edit scope must belong to matching original-size object masks')
-    model, _ = fit_palette(rgb, objects, protected, source_mask=mask)
-    result, _ = transfer_edges(rgb, objects, mask, protected, model, radius=2, minimum_shadow_strength=.4)
+    reference=request.get('reference')
+    palette={}
+    if reference:
+        palette={
+            'reference_rgb':np.asarray(Image.open(reference['source']).convert('RGB')),
+            'reference_objects':np.asarray(Image.open(reference['objects']).convert('L'))>0,
+            'reference_protected':np.asarray(Image.open(reference['protection']).convert('L'))>0,
+            'reference_mask':np.asarray(Image.open(reference['mask']).convert('L'))>0,
+        }
+    tone=request.get('tone')
+    if tone in ('harmonize_green', 'harmonize_green_less_blue') or (tone=='reduce_green_flatness' and reference):
+        # Harmonize all selected foliage with the scene's green family (or the
+        # explicitly approved reference), not only the original blue pixels.
+        # Inherit the final corrected palette, not another relative reduction.
+        # A new frame may still have blue trees; trunks and neutral pixels are
+        # excluded even when the confirmed object mask contains the whole tree.
+        foliage=forest_foliage_scope(Image.fromarray(rgb),mask,protected,objects)
+        model, _ = fit_palette(rgb, objects, protected, source_mask=foliage, **palette)
+        result, _ = transfer_edges(rgb, objects, foliage, protected, model, radius=2, minimum_shadow_strength=.75 if tone == 'harmonize_green_less_blue' else .4)
+    elif tone=='reduce_green_flatness':
+        result=soften_forest_green(rgb,mask,protected,objects)
+    elif tone is None:
+        # Recognition may return the entire tree, including existing green and
+        # warm trunks. “Turn the blue foliage green” must not remap those colors.
+        foliage=mask&color_mask(Image.fromarray(rgb),(175,265),.08)
+        model, _ = fit_palette(rgb, objects, protected, source_mask=foliage, **palette)
+        result, _ = transfer_edges(rgb, objects, foliage, protected, model, radius=2, minimum_shadow_strength=.4)
+    else:
+        raise ValueError('Unsupported forest tone correction')
     result[~mask] = rgb[~mask]; result[protected] = rgb[protected]
     changed = np.any(result != rgb, axis=-1)
     luminance = np.abs(np.einsum('...j,j->...', linear_rgb(result) - linear_rgb(rgb), XYZ[1]))
@@ -203,7 +246,16 @@ def recolor(request):
     if luminance.max() > .0045 or changed[~mask].any() or changed[protected].any():
         raise ValueError('Protected pixels or luminance validation failed')
     path = str(Path(request['output']) / 'candidate.png')
-    Image.fromarray(result).save(path)
+    # Keep the source's color interpretation as well as its stored RGB values.
+    # Dropping gAMA/cHRM can visibly change untouched pixels in browsers.
+    color_info = PngImagePlugin.PngInfo()
+    if 'gamma' in original.info:
+        color_info.add(b'gAMA', struct.pack('>I', round(original.info['gamma'] * 100000)))
+    if 'chromaticity' in original.info:
+        color_info.add(b'cHRM', struct.pack('>8I', *(round(value * 100000) for value in original.info['chromaticity'])))
+    if 'srgb' in original.info:
+        color_info.add(b'sRGB', bytes([original.info['srgb']]))
+    Image.fromarray(result).save(path, pnginfo=color_info, icc_profile=original.info.get('icc_profile'))
     return {'path': path, 'changedPixels': int(changed.sum()), 'outsideChangedPixels': 0, 'maxLuminanceDrift': float(luminance.max())}
 
 

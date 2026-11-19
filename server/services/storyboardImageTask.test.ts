@@ -1,7 +1,8 @@
 import { beforeEach, expect, it, vi } from "vitest";
 import { randomUUID } from "node:crypto";
 import sharp from "sharp";
-const m = vi.hoisted(() => ({ resume: vi.fn(), resume302: vi.fn() }));
+const m = vi.hoisted(() => ({ resume: vi.fn(), resume302: vi.fn(), resumeGpt: vi.fn() }));
+vi.mock("./imageGen", async importOriginal => ({ ...await importOriginal<typeof import("./imageGen")>(), resume302GptImageTask: m.resumeGpt }));
 vi.mock("./legnextImage", () => ({ resumeLegnextImage: m.resume }));
 vi.mock("./mj302Edit", () => ({ resume302MjEdit: m.resume302 }));
 process.env.DATABASE_URL = "";
@@ -26,7 +27,7 @@ async function submitUnknown() {
   });
 }
 beforeEach(async () => {
-  resetMemoryStateForTesting(); m.resume.mockReset();
+  resetMemoryStateForTesting(); m.resume.mockReset(); m.resumeGpt.mockReset();
   const story = await createStory({ userId: 123, title: "分镜恢复", body: { text: "原文", shots: [{ shotNo: 1, stableShotId: "shot-a" }] } });
   scope = { userId: 123, storyId: story.id, shotIdentity: "shot-a", requestId: randomUUID() };
 });
@@ -345,4 +346,30 @@ it.each([
   const result = await runStoryboardImageTask(scope, execute);
   expect(result.status).toBe("error");
   expect(execute).not.toHaveBeenCalled();
+});
+
+it("restores the same cloud source, mask and feathering when retrieving an accepted GPT job", async () => {
+  const base = await original();
+  const maskedEdit = { sourceImageUrl: base.imageUrl, maskImageUrl: "/api/images/cloud-mask.png", featherPixels: 6 };
+  await runStoryboardImageTask(scope, async render => {
+    await render(async accepted => {
+      await accepted("gpt:cloud");
+      return { status: "error", providerTaskId: "gpt:cloud", errorCode: "timeout_pending" };
+    }, { ...meta, provider: "gpt-image", parentImageId: base.id, referenceOnly: true, conversationRevision: true, maskedEdit });
+    return { status: "error", error: "pending", providerTaskId: "gpt:cloud" };
+  });
+  m.resumeGpt.mockResolvedValue({ status: "ok", imageUrl: base.imageUrl, imageKey: "cloud-result" });
+  const submit = vi.fn();
+  expect(await runStoryboardImageTask(scope, submit)).toMatchObject({ status: "ok" });
+  expect(m.resumeGpt).toHaveBeenCalledWith("gpt:cloud", expect.objectContaining({
+    referenceImageUrl: base.imageUrl, editMaskImageUrl: maskedEdit.maskImageUrl,
+    localImagePatch: true, localImagePatchFeatherPixels: 6,
+  }));
+  expect(submit).not.toHaveBeenCalled();
+  expect(await getStoryGeneratedImages(scope.storyId, scope.userId)).toEqual(expect.arrayContaining([
+    expect.objectContaining({ parentImageId: base.id, isCurrent: false }),
+    expect.objectContaining({ id: base.id, isCurrent: true }),
+  ]));
+  await runStoryboardImageTask(scope, submit);
+  expect(m.resumeGpt).toHaveBeenCalledTimes(1);
 });

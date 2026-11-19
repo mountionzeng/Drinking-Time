@@ -16,6 +16,14 @@ export function staleThresholdMs(operationType: string) {
   return isMediaOperationType(operationType) ? MEDIA_STALE_MS : INFERENCE_STALE_MS;
 }
 
+/**
+ * Operation types whose `submission_unknown` means "the provider may have accepted the job but we
+ * hold no task id / receipt" (see publishingCoverBilling.classifyPublishingCoverRender). With no
+ * evidence trail we cannot tell "never ran" from "still rendering", so never auto-release them:
+ * keep the hold and hand to a human. `reserved` (never submitted) is still released normally.
+ */
+export const NO_AUTO_RELEASE_WHEN_UNKNOWN = ["image.publishing-cover"] as const;
+
 export const OPEN_STATUSES = ["created", "reserved", "submitted", "submission_unknown"] as const;
 
 export type StaleEvidence = {
@@ -50,5 +58,8 @@ export function decideStaleRelease(input: {
       : { action: "manual", reason: "stale-release: 任务号超过 24 小时仍未结束，保留预占转人工" };
   }
   if (e.outputUnstored) return { action: "manual", reason: "stale-release: 有产出证据但未入库，保留预占转人工" };
+  if (input.status === "submission_unknown" && (NO_AUTO_RELEASE_WHEN_UNKNOWN as readonly string[]).includes(input.operationType)) {
+    return { action: "manual", reason: "stale-release: 供应商可能已受理但无任务号，保留预占转人工对账" };
+  }
   return { action: "release", reason: `stale-release: 超过 ${Math.round(staleThresholdMs(input.operationType) / 60_000)} 分钟无产出证据，释放预占` };
 }

@@ -351,6 +351,7 @@ async function runAttach(input: {
   const task = readTasks(jsonRecord(story.body)).find(item => item.requestId === input.revisionRequestId);
   const meta = task?.meta as (Task["meta"] & { localGrade?: unknown; luminanceCandidates?: LuminanceCandidateMeta[] }) | undefined;
   if (!task || !meta?.conversationRevision || !meta.parentImageId) return { status: "skipped", reason: "不是对话改图记录" };
+  if (meta.maskedEdit) return { status: "skipped", reason: "局部修改只保留用户要求的候选，不附加全图亮度版本" };
   if (meta.paletteReferenceImageId) return { status: "skipped", reason: "配色参考改图只保留用户要求的一张候选" };
   if (meta.localGrade) return { status: "skipped", reason: "本地调色结果不再叠加" };
   if (task.status !== "succeeded" || task.result?.status !== "ok" || !task.result.candidates.length) return { status: "skipped", reason: "改图还没有成功" };

@@ -5,7 +5,7 @@ const h = vi.hoisted(() => ({
   slots: [] as any[],
   effects: [] as Array<() => unknown>,
   language: "zh",
-  scope: { activeStoryId: 7, storyScopeEpoch: 1, setMessages: vi.fn() },
+  scope: { accountId: 1, activeStoryId: 7, storyScopeEpoch: 1, storyLoadEpoch: 1, setMessages: vi.fn() },
   quote: vi.fn(),
   submit: vi.fn(),
   invalidate: vi.fn(),
@@ -30,6 +30,7 @@ vi.mock("react", async (original) => ({
 }));
 vi.mock("@/features/uiLanguage/UiLanguage", () => ({
   useUiLanguage: () => ({ language: h.language }),
+  useUiText: () => (text: string, values: unknown[] = []) => text.replace(/\{(\d+)\}/g, (_, i) => String(values[Number(i)])),
 }));
 vi.mock("@/features/storyAgent/spine/storySpine", () => ({
   storySpineStore: { getState: () => h.scope },
@@ -68,10 +69,10 @@ const props = {
   })),
   onClose: vi.fn(),
 };
-function render() {
+function render(parameters: React.ComponentProps<typeof WarehouseVideoSequenceDialog> = props) {
   h.cursor = 0;
   h.effects = [];
-  return WarehouseVideoSequenceDialog(props);
+  return WarehouseVideoSequenceDialog(parameters);
 }
 function nodes(tree: any): any[] {
   return !tree || typeof tree !== "object"
@@ -90,6 +91,8 @@ beforeEach(() => {
   h.language = "zh";
   h.scope.activeStoryId = 7;
   h.scope.storyScopeEpoch = 1;
+  h.scope.accountId = 1;
+  h.scope.storyLoadEpoch = 1;
   h.quote
     .mockReset()
     .mockImplementation(async (input) => ({
@@ -162,4 +165,31 @@ it("reuses the same request ID after a lost submission response", async () => {
   expect(h.submit.mock.calls[0][0].requestId).toBe(
     h.submit.mock.calls[1][0].requestId,
   );
+});
+
+it("keeps approved timing and review identity through quote and explicit payment confirmation", async () => {
+  const review = { reviewId: "a7b27f0e-933e-4b6d-82d4-3b6d3def94c1", reviewRevision: 2, timelineVersion: 9 };
+  const parameters = { ...props, reviewedPlan: { storyId: 7, stableShotId: "shot-3", shotNo: 3,
+    review, sourceTakeId: 10, sourceDurationSec: 4, segmentSeconds: 2, images: props.images, prompt: "Follow the source motion." } };
+  let tree = render(parameters);
+  expect(nodes(tree).find(n => n.type === "select").props.disabled).toBe(true);
+  expect(JSON.stringify(tree)).toContain("无法保证逐帧复现原运镜");
+  button(tree).props.onClick();
+  await vi.waitFor(() => expect(h.quote).toHaveBeenCalledOnce());
+  expect(h.quote.mock.calls[0][0]).toMatchObject({ review, segmentSeconds: 2, prompt: "Follow the source motion." });
+  expect(h.submit).not.toHaveBeenCalled();
+  tree = render(parameters);
+  button(tree).props.onClick();
+  await vi.waitFor(() => expect(h.submit).toHaveBeenCalledOnce());
+  expect(h.submit.mock.calls[0][0]).toMatchObject({ review, segmentSeconds: 2 });
+});
+it.each(["accountId", "storyLoadEpoch"] as const)("discards a late quote after %s changes", async field => {
+  let resolve!: (value: any) => void;
+  h.quote.mockImplementation(() => new Promise(r => { resolve = r; }));
+  button(render()).props.onClick();
+  h.scope[field]++;
+  resolve({ input: {}, fingerprint: "x", totalCny: 1 });
+  await Promise.resolve();
+  expect(button(render()).props.children).toContain("查看算力");
+  expect(h.submit).not.toHaveBeenCalled();
 });

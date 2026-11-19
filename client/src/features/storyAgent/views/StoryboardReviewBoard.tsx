@@ -1,3 +1,6 @@
+import { videoSubmitNoticeKey } from "./videoSubmitNotice";
+import { useVideoSubmitNotices } from "./useVideoSubmitNotices";
+import { VideoSubmitNotices } from "./VideoSubmitNotices";
 import { useStoryboardViewportGestures } from "./useStoryboardViewportGestures";
 import { prepareVideoFrame } from "./prepareVideoFrame";
 import { estimateStoryboardMaskedEditCost } from "@shared/imageRenderCost";
@@ -638,6 +641,7 @@ export function StoryboardReviewBoard({
     useState<Record<string, boolean>>({});
   const [removingVideoKey, setRemovingVideoKey] = useState<string | null>(null);
   const [rerenderingShotNos, setRerenderingShotNos] = useState<number[]>([]);
+  const { videoSubmitNotices, recordVideoSubmitNotice } = useVideoSubmitNotices();
   const [continuityCheckingByShot, setContinuityCheckingByShot] = useState<
     Record<number, "image" | "video">
   >({});
@@ -2755,6 +2759,7 @@ export function StoryboardReviewBoard({
     } = {}
   ) => {
     const label = displayShotCode(shot);
+    const noticeKey = videoSubmitNoticeKey(storyId, creationShot ?? shot);
     if (!creationShot) {
       toast.error(`${label} 还没有可渲染的镜头记录`);
       return false;
@@ -2957,6 +2962,7 @@ export function StoryboardReviewBoard({
               ? `${label} 已完成本地镜头生成`
               : `${label} 首尾帧视频已提交`
         );
+        recordVideoSubmitNotice(noticeKey, null);
         return true;
       }
 
@@ -3032,11 +3038,12 @@ export function StoryboardReviewBoard({
             ? `${label} 已完成本地镜头生成`
             : `${label} 视频已提交；结果会显示在画面 / Take 行`
       );
+      recordVideoSubmitNotice(noticeKey, null);
       return true;
     } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : `${label} 视频提交失败`
-      );
+      const message = error instanceof Error ? error.message : `${label} 视频提交失败`;
+      recordVideoSubmitNotice(noticeKey, message);
+      toast.error(message);
       return false;
     } finally {
       finishShotRender(shot.shotNo);
@@ -3308,6 +3315,7 @@ export function StoryboardReviewBoard({
         </div>
       ) : null}
 
+      <VideoSubmitNotices storyId={storyId} shots={creationShots} notices={videoSubmitNotices} />
       <StoryboardManuscriptSection visible={presentation === "manuscript"} timeline={boardTimeline} viewport={storyboardViewport}
         shots={storyboardEditShots} selectedShotNo={selectedShotNo} selectMatrixShot={selectMatrixShot}
         shotActions={storyboardEditShotActions} updateShotTimingPreview={updateShotTimingPreview}

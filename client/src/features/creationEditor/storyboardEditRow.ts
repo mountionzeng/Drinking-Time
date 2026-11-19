@@ -932,14 +932,15 @@ export function storyboardEditRowAcceptsGlobalShortcuts(
 /**
  * 这次按键该不该被剪辑行接走。剪辑台里点过任何一个按钮之后焦点就不在时间条上了，
  * 所以快捷键挂在 window 上，用这个函数把不该抢的场合排掉：
- * 正在输入、别人已经处理过、或者空格键正落在某个按钮上（那是在按那个按钮）。
+ * 正在输入、菜单/弹窗正在操作、或者别人已经处理过时让路。
+ * 普通按钮保留 Enter 激活；Space 始终走带，避免点击工具栏后播放快捷键失效。
  */
 export function storyboardEditShouldHandleKey(input: {
   key: string;
   defaultPrevented: boolean;
   isEditableTarget: boolean;
   isButtonTarget: boolean;
-  /** 焦点位于可视时间轨、镜头标题或媒体选择块内；空格统一走带。 */
+  /** 焦点位于时间轨；保留调用方信息，普通按钮同样支持空格走带。 */
   isTimelineTarget?: boolean;
   rowVisible: boolean;
   /** 焦点是否落在时间尺的位置锚点标记上。 */
@@ -969,12 +970,8 @@ export function storyboardEditShouldHandleKey(input: {
   ) {
     return false;
   }
-  // 空格在按钮上就是「按下这个按钮」，别抢。
-  if (
-    input.isButtonTarget &&
-    (input.key === " " || input.key === "Enter") &&
-    !(input.key === " " && input.isTimelineTarget)
-  ) {
+  // Enter 激活按钮；普通 Space 由播放处理器 preventDefault，防止同时点击按钮。
+  if (input.isButtonTarget && input.key === "Enter") {
     return false;
   }
   return true;

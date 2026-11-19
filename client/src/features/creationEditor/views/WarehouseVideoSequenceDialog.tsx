@@ -7,34 +7,38 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { trpc } from "@/lib/trpc";
-import { useUiLanguage } from "@/features/uiLanguage/UiLanguage";
+import { useUiLanguage, useUiText } from "@/features/uiLanguage/UiLanguage";
 import { formatComputeQuote } from "@shared/computeMoney";
 import { storySpineStore } from "@/features/storyAgent/spine/storySpine";
 import type { WarehouseSelectedImage } from "./WarehouseImageSelection";
+import type { FrameReviewVideoPlan } from "@shared/frameReviewVideo";
 
 export function WarehouseVideoSequenceDialog({
   storyId,
   stableShotId,
   shotNo,
   images,
+  reviewedPlan,
   onClose,
 }: {
   storyId: number;
   stableShotId: string;
   shotNo: number;
   images: WarehouseSelectedImage[];
+  reviewedPlan?: FrameReviewVideoPlan;
   onClose: () => void;
 }) {
   const { language } = useUiLanguage();
+  const ui = useUiText();
   const en = language === "en";
   const quoteMutation = trpc.warehouseVideoSequence.quote.useMutation();
   const submit = trpc.warehouseVideoSequence.submit.useMutation();
   const utils = trpc.useUtils();
-  const [seconds, setSeconds] = useState(4);
+  const [seconds, setSeconds] = useState(reviewedPlan?.segmentSeconds ?? 4);
   const [prompt, setPrompt] = useState(
-    en
+    reviewedPlan?.prompt ?? (en
       ? "Move slowly and continuously through these images in the selected order. Preserve the scene, colors and objects; do not introduce new elements."
-      : "按选图顺序缓慢、连续地衔接画面，保留已有场景、色彩、物体和美术风格，不新增元素。",
+      : "按选图顺序缓慢、连续地衔接画面，保留已有场景、色彩、物体和美术风格，不新增元素。"),
   );
   const [quote, setQuote] = useState<Awaited<
     ReturnType<typeof quoteMutation.mutateAsync>
@@ -49,6 +53,8 @@ export function WarehouseVideoSequenceDialog({
   const requestId = useRef(crypto.randomUUID());
   const alive = useRef(true);
   const epoch = useRef(storySpineStore.getState().storyScopeEpoch);
+  const account = useRef(storySpineStore.getState().accountId);
+  const loadEpoch = useRef(storySpineStore.getState().storyLoadEpoch);
   const locked = useRef(false);
   useEffect(() => {
     alive.current = true;
@@ -58,6 +64,8 @@ export function WarehouseVideoSequenceDialog({
   }, []);
   const current = () =>
     alive.current &&
+    storySpineStore.getState().accountId === account.current &&
+    storySpineStore.getState().storyLoadEpoch === loadEpoch.current &&
     storySpineStore.getState().activeStoryId === storyId &&
     storySpineStore.getState().storyScopeEpoch === epoch.current;
   const invalidate = () => {
@@ -122,7 +130,7 @@ export function WarehouseVideoSequenceDialog({
     };
   }, [receipt?.id, receipt?.status]);
   const prepare = async () => {
-    if (locked.current) return;
+    if (locked.current || !current()) return;
     locked.current = true;
     setError(null);
     try {
@@ -132,6 +140,7 @@ export function WarehouseVideoSequenceDialog({
         imageIds: images.map((i) => i.id),
         segmentSeconds: seconds,
         prompt,
+        ...(reviewedPlan ? { review: reviewedPlan.review } : {}),
       });
       if (current()) setQuote(result);
     } catch (e) {
@@ -217,7 +226,7 @@ export function WarehouseVideoSequenceDialog({
                 ? "Seconds per transition"
                 : "每段秒数 / Seconds per transition"}
               <select
-                disabled={busy}
+                disabled={busy || Boolean(reviewedPlan)}
                 value={seconds}
                 onChange={(e) => {
                   setSeconds(Number(e.target.value));
@@ -248,6 +257,10 @@ export function WarehouseVideoSequenceDialog({
               Vidu Q2 Turbo · 720p · 1:1 · {images.length - 1}{" "}
               {en ? "segments" : "段"} · {seconds * (images.length - 1)}s
             </p>
+            {reviewedPlan && <p className="text-xs text-muted-foreground">
+              {ui("来源 Take {0} · 保留{1}秒。关键帧生成无法保证逐帧复现原运镜，需审看新候选再决定是否采用；原视频、声音和字幕保留。",
+                [reviewedPlan.sourceTakeId, reviewedPlan.sourceDurationSec])}
+            </p>}
             {quote && (
               <p role="status" className="text-sm">
                 {en ? "Total" : "总计"}{" "}

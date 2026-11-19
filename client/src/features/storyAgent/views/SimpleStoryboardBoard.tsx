@@ -1,5 +1,7 @@
 import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import type { HTMLAttributes, MouseEvent } from "react";
+import { useState } from "react";
+import { EditingConfirmationDialog } from "@/features/creationEditor/EditingConfirmationDialog";
 import {
   ImagePlus,
   ListPlus,
@@ -86,12 +88,17 @@ export function DeleteShotButton({
   compact?: boolean;
 }) {
   const _ui = useDesktopUiText();
-  const label = _ui("删除 {0}", [shotLabel]);
+  const label = _ui("删除整个镜头 {0} / Delete shot", [shotLabel]);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   return (
+    <>
     <button
       type="button"
       disabled={disabled}
-      onClick={onClick}
+      onClick={event => {
+        event.stopPropagation();
+        setConfirmDelete(true);
+      }}
       className={`inline-flex shrink-0 items-center justify-center rounded-sm bg-muted/45 text-[10px] font-medium text-muted-foreground transition hover:bg-red-50 hover:text-red-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500/30 disabled:cursor-wait disabled:opacity-70 ${
         compact ? "h-7 w-7" : "mt-2 min-h-[34px] gap-1.5 px-3 py-2"
       }`}
@@ -105,6 +112,8 @@ export function DeleteShotButton({
       )}
       {compact ? null : _ui("删除")}
     </button>
+    <EditingConfirmationDialog open={confirmDelete} title={label} description={_ui("将删除整个镜头及其主画面。若只想删除 V2 的内容，请取消并使用“多选画面”。删除后可从“恢复误删”恢复镜头和画面。")} confirmLabel={_ui("确认删除整个镜头 / Delete entire shot")} onCancel={() => setConfirmDelete(false)} onConfirm={event => { setConfirmDelete(false); if (!disabled) onClick(event); }} />
+    </>
   );
 }
 

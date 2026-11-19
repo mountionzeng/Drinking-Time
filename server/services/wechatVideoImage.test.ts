@@ -5,7 +5,8 @@ import path from "node:path";
 import { afterAll, beforeEach, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({ owns: vi.fn(), read: vi.fn() }));
-vi.mock("../repositories/wechatBookImport", () => ({
+vi.mock("../repositories/wechatBookImport", async importOriginal => ({
+  ...await importOriginal<typeof import("../repositories/wechatBookImport")>(),
   ownsWechatImportImage: mocks.owns,
 }));
 vi.mock("../chapterMediaStore", async importOriginal => ({

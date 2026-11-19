@@ -5,6 +5,7 @@ import { useRef, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { useCreationEditor } from "./CreationEditorContext";
 import { readVideoEditHistory } from "@shared/videoEditHistory";
+import { EditingConfirmationDialog } from "./EditingConfirmationDialog";
 
 /** Existing server-owned video references; viewing never changes the timeline. */
 export function VideoVersionHistory({ storyId, disabled = false }: { storyId: number; disabled?: boolean }) {
@@ -12,12 +13,13 @@ export function VideoVersionHistory({ storyId, disabled = false }: { storyId: nu
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [restoreTarget, setRestoreTarget] = useState<{ version: number; currentVersion: number } | null>(null);
   const lock = useRef(false);
   const query = trpc.publishingDraft.finishedProduct.useQuery({ storyId }, { enabled: open && !disabled });
   const bookPlans = trpc.bookVideo.list.useQuery({ storyId }, { enabled: open && !disabled });
   const confirmedPlans = confirmedBookVideoVersions(bookPlans.data?.records ?? []);
   const mutation = trpc.publishingDraft.updateFinishedProduct.useMutation();
-  const { materialState } = useCreationEditor();
+  const { materialState, restoreVisualRevision, editorSessionEpoch, visualEditSessionReady } = useCreationEditor();
   const material = materialState?.storyId === storyId ? materialState : null;
   const revisions = readVideoEditHistory(material?.timeline.extensions?.videoEditHistory);
   const takes = new Map([
@@ -34,6 +36,21 @@ export function VideoVersionHistory({ storyId, disabled = false }: { storyId: nu
   const state = query.data?.finishedProduct;
   const editing = state?.versions.find(version => version.status === "editing");
   const versions = state?.versions.filter(version => version.videos.length > 0) ?? [];
+  async function restore(version: number, currentVersion: number) {
+    if (!material || lock.current || disabled || !visualEditSessionReady) return;
+    setRestoreTarget(null);
+    lock.current = true;
+    setBusy(true);
+    setError("");
+    try {
+      await restoreVisualRevision({
+        operation: { editorSessionEpoch, operationId: crypto.randomUUID() },
+        version, expectedTimelineVersion: currentVersion,
+      });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "恢复失败，请重试");
+    } finally { lock.current = false; setBusy(false); }
+  }
 
   async function save(complete: boolean) {
     if (!state || lock.current || disabled) return;
@@ -64,21 +81,24 @@ export function VideoVersionHistory({ storyId, disabled = false }: { storyId: nu
   }
 
   return <div className={open ? "min-w-0 flex-1" : ""}>
+    <EditingConfirmationDialog open={restoreTarget != null} title={_ui("恢复剪辑修订 {0}", [restoreTarget?.version ?? ""])} description={_ui("恢复这次修订的镜头和画面排列，当前画面作为新修订保留。聊天、现有镜头文字、音乐和字幕保持当前内容。")} confirmLabel={_ui("确认恢复镜头和画面 / Restore")} onCancel={() => setRestoreTarget(null)} onConfirm={() => { if (restoreTarget) void restore(restoreTarget.version, restoreTarget.currentVersion); }} />
     <span className="mr-3 text-xs text-muted-foreground">{_ui("当前视频 · 剪辑修订")}{" "}{material?.timeline.version ?? 0}</span>
     <button type="button" className="rounded-md border px-3 py-1.5 text-sm" disabled={disabled} aria-expanded={open} onClick={() => setOpen(!open)}>{_ui("历史版本")}</button>
+    <button type="button" className="ml-2 rounded-md border px-3 py-1.5 text-sm" disabled={disabled} onClick={() => setOpen(true)}>{_ui("恢复误删 / Recover")}</button>
     {open && <section aria-label={_ui("视频历史版本")} className="mt-2 max-h-80 space-y-3 overflow-auto rounded-lg border p-3 text-sm">
       <VideoWorkflowControls key={storyId} storyId={storyId} disabled={disabled} />
-      <details><summary className="cursor-pointer text-xs text-muted-foreground">旧版成品、方案与自动修订记录</summary>
       {revisions.length > 0 && <div className="space-y-2" aria-label={_ui("自动剪辑修订")}>
-        <p className="text-xs text-muted-foreground">{_ui("剪辑调整自动留存最近 30 次修订。可查看当时的镜头文字，暂不支持整版恢复。")}</p>
+        <p className="text-xs text-muted-foreground">{_ui("最近 30 次剪辑修订会自动保留，刷新后仍可恢复镜头和画面。查看不会采用；恢复保留当前聊天、现有镜头文字、音乐和字幕。")}</p>
         {[...revisions].reverse().map(revision => <details key={revision.version} className="rounded border p-2">
           <summary className="cursor-pointer">{_ui("剪辑修订")}{" "}{revision.version} · {new Date(revision.savedAt).toLocaleString()}</summary>
+          <button type="button" className="my-2 rounded border px-2 py-1 disabled:opacity-40" disabled={busy || disabled || !visualEditSessionReady || revision.version === material?.timeline.version} onClick={() => { if (material) setRestoreTarget({ version: revision.version, currentVersion: material.timeline.version }); }}>{_ui("恢复此修订的镜头和画面 / Restore visuals")}</button>
           <div className="mt-2 space-y-2">{revision.shots.map((shot, index) => <div key={String(shot.stableShotId ?? shot.shotIdentity ?? index)} className="border-t pt-2 text-xs leading-5">
             <strong>{String(shot.cueCode ?? shot.shotNo ?? index + 1)} · {String(shot.subject ?? "")}</strong>
             <p>{String(shot.action ?? "")}</p><p>{String(shot.dialogue ?? "")}</p>
           </div>)}</div>
         </details>)}
       </div>}
+      <details><summary className="cursor-pointer text-xs text-muted-foreground">旧版成品与方案</summary>
       <p className="text-xs text-muted-foreground">{_ui("每次确认的视频方案都会保留。查看旧版不会改变当前时间轴。")}</p>
       {bookPlans.isLoading && <p>{_ui("正在读取已确认方案…")}</p>}
       {bookPlans.error && <p role="alert">{_ui("视频方案版本暂未读到，请重新打开历史版本。")}</p>}
@@ -113,8 +133,8 @@ export function VideoVersionHistory({ storyId, disabled = false }: { storyId: nu
           })}</div>
         </details>)}
       </>}
-      {error && <p role="alert" className="text-destructive">{error}</p>}
       </details>
+      {error && <p role="alert" className="text-destructive">{error}</p>}
     </section>}
   </div>;
 }

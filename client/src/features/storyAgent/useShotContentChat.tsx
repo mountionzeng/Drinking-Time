@@ -10,8 +10,9 @@ import { storySpineStore } from "./spine/storySpine";
 import { withMediaChatSession, hasMediaChatSession } from "./mediaChatSession";
 import type { StoryboardImageRerenderRunner } from "./StoryAgentContext";
 import { useUiLanguage } from "@/features/uiLanguage/UiLanguage";
+import type { SelectionContext } from "@shared/selectionContext";
 
-type State = { continueAfterUnknownRequestId?: string; requestId: number; storyId: number; epoch: number; proposal?: ShotContentProposal; phase: "finding" | "confirm" | "running" | "done"; message: string; provider: "midjourney" | "gpt-image"; total: number; readingQuotes: Record<number, { estimatedCny: number; fingerprint: string; cached?: boolean }> };
+type State = { selectedImageId?: number; continueAfterUnknownRequestId?: string; requestId: number; storyId: number; epoch: number; proposal?: ShotContentProposal; phase: "finding" | "confirm" | "running" | "done"; message: string; provider: "midjourney" | "gpt-image"; total: number; readingQuotes: Record<number, { estimatedCny: number; fingerprint: string; cached?: boolean }> };
 
 export function mergeContentEdits(proposals: ContentTargetProposal[]) {
   const result: ContentTargetProposal[] = [];
@@ -24,7 +25,7 @@ export function mergeContentEdits(proposals: ContentTargetProposal[]) {
 }
 
 /** A free target proposal + one aggregate quote; confirmation alone starts work. */
-export function useShotContentChat(input: { storyId: number | null; selection?: { stableShotId?: string | null; shotNo?: number | null } | null; render: StoryboardImageRerenderRunner }) {
+export function useShotContentChat(input: { storyId: number | null; selection?: Pick<SelectionContext, "sourceType" | "storyId" | "stableShotId" | "shotNo" | "imageId"> | null; render: StoryboardImageRerenderRunner }) {
   const { language } = useUiLanguage();
   const en = language === "en";
   const say = (zh:string,english:string) => en ? english : zh;
@@ -125,7 +126,13 @@ export function useShotContentChat(input: { storyId: number | null; selection?: 
       s.requestId = ++requestId.current;
       record(s, "user", text);
       if (reply.kind === "cancel") { record(s,"assistant",say("已取消，尚未调用模型或生成。", "Cancelled. No model or generation was called.")); dismiss(); return true; }
-      if (reply.kind === "confirm") { void run(s); return true; }
+      if (reply.kind === "confirm") {
+        if (s.selectedImageId && (input.selection?.imageId !== s.selectedImageId || input.selection?.storyId !== s.storyId)) {
+          s.phase = "done"; s.message = say("选中的图片已变化，旧报价未执行。请重新发送修改要求核对报价。", "The selected image changed. The old quote was not executed. Send the edit again to review a new quote.");
+          publish(s); record(s, "assistant", s.message); return true;
+        }
+        void run(s); return true;
+      }
       if (reply.kind === "drop") {
         if (reply.ordinal < 1 || reply.ordinal > s.proposal!.proposals.length) {
           s.message = say("请使用下方修改项的序号。", "Use an edit number shown below."); publish(s); return true;
@@ -149,17 +156,29 @@ export function useShotContentChat(input: { storyId: number | null; selection?: 
     const explicit = /第\s*(\d+)\s*镜/.exec(text);
     const shot = explicit ? spine.storyShots.find(s => s.shotNo === Number(explicit[1])) : spine.storyShots.find(s => (s.stableShotId ?? s.shotIdentity) === input.selection?.stableShotId);
     const stable = shot?.stableShotId ?? shot?.shotIdentity;
+    const selectedImageId = !exact && input.selection?.sourceType === "storyboard-image" &&
+      input.selection.storyId === input.storyId && input.selection.stableShotId === stable &&
+      /这(?:张|个)(?:图|画面)|当前(?:图|画面)|选中.*图|this (?:image|picture)/i.test(text) && !/#\s*\d+/.test(text)
+      ? input.selection.imageId ?? undefined : undefined;
     const s: State = { requestId: ++requestId.current, storyId: input.storyId, epoch: spine.storyScopeEpoch, phase: "finding", message: say("正在查找本镜图片 · 免费", "Finding this shot’s images · Free"), provider: (/gpt/i.test(text) || isFluxKontextEdit(text)) ? "gpt-image" : "midjourney", total: 0, readingQuotes: {} };
     publish(s);
     if (!stable) { s.phase = "done"; s.message = say("请先选中镜头，或写明第几镜；尚未调用模型。", "Select a shot or specify its number. No model was called."); publish(s); return true; }
     try {
-      const proposal = await propose.mutateAsync({ storyId: s.storyId, stableShotId: stable, text });
+      const requestText = selectedImageId ? `修改第${shot!.shotNo}镜图片 #${selectedImageId}：${text}` : text;
+      const proposal = await propose.mutateAsync({ storyId: s.storyId, stableShotId: stable, text: requestText });
       if ("error" in proposal) throw new Error(proposal.error);
       if (!current(s)) return true;
+      if (selectedImageId) {
+        if (proposal.proposals.length !== 1 || proposal.proposals[0].imageId !== selectedImageId)
+          throw new Error(say("选图与报价目标不一致，已停止。请重新选图。", "The quote does not match the selected image. Stopped; select the image again."));
+        s.selectedImageId = selectedImageId;
+        proposal.proposals[0].instruction = text;
+      }
       s.proposal = proposal; record(s, "user", text); await quote(s);
     } catch (error) { s.phase = "done"; s.message = error instanceof Error ? error.message : say("查找未完成，尚未调用模型。", "Search incomplete. No model was called."); }
     publish(s);
-    if (s.phase === "confirm") record(s, "assistant", `${say("第", "Shot")} ${s.proposal!.shotNo} ${en ? "" : "镜"}: ${s.proposal!.proposals.map(p => `#${p.imageId} ${p.instruction}`).join("; ")}. ${say("合计最多", "Total at most")} ${cost(s.total)}. ${reuseNote(s)} ${unknownNote(s)} ${say("含美术提示词整理。待确认，刷新后需重新核对报价。", "Includes art prompts. Awaiting confirmation; refresh requires a new quote.")}`);
+    if (s.phase === "confirm") record(s, "assistant", `${say("第", "Shot")} ${s.proposal!.shotNo} ${en ? "" : "镜"}: ${s.proposal!.proposals.map(p => `#${p.imageId} ${p.instruction}`).join("; ")}. ${say("合计最多", "Total at most")} ${cost(s.total)}. ${reuseNote(s)} ${unknownNote(s)} ${say("含美术提示词整理。尚未开始改图。回复“确认”接受本次费用，或“取消”。刷新后需重新核对报价。", "Includes art prompts. Editing has not started. Reply ‘confirm’ to accept this cost, or ‘cancel’. Refresh requires a new quote.")}`);
+    else if (s.phase === "done") record(s, "assistant", s.message);
     return true;
   };
   const panel = visible ? <article className="space-y-2 rounded-lg border border-border p-3 text-xs" aria-label={say("按内容修改 / Edit by content", "Edit by content")}>
@@ -184,5 +203,16 @@ export function useShotContentChat(input: { storyId: number | null; selection?: 
     publish(s);
     record(s, "assistant", s.phase === "confirm" ? `${say("这一帧已保存在仓库。含读图和美术提示词整理，合计最多", "Frame saved in Warehouse. Including visual analysis and art prompts, total at most")} ${cost(s.total)}. ${say("回复“确认”开始，或“取消”。", "Reply ‘confirm’ to start, or ‘cancel’.")}` : s.message);
   };
-  return { handle, panel, dismiss, proposeFrame, pending: visible?.phase === "confirm" };
+  // Older quotes only persisted their receipt text; never revive them as approval.
+  const history = storySpineStore.getState().messages ?? [];
+  const last = history.at(-1);
+  const prior = history.at(-2);
+  const expiredQuote = !visible && last?.role === "assistant" && last.selectionQuote?.storyId === input.storyId &&
+    /刷新后需重新核对报价|refresh requires a new quote/i.test(last.content);
+  const statusMessage = visible?.phase === "confirm"
+    ? say(`等待确认 · 尚未开始改图 · 最多 ${cost(visible.total)}；回复“确认”或“取消”`, `Awaiting confirmation · Not started · At most ${cost(visible.total)}; reply ‘confirm’ or ‘cancel’`)
+    : visible?.message ?? (expiredQuote ? say("历史报价不可直接确认，请重新核对。", "This historical quote needs to be checked again.") : undefined);
+  return { handle, panel, dismiss, proposeFrame, statusMessage,
+    resumeInstruction: expiredQuote && prior?.role === "user" ? prior.content : undefined,
+    pending: visible?.phase === "confirm" };
 }

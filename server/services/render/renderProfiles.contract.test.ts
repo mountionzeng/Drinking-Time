@@ -23,6 +23,7 @@ import { compositionQuote } from "@shared/bookImageComposition";
 import { editImage, generateDraftImage, generateImage, resetCircuitBreaker } from "../imageGen";
 import { submitShotVideo } from "../videoGen";
 import { submitRender } from "./submitRender";
+import { VIDEO_ELEMENT_RULE } from "@shared/videoMotionPolicy";
 import { buildRenderSnapshot } from "./snapshot";
 
 const PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
@@ -260,6 +261,16 @@ describe("render profile contracts (mock fetch, request body snapshot)", () => {
     expect(submit).toHaveLength(1);
     expect(submit[0].url).toBe(`${BASE}/mj-turbo/submit/video`);
     expect(submit[0]).toMatchSnapshot();
+  });
+
+  it("keeps the source-only rule in the actual capped MJ request and preserves the user's subject", async () => {
+    ENV.video302SubmitPath = "/mj-turbo/submit/video";
+    const { calls, fetcher } = capturingFetch();
+    await submitShotVideo({ prompt: "One paper plane. " + "slow movement ".repeat(70), sourceImage: "https://cdn.example/frame.png" }, { fetcher });
+    const [request] = providerCalls(calls);
+    const payload = request.body as { prompt: string };
+    expect(payload.prompt.startsWith(VIDEO_ELEMENT_RULE + " One paper plane.")).toBe(true);
+    expect(payload.prompt.length).toBeLessThanOrEqual(500);
   });
 
   it("video.302-configured", async () => {

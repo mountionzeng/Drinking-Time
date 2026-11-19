@@ -53,9 +53,10 @@ it("shows the selected shot and bound history in English, using the existing com
   expect(html).not.toMatch(/第|修改|图片|历史/);
   expect(html).not.toContain("max-h-52"); // History uses the conversation scroll surface, not the composer.
   expect(html).not.toContain("textarea");
-  expect(html).toContain("/original.png");
-  expect(html).toContain("/rejected.png");
-  expect(html).toContain("Older images without a shot");
-  expect(html).toContain("/unassigned.png");
+  expect(html).not.toContain("/original.png");
+  expect(html).not.toContain("/rejected.png");
+  expect(html).toContain("View this shot&#x27;s images in Warehouse · 2");
+  expect(html).toContain("View unassigned images in Warehouse · 1");
+  expect(html).not.toContain("/unassigned.png");
   expect(html).not.toContain("/other.png");
 });

@@ -40,7 +40,9 @@ it("submits exactly one explicit Vidu request with quoted model, duration and re
   expect(fetcher).toHaveBeenCalledTimes(1);
   const [url, init] = fetcher.mock.calls[0] as unknown as [string, RequestInit];
   expect(url).toBe("https://api.302.ai/vidu/ent/v2/img2video");
-  expect(JSON.parse(String(init.body))).toEqual({ model: "viduq2-pro-fast", images: [request.sourceImage], prompt: request.prompt, duration: 5, resolution: "720p", audio: false });
+  expect(JSON.parse(String(init.body))).toEqual({ model: "viduq2-pro-fast", images: [request.sourceImage],
+    prompt: "Only show elements visible in the source frames or explicitly requested by the user. Add nothing else. Match lens, scale and direction. Cut on action across incompatible views; never stitch. " + request.prompt,
+    duration: 5, resolution: "720p", audio: false });
 });
 
 it("keeps unknown submissions unknown without retrying or switching to MJ", async () => {

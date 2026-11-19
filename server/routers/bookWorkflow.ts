@@ -19,7 +19,7 @@ const record = owner.extend({ id: z.string().uuid() });
 export const bookWorkflowRouter = router({
   videoSource: protectedProcedure.input(owner).query(({ctx,input})=>getVideoBookSource({...input,userId:ctx.user.id})),
   quoteVideoText: protectedProcedure.input(videoBookInput).mutation(({ctx,input})=>quoteVideoBook({...input,userId:ctx.user.id})),
-  generateVideoText: protectedProcedure.input(videoBookInput.extend({id:z.string().uuid(),quoteFingerprint:z.string().length(64)}))
+  generateVideoText: protectedProcedure.input(videoBookInput.extend({id:z.string().uuid(),quoteFingerprint:z.string().length(64),acknowledgedUnknownIds:z.array(z.string().uuid()).max(100).default([])}))
     .mutation(({ctx,input})=>generateVideoBook({...input,userId:ctx.user.id,actor:{userId:ctx.user.id,name:ctx.user.name||"未设置称呼"}})),
   generateFilm: protectedProcedure.input(record.extend({
     target: z.enum(["text", "storyboard"]).default("storyboard"),

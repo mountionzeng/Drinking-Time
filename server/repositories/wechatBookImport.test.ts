@@ -1,13 +1,28 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { MySqlDialect } from "drizzle-orm/mysql-core";
 import * as runtime from "./runtime";
-import { wechatImportedStoryIds } from "./wechatBookImport";
+import { indexWechatStoryboardImageUrls, wechatImportedStoryIds } from "./wechatBookImport";
+import { createStory } from "./stories";
+import { createGeneratedImage, getStoryGeneratedImages } from "./images";
 
 beforeEach(() => {
   vi.stubEnv("DATABASE_URL", "");
   runtime.resetMemoryStateForTesting();
 });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); });
+
+it("rejects another story's owner and rolls back the entire new image batch on persistence failure", async () => {
+  const story = await createStory({ userId: 10, title: "fixture", body: {} });
+  const original = await createGeneratedImage({ storyId: story.id, userId: 10, imageUrl: "/original", isCurrent: true });
+  await expect(indexWechatStoryboardImageUrls({ storyId: story.id, userId: 20, urls: ["/foreign"] }))
+    .rejects.toThrow("无权访问");
+  const persist = vi.spyOn(runtime, "persistMemoryState").mockRejectedValueOnce(new Error("disk unavailable"));
+  await expect(indexWechatStoryboardImageUrls({ storyId: story.id, userId: 10, urls: ["/new1", "/new2"] }))
+    .rejects.toThrow("disk unavailable");
+  expect((await getStoryGeneratedImages(story.id, 10)).map(row => row.id)).toEqual([original.id]);
+  expect((await getStoryGeneratedImages(story.id, 10))[0].isCurrent).toBe(true);
+  persist.mockRestore();
+});
 
 it("keeps account and revision boundaries, including receipts whose story no longer exists", async () => {
   const add = (userId: number, requestId: string, storyId: number) => runtime.memoryState.chapterImports.push({

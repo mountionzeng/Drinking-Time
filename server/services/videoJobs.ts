@@ -1,4 +1,5 @@
 import { isWarehouseVideoSequence, refreshWarehouseVideoSequence } from "./warehouseVideoSequence";
+import { directionFromTimeline, readVideoTimelineCues, type VideoTimelineCue } from "./videoTimelineCues";
 import { hasUnreviewedFrameRefinement } from "../../shared/chatImageRevision";
 import { shotVideoPriceProfile, type ShotVideoRenderMode } from "../../shared/shotDirector";
 import { bookMediaTargetIsCurrent } from "./bookMediaTarget";
@@ -69,6 +70,7 @@ import {
 } from "./videoPromptEngineering";
 import { storyVideoContext } from "./videoShotContext";
 import { getStoryMaterialState } from "./storyMaterials";
+import { createVideoTakeIdempotently } from "../repositories/videos";
 import {
   isStartEndShotVideoTake,
   refreshStartEndShotVideoTake,
@@ -378,6 +380,8 @@ function sanitizeApprovedVideoPrompt(raw: string): string {
 }
 
 function snapshot(input: {
+  fingerprint?: string;
+  timelineCue?: VideoTimelineCue | null;
   renderMode?: ShotVideoRenderMode;
   computeOperationId?: string | null;
   submitUrl?: string;
@@ -408,6 +412,8 @@ function snapshot(input: {
       : input.storyStyleReferenceImageUrl;
   return {
     renderMode: input.renderMode,
+    ...(input.fingerprint ? { fingerprint: input.fingerprint, kind: "chat-cue-opening" } : {}),
+    ...(input.timelineCue ? { timelineCue: input.timelineCue } : {}),
     ...(input.renderMode === "economy" ? { resolution: "720p", candidateCount: 1 } : {}),
     computeOperationId: input.computeOperationId,
     provider: "302",
@@ -453,6 +459,8 @@ function statusForRefresh(
 }
 
 export type StartShotVideoJobInput = {
+  /** Verified by the warehouse quote service. Never accepted from the public generator. */
+  reviewedOpening?: { key: string; fingerprint: string; sourceImage: string; timelineCue: VideoTimelineCue | null };
   renderMode?: ShotVideoRenderMode;
   bookTarget?: { chapterId: number; moduleId: string };
   storyId: number;
@@ -549,7 +557,7 @@ export async function startShotVideoJob(
     !asset ||
     asset.availability === "missing" ||
     asset.status === "rejected" ||
-    (!isOwnedBookImage && !isOwnedShotImage && !isReferencedShotImage && !isConfiguredFirstFrame)
+    (!isOwnedBookImage && !isOwnedShotImage && !isReferencedShotImage && !isConfiguredFirstFrame && !input.reviewedOpening)
   ) {
     return { status: "error", error: "首帧图不存在或不属于当前镜头" };
   }
@@ -583,7 +591,7 @@ export async function startShotVideoJob(
     ...context.currentShot,
     videoPrompt: context.currentShot?.videoPrompt || input.prompt,
   });
-  if (renderDecision.strategy === "local-transform") {
+  if (!input.reviewedOpening && renderDecision.strategy === "local-transform") {
     return createLocalMotionVideoTake({
       storyId: input.storyId,
       userId,
@@ -661,7 +669,7 @@ export async function startShotVideoJob(
         "editor-approved"
       )
     : baseEngineering;
-  const idempotencyKey = hashParts(
+  const idempotencyKey = input.reviewedOpening?.key ?? hashParts(
     input.storyId,
     stableShotId,
     input.imageId,
@@ -687,9 +695,15 @@ export async function startShotVideoJob(
     userId,
     idempotencyKey
   );
-  if (existing && existing.status !== "failed") {
+  const matchesOpening = (take: VideoTake) => !input.reviewedOpening ||
+    parameterSnapshotRecord(take.parameterSnapshot).fingerprint === input.reviewedOpening.fingerprint;
+  if (existing && !matchesOpening(existing)) return {status:"error",error:"此请求已有其他回执，请查看原任务"};
+  if (existing && (input.reviewedOpening || existing.status !== "failed")) {
     return { status: "ok", take: existing };
   }
+
+  const [timelineCue] = input.reviewedOpening ? [input.reviewedOpening.timelineCue] : isOwnedBookImage ? [null] : await readVideoTimelineCues(input.storyId,userId,stableShotId,[durationSec]);
+  const timelineDirection = directionFromTimeline(timelineCue, isMjVideo);
 
   const computeOperationId = mediaBillingEnabled()
     ? mediaOperationId("video", userId, `${input.storyId}:${idempotencyKey}`)
@@ -711,7 +725,7 @@ export async function startShotVideoJob(
           userId,
           idempotencyKey
         );
-        return previous
+        return previous && matchesOpening(previous)
           ? { status: "ok", take: previous }
           : {
               status: "error",
@@ -727,7 +741,7 @@ export async function startShotVideoJob(
   }
   let providerStarted = false;
   try {
-    const sourceImage = await materializeImageInput(asset.imageUrl, userId);
+    const sourceImage = input.reviewedOpening?.sourceImage ?? await materializeImageInput(asset.imageUrl, userId);
     const promptDirector: VideoSubmissionPromptDirectorResult =
       input.directorPromptApproved
         ? {
@@ -766,7 +780,8 @@ export async function startShotVideoJob(
         : input.renderMode === "economy" && !input.directorPromptApproved
           ? compileViduSinglePrompt(promptDirector.engineering)
         : promptDirector.prompt;
-    const videoPrompt = withArtSystemVideoPrompt(directedVideoPrompt, artBody, isMjVideo ? 500 : input.renderMode === "economy" ? 2000 : 5000);
+    const authoredPrompt = withArtSystemVideoPrompt(directedVideoPrompt, artBody, isMjVideo ? 500 : input.renderMode === "economy" ? 2000 : 5000);
+    const videoPrompt = input.reviewedOpening ? input.prompt : timelineDirection ? timelineDirection + "\n" + authoredPrompt : authoredPrompt;
 
     const renderProfile = buildRenderSnapshot(shotVideoRenderProfileId(input.renderMode), {
       endpoint: providerStatus.submitPath,
@@ -777,13 +792,13 @@ export async function startShotVideoJob(
       quoteInput: { durationSec, motion },
       promptChars: videoPrompt.length,
     });
-    const take = await createVideoTake({
+    const takeInput = {
       storyId: input.storyId,
       userId,
       stableShotId,
       sourceImageId: input.imageId,
       promptCompilationId,
-      status: "submitted",
+      status: "submitted" as const,
       provider: "302",
       model: providerStatus.model || "unconfigured",
       prompt: videoPrompt,
@@ -791,6 +806,8 @@ export async function startShotVideoJob(
       durationSec,
       aspectRatio,
       parameterSnapshot: snapshot({
+        fingerprint:input.reviewedOpening?.fingerprint,
+        timelineCue,
         renderMode: input.renderMode,
         computeOperationId,
         sourceImageId: input.imageId,
@@ -807,8 +824,11 @@ export async function startShotVideoJob(
         ...(artRecipe?.system ? { artSystem: { version: artRecipe.version, name: artRecipe.system.name, confirmedImageId: artRecipe.system.confirmedImageId, rules: artBrief } } : {}),
       }),
       idempotencyKey,
-      extractionCapability: "unavailable",
-    });
+      extractionCapability: "unavailable" as const,
+    };
+    const claim = input.reviewedOpening ? await createVideoTakeIdempotently(takeInput) : { take:await createVideoTake(takeInput), created:true };
+    const take = claim.take;
+    if (!claim.created) return matchesOpening(take) ? {status:"ok",take} : {status:"error",error:"此请求已有其他回执，请查看原任务"};
 
     providerStarted = true;
     const submitted = await submitShotVideo({
@@ -894,6 +914,9 @@ export async function startShotVideoJob(
       extractionCapability:
         managed?.status === "ok" ? "available" : "unavailable",
       parameterSnapshot: snapshot({
+        fingerprint:input.reviewedOpening?.fingerprint,
+        rerenderRequestId:input.rerenderRequestId,
+        timelineCue,
         renderMode: input.renderMode,
         computeOperationId,
         submitUrl: submitted.submitUrl,

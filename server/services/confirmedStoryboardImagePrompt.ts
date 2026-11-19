@@ -1,4 +1,5 @@
 import { stripExplicitScreenText } from "../../shared/bookScreenText";
+import { SCENE_OBJECT_DIRECTION } from "../../shared/sceneObjectDirection";
 import { artSystemPrompt } from "../../shared/artSystem";
 import { activeArtSystemRecipe } from "../../shared/artSystem";
 function record(value: unknown): Record<string, unknown> {
@@ -38,6 +39,7 @@ export function unreferencedArtFramePrompt(input: {
     ...[...recipe.system.objectRules, ...recipe.system.continuityRules]
       .filter(rule => !/(?:基准|参考)(?:图|图片)|所选人物|未显示|当前镜头需要/u.test(rule)),
     "One continuous illustration filling the entire canvas edge to edge. Plain unmarked surfaces.",
+    SCENE_OBJECT_DIRECTION,
   ].filter(Boolean).join(" ");
 }
 
@@ -77,6 +79,7 @@ export function confirmedStoryboardImagePrompt(input: {
     interfaceShot ? "Render the interface artwork itself, retaining its shapes and blank lettering areas. Preserve only the surroundings specified for this shot." : "",
     adjacent.length ? `【衔接背景，不绘制相邻镜头】${adjacent.join("；")}` : "",
     "完整单幅电影画面，按当前镜头表现主体、动作和场景，沿用本片已确认的媒介、线条、材质与色调。文字由独立文字轨叠加。",
+    SCENE_OBJECT_DIRECTION,
     "Single full-bleed frame; no annotation board, reference sheet, collage, borders, labels or lettering.",
   ].filter(Boolean).join("\n");
 }
@@ -86,6 +89,7 @@ export function composedStoryboardImagePrompt(body: Record<string, unknown>, ins
   const recipe = activeArtSystemRecipe(body);
   return [
     stillVisualDescription(instruction),
+    SCENE_OBJECT_DIRECTION,
     recipe?.system?.englishPrompt || artSystemPrompt(body),
     "One continuous full-bleed illustration. Follow the supplied description for subjects, action and composition. Use references only for the requested elements. Plain unmarked surfaces; captions are added separately.",
   ].filter(Boolean).join("\n");

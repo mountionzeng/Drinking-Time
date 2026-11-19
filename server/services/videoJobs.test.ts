@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { insertChapter } from "../repositories/chapters";
 import { ENV } from "../_core/env";
+import { withVideoElementRule } from "../../shared/videoMotionPolicy";
 import {
   createImageSignal,
   createGeneratedImage,
@@ -9,6 +10,7 @@ import {
   getStoryVideoTakes,
   resetMemoryStateForTesting,
   updateStory,
+  updateStoryTimeline,
 } from "../db";
 import {
   explainVideoProviderError,
@@ -931,8 +933,8 @@ Negative: no floating objects, characters obey physics.
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(fetch.mock.calls[0][0]).toBe("https://api.302.ai/mj/submit/video");
     const body = JSON.parse(String(fetch.mock.calls[0][1].body));
-    expect(body.prompt).toBe(approvedPrompt);
-    expect(result.take.prompt).toBe(approvedPrompt);
+    expect(body.prompt).toBe(withVideoElementRule(approvedPrompt));
+    expect(result.take.prompt).toBe(body.prompt);
     expect(result.take.parameterSnapshot).toMatchObject({
       promptDirector: {
         source: "editor-approved",
@@ -1042,6 +1044,22 @@ it("sends confirmed art motion to the provider and retains the art version on th
   expect(sent.prompt).toContain("Ink rises from spout"); expect(sent.prompt).toContain("slow flowing ink");
   if (result.status === "ok") expect(result.take.parameterSnapshot).toMatchObject({ artSystem: { version: 7, name: "Ink world" } });
   await startShotVideoJob(input, 1); expect(fetch).toHaveBeenCalledTimes(1);
+});
+
+it("uses current overlapping words at the outgoing provider on a new render and a revised render",async()=>{
+  const story=await createStory({userId:1,title:"Forest",body:{shots:[{shotNo:4,stableShotId:"forest"}]}});
+  const image=await createGeneratedImage({userId:1,storyId:story.id,shotNo:"SH04",shotIdentity:"forest",imageUrl:"data:image/png;base64,QQ==",prompt:"forest",isCurrent:true});
+  await createImageSignal({userId:1,storyId:story.id,imageId:image.id,action:"swipe_right",metadata:null});
+  const fetcher=vi.fn(async()=>({ok:true,json:async()=>({taskId:"forest-job"})}));vi.stubGlobal("fetch",fetcher);
+  for(const [version,text] of ["长成音乐","长成电影"].entries()){
+    await updateStoryTimeline({storyId:story.id,userId:1,expectedVersion:version,items:[{stableShotId:"forest",included:true,position:0,timelineStartFrame:60,durationFrames:90}],
+      extensions:{subtitleTracks:{tracks:[{id:"s",cues:[{id:"caption",startFrame:70,durationFrames:55,text}]}]}}});
+    const job=await startShotVideoJob({storyId:story.id,shotNo:4,stableShotId:"forest",imageId:image.id,prompt:"Fly indoors",directorPromptApproved:true,rerenderRequestId:"forest-plan-"+version},1);
+    expect(job.status).toBe("ok");
+    const call=fetcher.mock.calls[version] as unknown as [string,RequestInit];
+    expect(JSON.parse(String(call[1].body)).prompt).toContain(text);
+    if(job.status==="ok")expect(job.take.parameterSnapshot).toMatchObject({timelineCue:{startFrame:60,text:[{text}]}});
+  }
 });
 
 it("does not buy a new video while this shot's original-frame edits await review",async()=>{

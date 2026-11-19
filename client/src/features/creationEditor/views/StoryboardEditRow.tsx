@@ -12,13 +12,14 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { toast } from "sonner";
+import { EditingConfirmationDialog } from "../EditingConfirmationDialog";
 
 /** Shared by manuscript and editing grids, including viewport measurements. */
 export const STORYBOARD_TRACK_HEADER_WIDTH = 176;
 
 import { timelineImageClipStartFrame } from "@shared/storyMaterial";
-import { imageClipId, shotClipId, videoClipId } from "@shared/visualClipModel";
-import { visualObjectRefKey, type VisualObjectRef } from "@shared/visualObject";
+import { imageClipId, shotClipId, videoClipId, projectVisualClips, parseVisualTrackId } from "@shared/visualClipModel";
+import { visualObjectRefKey, visualObjectRefFromClip, type VisualObjectRef } from "@shared/visualObject";
 import {
   createVisualObjectPendingGuard,
   visualObjectCapabilities,
@@ -1669,7 +1670,10 @@ function StoryboardEditTrack({
               data-visual-clip-move-target="true"
               data-visual-object-type="image-clip"
               data-visual-object-id={clip.id}
+              data-visual-owner={shot.stableShotId}
+              data-batch-selected={timeline.multipleSelectedKeys?.has(`image-clip:${shot.stableShotId}:${clip.id}`) || undefined}
               aria-selected={
+                timeline.multipleSelectedKeys?.has(`image-clip:${shot.stableShotId}:${clip.id}`) ||
                 selectedVisualObject?.type === "image-clip" &&
                 selectedVisualObject.clipId === clip.id
               }
@@ -1754,7 +1758,8 @@ function StoryboardEditTrack({
               data-visual-clip-move-target="true"
               data-visual-object-type="story-shot"
               data-visual-object-id={shot.stableShotId}
-              aria-selected={selected}
+              data-batch-selected={timeline.multipleSelectedKeys?.has(`story-shot:${shot.stableShotId}`) || undefined}
+              aria-selected={selected || timeline.multipleSelectedKeys?.has(`story-shot:${shot.stableShotId}`)}
               aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Shift+ArrowLeft Shift+ArrowRight Shift+F10 ContextMenu"
               aria-label={_ui("{0} 视频剪辑，方向键左右移动、上下换层，按住 Shift 加速", [shot.shotLabel])}
               data-testid={`storyboard-edit-block-${shot.stableShotId}`}
@@ -1990,7 +1995,10 @@ function StoryboardEditTrack({
                         className="absolute inset-0 z-10 min-w-6 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-primary"
                         data-visual-object-type="owned-video-clip"
                         data-visual-object-id={segment.clip.id}
+                        data-visual-owner={shot.stableShotId}
+                        data-batch-selected={timeline.multipleSelectedKeys?.has(`owned-video-clip:${shot.stableShotId}:${segment.clip.id}`) || undefined}
                         aria-selected={
+                          timeline.multipleSelectedKeys?.has(`owned-video-clip:${shot.stableShotId}:${segment.clip.id}`) ||
                           selectedVisualObject?.type === "owned-video-clip" &&
                           selectedVisualObject.clipId === segment.clip.id
                         }
@@ -2504,11 +2512,16 @@ export function StoryboardEditRow({
   const [focusedAnchorId, setFocusedAnchorId] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [localSelectedVisualObject, setLocalSelectedVisualObject] =
-    useState<VisualObjectRef | null>(null);
+    useState<VisualObjectRef | null | undefined>(undefined);
+  const [multiSelect, setMultiSelect] = useState(false);
+  const [batchSelection, setBatchSelection] = useState<{ objects: VisualObjectRef[]; layer: number } | null>(null);
+  const [batchPending, setBatchPending] = useState(false);
+  const [confirmBatch, setConfirmBatch] = useState<typeof batchSelection>(null);
+  const batchLock = useRef(false);
+  const multipleSelectedKeys = useMemo(() => new Set(batchSelection?.objects.map(visualObjectRefKey) ?? []), [batchSelection]);
   const focusReturnRef = useRef<HTMLElement | null>(null);
   const pendingGuardRef = useRef(createVisualObjectPendingGuard());
   const pendingMenuItemRef = useRef<HTMLElement | null>(null);
-  const projectedShotNoRef = useRef<number | null | undefined>(undefined);
   const activeTimingGestureRef = useRef<symbol | null>(null);
   const shotTimingPreviewCallbackRef = useRef(onShotTimingPreviewChange);
   shotTimingPreviewCallbackRef.current = onShotTimingPreviewChange;
@@ -2533,17 +2546,19 @@ export function StoryboardEditRow({
   const childTimeline = useMemo<StoryboardBoardTimeline>(
     () => ({
       ...timeline,
+      multipleSelectedKeys,
       isStorySessionCurrent: isRenderedStorySessionCurrent,
     }),
-    [isRenderedStorySessionCurrent, timeline]
+    [isRenderedStorySessionCurrent, timeline, multipleSelectedKeys]
   );
   const trackRef = useRef<HTMLDivElement | null>(null);
   const rowRef = useRef<HTMLDivElement | null>(null);
   const selectedVisualObject =
     controlledSelectedVisualObject !== undefined
       ? controlledSelectedVisualObject
-      : (localSelectedVisualObject ??
-        (selectedShotNo == null
+      : localSelectedVisualObject !== undefined
+        ? localSelectedVisualObject
+        : (selectedShotNo == null
           ? null
           : (() => {
               const shot = shots.find(item => item.shotNo === selectedShotNo);
@@ -2554,52 +2569,33 @@ export function StoryboardEditRow({
                     shotNo: shot.shotNo,
                   } as const)
                 : null;
-            })()));
+            })());
   const selectVisualObject = useCallback(
-    (object: VisualObjectRef, target: HTMLElement) => {
+    (object: VisualObjectRef | null, target: HTMLElement) => {
+      if (batchLock.current) return;
+      setBatchSelection(null);
       focusReturnRef.current = target;
       if (controlledSelectedVisualObject === undefined) {
         setLocalSelectedVisualObject(object);
       }
       onSelectVisualObject?.(object);
-      const projectedShotNo =
-        object.type === "story-shot" ? (object.shotNo ?? null) : null;
-      projectedShotNoRef.current = projectedShotNo;
-      onSelectShot(projectedShotNo);
+      // Preview/current-shot changes are not edit-target changes. In particular,
+      // seeking an image must not project its owning V1 shot into this selection.
+      if (object?.type === "story-shot") onSelectShot(object.shotNo ?? null);
     },
     [controlledSelectedVisualObject, onSelectShot, onSelectVisualObject]
   );
-  useEffect(() => {
-    if (projectedShotNoRef.current === selectedShotNo) {
-      projectedShotNoRef.current = undefined;
-      return;
-    }
-    if (controlledSelectedVisualObject !== undefined) return;
-    const shot =
-      selectedShotNo == null
-        ? null
-        : (shots.find(item => item.shotNo === selectedShotNo) ?? null);
-    setLocalSelectedVisualObject(
-      shot
-        ? {
-            type: "story-shot",
-            stableShotId: shot.stableShotId,
-            shotNo: shot.shotNo,
-          }
-        : null
-    );
-    setMenu(null);
-    setObjectMenu(null);
-    setPasteMenu(null);
-    setPastePending(false);
-    focusReturnRef.current = null;
-  }, [controlledSelectedVisualObject, selectedShotNo, shots]);
   useLayoutEffect(() => {
     // Only a committed render may advance the guard. An interrupted concurrent
     // render never reaches this effect and therefore cannot invalidate A.
     asyncSessionGuardRef.current.commit(renderedStorySessionToken);
     if (storySessionKeyRef.current === timeline.storySessionKey) return;
     storySessionKeyRef.current = timeline.storySessionKey;
+    setMultiSelect(false);
+    setBatchSelection(null);
+    setBatchPending(false);
+    setConfirmBatch(null);
+    batchLock.current = false;
     if (controlledSelectedVisualObject === undefined)
       setLocalSelectedVisualObject(null);
     onSelectVisualObject?.(null);
@@ -2616,7 +2612,6 @@ export function StoryboardEditRow({
     activeTimingGestureRef.current = null;
     if (activeTimingGesture)
       shotTimingPreviewCallbackRef.current?.(null, activeTimingGesture);
-    projectedShotNoRef.current = undefined;
     pendingMenuItemRef.current = null;
     pendingGuardRef.current = createVisualObjectPendingGuard();
     focusReturnRef.current = null;
@@ -2703,6 +2698,61 @@ export function StoryboardEditRow({
     shot.timelineItem ? [shot.timelineItem] : []
   );
   const timelineOverlays = timeline.overlays ?? [];
+  const selectableVisuals = projectVisualClips({ items: timelineItems, overlays: [...timelineOverlays] }).flatMap(clip => {
+    const object = visualObjectRefFromClip(clip);
+    const layer = parseVisualTrackId(clip.trackId);
+    return object && layer != null ? [{ object, layer }] : [];
+  });
+  const selectionFingerprint = selectableVisuals.map(({ object, layer }) => `${visualObjectRefKey(object)}@${layer}`).join("|");
+  useEffect(() => {
+    setBatchSelection(selection => {
+      if (!selection) return selection;
+      const objects = selection.objects.filter(object => selectableVisuals.some(candidate =>
+        candidate.layer === selection.layer && visualObjectRefKey(candidate.object) === visualObjectRefKey(object)));
+      return objects.length === selection.objects.length ? selection : null;
+    });
+  }, [selectionFingerprint]);
+  const captureSelection = (event: React.MouseEvent | React.PointerEvent, select: boolean) => {
+    const target = (event.target as HTMLElement).closest<HTMLElement>("[data-visual-object-type]");
+    if (!target) return;
+    if (!(multiSelect || event.metaKey || event.ctrlKey || event.shiftKey)) {
+      if (select) setBatchSelection(null);
+      return;
+    }
+    event.stopPropagation();
+    if (!select || timeline.writePending || batchLock.current) return;
+    event.preventDefault();
+    const match = selectableVisuals.find(({ object }) => object.type === target.dataset.visualObjectType &&
+      (object.type === "story-shot" ? object.stableShotId === target.dataset.visualObjectId :
+        object.clipId === target.dataset.visualObjectId && object.ownerStableShotId === target.dataset.visualOwner));
+    if (!match) return;
+    target.focus({ preventScroll: true });
+    setMultiSelect(true);
+    setBatchSelection(current => {
+      const objects = current?.layer === match.layer ? current.objects : [];
+      const key = visualObjectRefKey(match.object);
+      return { layer: match.layer, objects: objects.some(object => visualObjectRefKey(object) === key)
+        ? objects.filter(object => visualObjectRefKey(object) !== key) : [...objects, match.object] };
+    });
+  };
+  const deleteBatch = async (confirmed = false) => {
+    if (!batchSelection?.objects.length || !timeline.onDeleteSelectedVisualObjects || timeline.writePending || batchLock.current) return;
+    if (!confirmed) { setConfirmBatch(batchSelection); return; }
+    if (confirmBatch !== batchSelection) { setConfirmBatch(null); return; }
+    setConfirmBatch(null);
+    const { objects, layer } = batchSelection;
+    const sessionToken = renderedStorySessionToken;
+    batchLock.current = true;
+    setBatchPending(true);
+    try {
+      await timeline.onDeleteSelectedVisualObjects(objects, layer);
+      if (isStorySessionTokenCurrent(sessionToken)) { setBatchSelection(null); setStatusMessage("已删除所选画面，可撤销或从历史版本恢复"); }
+    } catch (error) {
+      if (isStorySessionTokenCurrent(sessionToken)) setStatusMessage(error instanceof Error ? error.message : "删除失败");
+    } finally {
+      if (isStorySessionTokenCurrent(sessionToken)) { batchLock.current = false; setBatchPending(false); }
+    }
+  };
   const visualObjectLayer = (object: VisualObjectRef): number | null => {
     if (object.type === "story-shot") {
       const item = timelineItems.find(
@@ -2727,6 +2777,20 @@ export function StoryboardEditRow({
     );
     return clip == null ? null : Math.max(0, clip.visualLayer);
   };
+  const requestSingleDelete = (object: VisualObjectRef): boolean => {
+    if (!timeline.onDeleteSelectedVisualObjects) return false;
+    if (timeline.writePending || batchLock.current) return true;
+    const layer = visualObjectLayer(object);
+    if (layer == null) return true;
+    const selection = { layer, objects: [object] };
+    setBatchSelection(selection);
+    setObjectMenu(null);
+    setConfirmBatch(selection);
+    return true;
+  };
+  const selectedSingleLayer = selectedVisualObject
+    ? visualObjectLayer(selectedVisualObject)
+    : null;
   const visualLayerState =
     timeline.visualLayerState ??
     resolveTimelineVisualLayerState(null, timelineItems, timelineOverlays);
@@ -2847,6 +2911,7 @@ export function StoryboardEditRow({
     (command: VisualObjectCommand) => {
       if (!objectMenu || !timeline.onVisualObjectCommand) return;
       const object = objectMenu.object;
+      if (command === "delete" && requestSingleDelete(object)) return;
       if (
         timeline.isVisualObjectCommandAvailable &&
         !timeline.isVisualObjectCommandAvailable(object, command, {
@@ -2893,7 +2958,7 @@ export function StoryboardEditRow({
           setPendingObjectKey(null);
         });
     },
-    [closeObjectMenu, objectMenu, timeline]
+    [closeObjectMenu, objectMenu, timeline, requestSingleDelete]
   );
   const runSelectedObjectCommand = useCallback(
     (
@@ -2902,6 +2967,7 @@ export function StoryboardEditRow({
     ) => {
       const object = selectedVisualObject;
       if (!object || !timeline.onVisualObjectCommand) return false;
+      if (command === "delete" && requestSingleDelete(object)) return true;
       if (
         timeline.isVisualObjectCommandAvailable &&
         !timeline.isVisualObjectCommandAvailable(object, command, context)
@@ -2928,6 +2994,7 @@ export function StoryboardEditRow({
     },
     [
       selectedVisualObject,
+      requestSingleDelete,
       timeline,
       renderedStorySessionToken,
       isStorySessionTokenCurrent,
@@ -3211,8 +3278,18 @@ export function StoryboardEditRow({
   };
 
   const handleShortcut = (event: KeyboardEvent) => {
+    if (batchSelection?.objects.length && (event.key === "Delete" || event.key === "Backspace")) {
+      event.preventDefault(); event.stopPropagation(); void deleteBatch(); return;
+    }
+    if (event.key === "Escape" && multiSelect) { setBatchSelection(null); setMultiSelect(false); return; }
     const shortcut = storyboardEditShortcut(event);
     if (!shortcut) return;
+    // Never turn a cleared/missing image selection into a delete-at-playhead.
+    if (shortcut.kind === "action" && shortcut.action === "delete" && !selectedVisualObject) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
     const selectedObjectContext = selectedVisualObject
       ? {
           timelineFrame: Math.max(
@@ -3368,7 +3445,7 @@ export function StoryboardEditRow({
         ),
         isInteractionBoundary: Boolean(
           target?.closest(
-            'select, [role="combobox"], [role="dialog"], [role="menu"], [aria-haspopup="menu"], [data-renaming="true"], [data-rename-input="true"], [data-timeline-media-keyboard="true"]'
+            'select, [role="combobox"], [role="dialog"], [role="menu"], [aria-haspopup]:not([aria-haspopup="false"]), [data-renaming="true"], [data-rename-input="true"], [data-timeline-media-keyboard="true"]'
           )
         ),
         rowVisible: storyboardEditRowAcceptsGlobalShortcuts(rowRef.current),
@@ -3390,6 +3467,22 @@ export function StoryboardEditRow({
 
   return (
     <>
+      <EditingConfirmationDialog open={confirmBatch != null} title={_ui("删除 V{0} · {1} 项", [(confirmBatch?.layer ?? 0) + 1, confirmBatch?.objects.length ?? 0])} description={_ui(confirmBatch?.objects.some(object => object.type === "story-shot") ? "选区包含完整镜头，会同时删除对应镜头文字及主画面。素材仍保留在仓库，可从历史恢复。" : "只删除所选时间线片段，其他画面层保持原样。素材仍保留在仓库，可撤销或从历史恢复。")} confirmLabel={_ui("确认删除所选画面 / Delete selected")} onCancel={() => setConfirmBatch(null)} onConfirm={() => void deleteBatch(true)} />
+      {timeline.onDeleteSelectedVisualObjects && <div role="cell" style={{ gridColumn: "1 / -1" }} className="flex flex-wrap items-center gap-2 border-y px-2 py-1 text-xs" aria-label="画面多选操作">
+        <button type="button" aria-pressed={multiSelect} className="rounded border px-2 py-1" disabled={batchPending} onClick={() => { setMultiSelect(!multiSelect); setBatchSelection(null); }}>{_ui("多选画面 / Select clips")}</button>
+        {!multiSelect && selectedVisualObject && selectedVisualObject.type !== "story-shot" && selectedSingleLayer != null && (
+          <button type="button" data-testid="delete-selected-visual-object" className="rounded border px-2 py-1 text-destructive disabled:opacity-40" disabled={batchPending || timeline.writePending} onClick={() => requestSingleDelete(selectedVisualObject)}>
+            {_ui("删除所选 V{0} · {1} 项 / Delete", [selectedSingleLayer + 1, 1])}
+          </button>
+        )}
+        {multiSelect && <>
+          <span>{batchSelection ? _ui("V{0} · 已选 {1} 项", [batchSelection.layer + 1, batchSelection.objects.length]) : _ui("点击同一画面层的片段，可逐个选择或取消")}</span>
+          {Array.from({ length: visualLayerState.count }, (_, layer) => selectableVisuals.some(item => item.layer === layer) && <button key={layer} type="button" className="rounded border px-2 py-1" disabled={batchPending || timeline.writePending} onClick={() => setBatchSelection({ layer, objects: selectableVisuals.filter(item => item.layer === layer).map(item => item.object) })}>{_ui("全选 V{0} / Select all", [layer + 1])}</button>)}
+          <button type="button" className="rounded border px-2 py-1 text-destructive disabled:opacity-40" disabled={!batchSelection?.objects.length || batchPending || timeline.writePending} onClick={() => void deleteBatch()}>{batchPending ? _ui("正在删除…") : batchSelection ? _ui("删除所选 V{0} · {1} 项 / Delete", [batchSelection.layer + 1, batchSelection.objects.length]) : _ui("删除所选 / Delete selected")}</button>
+          <button type="button" disabled={batchPending} onClick={() => { setBatchSelection(null); setMultiSelect(false); }}>{_ui("取消多选 / Cancel selection")}</button>
+        </>}
+      </div>}
+      <div className="contents [&_[data-batch-selected=true]]:outline [&_[data-batch-selected=true]]:outline-[3px] [&_[data-batch-selected=true]]:outline-amber-400 [&_[data-batch-selected=true]]:z-30" onPointerDownCapture={event => captureSelection(event, false)} onClickCapture={event => captureSelection(event, true)} onDragStartCapture={event => { if (multiSelect) { event.preventDefault(); event.stopPropagation(); } }}>
       {Array.from(
         { length: Math.max(1, visualLayerState.count - 1) },
         (_, index) => visualLayerState.count - 1 - index
@@ -3408,7 +3501,7 @@ export function StoryboardEditRow({
           onManageLayer={manageVisualLayer}
           onNudgeVisualClip={nudgeVisualClip}
           onShotTimingPreviewChange={handleShotTimingPreviewChange}
-          selectedVisualObject={selectedVisualObject}
+          selectedVisualObject={multiSelect ? null : selectedVisualObject}
           onSelectVisualObject={selectVisualObject}
           onOpenMenu={setMenu}
           onOpenObjectMenu={openObjectMenu}
@@ -3465,12 +3558,13 @@ export function StoryboardEditRow({
             disableGroupMove={false}
             onNudgeVisualClip={nudgeVisualClip}
             onShotTimingPreviewChange={handleShotTimingPreviewChange}
-            selectedVisualObject={selectedVisualObject}
+            selectedVisualObject={multiSelect ? null : selectedVisualObject}
             onSelectVisualObject={selectVisualObject}
             onOpenObjectMenu={openObjectMenu}
             onOpenPasteMenu={setPasteMenu}
           />
         </div>
+      </div>
       </div>
       {/* 固定语义顺序：视觉层 → 主画面 → 字幕 → 五类声音。 */}
       {timeline.subtitle ? (timeline.subtitle.tracks ?? [{ id: "subtitle", cues: [...timeline.subtitle.cues] }]).map((track, index) => (

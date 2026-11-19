@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import { storySpineStore } from "../spine/storySpine";
-import { missingFrameReviewMessages } from "../frameReviewRecovery";
+import { missingFrameReviewMessages, withoutDuplicateFrameReviewRecovery } from "../frameReviewRecovery";
 import { useUiLanguage } from "@/features/uiLanguage/UiLanguage";
 
 /** Reloading while local analysis runs must not strand a saved result outside chat. */
@@ -15,8 +15,11 @@ export function FrameReviewRecovery({ storyId, busy }: { storyId: number | null;
     if (busy || !storyId || !history.data) return;
     const current = storySpineStore.getState();
     if (current.activeStoryId !== storyId || current.accountId !== scope.accountId || current.storyScopeEpoch !== scope.storyScopeEpoch || current.isReplying) return;
-    const missing = missingFrameReviewMessages(current.messages, history.data, storyId, language);
-    if (missing.length) current.setMessages(messages => [...messages, ...missing]);
+    current.setMessages(messages => {
+      const unique = withoutDuplicateFrameReviewRecovery(messages);
+      const missing = missingFrameReviewMessages(unique, history.data, storyId, language);
+      return missing.length ? [...unique, ...missing] : unique;
+    });
   }, [busy, storyId, history.data, language, scope.accountId, scope.storyScopeEpoch]);
   return null;
 }

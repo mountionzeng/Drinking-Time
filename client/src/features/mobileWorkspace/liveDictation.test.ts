@@ -87,6 +87,42 @@ it("keeps recognized words on a network error and does not leak provider details
   expect(s.recognition.start).toHaveBeenCalledOnce();
 });
 
+it.each([
+  [undefined, "本次没有识别到文字"],
+  ["   ", "本次没有识别到文字"],
+  ["窗边", "文字在聊天输入框里"],
+])("reports what actually reached the draft after disconnecting with %s", (words, expected) => {
+  const s = setup();
+  s.recognition.onstart?.();
+  if (words) s.result([words, true]);
+  vi.advanceTimersByTime(7000);
+  s.recognition.onerror?.({ error: "network" });
+  expect(s.callbacks.onError).toHaveBeenCalledWith(expect.stringContaining(expected));
+  expect(s.callbacks.onText.mock.calls).toEqual(words?.trim() ? [[words]] : []);
+});
+
+it("keeps partial words once and tells the user where to find them", () => {
+  const s = setup();
+  s.result(["窗", true], ["边", false]);
+  const lateEnd = s.recognition.onend;
+  s.recognition.onerror?.({ error: "network" });
+  lateEnd?.();
+  expect(s.callbacks.onText.mock.calls).toEqual([["窗"], ["边"]]);
+  expect(s.callbacks.onError).toHaveBeenCalledWith(expect.stringContaining("文字在聊天输入框里"));
+});
+
+it("reports a browser ending with no result, but stays quiet after an explicit stop", () => {
+  const unexpected = setup();
+  unexpected.recognition.onstart?.();
+  unexpected.recognition.onend?.();
+  expect(unexpected.callbacks.onError).toHaveBeenCalledWith(expect.stringContaining("本次没有识别到文字"));
+  const stopped = setup();
+  stopped.recognition.onstart?.();
+  stopped.session.stop();
+  stopped.recognition.onend?.();
+  expect(stopped.callbacks.onError).not.toHaveBeenCalled();
+});
+
 it("ignores captured callbacks after unmount or account switch and aborts capture", () => {
   const s = setup();
   const lateResult = s.recognition.onresult,
@@ -115,6 +151,7 @@ it("handles a synchronous permission failure without leaving the control busy", 
 it("ends stalled permission requests and limits a recording to ten minutes", () => {
   const s = setup();
   vi.advanceTimersByTime(15_000);
+  expect(s.callbacks.onError).toHaveBeenCalledWith(expect.stringContaining("系统听写"));
   expect(s.callbacks.onState).toHaveBeenLastCalledWith("idle");
   const active = setup();
   active.recognition.onstart?.();
@@ -122,4 +159,16 @@ it("ends stalled permission requests and limits a recording to ten minutes", () 
   expect(active.recognition.stop).toHaveBeenCalledOnce();
   vi.runAllTimers();
   expect(active.callbacks.onState).toHaveBeenLastCalledWith("idle");
+});
+
+it("cancels a pending start immediately and ignores a late browser callback", () => {
+  const s = setup();
+  const lateStart = s.recognition.onstart;
+  s.session.cancelStart();
+  expect(s.callbacks.onState).toHaveBeenLastCalledWith("idle");
+  expect(s.recognition.abort).toHaveBeenCalledOnce();
+  lateStart?.();
+  vi.runAllTimers();
+  expect(s.callbacks.onState).not.toHaveBeenCalledWith("listening");
+  expect(s.callbacks.onError).not.toHaveBeenCalled();
 });

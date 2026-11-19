@@ -2,6 +2,13 @@ import { beforeEach, expect, it, vi } from "vitest";
 const m = vi.hoisted(() => ({ vision: vi.fn(), materialize: vi.fn() }));
 vi.mock("../_core/inferenceOrchestrator", () => ({ runInference: m.vision }));
 vi.mock("./imageAssets", () => ({ materializeImageInput: m.materialize }));
+vi.mock("../_core/env", async importOriginal => {
+  const actual = await importOriginal<typeof import("../_core/env")>();
+  return { ...actual, ENV: { ...actual.ENV,
+    openaiNextApiKey: "test-next", openaiNextVisionModel: "gpt-4o",
+    api302Key: "", vision302ApiKey: "",
+  } };
+});
 process.env.DATABASE_URL = "";
 import { createStory, getStoryById, updateStoryBodyIfRevision } from "../repositories/stories";
 import { createGeneratedImage, getGeneratedImageById } from "../repositories/images";
@@ -19,6 +26,22 @@ beforeEach(async () => {
   const story = await createStory({ userId: 123, title: "visual", body: { shots: [{ stableShotId: "s1", shotNo: 1 }, { stableShotId: "s2", shotNo: 2 }], keep: "original" } });
   owner = { userId: 123, storyId: story.id, stableShotId: "s1" };
   imageId = (await createGeneratedImage({ ...owner, shotIdentity: "s1", imageKey: "source", imageUrl: "/source.png", isCurrent: true })).id;
+});
+it("rejects an uncached quote without a configured model, while preserving a reusable free reading", async () => {
+  const { ENV } = await import("../_core/env");
+  const input = { ...owner, imageId, instruction: "保留明暗，只改颜色" };
+  await inspectVisualEdit(input);
+  m.vision.mockClear(); m.materialize.mockClear();
+  const previous = ENV.openaiNextApiKey;
+  ENV.openaiNextApiKey = "";
+  try {
+    expect(visualReadingCandidates(input)).toEqual([]);
+    await expect(quoteVisualEdit({ ...input, instruction: "另一个要求" }))
+      .rejects.toMatchObject({ code: "PRECONDITION_FAILED", message: expect.stringContaining("读图模型") });
+    expect(await quoteVisualEdit(input)).toMatchObject({ cached: true, estimatedCny: 0 });
+    expect(m.vision).not.toHaveBeenCalled();
+    expect(m.materialize).not.toHaveBeenCalled();
+  } finally { ENV.openaiNextApiKey = previous; }
 });
 it("sends actual owned image bytes, separates observations and preserves the source; deduplicates saved reads", async () => {
   const input = { ...owner, imageId, instruction: "只让色彩更细腻，明暗不变" };

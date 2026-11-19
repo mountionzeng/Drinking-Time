@@ -43,6 +43,22 @@ export function hasConversationShotReference(text: string) {
     text
   );
 }
+/** Only a complete navigation sentence may bypass the conversational editor. */
+export function isShotConversationNavigation(text: string) {
+  return /^(?:请)?(?:查看|打开|看看|显示|show|open)\s*(?:第\s*[\d零一二三四五六七八九十两]+\s*(?:个)?镜(?:头)?|(?:镜头|shot)\s*\d{1,6})\s*(?:的)?\s*(?:记录|历史|对话|素材|仓库|history|conversation|materials|warehouse)[。.!！]?$/i.test(text.trim());
+}
+/** Resolve a read-only archive target at submission time, before any async reply. */
+export function conversationWarehouseShot<T extends Shot>(
+  text: string,
+  storyId: number,
+  shots: readonly T[],
+  selection?: Pick<SelectionContext, "storyId" | "stableShotId"> | null
+): T | undefined {
+  if (!text.trim()) return undefined;
+  if (hasConversationShotReference(text)) return resolveConversationShot(text, shots);
+  if (selection?.storyId !== storyId || !selection.stableShotId) return undefined;
+  return shots.find(shot => (shot.stableShotId ?? shot.shotIdentity) === selection.stableShotId);
+}
 export function isShotConversationQuestion(text: string) {
   return /怎么|如何|为什么|哪些|记录|历史|\bhow\b|\bwhy\b|\bhistory\b/i.test(text);
 }

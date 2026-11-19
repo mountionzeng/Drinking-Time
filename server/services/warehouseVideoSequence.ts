@@ -12,6 +12,7 @@ import {
 } from "../../shared/warehouseVideoSequence";
 import { estimateViduQ2TransitionCny } from "../../shared/videoRenderCost";
 import { withVideoVisualFidelity } from "../../shared/videoMotionPolicy";
+import { describeOrigin, needsObjectOrigin } from "../../shared/videoObjectOrigin";
 import { fromYuan } from "../../shared/computeMoney";
 import {
   getVideoTakeById,
@@ -36,6 +37,8 @@ import { refreshStartEndShotVideoTake } from "./startEndShotVideoWorkflow";
 import { localVideoDir } from "./videoMedia";
 import { probeVideoFileMetadata } from "./videoConform";
 import { ENV } from "../_core/env";
+import { prepareFrameReviewVideo } from "./frameReviewVideo";
+import { directionFromTimeline, readVideoTimelineCues } from "./videoTimelineCues";
 
 const runFile = promisify(execFile);
 const record = (value: unknown): Record<string, any> =>
@@ -47,7 +50,7 @@ const hash = (value: unknown) =>
 export const isWarehouseVideoSequence = (take: VideoTake) =>
   record(take.parameterSnapshot).kind === "warehouse-image-sequence";
 
-async function readFrame(url: string, userId: number) {
+export async function readFrame(url: string, userId: number) {
   const input = await materializeImageInput(url, userId);
   const match = /^data:image\/[a-z0-9.+-]+;base64,([A-Za-z0-9+/=\s]+)$/i.exec(
     input,
@@ -69,7 +72,7 @@ async function readFrame(url: string, userId: number) {
   const png = await sharp(bytes).rotate().png().toBuffer();
   if (png.length >= 10 * 1024 * 1024)
     throw new Error("图片转为PNG后超过10MB，请先缩小图片。");
-  return { bytes, meta, png };
+  return { bytes, meta, png, sourceImage: input };
 }
 
 async function prepareSequence(
@@ -77,6 +80,12 @@ async function prepareSequence(
   userId: number,
 ) {
   const input = warehouseVideoSequenceInput.parse(raw);
+  if (input.secondCues && needsObjectOrigin([input.prompt,...input.secondCues.flat()].join("\n")) && !input.objectOrigin)
+    throw new Error("请先在首帧上圈出变形主体并核对局部预览，再查看报价。");
+  if (input.objectOrigin && input.objectOrigin.imageId !== input.imageIds[0])
+    throw new Error("变形主体的首帧已改变，请重新圈选。");
+  if (input.secondCues && (input.review || input.secondCues.length !== input.imageIds.length - 1 ||
+      input.secondCues[0].length !== input.segmentSeconds)) throw new Error("逐秒方案与关键帧或时长不一致，请重新确认");
   const story = await getStoryById(input.storyId, userId);
   if (!story) throw new Error("故事不存在或无权操作");
   const shots = record(story.body).shots;
@@ -86,6 +95,14 @@ async function prepareSequence(
       (s) => (s.stableShotId ?? s.shotIdentity) === input.stableShotId,
     );
   if (!shot) throw new Error("目标镜头已不存在，请重新选择");
+  const validateReview = async () => {
+    if (!input.review) return;
+    const plan = await prepareFrameReviewVideo({ ...input, userId, review: input.review });
+    if (JSON.stringify(plan.images.map(image => image.id)) !== JSON.stringify(input.imageIds) || plan.segmentSeconds !== input.segmentSeconds)
+      throw new Error("确认的关键帧或原时长已变化，请重新核对 / Reviewed frames or timing changed");
+    return plan;
+  };
+  await validateReview();
   const assets = await getStoryImageAssets(input.storyId, userId);
   const frames: Buffer[] = [];
   const images = await Promise.all(
@@ -108,14 +125,19 @@ async function prepareSequence(
       };
     }),
   );
-  const segmentCny = estimateViduQ2TransitionCny({
-    durationSec: input.segmentSeconds,
+  const durations = warehouseSequencePairs(input.imageIds).map((_, index) => input.secondCues?.[index].length ?? input.segmentSeconds);
+  const segmentCosts = durations.map(durationSec => estimateViduQ2TransitionCny({
+    durationSec,
     resolution: "720p",
     uploadCount: 2,
-  }).estimatedCny;
+  }).estimatedCny);
+  const segmentCny = segmentCosts[0];
+  const timelineCues = await readVideoTimelineCues(input.storyId,userId,input.stableShotId,durations);
   const prompts = warehouseSequencePairs(input.imageIds).map((_, index) =>
     withVideoVisualFidelity(
-      `${input.prompt}\n连续镜头第${index + 1}段，共${input.imageIds.length - 1}段。以两张输入图为准确起止画面，衔接平稳。`,
+      [input.objectOrigin && (index === 0 ? describeOrigin(input.objectOrigin, images[0].width, images[0].height) : "延续首段变形后的同一主体，原主体不重复出现。"),
+        input.prompt, input.secondCues?.[index].map((cue, second) => `${second}–${second + 1}秒：${cue}`).join("\n"), directionFromTimeline(timelineCues[index]),
+        `连续镜头第${index + 1}段，共${input.imageIds.length - 1}段。以两张输入图为准确起止画面，衔接平稳。`].filter(Boolean).join("\n"),
     ),
   );
   for (const prompt of prompts) {
@@ -124,22 +146,28 @@ async function prepareSequence(
     });
     if (refusal) throw new Error(refusal);
   }
+  const reviewedPlan = await validateReview();
   const quote = {
     input,
+    reviewedSource: reviewedPlan ? { takeId: reviewedPlan.sourceTakeId, durationSec: reviewedPlan.sourceDurationSec, review: reviewedPlan.review } : undefined,
     images,
     shotNo: Number(shot.shotNo),
     segmentCny,
-    totalCny: Number((segmentCny * (images.length - 1)).toFixed(2)),
-    totalSeconds: input.segmentSeconds * (images.length - 1),
+    segmentCosts,
+    durations,
+    totalCny: Number(segmentCosts.reduce((total, cost) => total + cost, 0).toFixed(2)),
+    totalSeconds: durations.reduce((total, seconds) => total + seconds, 0),
     fingerprint: hash({
       input,
       images: images.map((i) => [i.id, i.checksum]),
       segmentCny,
+      ...(input.secondCues ? { segmentCosts } : {}),
+      ...(timelineCues.some(Boolean) ? {timelineCues} : {}),
       model: "viduq2-turbo",
       version: 1,
     }),
   };
-  return { quote, frames, prompts };
+  return { quote, frames, prompts, timelineCues };
 }
 
 export async function quoteWarehouseVideoSequence(
@@ -148,7 +176,7 @@ export async function quoteWarehouseVideoSequence(
 ) {
   return (await prepareSequence(input, userId)).quote;
 }
-const sequenceKey = (userId: number, storyId: number, requestId: string) =>
+export const sequenceKey = (userId: number, storyId: number, requestId: string) =>
   `warehouse-sequence:${hash([userId, storyId, requestId])}`;
 export async function findWarehouseVideoSequence(
   storyId: number,
@@ -194,7 +222,7 @@ export async function submitWarehouseVideoSequence(
       throw new Error("请求内容已改变，请查看原任务");
     return existing;
   }
-  const { quote, frames, prompts } = await prepareSequence(input, userId);
+  const { quote, frames, prompts, timelineCues } = await prepareSequence(input, userId);
   await runFile(process.env.FFMPEG_PATH ?? "ffmpeg", ["-version"], {
     timeout: 10000,
     maxBuffer: 1024 * 1024,
@@ -232,6 +260,8 @@ export async function submitWarehouseVideoSequence(
       requestId: input.requestId,
       fingerprint: quote.fingerprint,
       stableShotId: input.stableShotId,
+      reviewedSource: quote.reviewedSource,
+      timelineCues,
       frameSnapshots: quote.images.map(({ id, width, height, checksum }) => ({
         id,
         width,
@@ -240,6 +270,8 @@ export async function submitWarehouseVideoSequence(
       })),
       imageIds: input.imageIds,
       segmentSeconds: input.segmentSeconds,
+      ...(input.secondCues ? { secondCues: input.secondCues, segmentDurations: quote.durations } : {}),
+      ...(input.objectOrigin ? { objectOrigin: input.objectOrigin } : {}),
       estimatedCny: quote.totalCny,
       childTakeIds: [],
       submissionState: "submitting",
@@ -265,7 +297,7 @@ export async function submitWarehouseVideoSequence(
       const child = await createVideoTakeIdempotently({
         ...common,
         sourceImageId: pair[0],
-        durationSec: input.segmentSeconds,
+        durationSec: quote.durations[index],
         prompt: prompts[index],
         idempotencyKey: childKey,
         parameterSnapshot: {
@@ -274,16 +306,16 @@ export async function submitWarehouseVideoSequence(
           sequenceParentTakeId: take.id,
           firstFrameImageId: pair[0],
           lastFrameImageId: pair[1],
-          durationSec: input.segmentSeconds,
+          durationSec: quote.durations[index],
           resolution: "720p",
           movementAmplitude: "auto",
           submissionState: "not_started",
-          estimatedCny: quote.segmentCny,
+          estimatedCny: quote.segmentCosts[index],
           computeOperationId: operationId,
           renderProfile: buildRenderSnapshot("video.vidu-q2-turbo-start-end", {
             baseUrl: ENV.api302BaseUrl || "https://api.302.ai",
             quoteInput: {
-              durationSec: input.segmentSeconds,
+              durationSec: quote.durations[index],
               resolution: "720p",
             },
           }),
@@ -297,7 +329,7 @@ export async function submitWarehouseVideoSequence(
           operationId,
           userId,
           storyId: input.storyId,
-          maxCostMinor: fromYuan(quote.segmentCny),
+          maxCostMinor: fromYuan(quote.segmentCosts[index]),
           requestHash: childKey,
         });
         if (reservation.outcome !== "reserved")
@@ -318,7 +350,7 @@ export async function submitWarehouseVideoSequence(
           prompt: child.prompt,
           firstImageUrl: urls[0],
           lastImageUrl: urls[1],
-          durationSec: input.segmentSeconds,
+          durationSec: quote.durations[index],
           resolution: "720p",
           movementAmplitude: "auto",
         },
