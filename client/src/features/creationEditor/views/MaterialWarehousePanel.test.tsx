@@ -1,5 +1,6 @@
 vi.mock('@/lib/trpc', () => ({ trpc: {
   useUtils: () => ({}),
+  activityJourney: { record: { useMutation: () => ({ mutate: vi.fn() }) } },
   creationAgent: { chatFrameReferences: { useMutation: () => ({ mutateAsync: vi.fn() }) } },
   storyAgent: { chatImageRevisions: { useQuery: () => ({ data: [] }) } },
   timelineMedia: { audioAssetLibrary: { useQuery: () => ({ data: [] }) } },

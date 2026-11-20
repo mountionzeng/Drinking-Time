@@ -26,6 +26,7 @@ import {
   resolvePostLoginDestination,
 } from "@/features/auth/mobileReturnPath";
 import { rootWorkspacePath } from "@/features/mobileWorkspace/mobileWorkspaceEntry";
+import { JourneySurface } from "@/features/activityJourney/useActivityJourney";
 
 function AuthGuard({
   children,
@@ -77,7 +78,9 @@ function AdminGuard({ children }: { children: ReactNode }) {
 /** Choose once on entry: resizing an open desktop draft must not unmount it. */
 export function EditingEntry() {
   const [mobile] = useState(() => rootWorkspacePath() === "/m");
-  return mobile ? <MobileWorkspacePage /> : <EditingStudioPage />;
+  return mobile
+    ? <><JourneySurface surface="mobile" /><MobileWorkspacePage /></>
+    : <><JourneySurface surface="studio" /><EditingStudioPage /></>;
 }
 
 export default function AppRouter() {

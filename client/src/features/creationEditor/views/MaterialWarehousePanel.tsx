@@ -1,4 +1,5 @@
 import { WarehouseImageSelection, toggleWarehouseImage, MAX_WAREHOUSE_VIDEO_IMAGES, type WarehouseSelectedImage } from "./WarehouseImageSelection";
+import { noteResultOpened } from "@/features/activityJourney/useActivityJourney";
 import { READ_WAREHOUSE_CHAT_SELECTION, type WarehouseChatSelectionRequest } from "../warehouseChatSelection";
 import { WarehouseVideoSequenceDialog } from "./WarehouseVideoSequenceDialog";
 import { WarehouseConnectionStatus } from "./WarehouseConnectionStatus";
@@ -573,6 +574,13 @@ export default function MaterialWarehousePanel({
   const [imageSelection, setImageSelection] = useState<{scope:string;images:WarehouseSelectedImage[]}>({scope:"",images:[]});
   const [sequenceOpen, setSequenceOpen] = useState(false);
   const [previewImage, setPreviewImage] = useState<WarehouseImageItem | null>(null);
+  const recordJourney = trpc.activityJourney.record.useMutation();
+  useEffect(() => {
+    const imageId = previewImage?.image.id;
+    if (typeof imageId === "number" && Number.isSafeInteger(imageId) && imageId > 0) {
+      noteResultOpened(recordJourney.mutate, imageId);
+    }
+  }, [previewImage?.image.id, recordJourney.mutate]);
   const hoverClose = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previewLocked = useRef(false);
   const cancelPreviewClose = () => { if (hoverClose.current) clearTimeout(hoverClose.current); };

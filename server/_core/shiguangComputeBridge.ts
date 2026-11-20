@@ -4,6 +4,7 @@ import { z } from "zod";
 import { hasValidBridgeSignature } from "./shiguangBridgeSignature";
 import { getAccountBalance, listUserBillingStatementSources, reserveForOperation, settleOperation } from "../services/computeLedger";
 import { findBillingOperation, type BillingStatementCursor, type BillingStatementKind, type BillingStatementSourceRow } from "../repositories/computeLedger";
+import { noteMiniprogramReservation } from "../repositories/activityJourney";
 import { assertMinorAmount, COMPUTE_UNITS_PER_YUAN } from "../../shared/computeMoney";
 
 type Dependencies = {
@@ -148,6 +149,16 @@ export function createShiguangComputeBridgeRouter(deps: Dependencies) {
           ...data, userId, operationId: operationKey(userId, data.operationId),
           operationType: "shiguang." + data.operationType,
         });
+        if (result.outcome === "reserved") {
+          const key = operationKey(userId, data.operationId);
+          const existing = await findBillingOperation(key);
+          await noteMiniprogramReservation({
+            userId,
+            operationId: key,
+            operationType: "shiguang." + data.operationType,
+            billingOperationId: existing?.id ?? null,
+          }).catch(() => undefined);
+        }
         // No currency amounts are part of the mobile public protocol.
         return res.json({ outcome: result.outcome, ...("status" in result ? { status: result.status } : {}) });
       }

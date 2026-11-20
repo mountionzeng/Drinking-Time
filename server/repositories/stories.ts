@@ -28,6 +28,7 @@ import {
 } from "./runtime";
 import { emptyBody, persistedStoryBodyRevision } from "./storyValues";
 import { capturePersonalMemoryEvent } from "./memoryEvents";
+import { noteStoryBodySaved } from "./activityJourney";
 import { readTrashedStories } from "./storyTrashState";
 
 // ─── Story ──────────────────────────────────────────────────────────────
@@ -544,6 +545,7 @@ export async function updateStoryBodyIfRevision(input: {
         }
         throw error;
       }
+      try { await noteStoryBodySaved(input.userId, input.id); } catch { /* 阶段记录不能回滚已保存的正文 */ }
       return true;
     });
   }
@@ -568,5 +570,10 @@ export async function updateStoryBodyIfRevision(input: {
       );
     }
     return true;
+  }).then(async saved => {
+    if (saved) {
+      try { await noteStoryBodySaved(input.userId, input.id); } catch { /* 阶段记录不影响已提交的正文 */ }
+    }
+    return saved;
   });
 }

@@ -14474,8 +14474,61 @@
           "summary": "聊天保存完整时长的视频。前一镜后的空档可用时接入原轨，长度不合时选择该时段空闲的可见画面轨，刷新后仍能回看。"
         }
       ]
+    },
+    {
+      "id": "activity-journey",
+      "name": "网站与小程序关键阶段记录",
+      "status": "partial",
+      "userValue": "之后新发生的访问、进入创作、未计费保存、提交生成、服务端确认的成功或失败、查看结果、再次进入和打开充值，可以按网站或小程序分开看，并落到同一个账号。",
+      "entryPoints": [
+        "client/src/app/router/AppRouter.tsx",
+        "client/src/features/admin/AccessTracker.tsx",
+        "client/src/features/computeAccount/RechargeDialog.tsx",
+        "client/src/features/creationEditor/views/MaterialWarehousePanel.tsx",
+        "server/routers/activityJourney.ts",
+        "server/_core/shiguangActivityRoutes.ts"
+      ],
+      "owners": [
+        "shared/activityJourney.ts",
+        "server/repositories/activityJourney.ts",
+        "server/services/activityJourney.ts",
+        "server/routers/activityJourney.ts",
+        "drizzle/0043_activity_journey.sql",
+        "docs/activity-journey.md"
+      ],
+      "evidence": [
+        "shared/activityJourney.test.ts",
+        "server/activityJourney.test.ts"
+      ],
+      "invariants": [
+        "阶段表不存提示词、作品、上传、输入、聊天、邮箱、手机号、openid、完整地址、IP、原始错误或任意扩展内容。",
+        "用户编号只来自网站会话或已签名的小程序主体解析，客户端不能指定 userId 或平台。",
+        "generation.resolved 的 succeeded 只来自已入库图片、可播放视频或出图任务首次入库。供应商 succeeded 和账务 settled 不能写成作品成功。",
+        "采集失败、缺表、重复和限流都不能改变创作、扣费或支付的结果。",
+        "不回填部署前的访问、生成和账务，也不用自己的账号或测试标签排除任何人。"
+      ],
+      "dependencies": [
+        "account-compute-gift-payments",
+        "image-generation-task-table"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "正式小程序客户端在独立仓库。本仓只能看到已签名桥的列故事、读故事和预占；浏览、未保存编辑、退出和只存在于小程序侧的作品查看还没有事件。",
+        "仓库内 miniprogram 目录仍是不联网的 mock，不能当作小程序使用记录。",
+        "同步出图只有显式标记 recordGenerationResult 的入库会计入成功，其余保存点会漏记而不是误记。",
+        "session.ended 依赖浏览器 pagehide 或小程序主动报告。没有收到就不记停留，也不能解释成仍在线。",
+        "旧的 accessAnalytics.overview 仍只列出有邮箱的用户。新表不继承这个过滤，也不改旧名单。",
+        "迁移只提供可审 SQL，正式库尚未执行，因此线上还没有这些新事件。"
+      ],
+      "history": [
+        {
+          "date": "2026-11-20",
+          "kind": "feature",
+          "summary": "新增封闭阶段表和网站、小程序桥的最小插桩。成功只认已持久化的结果，提交和失败按操作去重，采集失败不影响创作与结算。不回填历史，不把小程序客户端未接入的行为算作已覆盖。"
+        }
+      ]
     }
   ],
   "schemaVersion": 1,
-  "updatedAt": "2026-11-17"
+  "updatedAt": "2026-11-20"
 }

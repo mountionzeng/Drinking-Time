@@ -843,7 +843,7 @@ export async function generateNextImage(
       isCurrent: !lockedAssets,
       generationType: "generate",
       maskKey: null,
-    });
+    }, { recordGenerationResult: true });
     return {
       status: "ok",
       generatedImage: {
@@ -1101,7 +1101,7 @@ export async function replyFromCreationAgent(
             isCurrent: true,
             generationType: "generate",
             maskKey: null,
-          });
+          }, { recordGenerationResult: true });
           generatedImage = {
             imageUrl: revised.imageUrl,
             imageKey: revised.imageKey ?? "",

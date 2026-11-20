@@ -1,6 +1,7 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import { useEffect } from "react";
+import { noteSessionEnded } from "@/features/activityJourney/useActivityJourney";
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
 const HEARTBEAT_DEDUP_MS = 25_000;
@@ -56,6 +57,7 @@ export default function AccessTracker() {
   const { user, isAuthenticated } = useAuth();
   const { mutate: sendAccessHeartbeat } =
     trpc.accessAnalytics.heartbeat.useMutation();
+  const { mutate: recordJourney } = trpc.activityJourney.record.useMutation();
 
   useEffect(() => {
     if (
@@ -102,13 +104,20 @@ export default function AccessTracker() {
       if (document.visibilityState === "visible") sendHeartbeat();
     };
     document.addEventListener("visibilitychange", handleVisibilityChange);
+    const endVisit = () => {
+      const visit = parseStoredVisit(localStorage.getItem(storageKey));
+      if (visit) noteSessionEnded(recordJourney, visit.visitId);
+    };
+    window.addEventListener("pagehide", endVisit);
 
     return () => {
       window.clearInterval(intervalId);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("pagehide", endVisit);
     };
   }, [
     isAuthenticated,
+    recordJourney,
     sendAccessHeartbeat,
     user?.id,
     user?.loginMethod,

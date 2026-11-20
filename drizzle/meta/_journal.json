@@ -302,6 +302,13 @@
       "when": 1794568465326,
       "tag": "0042_story_mailbox_handoff",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "5",
+      "when": 1795300000000,
+      "tag": "0043_activity_journey",
+      "breakpoints": true
     }
   ]
 }

@@ -20,6 +20,7 @@ import {
   now,
   persistMemoryState,
 } from "./runtime";
+import { noteProviderAttemptJourney } from "./activityJourney";
 
 // ══════════════════════════════════════════════════════════════════════
 // 算力账本：不可改写的逐笔记录 + 事务内预占
@@ -1115,6 +1116,19 @@ export async function findActiveCreditHold(
   return hold ?? null;
 }
 
+async function observeProviderAttempt(
+  operation: BillingOperation,
+  input: RecordProviderAttemptInput
+): Promise<void> {
+  await noteProviderAttemptJourney({
+    userId: operation.userId,
+    operationId: input.operationId,
+    operationType: operation.operationType,
+    billingOperationId: operation.id,
+    status: input.status,
+  });
+}
+
 export type RecordProviderAttemptInput = {
   operationId: string;
   attemptIndex: number;
@@ -1156,6 +1170,7 @@ export async function recordProviderAttempt(
       existing.costMinor = input.costMinor ?? existing.costMinor;
       existing.updatedAt = current;
       await persistMemoryState();
+      await observeProviderAttempt(operation, input);
       return { kind: "recorded" };
     }
     memoryState.providerAttempts.push({
@@ -1175,6 +1190,7 @@ export async function recordProviderAttempt(
       updatedAt: current,
     });
     await persistMemoryState();
+    await observeProviderAttempt(operation, input);
     return { kind: "recorded" };
   }
 
@@ -1200,6 +1216,7 @@ export async function recordProviderAttempt(
         costMinor: input.costMinor ?? null,
       },
     });
+  await observeProviderAttempt(operation, input);
   return { kind: "recorded" };
 }
 

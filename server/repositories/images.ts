@@ -23,6 +23,7 @@ import {
 } from "./runtime";
 import { capturePersonalMemoryEvent } from "./memoryEvents";
 import { resolvePromptCompilationIdForAsset } from "./assetLineage";
+import { noteStoredGeneration } from "./activityJourney";
 
 // ─── Generated Images（手机端） ─────────────────────────────────────────
 // 手机端聊天出图的图片记录查询。createGeneratedImage 统一定义在下方桌面端部分。
@@ -597,8 +598,23 @@ export async function getRecentChatCorrections(
 // ─── Generated Images（统一） ────────────────────────────────────────────
 // 桌面端通过 projectId+shotNo 关联，手机端通过 storyId+userId 关联。
 
+async function finishGeneratedImage(
+  image: GeneratedImage,
+  recordGenerationResult?: boolean
+): Promise<GeneratedImage> {
+  if (recordGenerationResult && image.userId != null && image.imageUrl) {
+    await noteStoredGeneration({
+      userId: image.userId,
+      kind: "image",
+      subjectRef: image.id,
+    });
+  }
+  return image;
+}
+
 export async function createGeneratedImage(
-  data: Omit<InsertGeneratedImage, "id" | "createdAt">
+  data: Omit<InsertGeneratedImage, "id" | "createdAt">,
+  options?: { recordGenerationResult?: boolean }
 ): Promise<GeneratedImage> {
   const db = await getDb();
   if (!db) {
@@ -663,7 +679,7 @@ export async function createGeneratedImage(
         },
       });
     }
-    return image;
+    return finishGeneratedImage(image, options?.recordGenerationResult);
   }
   // 把同一镜头的旧图标记为非当前；优先按稳定镜头身份，旧数据用 shotNo 兜底。
   if (
@@ -736,7 +752,7 @@ export async function createGeneratedImage(
       },
     });
   }
-  return image;
+  return finishGeneratedImage(image, options?.recordGenerationResult);
 }
 
 /** Remove only shot assignment. Keep the asset, lineage and stored file available in the warehouse. */

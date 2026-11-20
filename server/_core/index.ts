@@ -20,6 +20,7 @@ import { shiguangDesktopBridgeRoutes } from "./shiguangDesktopBridgeRoutes";
 import { chapterDeliveryMediaRoutes } from "./chapterDeliveryMediaRoute";
 import { shiguangBridgeRoutes } from "./shiguangBridgeRoutes";
 import { shiguangComputeBridgeRoutes } from "./shiguangComputeBridgeRoutes";
+import { shiguangActivityRoutes } from "./shiguangActivityRoutes";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
@@ -176,6 +177,7 @@ async function startServer() {
   app.use("/api/shiguang", storyMailboxNativeRoutes());
   app.use("/api/mailbox-native-media", storyMailboxNativeMediaRoutes());
   app.use("/api/shiguang", shiguangComputeBridgeRoutes());
+  app.use("/api/shiguang", shiguangActivityRoutes());
   app.use("/api/shiguang", shiguangBridgeRoutes());
   app.use(
     "/api",
