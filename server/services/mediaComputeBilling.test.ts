@@ -263,12 +263,20 @@ describe("video submission and reconciliation with the real ledger", () => {
       );
     });
     vi.stubGlobal("fetch", fetcher);
-    const [first, duplicate] = await Promise.all([
+    const results = await Promise.all([
       startShotVideoJob(request, 1),
       startShotVideoJob(request, 1),
     ]);
-    expect(first.status, JSON.stringify(first)).toBe("ok");
-    expect(["ok", "error"]).toContain(duplicate.status);
+    // Either caller can finish decoding the frame and reserve the job first.
+    const accepted = results.find(result => result.status === "ok");
+    expect(accepted).toMatchObject({ status: "ok", take: { id: expect.any(Number) } });
+    for (const result of results) {
+      if (result.status === "ok") {
+        expect(result.take.id).toBe(accepted?.take.id);
+      } else {
+        expect(result.error).toBe("视频正在生成或结果待核对，不会重复提交");
+      }
+    }
     expect(
       fetcher.mock.calls.filter(call => call[1]?.method === "POST")
     ).toHaveLength(1);
