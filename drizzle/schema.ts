@@ -132,6 +132,47 @@ export type AccessSession = typeof accessSessions.$inferSelect;
 export type InsertAccessSession = typeof accessSessions.$inferInsert;
 
 /**
+ * 登录后的关键阶段。只存内部用户编号、封闭事件名、平台、时间和结果类别。
+ * 不存提示词、作品、地址、身份材料、原始错误或任意扩展字段。
+ * 旧代码不读这张表；采集失败必须放过创作和扣费。
+ */
+export const activityJourneyEvents = mysqlTable(
+  "activity_journey_events",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    userId: int("userId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    platform: varchar("platform", { length: 16 }).notNull(),
+    eventName: varchar("eventName", { length: 40 }).notNull(),
+    result: varchar("result", { length: 16 }).default("none").notNull(),
+    failureCategory: varchar("failureCategory", { length: 32 }),
+    subjectKind: varchar("subjectKind", { length: 16 }),
+    subjectRef: int("subjectRef"),
+    dedupeKey: varchar("dedupeKey", { length: 80 }).notNull(),
+    occurredAt: timestamp("occurredAt").defaultNow().notNull(),
+  },
+  table => ({
+    userDedupe: uniqueIndex("activity_journey_user_dedupe").on(
+      table.userId,
+      table.dedupeKey
+    ),
+    occurredIndex: index("activity_journey_occurred_idx").on(table.occurredAt),
+    eventTimeIndex: index("activity_journey_event_time_idx").on(
+      table.eventName,
+      table.occurredAt
+    ),
+    userTimeIndex: index("activity_journey_user_time_idx").on(
+      table.userId,
+      table.occurredAt
+    ),
+  })
+);
+
+export type ActivityJourneyEvent = typeof activityJourneyEvents.$inferSelect;
+export type InsertActivityJourneyEvent = typeof activityJourneyEvents.$inferInsert;
+
+/**
  * Projects — each analysis session is a project
  */
 export const projects = mysqlTable("projects", {

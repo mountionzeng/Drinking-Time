@@ -16,6 +16,7 @@ import {
   now,
   persistMemoryState,
 } from "./runtime";
+import { noteWebVisit } from "./activityJourney";
 
 const MAX_ACCESS_HEARTBEAT_GAP_SECONDS = 90;
 
@@ -106,6 +107,7 @@ export async function recordAccessHeartbeat(input: {
     };
     memoryState.accessSessions.push(row);
     await persistMemoryState();
+    await noteWebVisit(input.userId, input.visitId);
     return row;
   }
 
@@ -130,6 +132,7 @@ export async function recordAccessHeartbeat(input: {
       lastSeenAt: occurredAt,
       durationSeconds: 0,
     });
+    await noteWebVisit(input.userId, input.visitId);
   } else {
     const elapsedSeconds = Math.max(
       0,

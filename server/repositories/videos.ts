@@ -24,6 +24,16 @@ import {
 } from "./runtime";
 import { resolvePromptCompilationIdForAsset } from "./assetLineage";
 import { jsonRecord } from "./storyValues";
+import { noteStoredGeneration } from "./activityJourney";
+
+async function noteVideoIfNewlyAvailable(
+  previous: VideoTake | null,
+  row: VideoTake | null
+): Promise<void> {
+  if (!row || row.status !== "available" || !(row.videoUrl || row.videoKey)) return;
+  if (previous?.status === "available" && (previous.videoUrl || previous.videoKey)) return;
+  await noteStoredGeneration({ userId: row.userId, kind: "video", subjectRef: row.id });
+}
 
 // ─── Video Takes（图生视频素材）────────────────────────────────────────
 
@@ -67,6 +77,9 @@ export async function createVideoTake(
     };
     memoryState.videoTakes.push(row);
     await persistMemoryState();
+    if (row.status === "available" && (row.videoUrl || row.videoKey)) {
+      await noteStoredGeneration({ userId: row.userId, kind: "video", subjectRef: row.id });
+    }
     return row;
   }
   const promptCompilationId = await resolvePromptCompilationIdForAsset(db, {
@@ -84,6 +97,7 @@ export async function createVideoTake(
     .select()
     .from(videoTakes)
     .where(eq(videoTakes.id, result.insertId));
+  await noteVideoIfNewlyAvailable(null, row);
   return row;
 }
 
@@ -99,14 +113,24 @@ export async function updateVideoTake(
       take => take.id === id && take.userId === userId
     );
     if (!row) return null;
+    const previousStatus = row.status;
+    const hadMedia = Boolean(row.videoUrl || row.videoKey);
     applyDefinedValues(
       row as unknown as Record<string, unknown>,
       data as unknown as Record<string, unknown>
     );
     row.updatedAt = now();
     await persistMemoryState();
+    if (
+      row.status === "available" &&
+      (row.videoUrl || row.videoKey) &&
+      !(previousStatus === "available" && hadMedia)
+    ) {
+      await noteStoredGeneration({ userId: row.userId, kind: "video", subjectRef: row.id });
+    }
     return row;
   }
+  const previous = await getVideoTakeById(id, userId);
   await db
     .update(videoTakes)
     .set(data)
@@ -115,6 +139,7 @@ export async function updateVideoTake(
     .select()
     .from(videoTakes)
     .where(and(eq(videoTakes.id, id), eq(videoTakes.userId, userId)));
+  await noteVideoIfNewlyAvailable(previous, row ?? null);
   return row ?? null;
 }
 

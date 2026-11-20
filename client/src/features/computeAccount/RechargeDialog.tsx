@@ -1,3 +1,4 @@
+import { noteRechargeOpened } from "@/features/activityJourney/useActivityJourney";
 import { useUiText } from "@/features/uiLanguage/UiLanguage";
 import React, { useState } from "react";
 import { trpc } from "@/lib/trpc";
@@ -19,8 +20,12 @@ export function RechargeDialog() {
   const t = useUiText();
 
   const [open, setOpen] = useState(false);
+  const recordJourney = trpc.activityJourney.record.useMutation();
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={next => {
+      setOpen(next);
+      if (next) noteRechargeOpened(recordJourney.mutate);
+    }}>
       <DialogTrigger asChild>
         <button
           type="button"

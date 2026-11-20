@@ -2,6 +2,33 @@ import { and, asc, eq, inArray, isNotNull, isNull, lte, or, sql } from "drizzle-
 import { generatedImages, imageGenerationTasks, stories, type ImageGenerationTaskRow } from "../../drizzle/schema";
 import type { ImageTaskStatus } from "../../shared/imageGenerationTask";
 import { getDb } from "./runtime";
+import {
+  noteImageTaskJourney,
+  noteStoredGeneration,
+} from "./activityJourney";
+
+async function noteImageTaskPatch(
+  row: { userId: number; id: string; billingOperationId?: string | null },
+  patch: ImageTaskPatch
+): Promise<void> {
+  if (patch.status === "accepted" && patch.providerTaskId?.trim()) {
+    await noteImageTaskJourney({
+      userId: row.userId,
+      taskId: row.id,
+      billingOperationId: row.billingOperationId,
+      status: "submitted",
+    });
+    return;
+  }
+  if (patch.status === "failed" || patch.status === "submission_unknown") {
+    await noteImageTaskJourney({
+      userId: row.userId,
+      taskId: row.id,
+      billingOperationId: row.billingOperationId,
+      status: patch.status === "failed" ? "failed" : "unknown",
+    });
+  }
+}
 
 export type ImageTaskImage = { imageUrl: string; imageKey?: string | null };
 export type StoredTaskImage = { imageId: number; imageUrl: string };
@@ -54,6 +81,9 @@ export function createMemoryImageTaskStore(rows: ImageGenerationTaskRow[] = [], 
         if (!insertImages) throw new Error("内存模式缺少图片入库实现");
         const stored = await insertImages(clone(r), images);
         Object.assign(r, { status: "succeeded", candidates: stored, error: null, completedAt: now, version: r.version + 1, updatedAt: now });
+        for (const image of stored) {
+          await noteStoredGeneration({ userId: r.userId, kind: "image", subjectRef: image.imageId });
+        }
         return { row: clone(r), inserted: true };
       });
       locks.set(id, run.catch(() => undefined));
@@ -93,6 +123,7 @@ export function createMemoryImageTaskStore(rows: ImageGenerationTaskRow[] = [], 
       if (!r || r.version !== expected.version || r.status !== expected.status) return null;
       if (patch.providerTaskId && rows.some(x => x !== r && x.providerTaskId === patch.providerTaskId)) throw new Error("providerTaskId 已存在");
       Object.assign(r, patch, { version: r.version + 1, updatedAt: now });
+      await noteImageTaskPatch(r, patch);
       return clone(r);
     },
   };
@@ -104,7 +135,7 @@ export function createMysqlImageTaskStore(db: NonNullable<Awaited<ReturnType<typ
   const affected = (res: unknown) => Number((Array.isArray(res) ? res[0] : res as { affectedRows?: number })?.affectedRows ?? 0);
   return {
     async succeedWithImages(id, images, now) {
-      return db.transaction(async tx => {
+      const result = await db.transaction(async tx => {
         const [r] = await tx.select().from(t).where(eq(t.id, id)).for("update");
         if (!r) return null;
         if (r.status === "succeeded") return { row: r, inserted: false };
@@ -122,6 +153,12 @@ export function createMysqlImageTaskStore(db: NonNullable<Awaited<ReturnType<typ
         await tx.update(t).set({ status: "succeeded", candidates: stored, error: null, completedAt: now, version: r.version + 1, updatedAt: now }).where(eq(t.id, id));
         return { row: { ...r, status: "succeeded", candidates: stored, error: null, completedAt: now, version: r.version + 1, updatedAt: now }, inserted: true };
       });
+      if (result?.inserted) {
+        for (const image of result.row.candidates) {
+          await noteStoredGeneration({ userId: result.row.userId, kind: "image", subjectRef: image.imageId });
+        }
+      }
+      return result;
     },
     async listForModule(userId, storyId, chapterId, moduleId) {
       return db.select().from(t).where(and(eq(t.userId, userId), eq(t.storyId, storyId), eq(t.chapterId, chapterId), eq(t.moduleId, moduleId)))
@@ -155,7 +192,9 @@ export function createMysqlImageTaskStore(db: NonNullable<Awaited<ReturnType<typ
     async update(id, expected, patch, now) {
       const res = await db.update(t).set({ ...patch, version: expected.version + 1, updatedAt: now })
         .where(and(eq(t.id, id), eq(t.version, expected.version), inArray(t.status, [expected.status])));
-      return affected(res) === 1 ? get(id) : null;
+      const row = affected(res) === 1 ? await get(id) : null;
+      if (row) await noteImageTaskPatch(row, patch);
+      return row;
     },
   };
 }

@@ -24,6 +24,7 @@ import {
   StoryMailboxThread,
   StoryMailboxEntry,
   AccessSession,
+  ActivityJourneyEvent,
   Project,
   Reference,
   Shot,
@@ -118,6 +119,7 @@ function createEmptyMemoryCollections() {
     downstreamRegenerationCandidates: [] as DownstreamRegenerationCandidateRow[],
     users: [] as User[],
     accessSessions: [] as AccessSession[],
+    activityJourneyEvents: [] as ActivityJourneyEvent[],
     projects: [] as Project[],
     references: [] as Reference[],
     shots: [] as Shot[],
@@ -179,6 +181,7 @@ const memoryIdCollections = {
   chapterDeliveryAsset: "chapterDeliveryAssets",
   user: "users",
   accessSession: "accessSessions",
+  activityJourneyEvent: "activityJourneyEvents",
   project: "projects",
   reference: "references",
   shot: "shots",
@@ -372,6 +375,10 @@ function normalizeLoadedState(raw: Partial<MemoryState>) {
     startedAt: toDate(item.startedAt),
     lastSeenAt: toDate(item.lastSeenAt),
   })) as AccessSession[];
+  memoryState.activityJourneyEvents = (raw.activityJourneyEvents ?? []).map(item => ({
+    ...item,
+    occurredAt: toDate(item.occurredAt),
+  })) as ActivityJourneyEvent[];
 
   memoryState.projects = (raw.projects ?? []).map(item => ({
     ...item,

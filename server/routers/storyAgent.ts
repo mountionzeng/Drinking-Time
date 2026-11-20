@@ -2728,7 +2728,7 @@ export const storyAgentRouter = router({
               promptCompilationId,
               generationType: "generate", // 草稿小样；确认后由 final 轨出 MJ 正式版
               isCurrent: false,
-            });
+            }, { recordGenerationResult: true });
             return {
               status: "ok" as const,
               imageUrl: draft.imageUrl,
@@ -2973,7 +2973,7 @@ export const storyAgentRouter = router({
                 : "initial",
               parentImageId: input.referenceRevision ? input.renderReferences!.imageIds[0] : input.draftImageId ?? null,
               isCurrent: false,
-            })
+            }, { recordGenerationResult: true })
           );
         }
         let timelinePlacementWarning: string | undefined;
@@ -3124,7 +3124,7 @@ export const storyAgentRouter = router({
           generationType: "inpaint",
           parentImageId: input.parentImageId ?? null,
           isCurrent: false,
-        });
+        }, { recordGenerationResult: true });
         return {
           status: "ok" as const,
           imageUrl: result.imageUrl,
