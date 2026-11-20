@@ -1,3 +1,5 @@
+-- 只新增阶段表。不修改、不读取任何业务表。
+-- 应用在 ACTIVITY_JOURNEY_ENABLED=true 之前不写这张表。
 CREATE TABLE `activity_journey_events` (
   `id` int AUTO_INCREMENT NOT NULL,
   `userId` int NOT NULL,

@@ -141,6 +141,7 @@ function toView(row: ActivityJourneyEvent): ActivityEventView | null {
 }
 
 export async function noteActivityEvent(input: NewActivityEvent): Promise<"recorded" | "duplicate" | "rejected" | "dropped"> {
+  if (process.env.ACTIVITY_JOURNEY_ENABLED !== "true") return "dropped";
   try {
     return await insertActivityEvent(input);
   } catch {
@@ -287,15 +288,11 @@ function dayKey(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
 
-function halfHourBucket(date: Date): string {
-  return String(Math.floor(date.getTime() / 1_800_000));
-}
-
 export async function noteWebVisit(userId: number, visitId: string): Promise<void> {
   await noteActivityEvent({
     userId,
     platform: "web",
-    eventName: "account.entered",
+    eventName: "visit.started",
     dedupeKey: `enterweb${activityKey([String(userId), visitId])}`,
   });
 }
@@ -306,8 +303,9 @@ export async function noteProviderAttemptJourney(input: {
   operationType: string;
   billingOperationId: number;
   status: string;
+  providerTaskId?: string | null;
 }): Promise<void> {
-  const journey = journeyFromProviderAttempt(input.status);
+  const journey = journeyFromProviderAttempt(input.status, input.providerTaskId);
   if (!journey) return;
   const operationKey = activityKey([input.operationId]);
   await noteActivityEvent({
@@ -379,44 +377,6 @@ export async function noteStoryBodySaved(userId: number, storyId: number, occurr
     subjectRef: storyId,
     occurredAt,
     dedupeKey: `editweb${activityKey([String(storyId), dayKey(occurredAt)])}`,
-  });
-}
-
-export async function noteMiniprogramVisit(userId: number, occurredAt = new Date()): Promise<void> {
-  await noteActivityEvent({
-    userId,
-    platform: "miniprogram",
-    eventName: "account.entered",
-    occurredAt,
-    dedupeKey: `entermp${activityKey([String(userId), halfHourBucket(occurredAt)])}`,
-  });
-}
-
-export async function noteMiniprogramStoryOpen(userId: number, storyId: number, occurredAt = new Date()): Promise<void> {
-  await noteActivityEvent({
-    userId,
-    platform: "miniprogram",
-    eventName: "creation.entered",
-    subjectKind: "story",
-    subjectRef: storyId,
-    occurredAt,
-    dedupeKey: `openmp${activityKey([String(userId), String(storyId), halfHourBucket(occurredAt)])}`,
-  });
-}
-
-export async function noteMiniprogramReservation(input: {
-  userId: number;
-  operationId: string;
-  operationType: string;
-  billingOperationId?: number | null;
-}): Promise<void> {
-  await noteActivityEvent({
-    userId: input.userId,
-    platform: "miniprogram",
-    eventName: "generation.submitted",
-    subjectKind: subjectKindForOperationType(input.operationType),
-    subjectRef: input.billingOperationId ?? null,
-    dedupeKey: `submit${activityKey([input.operationId])}`,
   });
 }
 

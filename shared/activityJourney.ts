@@ -10,16 +10,15 @@ export type ActivityPlatform = (typeof ACTIVITY_PLATFORMS)[number];
 
 /** 只有服务端在确认事实后写入。 */
 export const SERVER_ACTIVITY_EVENTS = [
-  "account.entered",
+  "visit.started",
   "creation.edited",
   "generation.submitted",
   "generation.resolved",
 ] as const;
 
-/** 网页会话或已签名的小程序桥可以报告的导航与意图。不是作品事实。 */
+/** 网站会话可以报告的导航与意图。不是注册、不是作品事实、也不是支付。 */
 export const CLIENT_ACTIVITY_EVENTS = [
   "creation.entered",
-  "creation.edit_started",
   "result.opened",
   "recharge.opened",
   "session.ended",
@@ -46,7 +45,7 @@ export type FailureCategory = (typeof FAILURE_CATEGORIES)[number];
 export const SUBJECT_KINDS = ["image", "video", "audio", "text", "story", "other"] as const;
 export type SubjectKind = (typeof SUBJECT_KINDS)[number];
 
-export const CLIENT_SURFACES = ["studio", "mobile", "book", "home", "story", "create", "recharge"] as const;
+export const CLIENT_SURFACES = ["studio", "mobile"] as const;
 export type ClientSurface = (typeof CLIENT_SURFACES)[number];
 
 export const ACTIVITY_RETENTION_DAYS = 180;
@@ -71,11 +70,16 @@ export type ProviderAttemptJourney =
 
 /**
  * 供应商尝试里的 succeeded 只说明供应商回执，不记为作品成功。
- * prepared 还没提交。同一次操作的重试由调用方用操作标识去重。
+ * prepared 发生在请求发出之前。submitted 或 task_known 只有带上供应商任务号，
+ * 才表示对方已经收下这次提交；没有任务号的 submitted 可能只是一段回执，不能叫提交。
  */
-export function journeyFromProviderAttempt(status: string): ProviderAttemptJourney | null {
+export function journeyFromProviderAttempt(
+  status: string,
+  providerTaskId?: string | null
+): ProviderAttemptJourney | null {
   if (!(PROVIDER_ATTEMPT_STATUSES as readonly string[]).includes(status)) return null;
   if (status === "submitted" || status === "task_known") {
+    if (!providerTaskId?.trim()) return null;
     return { eventName: "generation.submitted", result: "none", failureCategory: null };
   }
   if (status === "not_charged_failure") {

@@ -1,11 +1,6 @@
-import express from "express";
-import { createServer } from "node:http";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, afterEach, describe, expect, it } from "vitest";
 import { fromYuan } from "../shared/computeMoney";
 import type { TrpcContext } from "./_core/context";
-import { bridgeSignature, createShiguangBridgeRouter } from "./_core/shiguangBridge";
-import { createShiguangActivityRouter } from "./_core/shiguangActivityBridge";
-import { createShiguangComputeBridgeRouter } from "./_core/shiguangComputeBridge";
 import { resetMemoryStateForTesting, upsertUser, getUserByOpenId, createStory } from "./db";
 import { appRouter } from "./routers";
 import { recordAccessHeartbeat } from "./repositories/accessAnalytics";
@@ -35,8 +30,12 @@ async function user(openId: string, role: "user" | "admin" = "user", email?: str
 describe("关键操作阶段", () => {
   beforeEach(() => {
     process.env.DATABASE_URL = "";
+    process.env.ACTIVITY_JOURNEY_ENABLED = "true";
     resetMemoryStateForTesting();
     resetActivityJourneyLimiterForTesting();
+  });
+  afterEach(() => {
+    delete process.env.ACTIVITY_JOURNEY_ENABLED;
   });
 
   it("新的网站访问记一次进入，心跳续期和没有邮箱的微信账号都不漏、不重复", async () => {
@@ -45,7 +44,12 @@ describe("关键操作阶段", () => {
     await recordAccessHeartbeat({ userId: wechat.id, visitId: "visit-one-1", siteHost: "www.drinkingtime.top" });
     await recordAccessHeartbeat({ userId: wechat.id, visitId: "visit-one-1", siteHost: "www.drinkingtime.top" });
     const events = await listActivityEventsForUser(wechat.id);
-    expect(events).toEqual([expect.objectContaining({ platform: "web", eventName: "account.entered", result: "none" })]);
+    expect(events).toEqual([expect.objectContaining({ platform: "web", eventName: "visit.started", result: "none" })]);
+  });
+
+  it("建号本身不是访问，也不是生成成功", async () => {
+    const created = await user("brand-new");
+    expect(await listActivityEventsForUser(created.id)).toEqual([]);
   });
 
   it("供应商提交与失败去重，成功回执和账务结算都不记成作品成功", async () => {
@@ -57,8 +61,9 @@ describe("关键操作阶段", () => {
     });
     const attempt = { operationId: "op-image-1", attemptIndex: 1, provider: "example", status: "submitted" as const };
     await recordProviderAttempt(attempt);
-    await recordProviderAttempt({ ...attempt, attemptIndex: 2, status: "submitted" });
-    await recordProviderAttempt({ ...attempt, status: "succeeded" });
+    await recordProviderAttempt({ ...attempt, providerTaskId: "provider-task-1" });
+    await recordProviderAttempt({ ...attempt, attemptIndex: 2, providerTaskId: "provider-task-1" });
+    await recordProviderAttempt({ ...attempt, providerTaskId: "provider-task-1", status: "succeeded" });
     await settleOperation({ operationId: "op-image-1", outcome: { kind: "succeeded", verifiedCostMinor: fromYuan(1) } });
     await recordProviderAttempt({ ...attempt, attemptIndex: 3, status: "not_charged_failure" });
     const events = await listActivityEventsForUser(owner.id);
@@ -134,7 +139,13 @@ describe("关键操作阶段", () => {
       event: "recharge.opened", dedupeKey: "recharge01", platform: "miniprogram", userId: other.id, result: "succeeded",
     })).rejects.toMatchObject({ code: "BAD_REQUEST" });
     await expect(caller.activityJourney.record({
-      event: "generation.resolved", dedupeKey: "forged001", result: "succeeded",
+      event: "creation.edit_started", surface: "studio", dedupeKey: "editclaim1",
+    })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(caller.activityJourney.record({
+      event: "session.ended", dedupeKey: "endvisit01", durationSeconds: 30,
+    })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(caller.activityJourney.record({
+      event: "recharge.opened", dedupeKey: "x".repeat(81),
     })).rejects.toMatchObject({ code: "BAD_REQUEST" });
     expect(await caller.activityJourney.record({ event: "recharge.opened", dedupeKey: "recharge01" })).toEqual({ outcome: "recorded" });
     expect(await caller.activityJourney.record({ event: "recharge.opened", dedupeKey: "recharge01" })).toEqual({ outcome: "duplicate" });
@@ -173,118 +184,28 @@ describe("关键操作阶段", () => {
     expect((await listActivityEventsForUser(owner.id)).filter(item => item.eventName === "recharge.opened")).toHaveLength(30);
   });
 
-  it("小程序桥只按签名主体记录，不能申报生成成功", async () => {
-    const subject = `shiguang:${"ab".repeat(32)}`;
-    const secret = "test-shiguang-bridge-secret-at-least-32";
-    const app = express();
-    const nonces = new Set<string>();
-    app.use("/api/shiguang", createShiguangBridgeRouter({
-      enabled: true, secret, ready: async () => true, allow: async () => true,
-      resolve: async () => 41, principal: async () => ({ id: 41, sessionVersion: 1 }),
-      emailHint: async () => "m***@example.com", requestOtp: async () => "sent",
-      linkEmail: async () => ({ outcome: "linked", userId: 41 }),
-      stories: async () => ({ stories: [{ id: 9, title: "不能进入阶段表的标题" }], nextCursor: null }),
-      document: async () => ({ title: "标题", body: "不能进入阶段表的正文", bodyAvailable: true, sourceRevision: "c".repeat(24), sourceUpdatedAt: 1 }),
-      now: () => Date.now(),
-    }));
-    app.use("/api/shiguang", createShiguangActivityRouter({
-      enabled: true, secret, ready: async () => true, allow: async () => true, resolve: async () => 41,
-      claimNonce: async (_timestamp, nonce) => nonces.size < 20 && nonces.add(nonce) === nonces,
-      now: () => Date.now(),
-    }));
-    const server = createServer(app);
-    await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
-    const port = (server.address() as { port: number }).port;
-    const post = (path: string, body: Record<string, unknown>, signed = true) => {
-      const timestamp = String(Date.now());
-      const nonce = `nonce${path.replace(/[^A-Za-z]/g, "")}${nonces.size}`.padEnd(16, "x");
-      return fetch(`http://127.0.0.1:${port}/api/shiguang${path}`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-shiguang-timestamp": timestamp,
-          "x-shiguang-nonce": nonce,
-          "x-shiguang-signature": signed ? bridgeSignature(secret, path, timestamp, nonce, body) : "0".repeat(64),
-        },
-        body: JSON.stringify(body),
-      });
-    };
-    try {
-      expect((await post("/stories", { subject })).status).toBe(200);
-      expect((await post("/stories/read", { subject, storyId: 9 })).status).toBe(200);
-      expect((await post("/activity", { subject, event: "creation.entered", surface: "home", dedupeKey: "homeenter" }, false)).status).toBe(401);
-      expect((await post("/activity", { subject, event: "generation.resolved", dedupeKey: "forged001", result: "succeeded" })).status).toBe(400);
-      expect((await post("/activity", {
-        subject, event: "creation.edit_started", surface: "story", dedupeKey: "editclaim", userId: 99,
-      })).status).toBe(400);
-      expect((await post("/activity", {
-        subject, event: "session.ended", dedupeKey: "leaveonce",
-      })).status).toBe(200);
-      const events = await listActivityEventsForUser(41);
-      expect(events.map(item => item.eventName)).toEqual(["account.entered", "creation.entered", "session.ended"]);
-      expect(events.every(item => item.platform === "miniprogram")).toBe(true);
-      const serialized = JSON.stringify(events);
-      expect(serialized).not.toContain("不能进入阶段表");
-      expect(serialized).not.toContain(subject);
-    } finally {
-      await new Promise<void>(resolve => server.close(() => resolve()));
-    }
-  });
-
-  it("小程序预占记为提交，结算成功仍不是作品成功", async () => {
-    const subject = `shiguang:${"cd".repeat(32)}`;
-    const secret = "test-compute-bridge-secret-at-least-32";
-    await upsertUser({ openId: subject, loginMethod: "wechat" });
-    const owner = (await getUserByOpenId(subject))!;
-    await grantCredit({ userId: owner.id, amountMinor: fromYuan(5), idempotencyKey: "gift:mini", reason: "测试额度" });
-    const nonces = new Set<string>();
-    const app = express();
-    app.use("/api/shiguang", createShiguangComputeBridgeRouter({
-      enabled: true, secret, ready: async () => true,
-      claimNonce: async (_timestamp, nonce) => nonces.size < 20 && nonces.add(nonce) === nonces,
-      resolve: async () => owner.id, allow: async () => true,
-    }));
-    const server = createServer(app);
-    await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
-    const port = (server.address() as { port: number }).port;
-    const post = async (action: string, body: Record<string, unknown>) => {
-      const path = `/compute/${action}`;
-      const timestamp = String(Date.now());
-      const nonce = `compute${action}${nonces.size}`.padEnd(16, "x");
-      const response = await fetch(`http://127.0.0.1:${port}/api/shiguang${path}`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-shiguang-timestamp": timestamp,
-          "x-shiguang-nonce": nonce,
-          "x-shiguang-signature": bridgeSignature(secret, path, timestamp, nonce, body),
-        },
-        body: JSON.stringify(body),
-      });
-      return { status: response.status, body: await response.json() };
-    };
-    try {
-      const operation = { subject, operationId: "mini-image-1", operationType: "storyImages", requestHash: "e".repeat(64), maxCostMinor: 100_000 };
-      expect((await post("reserve", operation)).body.outcome).toBe("reserved");
-      expect((await post("reserve", operation)).body.outcome).toBe("replayed");
-      expect((await post("settle", { subject, operationId: "mini-image-1", outcome: { kind: "succeeded", verifiedCostMinor: 100_000 } })).body.outcome).toBe("settled");
-      const events = await listActivityEventsForUser(owner.id);
-      expect(events).toEqual([expect.objectContaining({
-        platform: "miniprogram", eventName: "generation.submitted", result: "none", subjectKind: "image",
-      })]);
-    } finally {
-      await new Promise<void>(resolve => server.close(() => resolve()));
-    }
+  it("关闭开关时不写阶段，图片入库仍然返回", async () => {
+    delete process.env.ACTIVITY_JOURNEY_ENABLED;
+    const owner = await user("disabled");
+    const image = await createGeneratedImage(
+      { userId: owner.id, imageUrl: "/kept.png", prompt: "仍要返回" },
+      { recordGenerationResult: true }
+    );
+    expect(image.id).toBeGreaterThan(0);
+    expect(await acceptClientActivity({
+      userId: owner.id, platform: "web", body: { event: "recharge.opened", dedupeKey: "recharge01" },
+    })).toBe("dropped");
+    expect(await listActivityEventsForUser(owner.id)).toEqual([]);
   });
 
   it("过期阶段可以清理，不制造历史记录", async () => {
     const owner = await user("old");
     await noteActivityEvent({
-      userId: owner.id, platform: "web", eventName: "account.entered", dedupeKey: "oldvisit1",
+      userId: owner.id, platform: "web", eventName: "visit.started", dedupeKey: "oldvisit1",
       occurredAt: new Date("2020-01-01T00:00:00Z"),
     });
     await noteActivityEvent({
-      userId: owner.id, platform: "web", eventName: "account.entered", dedupeKey: "newvisit1",
+      userId: owner.id, platform: "web", eventName: "visit.started", dedupeKey: "newvisit1",
     });
     expect(await pruneActivityEvents(new Date("2021-01-01T00:00:00Z"))).toBe(1);
     expect(await listActivityEventsForUser(owner.id)).toHaveLength(1);

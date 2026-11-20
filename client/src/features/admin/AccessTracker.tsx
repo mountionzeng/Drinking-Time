@@ -104,6 +104,7 @@ export default function AccessTracker() {
       if (document.visibilityState === "visible") sendHeartbeat();
     };
     document.addEventListener("visibilitychange", handleVisibilityChange);
+    // pagehide 没发出就不记。没有这条记录不能推算停留，也不能当成仍在页面上。
     const endVisit = () => {
       const visit = parseStoredVisit(localStorage.getItem(storageKey));
       if (visit) noteSessionEnded(recordJourney, visit.visitId);

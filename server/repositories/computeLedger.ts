@@ -1126,6 +1126,7 @@ async function observeProviderAttempt(
     operationType: operation.operationType,
     billingOperationId: operation.id,
     status: input.status,
+    providerTaskId: input.providerTaskId,
   });
 }
 

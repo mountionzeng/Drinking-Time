@@ -7,6 +7,29 @@ import {
   noteStoredGeneration,
 } from "./activityJourney";
 
+async function noteImageTaskPatch(
+  row: { userId: number; id: string; billingOperationId?: string | null },
+  patch: ImageTaskPatch
+): Promise<void> {
+  if (patch.status === "accepted" && patch.providerTaskId?.trim()) {
+    await noteImageTaskJourney({
+      userId: row.userId,
+      taskId: row.id,
+      billingOperationId: row.billingOperationId,
+      status: "submitted",
+    });
+    return;
+  }
+  if (patch.status === "failed" || patch.status === "submission_unknown") {
+    await noteImageTaskJourney({
+      userId: row.userId,
+      taskId: row.id,
+      billingOperationId: row.billingOperationId,
+      status: patch.status === "failed" ? "failed" : "unknown",
+    });
+  }
+}
+
 export type ImageTaskImage = { imageUrl: string; imageKey?: string | null };
 export type StoredTaskImage = { imageId: number; imageUrl: string };
 /** Memory-mode warehouse writer (MySQL mode inserts inside the task transaction). */
@@ -75,12 +98,6 @@ export function createMemoryImageTaskStore(rows: ImageGenerationTaskRow[] = [], 
       if (existing) return { row: clone(existing), replayed: true };
       if (row.providerTaskId && rows.some(r => r.providerTaskId === row.providerTaskId)) throw new Error("providerTaskId 已存在");
       rows.push(clone(row));
-      await noteImageTaskJourney({
-        userId: row.userId,
-        taskId: row.id,
-        billingOperationId: row.billingOperationId,
-        status: "submitted",
-      });
       return { row: clone(row), replayed: false };
     },
     async get(id) { const r = rows.find(x => x.id === id); return r ? clone(r) : null; },
@@ -106,14 +123,7 @@ export function createMemoryImageTaskStore(rows: ImageGenerationTaskRow[] = [], 
       if (!r || r.version !== expected.version || r.status !== expected.status) return null;
       if (patch.providerTaskId && rows.some(x => x !== r && x.providerTaskId === patch.providerTaskId)) throw new Error("providerTaskId 已存在");
       Object.assign(r, patch, { version: r.version + 1, updatedAt: now });
-      if (patch.status === "failed" || patch.status === "submission_unknown") {
-        await noteImageTaskJourney({
-          userId: r.userId,
-          taskId: r.id,
-          billingOperationId: r.billingOperationId,
-          status: patch.status === "failed" ? "failed" : "unknown",
-        });
-      }
+      await noteImageTaskPatch(r, patch);
       return clone(r);
     },
   };
@@ -159,14 +169,6 @@ export function createMysqlImageTaskStore(db: NonNullable<Awaited<ReturnType<typ
       const created = affected(res) === 1;
       const stored = (await db.select().from(t).where(and(eq(t.userId, row.userId), eq(t.requestId, row.requestId))).limit(1))[0];
       if (!stored) throw new Error("出图任务登记失败");
-      if (created && stored.id === row.id) {
-        await noteImageTaskJourney({
-          userId: stored.userId,
-          taskId: stored.id,
-          billingOperationId: stored.billingOperationId,
-          status: "submitted",
-        });
-      }
       return { row: stored, replayed: !created || stored.id !== row.id };
     },
     get,
@@ -191,14 +193,7 @@ export function createMysqlImageTaskStore(db: NonNullable<Awaited<ReturnType<typ
       const res = await db.update(t).set({ ...patch, version: expected.version + 1, updatedAt: now })
         .where(and(eq(t.id, id), eq(t.version, expected.version), inArray(t.status, [expected.status])));
       const row = affected(res) === 1 ? await get(id) : null;
-      if (row && (patch.status === "failed" || patch.status === "submission_unknown")) {
-        await noteImageTaskJourney({
-          userId: row.userId,
-          taskId: row.id,
-          billingOperationId: row.billingOperationId,
-          status: patch.status === "failed" ? "failed" : "unknown",
-        });
-      }
+      if (row) await noteImageTaskPatch(row, patch);
       return row;
     },
   };

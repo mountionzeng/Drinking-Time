@@ -1,7 +1,6 @@
 import { Router, json, type Request, type Response } from "express";
 import type { EmailLinkResult } from "../services/accountIdentity";
 import { hasValidBridgeSignature } from "./shiguangBridgeSignature";
-import { noteMiniprogramStoryOpen, noteMiniprogramVisit } from "../repositories/activityJourney";
 
 export { canonicalJson, bridgeSignature } from "./shiguangBridgeSignature";
 
@@ -99,7 +98,6 @@ export function createShiguangBridgeRouter(deps: ShiguangBridgeDependencies) {
     if (Buffer.byteLength(JSON.stringify(page)) > 200 * 1024) {
       return void res.status(413).json({ error: "story_list_too_large" });
     }
-    await noteMiniprogramVisit(user.id).catch(() => undefined);
     res.json(page);
   }));
   router.post("/stories/read", endpoint(async (req, res, user) => {
@@ -113,7 +111,6 @@ export function createShiguangBridgeRouter(deps: ShiguangBridgeDependencies) {
     if (Buffer.byteLength(JSON.stringify(payload)) > 240 * 1024) {
       return void res.status(413).json({ error: "story_response_too_large" });
     }
-    await noteMiniprogramStoryOpen(user.id, storyId).catch(() => undefined);
     res.json(payload);
   }));
   return router;

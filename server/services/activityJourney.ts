@@ -29,8 +29,24 @@ export type ClientActivityInput = z.infer<typeof clientEvent>;
 const CLIENT_LIMIT = 30;
 
 export function parseClientActivity(input: unknown): ClientActivityInput | null {
+  if (!plainClientPayload(input)) return null;
   const parsed = clientEvent.safeParse(input);
   return parsed.success ? parsed.data : null;
+}
+
+function plainClientPayload(input: unknown): boolean {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return false;
+  const record = input as Record<string, unknown>;
+  const keys = Object.keys(record);
+  if (keys.length > 5) return false;
+  return keys.every(key => {
+    if (key.length > 32) return false;
+    const value = record[key];
+    if (value == null) return true;
+    if (typeof value === "string") return value.length <= 80;
+    if (typeof value === "number") return Number.isFinite(value);
+    return false;
+  });
 }
 
 export async function acceptClientActivity(input: {
@@ -38,6 +54,7 @@ export async function acceptClientActivity(input: {
   platform: ActivityPlatform;
   body: unknown;
 }): Promise<"recorded" | "duplicate" | "invalid" | "not_found" | "limited" | "dropped"> {
+  if (process.env.ACTIVITY_JOURNEY_ENABLED !== "true") return "dropped";
   const body = parseClientActivity(input.body);
   if (!body || !clientShapeIsValid(body)) return "invalid";
   const limit = await consumePersistentRateLimit({
@@ -64,7 +81,7 @@ export async function acceptClientActivity(input: {
 }
 
 function clientShapeIsValid(body: ClientActivityInput): boolean {
-  if (body.event === "creation.entered" || body.event === "creation.edit_started") {
+  if (body.event === "creation.entered") {
     return Boolean(body.surface) && body.subjectKind == null && body.subjectRef == null;
   }
   if (body.event === "result.opened") {

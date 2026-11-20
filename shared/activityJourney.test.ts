@@ -12,13 +12,19 @@ describe("活动阶段词表", () => {
     expect(journeyFromProviderAttempt("provider said prompt rejected")).toBeNull();
   });
 
-  it("提交只记一次阶段，失败只留归一化类别", () => {
-    expect(journeyFromProviderAttempt("submitted")).toEqual({
+  it("没有供应商任务号的 submitted 不是一次已证实的提交", () => {
+    expect(journeyFromProviderAttempt("submitted")).toBeNull();
+    expect(journeyFromProviderAttempt("submitted", "  ")).toBeNull();
+    expect(journeyFromProviderAttempt("task_known")).toBeNull();
+    expect(journeyFromProviderAttempt("submitted", "task-17")).toEqual({
       eventName: "generation.submitted",
       result: "none",
       failureCategory: null,
     });
-    expect(journeyFromProviderAttempt("task_known")).toMatchObject({
+  });
+
+  it("失败只留归一化类别", () => {
+    expect(journeyFromProviderAttempt("task_known", "task-17")).toMatchObject({
       eventName: "generation.submitted",
     });
     expect(journeyFromProviderAttempt("not_charged_failure")).toEqual({

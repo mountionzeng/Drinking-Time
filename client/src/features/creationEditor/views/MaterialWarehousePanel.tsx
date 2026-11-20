@@ -575,12 +575,6 @@ export default function MaterialWarehousePanel({
   const [sequenceOpen, setSequenceOpen] = useState(false);
   const [previewImage, setPreviewImage] = useState<WarehouseImageItem | null>(null);
   const recordJourney = trpc.activityJourney.record.useMutation();
-  useEffect(() => {
-    const imageId = previewImage?.image.id;
-    if (typeof imageId === "number" && Number.isSafeInteger(imageId) && imageId > 0) {
-      noteResultOpened(recordJourney.mutate, imageId);
-    }
-  }, [previewImage?.image.id, recordJourney.mutate]);
   const hoverClose = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previewLocked = useRef(false);
   const cancelPreviewClose = () => { if (hoverClose.current) clearTimeout(hoverClose.current); };
@@ -1177,7 +1171,10 @@ export default function MaterialWarehousePanel({
                           onPointerEnter={event => { if(event.pointerType === 'mouse' && !previewLocked.current) {cancelPreviewClose(); setPreviewImage(item);} }}
                           onPointerLeave={closePreviewSoon}
                           onFocus={() => {cancelPreviewClose(); setPreviewImage(item);}}
-                          onClick={event => { if (videoActions) { event.preventDefault(); selectImageMaterial(item); } else setPreviewImage(item); }}
+                          onClick={event => {
+                            if (typeof item.image.id === "number") noteResultOpened(recordJourney.mutate, item.image.id);
+                            if (videoActions) { event.preventDefault(); selectImageMaterial(item); } else setPreviewImage(item);
+                          }}
                           aria-label={_ui(videoActions ? "编辑图片 / Edit image {0}" : "预览图片 {0}", [item.image.id])}
                           className="h-[84px] w-full shrink-0 overflow-hidden bg-muted/30 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
                         >

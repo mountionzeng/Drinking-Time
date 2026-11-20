@@ -14477,16 +14477,15 @@
     },
     {
       "id": "activity-journey",
-      "name": "网站与小程序关键阶段记录",
+      "name": "网站关键阶段记录",
       "status": "partial",
-      "userValue": "之后新发生的访问、进入创作、未计费保存、提交生成、服务端确认的成功或失败、查看结果、再次进入和打开充值，可以按网站或小程序分开看，并落到同一个账号。",
+      "userValue": "网站上之后新发生的已登录访问、打开创作页、已保存的未计费正文、供应商已收下的提交、已入库的成功或已确认的失败、点开已有图片和充值入口，可以按账号查看。",
       "entryPoints": [
         "client/src/app/router/AppRouter.tsx",
         "client/src/features/admin/AccessTracker.tsx",
         "client/src/features/computeAccount/RechargeDialog.tsx",
         "client/src/features/creationEditor/views/MaterialWarehousePanel.tsx",
-        "server/routers/activityJourney.ts",
-        "server/_core/shiguangActivityRoutes.ts"
+        "server/routers/activityJourney.ts"
       ],
       "owners": [
         "shared/activityJourney.ts",
@@ -14502,9 +14501,9 @@
       ],
       "invariants": [
         "阶段表不存提示词、作品、上传、输入、聊天、邮箱、手机号、openid、完整地址、IP、原始错误或任意扩展内容。",
-        "用户编号只来自网站会话或已签名的小程序主体解析，客户端不能指定 userId 或平台。",
+        "用户编号只来自网站登录会话，客户端不能指定 userId、平台、停留时长或成功。",
         "generation.resolved 的 succeeded 只来自已入库图片、可播放视频或出图任务首次入库。供应商 succeeded 和账务 settled 不能写成作品成功。",
-        "采集失败、缺表、重复和限流都不能改变创作、扣费或支付的结果。",
+        "未设置 ACTIVITY_JOURNEY_ENABLED=true 时不写阶段。缺表、重复和限流也不能改变创作、扣费或支付。",
         "不回填部署前的访问、生成和账务，也不用自己的账号或测试标签排除任何人。"
       ],
       "dependencies": [
@@ -14513,18 +14512,25 @@
       ],
       "replaces": [],
       "knownGaps": [
-        "正式小程序客户端在独立仓库。本仓只能看到已签名桥的列故事、读故事和预占；浏览、未保存编辑、退出和只存在于小程序侧的作品查看还没有事件。",
-        "仓库内 miniprogram 目录仍是不联网的 mock，不能当作小程序使用记录。",
-        "同步出图只有显式标记 recordGenerationResult 的入库会计入成功，其余保存点会漏记而不是误记。",
-        "session.ended 依赖浏览器 pagehide 或小程序主动报告。没有收到就不记停留，也不能解释成仍在线。",
-        "旧的 accessAnalytics.overview 仍只列出有邮箱的用户。新表不继承这个过滤，也不改旧名单。",
-        "迁移只提供可审 SQL，正式库尚未执行，因此线上还没有这些新事件。"
+        "本次不改小程序桥，也不记录小程序行为。仓库内 miniprogram 目录仍是不联网的 mock。",
+        "visit.started 只是一条新的网站访问心跳，不是注册成功，也不是登录接口成功。",
+        "generation.submitted 只在供应商尝试带有任务号，或出图任务首次写下供应商任务号时出现。同步出图没有单独的提交点，不能把缺这条当成没生成。",
+        "同步出图只有显式标记 recordGenerationResult 的入库会计入成功。成功是图片或可播放视频行已写入，不是公网又读了一遍文件，也不是账务 settled。",
+        "result.opened 只在仓库里点击图片时记录，鼠标悬停不算。聊天和其他播放器还没有这个事件。",
+        "session.ended 只在浏览器发出 pagehide 时记录。没有这条不能推算停留，也不能解释成仍在线。",
+        "旧的 accessAnalytics.overview 仍只列出有邮箱的用户。新表不继承这个过滤。",
+        "迁移只提供可审 SQL，正式库尚未执行。开关默认关闭，所以上线前不会出现新事件。"
       ],
       "history": [
         {
           "date": "2026-11-20",
           "kind": "feature",
           "summary": "新增封闭阶段表和网站、小程序桥的最小插桩。成功只认已持久化的结果，提交和失败按操作去重，采集失败不影响创作与结算。不回填历史，不把小程序客户端未接入的行为算作已覆盖。"
+        },
+        {
+          "date": "2026-11-20",
+          "kind": "fix",
+          "summary": "部署前收紧网站语义：访问改称 visit.started，提交必须有供应商任务号，悬停不算查看，写入默认关闭。撤回小程序桥上的阶段写入和上报接口，避免网站发布改到小程序路径。"
         }
       ]
     }
