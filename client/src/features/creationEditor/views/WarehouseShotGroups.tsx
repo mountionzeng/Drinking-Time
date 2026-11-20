@@ -266,7 +266,7 @@ export function WarehouseCompletionNotice({
       className={compact ? "flex min-w-0 items-center gap-1 text-[11px] leading-5 text-muted-foreground" : "py-1 text-[11px] leading-5 text-muted-foreground"}
       aria-label={ui("素材完成通知")}
     >
-      {compact ? <span className="truncate" title={warehouseMediaName(latest.group, latest.item, ui)}>{ui("最新")} {ui(latest.item.role)} {latest.item.version} ·</span> : ui("最近素材：{0}，已保存到", [
+      {compact ? <span className="truncate" aria-label={warehouseMediaName(latest.group, latest.item, ui)}>{ui("最新")} {ui(latest.item.role)} {latest.item.version} ·</span> : ui("最近素材：{0}，已保存到", [
         warehouseMediaName(latest.group, latest.item, ui),
       ])}
       <button

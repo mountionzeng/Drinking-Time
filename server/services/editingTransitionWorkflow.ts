@@ -562,7 +562,7 @@ async function fetchPublicImage(
   return response;
 }
 
-async function readLimitedResponse(response: Response): Promise<Uint8Array> {
+async function readLimitedResponse(response: Response, maxBytes = MAX_TRANSITION_IMAGE_BYTES): Promise<Uint8Array> {
   if (!response.body) throw new Error("首尾帧响应为空");
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
@@ -572,9 +572,9 @@ async function readLimitedResponse(response: Response): Promise<Uint8Array> {
       const chunk = await reader.read();
       if (chunk.done) break;
       size += chunk.value.byteLength;
-      if (size >= MAX_TRANSITION_IMAGE_BYTES) {
+      if (size >= maxBytes) {
         await reader.cancel();
-        throw new Error("衔接首尾帧超过 10MB");
+        throw new Error("图片超过大小上限 " + Math.round(maxBytes / 1024 / 1024) + "MB");
       }
       chunks.push(chunk.value);
     }
@@ -588,7 +588,7 @@ async function readLimitedResponse(response: Response): Promise<Uint8Array> {
   );
 }
 
-async function imageBytesForAsset(imageUrl: string): Promise<{
+export async function imageBytesForAsset(imageUrl: string, maxBytes = MAX_TRANSITION_IMAGE_BYTES): Promise<{
   bytes: Uint8Array;
   contentType: string;
 }> {
@@ -635,12 +635,12 @@ async function imageBytesForAsset(imageUrl: string): Promise<{
   const declaredLength = Number(response.headers.get("content-length"));
   if (
     Number.isFinite(declaredLength) &&
-    declaredLength >= MAX_TRANSITION_IMAGE_BYTES
+    declaredLength >= maxBytes
   ) {
     await response.body?.cancel().catch(() => undefined);
-    throw new Error("衔接首尾帧超过 10MB");
+    throw new Error("图片超过大小上限 " + Math.round(maxBytes / 1024 / 1024) + "MB");
   }
-  const bytes = await readLimitedResponse(response);
+  const bytes = await readLimitedResponse(response, maxBytes);
   return { bytes, contentType };
 }
 

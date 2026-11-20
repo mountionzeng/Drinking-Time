@@ -940,8 +940,10 @@ export function storyboardEditShouldHandleKey(input: {
   defaultPrevented: boolean;
   isEditableTarget: boolean;
   isButtonTarget: boolean;
-  /** 焦点位于时间轨；保留调用方信息，普通按钮同样支持空格走带。 */
+  /** 只有视觉轨道内的焦点可以使用素材剪贴板。 */
   isTimelineTarget?: boolean;
+  commandModifier?: boolean;
+  hasTextSelection?: boolean;
   rowVisible: boolean;
   /** 焦点是否落在时间尺的位置锚点标记上。 */
   isAnchorTarget?: boolean;
@@ -953,6 +955,8 @@ export function storyboardEditShouldHandleKey(input: {
   if (!input.rowVisible) return false;
   if (input.defaultPrevented) return false;
   if (input.isEditableTarget) return false;
+  if (input.commandModifier && ["c", "v"].includes(input.key.toLowerCase()) &&
+      (!input.isTimelineTarget || input.hasTextSelection)) return false;
   // 焦点在锚点标记上时，删除键属于那个锚点，绝不能落到「删掉整个镜头」上。
   // 这条监听挂在捕获阶段，早于锚点自己的 onKeyDown，所以必须在这里让路。
   if (input.isAnchorTarget) return false;
@@ -1094,10 +1098,11 @@ export function storyboardEditShortcut(event: {
     (event.shiftKey || event.metaKey || event.ctrlKey || event.altKey)
   ) return null;
   const modified = event.metaKey || event.ctrlKey;
-  if (modified && !event.altKey && event.key.toLowerCase() === "c") {
+  const clipboardChord = modified && !event.altKey && !event.shiftKey;
+  if (clipboardChord && event.key.toLowerCase() === "c") {
     return { kind: "copyVisualObject" };
   }
-  if (modified && !event.altKey && event.key.toLowerCase() === "v") {
+  if (clipboardChord && event.key.toLowerCase() === "v") {
     return { kind: "pasteVisualObject" };
   }
   // ⌘Z 之类的留给全局撤销，这里一律不拦。

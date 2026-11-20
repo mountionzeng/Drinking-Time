@@ -1,3 +1,4 @@
+import { sourceImageFixture } from "../testFixtures/sourceImage";
 import * as frames from "./editingTransitionWorkflow";
 import * as vidu from "./videoTransition302";
 import * as director from "./videoPromptDirector";
@@ -183,7 +184,7 @@ async function videoInput() {
     storyId: story.id,
     shotNo: "SH01",
     shotIdentity: "shot-1",
-    imageUrl: "data:image/png;base64,QQ==",
+    imageUrl: await sourceImageFixture("opening"),
     imageKey: null,
     prompt: "人物",
     generationType: "initial",
@@ -421,7 +422,7 @@ async function startEndInput() {
     storyId: request.storyId,
     shotNo: "SH01",
     shotIdentity: "shot-1",
-    imageUrl: "data:image/png;base64,Qg==",
+    imageUrl: await sourceImageFixture("ending"),
     imageKey: null,
     prompt: "转身后",
     generationType: "initial",

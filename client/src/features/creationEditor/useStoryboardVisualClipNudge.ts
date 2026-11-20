@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import { toast } from "sonner";
 import { visualTrackId } from "@shared/visualClipModel";
 
@@ -20,8 +20,27 @@ export function useStoryboardVisualClipNudge(
         toTrackId: string;
         toStartFrame: number;
       }) => Promise<void>)
-    | undefined
+    | undefined,
+  storySessionKey: string | undefined,
+  visualLayoutKey: string,
 ) {
+  const keyboardFocus = useRef<{
+    node: HTMLElement;
+    board: Element;
+    selector: string;
+    storySessionKey: string | undefined;
+  } | null>(null);
+  useLayoutEffect(() => {
+    const pending = keyboardFocus.current;
+    if (!pending) return;
+    if (pending.storySessionKey === storySessionKey && pending.node === document.activeElement) return;
+    keyboardFocus.current = null;
+    // A layer change remounts the block. Keep a subsequent arrow on the same
+    // clip, but never take focus back from chat or another selected control.
+    if (pending.storySessionKey !== storySessionKey || pending.node.isConnected ||
+        !pending.board.isConnected || document.activeElement !== document.body) return;
+    pending.board.querySelector<HTMLElement>(pending.selector)?.focus({ preventScroll: true });
+  }, [storySessionKey, visualLayoutKey]);
   const queueRef = useRef<
     ReturnType<typeof createStoryboardVisualClipNudgeQueue> | null
   >(null);
@@ -36,6 +55,13 @@ export function useStoryboardVisualClipNudge(
   return useCallback(
     (input: StoryboardVisualClipNudgeInput) => {
       if (!move) return;
+      const node = document.activeElement?.closest<HTMLElement>('[data-visual-clip-move-target="true"]');
+      const board = node?.closest('[role="table"]');
+      if (node?.dataset.visualObjectId && node.dataset.visualObjectType && board) {
+        const { visualObjectId, visualObjectType } = node.dataset;
+        const selector = `[data-visual-object-type="${CSS.escape(visualObjectType)}"][data-visual-object-id="${CSS.escape(visualObjectId)}"]`;
+        keyboardFocus.current = { node, board, selector, storySessionKey };
+      }
       queueRef.current?.enqueue({
         ...input,
         move: target =>
@@ -46,6 +72,6 @@ export function useStoryboardVisualClipNudge(
           }),
       });
     },
-    [move]
+    [move, storySessionKey]
   );
 }

@@ -1,16 +1,19 @@
+import { withoutPictureRegionNotes } from "@shared/chatPictureRegion";
 import { hasInlineChatImages, inlineImageToken, inlineChatImageIds, inlineChatInstruction, inlineChatParts } from '@shared/inlineChatImages';
 import type { ChatImageRef } from './chatImageRefs';
+import { isFrameRegionReviewImage, regionReviewDecision, regionInheritanceDecision, forestPaletteFeedbackDecision, forestPaletteConsistencyDecision, cloudShapeDecision, type FrameRegionReview } from '@shared/frameRegionReview';
 import { isImageObjectRemoval } from '@shared/imageObjectRemoval';
 
 export function compileInlineChatDraft(text: string, images: Array<{ imageId?: number; imageUrl: string; label: string }>) {
   const ids = inlineChatImageIds(text);
-  if (!inlineChatParts(text).some(part => !part.imageId && part.text.trim())) throw new Error('请在图片旁写下想问或想改的内容');
+  const userText = withoutPictureRegionNotes(text);
+  if (!inlineChatParts(userText).some(part => !part.imageId && part.text.trim())) throw new Error('请在图片旁写下想问或想改的内容');
   const refs = ids.map(imageId => {
     const image = images.find(i => i.imageId === imageId);
     if (!image?.imageUrl) throw new Error(`图片 #${imageId} 尚未加载或已不可用，请从仓库重新选择`);
     return { imageId, imageUrl: image.imageUrl, label: image.label } satisfies ChatImageRef;
   });
-  const instruction = inlineChatInstruction(text);
+  const instruction = inlineChatInstruction(userText);
   // Comparison/advice is conversation, not authorization to generate an edited image.
   const question = /[？?]|哪个好|哪张好|如何|怎么|建议|是否|能否|可以吗|该不该|what|which|how|should|could/i.test(instruction);
   const negated = /不(?:要|用|需).{0,12}(?:改|调整|生成|重画|综合|融合|混合|合成)|(?<!分)别.{0,8}(?:改|生成|综合|融合|混合|合成)|don't|do not/i.test(instruction);
@@ -19,8 +22,11 @@ export function compileInlineChatDraft(text: string, images: Array<{ imageId?: n
   const sizeFeedback = /放大|缩小|[调变][大小]|[大小](?:一?点(?:点|儿)?|一些)/.test(instruction)
     && !/哪|为什么|为啥|为何|是不是|有没有|[吗么]|比.{0,20}[大小]|(?:已经|本来|原来|看起来).{0,20}(?:[大小]|放|缩)/.test(instruction)
     && !/(?:不(?:要|用|需|想)|无需|不必|(?<!分)别).{0,12}(?:[大小]|放|缩)/.test(instruction);
-  const edit = isImageObjectRemoval(instruction) || !question && !negated && (sizeFeedback || /改|调(?:整|一下)|重画|重绘|生成|画一|出图|提高|降低|增加|减少|综合|融合|混合|合成|更(?:白|嫩|绿|亮|暗|淡|深|暖|冷)|edit|change|generate|redraw|blend|combine/i.test(instruction));
-  return { refs, instruction, edit };
+  const words = inlineChatParts(userText).filter(part => !part.imageId).map(part => part.text).join('').trim();
+  const visualTextRemoval = /^(?:请|我希望|我想|这里|这张图(?:里|上)?)?\s*(?:不要(?:有|出现|显示)|不显示|去掉|删掉|移除|擦掉)(?:[这那]种|[这那]些|[这那]段|[这那]里的|具体的|多余的|画面上的|选中的|所有|任何|的|\s)*(?:文字|字样|字母|字|文案|标识)[。！!\s]*$/u.test(words);
+  const removeSelection = userText !== text && /^(?:请)?(?:去掉|删掉|移除|擦掉)(?:这(?:个|里|块|部分)|选中(?:的)?(?:部分|区域)?|框选的(?:部分|区域)?)[。！!\s]*$/.test(words);
+  const edit = isImageObjectRemoval(instruction) || !question && !negated && (visualTextRemoval || removeSelection || sizeFeedback || /改|调(?:整|一下|亮|暗|淡|深|暖|冷)|重画|重绘|生成|画一|出图|提高|降低|增加|减少|综合|融合|混合|合成|更(?:白|嫩|绿|亮|暗|淡|深|暖|冷)|edit|change|generate|redraw|blend|combine/i.test(instruction));
+  return { refs, instruction: inlineChatInstruction(text), edit };
 }
 
 export function referenceWarehouseSelection(text: string, imageIds: readonly number[]) {
@@ -37,4 +43,17 @@ export function continueInlineImageEdit(text: string, imageId: number | null | u
     /范围|蒙版|选区/.test(text) && !isImageObjectRemoval(text)) return text;
   const withImage = `${inlineImageToken(imageId)} ${text}`;
   return images.some(image => image.imageId === imageId) && compileInlineChatDraft(withImage, images).edit ? withImage : text;
+}
+
+/** A single cited review frame can answer its existing scope or palette question. */
+export function selectedRegionReply(text: string, selectedId: number, review?: FrameRegionReview | null) {
+  if (!review || review.phase === 'cancelled' || !isFrameRegionReviewImage(review, selectedId)) return null;
+  let parts;
+  try { parts = inlineChatParts(text); } catch { return null; }
+  const ids = new Set(parts.flatMap(part => part.imageId ? [part.imageId] : []));
+  if (ids.size !== 1 || !ids.has(selectedId)) return null;
+  const reply = parts.filter(part => !part.imageId).map(part => part.text).join('').trim();
+  return regionReviewDecision(reply) || regionInheritanceDecision(reply) || forestPaletteFeedbackDecision(reply) ||
+    forestPaletteConsistencyDecision(reply) || (review.tasks.some(task => task.shapeQuote) && cloudShapeDecision(reply))
+    ? reply : null;
 }

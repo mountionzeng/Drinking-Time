@@ -6,10 +6,13 @@ import { cueReferences, cueReplyId, originLine, readOriginLine, reviewTakeId, ty
 import { storySpineStore } from "../spine/storySpine";
 import type { ComposerImage } from "./imageGenerationDraft";
 import { VideoObjectOrigin } from "./VideoObjectOrigin";
+import { useOptionalCreationEditor } from "@/features/creationEditor/CreationEditorContext";
 import { ChatTakePlacement } from "./ChatTakePlacement";
 
 export function VideoTakeChatReview({request,shot,images,savedText,accountId,storyId}:{request:CueMessage;shot:CreationEditorShot;images:ComposerImage[];savedText:string;accountId:number;storyId:number}) {
   const id=reviewTakeId(request.content);
+  const editor = useOptionalCreationEditor();
+  const placedShot = editor?.shots.find(row => row.stableShotId === "review-take-" + id && row.timelineItem?.primaryVideoEdit?.takeId === id);
   const take=shot.videoTakes?.find(t=>t.id===id && t.status==="available");
   const image=images.find(i=>i.imageId===cueReferences(request.content)[0]);
   const [feedback,setFeedback]=useState("");
@@ -17,7 +20,7 @@ export function VideoTakeChatReview({request,shot,images,savedText,accountId,sto
   const origin=readOriginLine(savedText);
   const store=()=>{const state=storySpineStore.getState();return state.activeStoryId===storyId && state.accountId===accountId ? state : undefined;};
   if(!take?.videoUrl)return <p>当前镜头找不到这个已完成的视频版本，请核对 Take 编号。</p>;
-  const title="第 "+String(shot.shotNo).padStart(2,"0")+" 镜 · 候选 Take #"+id;
+  const title="第 "+String(placedShot?.shotNo ?? shot.shotNo).padStart(2,"0")+" 镜 · 候选 Take #"+id;
   const bind=(o?:ObjectOrigin)=>store()?.setMessages(rows=>rows.map(row=>row.id===cueReplyId(request.id)
     ? {...row,content:title+"。播放后可留下反馈。"+(o?"\n"+originLine(o):"")} : row));
   return <section aria-label="候选视频回看" className="space-y-2 rounded border p-2 text-xs">

@@ -211,6 +211,7 @@ export function AudioTrackRow({
       if (pending || event.button !== 0) return;
       event.preventDefault();
       event.stopPropagation();
+      event.currentTarget.focus({ preventScroll: true });
       event.currentTarget.setPointerCapture?.(event.pointerId);
       onSelectClip(clip.id);
       setDrag({

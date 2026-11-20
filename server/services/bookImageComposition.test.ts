@@ -1,3 +1,4 @@
+import { sourceImageFixture as sourceFixture } from "../testFixtures/sourceImage";
 import { analyzeCreationEmotion } from "../../shared/creationEmotion";
 import { beforeEach, expect, it, vi } from 'vitest';
 import type { BookModuleImageTask } from '../../shared/bookModuleImageTask';
@@ -16,7 +17,10 @@ vi.mock('../repositories/bookModuleImageTasks',()=>({
     fixture.tail=work.catch(()=>{});return work;
   }
 }));
-vi.mock('./imageAssets',()=>({getStoryImageAssets:async()=>[{imageUrl:'/api/images/a.png',availability:'available'}]}));
+vi.mock('./imageAssets',()=>({materializeImageInput:async(url:string)=>{
+  if (!['/api/images/a.png','/new.png'].includes(url)) throw Error('missing fixture');
+  return sourceFixture(url);
+},getStoryImageAssets:async()=>[{imageUrl:'/api/images/a.png',availability:'available'}]}));
 vi.mock('./imageGen',()=>({editImage:fixture.edit,generateImage:fixture.generate,resume302GptImageTask:fixture.resume}));
 vi.mock('./mediaComputeBilling',()=>({mediaBillingEnabled:()=>true}));
 vi.mock('./publishingCoverBilling',()=>({reservePublishingCoverRender:fixture.reserve,publishingCoverOperationId:()=> 'billing-test',finishPublishingCoverBilling:fixture.settle}));

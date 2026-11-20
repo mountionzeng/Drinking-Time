@@ -63,6 +63,56 @@ describe("creationAgent.adoptVideoTake replacePrimary（对话「采用视频 Ta
     expect((await getStoryTimeline(storyId,USER))?.items).toEqual([trimmed]);
     expect(await getStoryVideoTimelineSelections(storyId,USER)).toMatchObject([{takeId:original}]);
   });
+  it.each([{ gap: 240, layer: 0, start: 60 }, { gap: 90, layer: 2, start: 60 }])(
+    "saves the complete cut with a $gap-frame gap, survives retries and restores the original", async ({ gap, layer, start }) => {
+      const { storyId, original, graded } = await seed();
+      const api = caller().warehouseVideoSequence;
+      const row = ((await getStoryTimeline(storyId, USER))!.items as VisualEditDocument["items"])[0];
+      const story = await caller().storyAgent.storyGet({ id: storyId });
+      const body = story!.body as { shots: Record<string,unknown>[]; _revision: number };
+      await caller().storyAgent.storyUpsert({ id: storyId, baseRevision: body._revision, body: { ...body, shots: [
+        { shotNo: 1, shotKey: "custom-intro", stableShotId: "prior" }, { ...body.shots[0], shotNo: 2, shotKey: "SH02" },
+      ] } });
+      const prior = { ...row, stableShotId: "prior", timelineStartFrame: 0, position: 0, durationFrames: 60, plannedDurationMs: 2000 };
+      const ending = { ...row, timelineStartFrame: 60 + gap, position: 1 };
+      const items = [prior, ending];
+      await updateStoryTimeline({ storyId, userId: USER, expectedVersion: 1, items, visualLayerState: {count:2, hidden:[1]} });
+      const command = { storyId, stableShotId: "sh-03", takeId: graded, expectedTakeId: original, expectedVersion: 2 };
+      await expect(api.saveReviewedTake({ ...command, expectedVersion: 1 })).rejects.toThrow("已更新");
+      const [first, retry] = await Promise.all([api.saveReviewedTake(command), api.saveReviewedTake(command)]);
+      expect(first).toMatchObject({ startFrame:start, layer, shotNo:2, takeId:graded });
+      expect(retry.stableShotId).toBe(first.stableShotId);
+      const placed = (await getStoryTimeline(storyId, USER))!;
+      expect(placed.version).toBe(3);
+      expect(placed.items).toEqual([prior, expect.objectContaining({ stableShotId:first.stableShotId, timelineStartFrame:start,
+        durationFrames:240, visualLayer:layer, primaryVideoEdit:expect.objectContaining({takeId:graded,sourceStartSec:0,sourceEndSec:8}) }),
+        { ...ending, position:2 }]);
+      const savedStory = (await caller().storyAgent.storyGet({ id: storyId }))!;
+      const savedBody = savedStory.body as { _revision: number; shots: Record<string,unknown>[] };
+      const savedAgain = (await caller().storyAgent.storyUpsert({id:storyId, baseRevision:savedBody._revision,
+        body:{ ...savedBody, shots:savedBody.shots.map(({shotKey: _editorKey, ...shot}) => shot) }}))!;
+      expect((savedAgain.body as typeof savedBody).shots.map(shot => shot.shotKey)).toEqual(["custom-intro","SH02","SH03"]);
+      const materials = await getStoryMaterialState(storyId, USER);
+      expect(materials?.shots.find(s => s.stableShotId === first.stableShotId)?.currentVideo?.id).toBe(graded);
+      expect(materials?.shots.find(s => s.stableShotId === "sh-03")?.currentVideo?.id).toBe(original);
+      expect(await restoreVisualRevision({storyId, userId:USER, expectedTimelineVersion:3, version:2,
+        operation:{operationId:"undo-full-review-" + gap, editorSessionEpoch:"test"}})).toMatchObject({status:"ok"});
+      expect((await getStoryTimeline(storyId, USER))!.items).toEqual(items);
+      expect((await getStoryMaterialState(storyId, USER))?.shots.map(s=>s.stableShotId)).toEqual(["prior","sh-03"]);
+    }
+  );
+
+  it("places an overlong candidate in full above an occupied slot, leaving its primary in place", async () => {
+    const { storyId, original, graded } = await seed();
+    const row = ((await getStoryTimeline(storyId, USER))!.items as VisualEditDocument["items"])[0];
+    await updateStoryTimeline({storyId, userId:USER, expectedVersion:1, items:[{...row, durationFrames:90,
+      plannedDurationMs:3000, primaryVideoEdit:{...row.primaryVideoEdit!, sourceStartSec:2,sourceEndSec:5}}]});
+    const saved = await caller().warehouseVideoSequence.saveReviewedTake({storyId, stableShotId:"sh-03", takeId:graded, expectedTakeId:original, expectedVersion:2});
+    expect(saved).toMatchObject({layer:1,startFrame:0});
+    const items = (await getStoryTimeline(storyId, USER))!.items as VisualEditDocument["items"];
+    expect(items.map(row=>[row.visualLayer,row.durationFrames,row.primaryVideoEdit?.takeId])).toEqual([[1,240,graded],[0,90,original]]);
+  });
+
   it("places the first reviewed video in a still-only shot, survives reload and restores the original still-only edit", async () => {
     const { storyId, original, graded } = await seed();
     const before = (await getStoryTimeline(storyId, USER))!;

@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
 import { inlineImageToken as t } from '@shared/inlineChatImages';
-import { compileInlineChatDraft, continueInlineImageEdit } from './inlineChatDraft';
+import { compileInlineChatDraft, continueInlineImageEdit, selectedRegionReply } from './inlineChatDraft';
 import { buildChatImageRemixRequest } from './chatImageRefs';
 import { normalizeChatMessages } from './types';
 const images = [2109,2110].map(imageId => ({imageId, imageUrl:`/api/images/${imageId}.png`, label:`图片 #${imageId}`}));
@@ -83,4 +83,11 @@ it('quotes the two failed combine requests using exactly the ordered warehouse i
     expect(referenceWarehouseSelection(text,[])).toBe(text);
   }
   for(const text of ['这两张图哪个更好？','不要综合这两张图','不要混合这两张图']) expect(compileInlineChatDraft(referenceWarehouseSelection(text,selected),available).edit).toBe(false);
+});
+
+it('keeps a cited scope decision in its own review and preserves ordinary or multi-image edits', () => {
+  const review = { phase: 'review', frames: [{ imageId: 2109 }], tasks: [] } as unknown as import('@shared/frameRegionReview').FrameRegionReview;
+  expect(selectedRegionReply(t(2109) + ' 确认范围', 2109, review)).toBe('确认范围');
+  for (const request of [t(2110) + ' 确认范围', t(2110) + t(2109) + ' 确认范围', t(2109) + ' 调整饱和度'])
+    expect(selectedRegionReply(request, 2109, review)).toBeNull();
 });

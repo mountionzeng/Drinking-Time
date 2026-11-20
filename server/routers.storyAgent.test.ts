@@ -1,3 +1,19 @@
+import { sourceImageFixture } from "./testFixtures/sourceImage";
+// Provider mocks use synthetic URLs. Supply bytes at the download boundary so the
+// real source inspection and reference/ownership checks still run for every edit.
+vi.mock("./services/editingTransitionWorkflow", async importOriginal => {
+  const actual = await importOriginal<typeof import("./services/editingTransitionWorkflow")>();
+  return {
+    ...actual,
+    async imageBytesForAsset(url: string, limit?: number) {
+      if (url.startsWith("https://storage.example/") || url.startsWith("https://file.302.ai/")) {
+        const image = await sourceImageFixture(url);
+        return { bytes: Buffer.from(image.split(",")[1], "base64"), contentType: "image/png" };
+      }
+      return actual.imageBytesForAsset(url, limit);
+    },
+  };
+});
 const fluxMocks = vi.hoisted(() => ({ generate302FluxEdit: vi.fn(), resume302FluxEdit: vi.fn(), generate302FluxDevEdit:vi.fn(), resume302FluxResult:vi.fn() }));
 vi.mock("./services/fluxKontextEdit", () => fluxMocks);
 const mj302Mocks = vi.hoisted(() => ({ generate302MjEdit: vi.fn(), resume302MjEdit: vi.fn() }));
@@ -434,7 +450,7 @@ describe("storyAgent tRPC router", () => {
     const images = await Promise.all([1,2].map(i => createGeneratedImage({ storyId: story.id, userId,
       imageUrl: `https://storage.example/compose-${i}.png`, prompt: "owned test", isCurrent: false })));
     const assets = await import("./services/imageAssets");
-    const read = vi.spyOn(assets, "materializeImageInput").mockResolvedValue("data:image/png;base64,dGVzdA==");
+    const read = vi.spyOn(assets, "materializeImageInput").mockResolvedValue(await sourceImageFixture("owned"));
     legnextMocks.generateLegnextImage.mockResolvedValue({status:"error",message:"test stops before submission"});
     const request = { storyId: story.id, shotNo: 1, imageProvider: "midjourney" as const, prompt: "旧缓存画面", explicitInstruction: "取图1的花，放在图2的海边。",
       renderReferences: { imageIds: [images[1].id, images[0].id], assets: {}, instructionMode: "composed" as const }, costConfirmation: { accepted: true as const, estimatedCny: 0.68 } };
@@ -467,7 +483,7 @@ describe("storyAgent tRPC router", () => {
       englishPrompt: "Ink contours and ochre washes.", filmStyleImageId: style.id } } } } });
     const assets = await import("./services/imageAssets");
     const wechat = await import("./services/wechatVideoImage");
-    const read = vi.spyOn(assets, "materializeImageInput").mockResolvedValue("data:image/png;base64,dGVzdA==");
+    const read = vi.spyOn(assets, "materializeImageInput").mockResolvedValue(await sourceImageFixture("owned"));
     const provider = vi.spyOn(wechat, "wechatProviderReference").mockResolvedValue("https://private.test/signed-style");
     legnextMocks.generateLegnextImage.mockResolvedValue({status:"error",message:"test stops before submission"});
     const request = { storyId: story.id, shotNo: 1, imageProvider: "midjourney" as const, prompt: "纸船漂过石桥", explicitInstruction: "纸船漂过石桥",
@@ -1541,13 +1557,14 @@ describe("storyAgent tRPC router", () => {
       projectId: 73968,
       body: { cards: [], characters: [{ name: "SheSelf", role: "主角" }], shots: [{ shotNo: 7, cueCode: "0208", subject: "SheSelf" }] },
     });
+    const reference = await sourceImageFixture("storyboard");
     const run = () =>
       caller.storyAgent.generateForMobile({
         storyId: story!.id,
         shotNo: 7,
         prompt: "SheSelf 保持原有构图",
         imageProvider: "gpt-image",
-        referenceImageUrl: "data:image/webp;base64,UklGRg==",
+        referenceImageUrl: reference,
       });
     try {
       imageGenMocks.editImage.mockResolvedValueOnce({ status: "error", message: "上游过载" });
@@ -1596,7 +1613,7 @@ describe("storyAgent tRPC router", () => {
       shotNo: 7,
       prompt: "SheSelf 保持原有构图",
       imageProvider: "gpt-image",
-      referenceImageUrl: "data:image/webp;base64,UklGRg==",
+      referenceImageUrl: await sourceImageFixture("storyboard"),
     });
 
     expect(result).toMatchObject({
@@ -1655,7 +1672,7 @@ describe("storyAgent tRPC router", () => {
       shotNo: 22,
       prompt: "SheSelf 保持原有构图",
       imageProvider: "midjourney",
-      referenceImageUrl: "data:image/webp;base64,UklGRg==",
+      referenceImageUrl: await sourceImageFixture("storyboard"),
     });
 
     expect(result.status).toBe("ok");
@@ -1958,13 +1975,13 @@ describe("storyAgent tRPC router", () => {
       shotNo: 1,
       prompt: "主角站在原有场景中",
       imageProvider: "midjourney",
-      referenceImageUrl: "data:image/webp;base64,UklGRg==",
-      referenceIdentityImageUrl: "data:image/webp;base64,UklGRg==",
+      referenceImageUrl: await sourceImageFixture("storyboard"),
+      referenceIdentityImageUrl: await sourceImageFixture("storyboard"),
     });
 
     expect(result.status).toBe("ok");
     expect(imageGenMocks.editImage).toHaveBeenCalledWith(
-      "data:image/webp;base64,UklGRg==",
+      await sourceImageFixture("storyboard"),
       expect.any(String),
       expect.objectContaining({
         primaryReferenceLock: true,
@@ -1982,7 +1999,7 @@ describe("storyAgent tRPC router", () => {
     const signed = "https://example.test/api/chapter-media?key=fictional&e=9999999999999&token=fictional";
     const assets = await import("./services/imageAssets");
     const wechat = await import("./services/wechatVideoImage");
-    const read = vi.spyOn(assets, "materializeImageInput").mockResolvedValue("data:image/png;base64,dGVzdA==");
+    const read = vi.spyOn(assets, "materializeImageInput").mockResolvedValue(await sourceImageFixture("owned"));
     const provider = vi.spyOn(wechat, "wechatProviderReference").mockImplementation(async value => value === raw ? signed : value);
     legnextMocks.generateLegnextImage.mockClear();
     legnextMocks.generateLegnextImage.mockResolvedValueOnce({ status: "error", message: "模拟终止，不提交" });
@@ -2108,7 +2125,7 @@ describe("storyAgent tRPC router", () => {
         toolCalls: [
           {
             tool: "createCharacterFromPhoto",
-            photoUrl: "data:image/jpeg;base64,PHOTO",
+            photoUrl: await sourceImageFixture("portrait"),
           },
         ],
         focusShotNo: "SH01",
@@ -2130,7 +2147,7 @@ describe("storyAgent tRPC router", () => {
     });
 
     expect(imageGenMocks.editImage).toHaveBeenCalledWith(
-      "data:image/jpeg;base64,PHOTO",
+      await sourceImageFixture("portrait"),
       expect.stringContaining("Preserve the person's recognizable face"),
       expect.objectContaining({ requireInputImage: true })
     );
@@ -2162,7 +2179,7 @@ describe("storyAgent tRPC router", () => {
         toolCalls: [
           {
             tool: "createCharacterFromPhoto",
-            photoUrl: "data:image/jpeg;base64,PHOTO",
+            photoUrl: await sourceImageFixture("portrait"),
           },
         ],
         focusShotNo: "SH01",
@@ -2316,7 +2333,7 @@ describe("storyAgent tRPC router", () => {
     });
     const explicitInstruction = "只把白色短裙延长为裙摆触地的及地长裙。";
     const maskImageUrl = "data:image/png;base64,bWFzaw==";
-    const referenceImageUrl = "data:image/png;base64,b3JpZ2luYWw=";
+    const referenceImageUrl = await sourceImageFixture("original");
 
     const missingConfirmation = await caller.storyAgent.generateForMobile({
       storyId: story!.id,
@@ -2363,7 +2380,7 @@ describe("storyAgent tRPC router", () => {
       body: { cards: [], characters: [], shots: [] },
     });
     const maskImageUrl = "data:image/png;base64,bWFzaw==";
-    const referenceImageUrl = "data:image/png;base64,b3JpZ2luYWw=";
+    const referenceImageUrl = await sourceImageFixture("original");
 
     const missingInstruction = await caller.storyAgent.generateForMobile({
       storyId: story!.id,
@@ -2699,7 +2716,7 @@ describe("storyAgent tRPC router", () => {
       storyId: story!.id,
       shotNo: 1,
       prompt: "保留人物轮廓，换成暖色办公室灯光",
-      originalImageUrl: "data:image/jpeg;base64,aW1hZ2U=",
+      originalImageUrl: await sourceImageFixture("mobile"),
       sceneWeight: 1.25,
       mode: "draft",
     });
@@ -3112,12 +3129,12 @@ describe("storyAgent tRPC router", () => {
       storyId: story!.id,
       shotNo: 1,
       prompt: "保留人物，把背景换成微雨夜色",
-      originalImageUrl: "data:image/jpeg;base64,aW1hZ2U=",
+      originalImageUrl: await sourceImageFixture("mobile"),
     });
 
     // 经美术网关，prompt 被追加风格 DNA → 只断言含原 prompt（基底图不变）；手机端 draft 档
     expect(imageGenMocks.editImage).toHaveBeenCalledWith(
-      "data:image/jpeg;base64,aW1hZ2U=",
+      await sourceImageFixture("mobile"),
       expect.stringContaining("保留人物，把背景换成微雨夜色"),
       expect.any(Object)
     );
@@ -3269,12 +3286,12 @@ describe("storyAgent tRPC router", () => {
       storyId: story!.id,
       shotNo: 1,
       prompt: "把路牌文字去掉",
-      originalImageUrl: "data:image/png;base64,aW1hZ2U=",
+      originalImageUrl: await sourceImageFixture("mobile"),
     });
 
     // 经美术网关，prompt 被追加风格 DNA → 只断言含原 prompt（基底图不变）
     expect(imageGenMocks.editImage).toHaveBeenCalledWith(
-      "data:image/png;base64,aW1hZ2U=",
+      await sourceImageFixture("mobile"),
       expect.stringContaining("把路牌文字去掉")
     );
     expect(result.status).toBe("ok");
@@ -3374,7 +3391,7 @@ it("sends the existing art director's Chinese-edit compilation through the real 
   const { inspectVisualEdit } = await import("./services/visualEditUnderstanding");
   const compiled = "Increase tree-species variety using delicate pointillist color transitions. Preserve the paper airplane, UI text, shapes, composition, luminance and contrast.";
   const vision = vi.spyOn(inference, "runInference").mockResolvedValueOnce({model:"test-vision",result:{choices:[{message:{content:JSON.stringify({observed:"纸飞机飞过森林",change:["更多树种"],preserve:["原有明暗和构图"],uncertain:[],editPromptEnglish:compiled})}}]}} as never);
-  const materialize = vi.spyOn(assets, "materializeImageInput").mockResolvedValue("data:image/png;base64,test-original");
+  const materialize = vi.spyOn(assets, "materializeImageInput").mockResolvedValue(await sourceImageFixture("refinement"));
   try {
     const userId=77113; const caller=appRouter.createCaller(createAuthContext(userId));
     const recipe={version:1,updatedAt:1,sourceCandidateIds:[],style:["pointillism"],palette:[],light:[],composition:[],material:[],negative:[],system:{name:"微彩",englishPrompt:"Delicate colorful stippled surfaces.",objectRules:[],motionRules:[],continuityRules:[],referenceImageIds:[],confirmedAt:1}};

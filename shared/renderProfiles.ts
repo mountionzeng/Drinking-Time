@@ -43,6 +43,7 @@ export const RENDER_PROFILE_IDS = [
   "image.fal-flux-pro-ultra",
   "image.forge-edit",
   "image.local-color-transfer",
+  "image.local-erase",
   "video.vidu-q2-pro-fast",
   "video.mj-video",
   "video.302-configured",
@@ -58,7 +59,8 @@ export type RenderAdapterKind =
   | "shot-video"
   | "start-end-video"
   /** 本机计算，不调用任何供应商、不发网络请求。 */
-  | "local-color-transfer";
+  | "local-color-transfer"
+  | "local-erase";
 
 export type RenderQuoteInput = {
   durationSec?: number;
@@ -287,6 +289,13 @@ const PROFILES: Record<RenderProfileId, RenderProfile> = {
     fixedParams: {}, allowedParams: [], price: null, priceNote: "已下线。",
     maxPromptChars: null, overLimit: "reject", outputCount: 1, enabled: false,
     disabledReason: "Forge 只作为 GPT-image 图生图失败后的静默兜底，已下线：失败直接报给用户，不再换供应商重试。",
+  },
+  "image.local-erase": {
+    id: "image.local-erase", media: "image", operation: "edit", adapter: "local-erase",
+    label: "本地擦除", provider: "local", model: "edge-fill-v1", endpoint: "local",
+    fixedParams: {}, allowedParams: ["region"],
+    price: { source: "local CPU", estimateCny: () => 0 }, maxPromptChars: null,
+    overLimit: "reject", outputCount: 1, enabled: true,
   },
   "image.local-color-transfer": {
     id: "image.local-color-transfer", media: "image", operation: "edit", adapter: "local-color-transfer",

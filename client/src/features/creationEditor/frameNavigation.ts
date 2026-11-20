@@ -1,6 +1,6 @@
 import type { ChatFrameReference, PausedFrameSnapshot, WarehouseVideoFrame } from "@shared/chatFrameReference";
 
-/** Plain arrows navigate the preview; modified arrows remain clip-edit shortcuts. */
+/** Plain arrows step the preview when focus belongs to a navigation surface. */
 export function isFrameNavigationKey(event: {
   key: string;
   shiftKey: boolean;
@@ -24,7 +24,7 @@ export function isFrameNavigationTarget(target: Element | null) {
       )
     ) &&
     !target?.closest(
-      'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="dialog"], [role="menu"], [role="combobox"]'
+      '[data-visual-clip-move-target="true"], input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="dialog"], [role="menu"], [role="combobox"]'
     )
   );
 }

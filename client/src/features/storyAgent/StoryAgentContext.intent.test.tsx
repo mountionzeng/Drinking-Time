@@ -506,3 +506,36 @@ it('executes an interface action ahead of editing and retains UI and writing con
     expect(edit).not.toHaveBeenCalled();
   } finally { subscription.mockRestore(); }
 });
+
+it('records an uncertain command once and only sends an explicitly unhandled command to chat', async () => {
+  const { StoryAgentProvider, useStoryAgent } = await import('./StoryAgentContext');
+  const spine = await import('./spine/storySpine');
+  const store = spine.storySpineStore;
+  store.getState().bindAccountScope(73);
+  store.getState().setActiveStoryId(1234);
+  store.getState().setRemoteStoryId(1234);
+  store.getState().setMessages([]);
+  store.getState().setIsReplying(false);
+  const subscription = vi.spyOn(spine, 'useStorySpine').mockImplementation(
+    ((selector: (state: ReturnType<typeof store.getState>) => unknown) => selector(store.getState())) as typeof spine.useStorySpine,
+  );
+  const edit = vi.fn().mockRejectedValueOnce(new Error('network interrupted')).mockResolvedValue(null);
+  const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+  let send!: ReturnType<typeof useStoryAgent>['sendMessage'];
+  function Capture() { send = useStoryAgent().sendMessage; return null; }
+  try {
+    renderToStaticMarkup(<StoryAgentProvider userId={73} projectId={null} editingCommandRunner={edit}><Capture /></StoryAgentProvider>);
+    routingMocks.chat.mockClear();
+    const options = {workspaceContext:'video' as const, clientMessageId:'queued-cut'};
+    for (let i = 0; i < 2; i++) expect(await send('调整剪辑节奏', undefined, undefined, options)).toBe(false);
+    expect(edit).toHaveBeenCalledOnce();
+    expect(routingMocks.chat).not.toHaveBeenCalled();
+    expect(store.getState().messages.map(m => m.id)).toEqual(['queued-cut', 'interrupted:queued-cut']);
+    expect(store.getState().isReplying).toBe(false);
+    const ordinary = {...options, clientMessageId:'ordinary-question'};
+    for (let i = 0; i < 2; i++) expect(await send('我想聊聊这个故事', undefined, undefined, ordinary)).toBe(true);
+    expect(edit).toHaveBeenCalledTimes(2);
+    expect(routingMocks.chat).toHaveBeenCalledOnce();
+    expect(store.getState().messages.at(-1)?.id).toBe('reply:ordinary-question');
+  } finally { subscription.mockRestore(); errorLog.mockRestore(); }
+});

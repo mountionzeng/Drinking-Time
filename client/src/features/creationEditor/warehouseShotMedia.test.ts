@@ -235,3 +235,10 @@ describe("shot archive projection", () => {
     ]);
   });
 });
+
+it("puts an archived chat candidate in its current shot group even after the displayed number changes", () => {
+  const material = { ...state, warehouseImages: [image(6, null, {libraryShotIds: ["b"]})] };
+  const groups = buildWarehouseShotGroups({storyId: 7, shots: [{...shots[1], shotNo: 8}], materialState: material});
+  expect(groups.find(group => group.id === "b")).toMatchObject({ shotCode: "08", items: [expect.objectContaining({id: 6})] });
+  expect(groups.find(group => group.id === UNASSIGNED_MEDIA)?.items.map(item => item.key)).not.toContain("image:6");
+});

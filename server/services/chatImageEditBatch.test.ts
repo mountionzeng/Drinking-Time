@@ -58,3 +58,48 @@ it('rejects foreign ownership, changed plans, missing references and stale shot 
   f.body.shots = [{ stableShotId: 's3', shotNo: 3 }]; f.plan.images[0].imageId = 999999;
   await updateStory(f.story.id, 123, { body: f.body }); await expect(readChatImageEditBatch(f.input)).rejects.toThrow('不可用');
 });
+
+it('prepares a full board in review order, reading only one base plus its style reference per request', async () => {
+  const f = await fixture();
+  for (let n=4;n<=6;n++) f.images.push(await createGeneratedImage({storyId:f.story.id,userId:123,imageUrl:'/'+n+'.png',isCurrent:false}));
+  const boardId='saved-photos:board';
+  const plan={...f.plan,keyframeBoardId:boardId,images:f.images.map((image,i)=>({
+    imageId:image.id,imageUrl:image.imageUrl,label:'source',copies:1,role:i===5?'reference':'target',purpose:i===5?'背景层次':'柔化受光交界',
+  }))};
+  const review={id:boardId,who:'s',text:'关键帧初稿（5 张）\n'+plan.images.slice(0,5).map(i=>inlineImageToken(i.imageId)).join('\n'),selectionQuote:f.body.messages[0].selectionQuote};
+  const receipt={who:'u',text:plan.images.map(i=>inlineImageToken(i.imageId)).join(' ')};
+  f.body.messages=[review,receipt,{...f.body.messages[0],imageEditPlan:plan}];
+  await updateStory(f.story.id,123,{body:f.body});
+  const before=await getStoryById(f.story.id,123);
+  const batch=await readChatImageEditBatch(f.input);
+  expect(batch.items.map(i=>i.request.referenceImageUrl)).toEqual(['/1.png','/2.png','/3.png','/4.png','/5.png']);
+  expect(batch.items.every(i=>i.status==='ready' && i.request.referenceContextImageUrls.join()==='/6.png')).toBe(true);
+  expect(batch.items.every(i=>i.request.prompt.includes('contact shadows'))).toBe(true);
+  expect(batch.remainingEstimatedCny).toBeCloseTo(7.15);
+  expect(await getStoryById(f.story.id,123)).toEqual(before);
+  f.body.messages[0]={...review,selectionQuote:{...review.selectionQuote,stableShotId:'other'}};
+  await updateStory(f.story.id,123,{body:f.body});
+  await expect(readChatImageEditBatch(f.input)).rejects.toThrow('审图记录');
+});
+it('blocks a stale tab confirming an older quote after the draft was superseded',async()=>{
+ const f=await fixture();f.body.messages[0].id='image-edit-confirmed:old';
+ f.body.messages.push({id:adjustedImageEditPlanId('old')});
+ await updateStory(f.story.id,123,{body:f.body});
+ await expect(readChatImageEditBatch({...f.input,planMessageId:'image-edit-confirmed:old'})).rejects.toThrow('新的修改范围');
+});
+
+it('only prepares checked region matches and requires the entire original ordered board',async()=>{
+ const f=await fixture();const boardId='saved-photos:region-test';
+ const ids=f.images.map(i=>i.id);
+ const rect={top:.1,bottom:.3,left:.2,right:.4};
+ const plan={...f.plan,keyframeBoardId:boardId,regionScanSourceId:ids[0],images:f.plan.images.map((row,i)=>({...row,role:i===1?'omit':'target',region:i===1?undefined:rect}))};
+ const review={id:boardId,who:'s',text:'关键帧修订稿 '+ids.map(inlineImageToken).join(' '),selectionQuote:f.body.messages[0].selectionQuote};
+ f.body.messages=[review,{...f.body.messages[0],imageEditPlan:plan}];
+ await updateStory(f.story.id,123,{body:f.body});
+ const batch=await readChatImageEditBatch(f.input);
+ expect(batch.items.map(i=>i.imageId)).toEqual([ids[0],ids[2]]);
+ expect(batch.items.every(i=>i.request.explicitInstruction.includes('x 20%–40%'))).toBe(true);
+ f.body.messages[0]={...review,text:'关键帧修订稿 '+[ids[0],ids[2]].map(inlineImageToken).join(' ')};
+ await updateStory(f.story.id,123,{body:f.body});
+ await expect(readChatImageEditBatch(f.input)).rejects.toThrow('审图记录');
+});

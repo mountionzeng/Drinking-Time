@@ -20,7 +20,14 @@ export function sealRelease(report: Inventory) {
   const built = artifacts(path.join(report.source, "dist"));
   if (!built.some(f => f.path === "index.js") || !built.some(f => f.path === "public/index.html")) throw new Error("Incomplete build: server and frontend required");
   // Python workers are executed outside the JS bundle and must travel with it.
-  const support = report.files.filter(f => f.hash !== null && f.path.startsWith("scripts/frame-regions/") && /\.(py|txt)$/.test(f.path));
+  const mediaSupport = [
+    "scripts/cut-word-timing.py", "scripts/dialogue-cup-onset.py",
+    "scripts/read-picture-region.swift", "scripts/read-video-text.swift",
+    ...["fire","wood","earth","water","metal"].map(kind => `docs/prototypes/liaohuier-miniapp/assets/cup-${kind}.png`),
+  ];
+  const support = report.files.filter(f => f.hash !== null && (
+    mediaSupport.includes(f.path) || (f.path.startsWith("scripts/frame-regions/") && /\.(py|txt)$/.test(f.path))
+  ));
   const files = [...built.map(f => ({ ...f, path: `dist/${f.path}` })), ...support].sort((a, b) => a.path.localeCompare(b.path));
   return { schemaVersion: 1 as const, sourceKind: report.sourceKind, primaryHead: report.head, sourceDigest: report.sourceDigest, inventoryDigest: digest(report), artifacts: files };
 }

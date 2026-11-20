@@ -1,3 +1,4 @@
+import { inlineChatParts } from "@shared/inlineChatImages";
 import { useEffect, type RefObject } from "react";
 import type { ChatMessage } from "@/features/storyAgent/types";
 import type { WarehouseShotGroup } from "./warehouseShotMedia";
@@ -23,6 +24,12 @@ export function warehouseConversationTarget(message: ChatMessage, storyId: numbe
     const frames = message.frameReferences?.filter(frame => frame.storyId === storyId) ?? [];
     target.stableShotId = frames[0]?.stableShotId;
     target.mediaKeys = frames.map(frame => `image:${frame.imageId}`);
+  }
+  if (!target.mediaKeys.length && message.id.startsWith("saved-photos:") && message.selectionQuote?.storyId === storyId) {
+    try {
+      target.mediaKeys = inlineChatParts(message.content).flatMap(part => part.imageId ? [`image:${part.imageId}`] : []);
+      target.stableShotId = message.selectionQuote.stableShotId ?? undefined;
+    } catch { /* An invalid historical reference cannot locate a library item. */ }
   }
   target.mediaKeys = [...new Set(target.mediaKeys)];
   return target;

@@ -12,6 +12,7 @@ import { runLocalColorTransfer } from "./adapters/localColorTransfer";
 import type {
   ImageRenderInput,
   LocalColorTransferRenderInput,
+  LocalEraseInput,
   LegnextRenderInput,
   ShotVideoProfileId,
   ShotVideoRenderInput,
@@ -35,6 +36,12 @@ export async function runRenderAdapter(profile: RenderProfile, input: unknown): 
     case "start-end-video": {
       const startEnd = input as StartEndVideoRenderInput;
       return startEnd.options === undefined ? submitViduTransition(startEnd.spec) : submitViduTransition(startEnd.spec, startEnd.options);
+    }
+    case "local-erase": {
+      const { bytes, region } = input as LocalEraseInput;
+      const { eraseRegionPixels } = await import("../localRegionErase");
+      try { return { status: "ok", png: await eraseRegionPixels(bytes, region) }; }
+      catch (error) { return { status: "error", message: error instanceof Error ? error.message : "本地擦除失败" }; }
     }
     case "local-color-transfer":
       return runLocalColorTransfer(input as LocalColorTransferRenderInput);

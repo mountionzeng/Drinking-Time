@@ -11,6 +11,7 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
+import { createPortal } from "react-dom";
 import { toast } from "sonner";
 import { EditingConfirmationDialog } from "../EditingConfirmationDialog";
 
@@ -200,7 +201,7 @@ function StoryboardEditGapMenu({
     };
   }, [onClose]);
 
-  return (
+  return createPortal(
     <div
       role="menu"
       aria-label={_ui("空档剪辑菜单")}
@@ -236,7 +237,8 @@ function StoryboardEditGapMenu({
         >
           {_ui("粘贴到这里")}</button>
       ) : null}
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -298,7 +300,7 @@ function StoryboardEditContextMenu({
     };
   }, [onClose]);
 
-  return (
+  return createPortal(
     <div
       role="menu"
       aria-label={_ui("{0} 剪辑菜单", [menu.shot.shotLabel])}
@@ -344,7 +346,8 @@ function StoryboardEditContextMenu({
           </span>
         </button>
       ))}
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -392,7 +395,7 @@ function StoryboardVisualObjectMenu({
   useEffect(() => {
     focusable()[0]?.focus({ preventScroll: true });
   }, []);
-  return (
+  return createPortal(
     <div
       className="fixed inset-0 z-[120]"
       onPointerDown={onClose}
@@ -457,7 +460,8 @@ function StoryboardVisualObjectMenu({
           );
         })}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -473,7 +477,7 @@ function StoryboardVisualPasteMenu({
   onClose: () => void;
 }) {
   const _ui = useDesktopUiText();
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-[120]" onPointerDown={onClose}>
       <div
         role="menu"
@@ -496,7 +500,8 @@ function StoryboardVisualPasteMenu({
           <span className="text-[9px] text-muted-foreground">⌘V</span>
         </button>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -2807,7 +2812,9 @@ export function StoryboardEditRow({
     });
   const mainLayerHidden = visualLayerState.hidden.includes(0);
   const nudgeVisualClip = useStoryboardVisualClipNudge(
-    timeline.onMoveVisualClip
+    timeline.onMoveVisualClip,
+    timeline.storySessionKey,
+    selectionFingerprint,
   );
   const manageVisualLayer = (action: TimelineVisualLayerAction) => {
     if (!timeline.onManageVisualLayer || timeline.writePending) return;
@@ -3432,11 +3439,9 @@ export function StoryboardEditRow({
           )
         ),
         isButtonTarget: Boolean(target?.closest("button, a, [role='button']")),
-        isTimelineTarget: Boolean(
-          target?.closest(
-            '[data-storyboard-visual-layer], [data-playback-space="true"]'
-          )
-        ),
+        isTimelineTarget: Boolean(target?.closest("[data-storyboard-visual-layer]")),
+        commandModifier: event.metaKey || event.ctrlKey,
+        hasTextSelection: window.getSelection()?.type === "Range",
         isAnchorTarget: Boolean(
           target?.closest('[data-storyboard-edit-anchor="true"]')
         ),

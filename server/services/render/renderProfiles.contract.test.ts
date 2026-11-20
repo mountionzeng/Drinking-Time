@@ -424,6 +424,15 @@ describe("image.local-color-transfer (0-price local profile)", () => {
     return sharp({ create: { width: 16, height: 16, channels: 3, background: { r: rgb[0], g: rgb[1], b: rgb[2] } } }).png().toBuffer();
   }
 
+  it("image.local-erase: performs a zero-cost local edit without contacting a provider", async () => {
+    const { calls, fetcher } = capturingFetch();
+    vi.stubGlobal("fetch", fetcher);
+    const result = await submitRender("image.local-erase", { bytes: await tinyPng([90, 140, 100]), region: { left:.25, right:.75, top:.1, bottom:.5 } });
+    expect(result.status).toBe("ok");
+    expect(quoteRenderProfile("image.local-erase")?.computeUnits).toBe(0);
+    expect(calls).toHaveLength(0);
+  });
+
   it("quotes 0 算力 and is never offered as a stand-in for paid profiles", () => {
     expect(quoteRenderProfile("image.local-color-transfer")).toMatchObject({ estimatedCny: 0, computeUnits: 0 });
     const profile = getRenderProfile("image.local-color-transfer");
@@ -466,6 +475,7 @@ describe("quote = profile price = existing imageRenderCost result", () => {
     "video.mj-video": () => estimateShotVideoCost({ durationSec: 5, motion: "low", priceProfile: "mj-turbo" }).estimatedCny,
     "video.302-configured": () => estimateShotVideoCost({ durationSec: 5, motion: "low", priceProfile: "legacy" }).estimatedCny,
     "video.vidu-q2-turbo-start-end": () => estimateViduQ2TransitionCny({ durationSec: 2, resolution: "720p", uploadCount: 2 }).estimatedCny,
+    "image.local-erase": () => 0,
     "image.local-color-transfer": () => 0,
   };
 

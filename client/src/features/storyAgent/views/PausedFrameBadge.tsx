@@ -7,10 +7,12 @@ import type { ChatFrameReference } from "@shared/chatFrameReference";
 export function PausedFrameBadge({
   frame,
   expanded = false,
+  shotCode,
   onSelect,
 }: {
   frame: ChatFrameReference;
   expanded?: boolean;
+  shotCode?: string;
   onSelect?: (frame: ChatFrameReference) => void;
 }) {
   const { language } = useUiLanguage();
@@ -32,7 +34,7 @@ export function PausedFrameBadge({
       </button>
       <figcaption className="mt-1 text-[10px] text-muted-foreground">
         {language === "en" ? "Shot" : "镜头"}{" "}
-        {String(frame.shotNo).padStart(2, "0")} · #{frame.imageId} ·
+        {shotCode ?? String(frame.shotNo).padStart(2, "0")} · #{frame.imageId} ·
         {frame.takeId ? ` Take ${frame.takeId} ·` : ""}{" "}
         {frame.origin === "warehouse-video" ? `${language === "en" ? "Source video" : "源视频"} ${frame.sourceTimeSec.toFixed(2)}s` : `${language === "en" ? "Timeline revision" : "剪辑修订"} ${frame.timelineVersion}`}
         {frame.imageSize && <> · {frame.imageSize.width}×{frame.imageSize.height} · {language === "en" ? "Source frame" : "原素材帧"}</>}

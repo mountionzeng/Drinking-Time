@@ -111,6 +111,7 @@ export function shotConversationMessages<T extends Message>(
 }
 
 type Image = {
+  libraryShotIds?: readonly string[];
   id: number;
   imageUrl: string;
   shotIdentity?: string | null;
@@ -124,7 +125,7 @@ export function shotConversationImages<T extends Image>(
 ): T[] {
   const ids = new Set(relatedIds);
   for (const image of images)
-    if (image.shotIdentity === stableShotId) ids.add(image.id);
+    if (image.shotIdentity === stableShotId || image.libraryShotIds?.includes(stableShotId)) ids.add(image.id);
   let changed = true;
   while (changed) {
     changed = false;

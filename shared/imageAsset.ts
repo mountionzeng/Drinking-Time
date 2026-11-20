@@ -24,6 +24,8 @@ export type ImageAsset = {
   rawShotNo: string | null;
   canonicalShotNo: string | null;
   shotIdentity: string | null;
+  /** Current shots with an explicit archive association. Independent of adoption. */
+  libraryShotIds?: string[];
   imageKey: string | null;
   imageUrl: string;
   prompt: string | null;

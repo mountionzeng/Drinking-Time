@@ -3,7 +3,7 @@ import { trpc } from "@/lib/trpc";
 import { useUiText } from "@/features/uiLanguage/UiLanguage";
 
 /** Durable conversation gallery. Recovery can query receipts, never buy images. */
-export function ArtPreviewGallery({ storyId, includePlans = false }: { storyId: number; includePlans?: boolean }) {
+export function ArtPreviewGallery({ storyId, includePlans = false, onReference, shotCode }: { storyId: number; includePlans?: boolean; shotCode?: (id: string) => string | undefined; onReference?: (id: number, shot: string) => void }) {
   const ui = useUiText();
   const query = trpc.artSystems.previewRead.useQuery({ storyId }, { refetchInterval: 5000 });
   const recover = trpc.storyAgent.recoverStoryboardImage.useMutation();
@@ -39,13 +39,17 @@ export function ArtPreviewGallery({ storyId, includePlans = false }: { storyId: 
       </select></div>
     <p className="text-xs text-muted-foreground">V{batch.version} · {ui("参考图片")} #{batch.baselineImageId} · {ui("回复“第 2 镜用第 3 张”即可选择；历史方案请带上 V 版本号。")}</p>
     <p className="text-xs text-muted-foreground">{batch.instruction}</p>
-    {batch.shots.map(shot => <article key={shot.stableShotId} className="space-y-1.5">
-      <h4 className="text-xs font-semibold">{ui("第 {0} 镜", [shot.label])}</h4>
+    {batch.shots.map(shot => {
+      const label = shotCode?.(shot.stableShotId) ?? shot.label;
+      return <article key={shot.stableShotId} className="space-y-1.5">
+      <h4 className="text-xs font-semibold">{ui("第 {0} 镜", [label])}</h4>
       <p className="text-xs text-muted-foreground">{shot.adaptation}</p>
-      {shot.candidates.length ? <div className="grid grid-cols-2 gap-2">{shot.candidates.map((image, index) => <figure key={image.imageId}>
-        <img src={image.imageUrl} alt={ui("第 {0} 镜 · 第 {1} 张", [shot.label, index + 1])} loading="lazy" className="aspect-video w-full rounded-lg object-contain bg-muted" />
+      {shot.candidates.length ? <div className="grid grid-cols-2 gap-2">{shot.candidates.map((image, index) => {
+        const thumbnail = <img src={image.imageUrl} alt={ui("第 {0} 镜 · 第 {1} 张", [label, index + 1])} loading="lazy" className="aspect-video w-full rounded-lg object-contain bg-muted" />;
+        return <figure key={image.imageId}>
+        {onReference ? <button type="button" className="block w-full" onClick={() => onReference(image.imageId, shot.stableShotId)}>{thumbnail}</button> : thumbnail}
         <figcaption className="text-[11px] text-muted-foreground">{index + 1} · #{image.imageId}</figcaption>
-      </figure>)}</div> : <p className="text-xs text-muted-foreground">{ui(shot.status === "planned" ? "等待本批算力确认" : shot.status === "failed" ? "本镜尚未生成成功，原记录保留" : "原任务正在生成或取回，无需再次提交")}</p>}
-    </article>)}
+      </figure>; })}</div> : <p className="text-xs text-muted-foreground">{ui(shot.status === "planned" ? "等待本批算力确认" : shot.status === "failed" ? "本镜尚未生成成功，原记录保留" : "原任务正在生成或取回，无需再次提交")}</p>}
+    </article>; })}
   </section>;
 }

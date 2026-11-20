@@ -275,6 +275,16 @@ function mergeShotPreservedFields(
   const incomingShot = asRecord(incomingValue);
   const merged: StoryBodyRecord = { ...incomingShot };
 
+  // The chat autosaver omits editor keys. Preserve authored keys, and update
+  // derived SH numbers when inserting a clip changes the displayed shot order.
+  if (typeof serverShot.shotKey === "string" &&
+      (merged.shotKey == null || merged.shotKey === serverShot.shotKey)) {
+    merged.shotKey = /^SH[0-9]+$/i.test(serverShot.shotKey) &&
+      typeof merged.shotNo === "number" && merged.shotNo !== serverShot.shotNo
+      ? `SH${String(merged.shotNo).padStart(2, "0")}`
+      : serverShot.shotKey;
+  }
+
   for (const field of SHOT_FIELDS_TO_PRESERVE) {
     if (!hasOwn(merged, field) && hasOwn(serverShot, field)) {
       merged[field] = serverShot[field];

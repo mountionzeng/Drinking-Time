@@ -1,3 +1,5 @@
+import { parseDialogueVisualSync } from "../../shared/dialogueVisualSync";
+import { syncVisualToDialogue } from "./dialogueVisualSync";
 import { formatComputeQuote } from "../../shared/computeMoney";
 /**
  * 剪辑指令代理：把「把第三镜挪到最前面」「删掉第 5 镜」「第一镜改成 2 秒」
@@ -1479,6 +1481,16 @@ export async function runTimelineEditCommand(params: {
 
   const material = await getStoryMaterialState(params.storyId, params.userId);
   if (!material) return { handled: false };
+  const sync = parseDialogueVisualSync(instruction);
+  if (sync) {
+    try {
+      return await syncVisualToDialogue(params, material, sync, params.selectionContext?.stableShotId);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "";
+      return {handled:true, appliedCount:0, reply: /^(请|本机|画面|无法)/u.test(message) ? message :
+        "这次音画对齐未保存。请核对当前剪辑版本和本地素材后重试。"};
+    }
+  }
   const byIdentity = new Map(
     material.shots.map(shot => [shot.stableShotId, shot] as const)
   );

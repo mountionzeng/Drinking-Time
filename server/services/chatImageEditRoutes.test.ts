@@ -1,3 +1,4 @@
+import { sourceImageFixture as sourceFixture } from "../testFixtures/sourceImage";
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { TrpcContext } from '../_core/context';
 import { createChatImageEditPlan } from '../../shared/chatImageEditPlan';
@@ -19,7 +20,7 @@ beforeEach(() => { resetMemoryStateForTesting(); vi.clearAllMocks(); vi.stubGlob
 afterEach(() => vi.unstubAllGlobals());
 async function fixture() {
   const story = await createStory({ userId: 123, title: 'two images', body: {} });
-  const images = await Promise.all([1, 2, 3].map(n => createGeneratedImage({ storyId: story.id, userId: 123, imageUrl: `https://example.com/${n}.png`, isCurrent: false })));
+  const images = await Promise.all([1, 2, 3].map(async n => createGeneratedImage({ storyId: story.id, userId: 123, imageUrl: await sourceFixture(n), isCurrent: false })));
   const plan = createChatImageEditPlan(images.map(image => ({ imageId: image.id, imageUrl: image.imageUrl, label: `${image.id}` })), '只调整树冠配色');
   plan.renderRoute = 'storyboard'; plan.images[0].copies = 3; plan.status = 'submitted'; plan.preserve = '严格保留飞机大小、位置、数量、形状和颜色';
   plan.images.forEach((image, i) => { image.role = i === 2 ? 'reference' : 'target'; image.purpose = '饱和度与颜色层次'; });
@@ -79,4 +80,21 @@ it('delivers the same approved brief, base and ordered reference images to eithe
   expect(mjInputs.referenceContextImageUrls).toEqual(precisionInputs.referenceContextImageUrls);
   expect(mjInputs.characterRef).toBeUndefined();
   expect(mjInputs.styleRef).toBeUndefined();
+});
+
+it("reports unreadable source pixels as not submitted before either supplier is called", async()=>{
+  const {c,input,story,images}=await fixture();
+  const inaccessible=await createGeneratedImage({storyId:story.id,userId:123,imageUrl:"data:image/png;base64,AAAA",isCurrent:false});
+  const {getStoryById}=await import("../repositories/stories");
+  const snapshot=(await getStoryById(story.id,123))!.body as any;
+  const msg=snapshot.messages.find((m:any)=>m.id==="plan");
+  msg.imageEditPlan.images[0].imageId=inaccessible.id;
+  await updateStory(story.id,123,{body:snapshot});
+  const out=await c.generateForMobile({...input,imageEditPlanOutput:{...input.imageEditPlanOutput,imageId:inaccessible.id},costConfirmation:{accepted:true,estimatedCny:0.68}});
+  expect(out).toMatchObject({status:"error",error:expect.stringContaining("未提交生成")});
+  expect(out).not.toMatchObject({submissionUncertain:true});
+  expect(mj.generateLegnextImage).not.toHaveBeenCalled();expect(provider.editImage).not.toHaveBeenCalled();
+  expect((await c.chatImageEditBatch({storyId:story.id,planMessageId:"plan"})).items[0].status).toBe("failed");
+  expect(await c.visualUnderstanding.sourceFrames({storyId:story.id,imageIds:[images[0].id]})).toMatchObject([{imageId:images[0].id,summary:expect.stringContaining("16×16")}]);
+  await expect(caller(124).visualUnderstanding.sourceFrames({storyId:story.id,imageIds:[images[0].id]})).rejects.toThrow();
 });

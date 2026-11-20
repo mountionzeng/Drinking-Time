@@ -17,13 +17,17 @@ it("plain arrows navigate; modified arrows keep their existing commands", () => 
       expect(isFrameNavigationKey({ ...event, [modifier]: true })).toBe(false);
   }
 });
-it("does not take over editing inputs or dialogs", () => {
-  const fake = (region: boolean, editable: boolean) =>
-    ({
-      closest: (selector: string) =>
-        selector.startsWith("[data-frame") ? region : editable,
+it("routes arrows by focus within the preview and visual layers", () => {
+  // Model closest() on a control or on an icon inside that control.
+  const within = (...ancestors: string[]) =>
+    ({ closest: (selector: string) =>
+      ancestors.find(ancestor => selector.split(", ").includes(ancestor)) ?? null,
     }) as unknown as Element;
-  expect(isFrameNavigationTarget(fake(true, false))).toBe(true);
-  expect(isFrameNavigationTarget(fake(true, true))).toBe(false);
-  expect(isFrameNavigationTarget(fake(false, false))).toBe(false);
+  const layer = "[data-storyboard-visual-layer]";
+  expect(isFrameNavigationTarget(within(layer))).toBe(true);
+  expect(isFrameNavigationTarget(within('[data-frame-navigation="true"]'))).toBe(true);
+  expect(isFrameNavigationTarget(within('[data-visual-clip-move-target="true"]', layer))).toBe(false);
+  expect(isFrameNavigationTarget(within("input", layer))).toBe(false);
+  expect(isFrameNavigationTarget(within('[role="dialog"]', layer))).toBe(false);
+  expect(isFrameNavigationTarget(within())).toBe(false);
 });

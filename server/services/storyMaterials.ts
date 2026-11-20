@@ -1,3 +1,4 @@
+import { libraryImageShots } from "./libraryImageShots";
 import type { Story } from "../../drizzle/schema";
 import { activeArtSystemRecipe } from "../../shared/artSystem";
 import { normalizePublishingAlbumTypographyLayout } from "../../shared/publishingAlbum";
@@ -804,6 +805,7 @@ export async function getStoryMaterialState(
     story.body && typeof story.body === "object" && !Array.isArray(story.body)
       ? (story.body as Record<string, unknown>)
       : {};
+  const withLibraryShots = libraryImageShots(storyId, storyBody, facts);
   const visualAssetAggregate = normalizeStoryVisualAssets(
     storyBody.visualAssets,
     { legacyArtDirection: storyBody.artDirection ?? {} }
@@ -1076,7 +1078,7 @@ export async function getStoryMaterialState(
     // Standard asset views keep their existing separate warehouse category.
     warehouseImages: images.filter(
       image => image.kind !== "visual_asset" && image.availability !== "missing"
-    ),
+    ).map(withLibraryShots),
     unassignedImages: images.filter(
       image =>
         image.assignment === "unassigned" &&

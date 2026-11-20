@@ -1,3 +1,8 @@
+import { sourceImageFixture as sourceFixture } from "../testFixtures/sourceImage";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { onTestFinished } from "vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { insertChapter } from "../repositories/chapters";
 import { ENV } from "../_core/env";
@@ -74,12 +79,18 @@ afterEach(() => {
 
 describe("videoJobs", () => {
   it("keeps book image video separate from unrelated storyboard context and reuses its request", async () => {
+    const folder = await mkdtemp(path.join(tmpdir(),"book-video-source-"));
+    const previousDir = ENV.localImageDir;
+    ENV.localImageDir = folder;
+    onTestFinished(async () => { ENV.localImageDir=previousDir; await rm(folder,{recursive:true,force:true}); });
+    const source=await sourceFixture("book");
+    await writeFile(path.join(folder,"book.png"),Buffer.from(source.split(",")[1],"base64"));
     const story = await createStory({ userId: 1, title: "书内图", body: { shots: [{ shotNo: 1, videoPrompt: "定格", subject: "不相关镜头" }] } });
     const image = await createGeneratedImage({ userId: 1, projectId: null, storyId: story.id,
-      shotNo: "PUBLISHING-COVER-1", imageUrl: "https://example.com/book.png", imageKey: null,
+      shotNo: "PUBLISHING-COVER-1", imageUrl: "/api/images/book.png", imageKey: null,
       prompt: "书内插图", generationType: "initial", isCurrent: false });
     const chapter = await insertChapter({ storyId: story.id, userId: 1, content: { title: "书", layout: null, blocks: {
-      body: "![图片](https://example.com/book.png)", writingStyle: [{ id: "picture", format: "text", parentId: null, collapsed: false }],
+      body: "![图片](/api/images/book.png)", writingStyle: [{ id: "picture", format: "text", parentId: null, collapsed: false }],
       blockIds: ["picture"], containsAiText: false, settings: null, coverKey: null, bodyTextureKey: null,
     } } });
     const fetch = vi.fn(async () => ({ ok: true, json: async () => ({ taskId: "book-video-task" }) }));
@@ -89,7 +100,7 @@ describe("videoJobs", () => {
     expect(result.status).toBe("ok");
     expect(fetch).toHaveBeenCalledTimes(1);
     const submitted = JSON.parse(String((fetch.mock.calls[0] as unknown as [string, RequestInit])[1].body));
-    expect(submitted.image_url).toBe(image.imageUrl);
+    expect(submitted.image_url).toBe(source);
     expect(submitted.prompt).not.toContain("不相关镜头");
     expect(submitted.prompt).toContain("人物转身");
     await startShotVideoJob(request, 1);
@@ -101,7 +112,7 @@ describe("videoJobs", () => {
   it("submits an article's referenced illustration directly, but rejects an unrelated shot", async () => {
     const story = await createStory({ userId: 1, projectId: null, title: "复用插图", body: {} });
     const image = await createGeneratedImage({ userId: 1, projectId: null, storyId: story.id,
-      shotNo: "PUBLISHING-COVER-1", imageUrl: "data:image/png;base64,QQ==", imageKey: null,
+      shotNo: "PUBLISHING-COVER-1", imageUrl: await sourceFixture("QQ=="), imageKey: null,
       prompt: "已选插图", generationType: "initial", isCurrent: false });
     await updateStory(story.id, 1, { body: { shots: [
       { stableShotId: "article-shot", shotIdentity: "article-shot", shotNo: 1, action: "人物转身", publishingVideo: { referenceImageId: image.id } },
@@ -144,7 +155,7 @@ describe("videoJobs", () => {
   it("uses an explicitly selected extracted first frame without promoting it to current image", async () => {
     const story = await createStory({ userId: 1, title: "Frame", body: {} });
     const frame = await createGeneratedImage({ userId: 1, projectId: null, storyId: story.id,
-      shotNo: "SH03", shotIdentity: "imported-shot-3", imageUrl: "data:image/png;base64,QQ==",
+      shotNo: "SH03", shotIdentity: "imported-shot-3", imageUrl: await sourceFixture("QQ=="),
       imageKey: null, prompt: "Extracted reference", generationType: "initial", isCurrent: false });
     const shots = [
       { shotNo: 3, stableShotId: "imported-shot-3", subject: "Flight", videoPrompt: "Fly forward",
@@ -273,7 +284,7 @@ describe("videoJobs", () => {
       userId: 1,
       shotNo: "SH05",
       shotIdentity: "shot-05",
-      imageUrl: "data:image/png;base64,BBBB",
+      imageUrl: await sourceFixture("BBBB"),
       imageKey: null,
       prompt: "previous selected frame",
       generationType: "initial",
@@ -285,7 +296,7 @@ describe("videoJobs", () => {
       userId: 1,
       shotNo: "SH06",
       shotIdentity: "shot-06",
-      imageUrl: "data:image/png;base64,AAAA",
+      imageUrl: await sourceFixture("AAAA"),
       imageKey: null,
       prompt: "frame prompt",
       generationType: "initial",
@@ -297,7 +308,7 @@ describe("videoJobs", () => {
       userId: 1,
       shotNo: "SH07",
       shotIdentity: "shot-07",
-      imageUrl: "data:image/png;base64,CCCC",
+      imageUrl: await sourceFixture("CCCC"),
       imageKey: null,
       prompt: "next selected frame",
       generationType: "initial",
@@ -364,7 +375,7 @@ describe("videoJobs", () => {
     const requestBody = JSON.parse(
       String((globalThis.fetch as any).mock.calls[0][1].body)
     );
-    expect(requestBody.image_url).toBe("data:image/png;base64,AAAA");
+    expect(requestBody.image_url).toBe(await sourceFixture("AAAA"));
     expect(requestBody.prompt).toContain("Editor hard constraints");
     expect(requestBody.prompt).toContain("转身");
     expect(requestBody.prompt).toContain("前一镜参考图：SH05");
@@ -395,7 +406,7 @@ describe("videoJobs", () => {
       userId: 1,
       shotNo: "SH01",
       shotIdentity: "shot-01",
-      imageUrl: "data:image/png;base64,AAAA",
+      imageUrl: await sourceFixture("AAAA"),
       imageKey: null,
       prompt: "pending frame",
       generationType: "initial",
@@ -446,7 +457,7 @@ describe("videoJobs", () => {
       userId: 1,
       shotNo: "SH01",
       shotIdentity: "shot-01",
-      imageUrl: "data:image/png;base64,AAAA",
+      imageUrl: await sourceFixture("AAAA"),
       imageKey: null,
       prompt: "selected frame",
       generationType: "initial",
@@ -530,7 +541,7 @@ describe("videoJobs", () => {
       userId: 1,
       shotNo: "SH02",
       shotIdentity: "shot-02",
-      imageUrl: "data:image/png;base64,BBBB",
+      imageUrl: await sourceFixture("BBBB"),
       imageKey: null,
       prompt: "current selected frame",
       generationType: "initial",
@@ -579,7 +590,7 @@ describe("videoJobs", () => {
     );
     expect(requestBody).toMatchObject({
       motion: "low",
-      image: "data:image/png;base64,BBBB",
+      image: await sourceFixture("BBBB"),
     });
     expect(requestBody.prompt).toContain("USER REQUIREMENT");
     expect(requestBody.prompt).toContain("gentle camera move");
@@ -666,7 +677,7 @@ Negative: no floating objects, characters obey physics.
       userId: 1,
       shotNo: "SH02",
       shotIdentity: "shot-02",
-      imageUrl: "data:image/png;base64,BBBB",
+      imageUrl: await sourceFixture("BBBB"),
       imageKey: null,
       prompt: "current selected frame",
       generationType: "initial",
@@ -765,7 +776,7 @@ Negative: no floating objects, characters obey physics.
       userId: 1,
       shotNo: "SH02",
       shotIdentity: "shot-02",
-      imageUrl: "data:image/png;base64,BBBB",
+      imageUrl: await sourceFixture("BBBB"),
       imageKey: null,
       prompt: "current selected frame",
       generationType: "initial",
@@ -812,8 +823,8 @@ Negative: no floating objects, characters obey physics.
         shotNo: 2,
         stableShotId: "shot-02",
         imageId: image.id,
-        characterReferenceImageUrl: "data:image/png;base64,IDENTITY",
-        storyStyleReferenceImageUrl: "data:image/png;base64,COVER",
+        characterReferenceImageUrl: await sourceFixture("IDENTITY"),
+        storyStyleReferenceImageUrl: await sourceFixture("COVER"),
         prompt: "动作：坐在沙发边缘\n相机运动：缓慢推进",
         subtitle: "我最近一直都在昏昏欲睡的状态",
         durationSec: 5,
@@ -836,13 +847,9 @@ Negative: no floating objects, characters obey physics.
       "用户最新要求：人物先屏息，再抬眼，相机随后响应"
     );
     expect(directorBody.messages[1].content[2].text).toContain("人物身份基准");
-    expect(directorBody.messages[1].content[3].image_url.url).toContain(
-      "IDENTITY"
-    );
+    expect(directorBody.messages[1].content[3].image_url.url).toBe(await sourceFixture("IDENTITY"));
     expect(directorBody.messages[1].content[4].text).toContain("故事正式封面");
-    expect(directorBody.messages[1].content[5].image_url.url).toContain(
-      "COVER"
-    );
+    expect(directorBody.messages[1].content[5].image_url.url).toBe(await sourceFixture("COVER"));
     expect(fetch.mock.calls[1][0]).toBe("https://api.302.ai/mj/submit/video");
     const mjBody = JSON.parse(String(fetch.mock.calls[1][1].body));
     expect(mjBody.prompt).toContain("breathes slowly");
@@ -899,7 +906,7 @@ Negative: no floating objects, characters obey physics.
       userId: 1,
       shotNo: "SH07",
       shotIdentity: "shot-0107",
-      imageUrl: "data:image/png;base64,APPROVED",
+      imageUrl: await sourceFixture("APPROVED"),
       imageKey: null,
       prompt: "current selected frame",
       generationType: "initial",
@@ -1034,7 +1041,7 @@ it("sends confirmed art motion to the provider and retains the art version on th
   const story = await createStory({ userId: 1, title: "Art video", body: { artDirection,
     shots: [{ shotNo: 1, stableShotId: "art-shot", subject: "teapot", action: "ink rises from spout" }] } });
   const image = await createGeneratedImage({ userId: 1, storyId: story.id, shotNo: "SH01", shotIdentity: "art-shot",
-    imageUrl: "data:image/png;base64,QQ==", prompt: "teapot", isCurrent: true });
+    imageUrl: await sourceFixture("QQ=="), prompt: "teapot", isCurrent: true });
   await createImageSignal({ userId: 1, storyId: story.id, imageId: image.id, action: "swipe_right", metadata: null });
   const fetch = vi.fn(async () => ({ ok: true, json: async () => ({ taskId: "art-video-task" }) })); vi.stubGlobal("fetch", fetch);
   const input = { storyId: story.id, shotNo: 1, stableShotId: "art-shot", imageId: image.id, prompt: "Ink rises from spout", directorPromptApproved: true };
@@ -1048,7 +1055,7 @@ it("sends confirmed art motion to the provider and retains the art version on th
 
 it("uses current overlapping words at the outgoing provider on a new render and a revised render",async()=>{
   const story=await createStory({userId:1,title:"Forest",body:{shots:[{shotNo:4,stableShotId:"forest"}]}});
-  const image=await createGeneratedImage({userId:1,storyId:story.id,shotNo:"SH04",shotIdentity:"forest",imageUrl:"data:image/png;base64,QQ==",prompt:"forest",isCurrent:true});
+  const image=await createGeneratedImage({userId:1,storyId:story.id,shotNo:"SH04",shotIdentity:"forest",imageUrl:await sourceFixture("QQ=="),prompt:"forest",isCurrent:true});
   await createImageSignal({userId:1,storyId:story.id,imageId:image.id,action:"swipe_right",metadata:null});
   const fetcher=vi.fn(async()=>({ok:true,json:async()=>({taskId:"forest-job"})}));vi.stubGlobal("fetch",fetcher);
   for(const [version,text] of ["长成音乐","长成电影"].entries()){

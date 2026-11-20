@@ -1,3 +1,4 @@
+import { inspectSourceFrame, type FrameReading } from "./sourceFrameReading";
 import { isWarehouseVideoSequence, refreshWarehouseVideoSequence } from "./warehouseVideoSequence";
 import { directionFromTimeline, readVideoTimelineCues, type VideoTimelineCue } from "./videoTimelineCues";
 import { hasUnreviewedFrameRefinement } from "../../shared/chatImageRevision";
@@ -387,6 +388,7 @@ function snapshot(input: {
   submitUrl?: string;
   submittedParameters?: Record<string, unknown>;
   sourceImageId: number;
+  sourceFrameReading?: FrameReading;
   characterReferenceImageUrl?: string;
   storyStyleReferenceImageUrl?: string;
   previousReference?: ImageAsset | null;
@@ -421,6 +423,7 @@ function snapshot(input: {
     durationSec: input.durationSec,
     aspectRatio: input.aspectRatio,
     sourceImageId: input.sourceImageId,
+    ...(input.sourceFrameReading ? { sourceFrameReading: input.sourceFrameReading } : {}),
     characterReferenceImageUrl,
     storyStyleReferenceImageUrl,
     previousReferenceImageId: input.previousReference?.id,
@@ -702,6 +705,14 @@ export async function startShotVideoJob(
     return { status: "ok", take: existing };
   }
 
+  let sourceImage: string;
+  let sourceFrameReading: FrameReading;
+  try {
+    sourceImage = input.reviewedOpening?.sourceImage ?? await materializeImageInput(asset.imageUrl, userId);
+    sourceFrameReading = await inspectSourceFrame(sourceImage,userId);
+  } catch {
+    return {status:"error",error:"无法读取本镜首帧，本次未提交视频生成。"};
+  }
   const [timelineCue] = input.reviewedOpening ? [input.reviewedOpening.timelineCue] : isOwnedBookImage ? [null] : await readVideoTimelineCues(input.storyId,userId,stableShotId,[durationSec]);
   const timelineDirection = directionFromTimeline(timelineCue, isMjVideo);
 
@@ -741,7 +752,6 @@ export async function startShotVideoJob(
   }
   let providerStarted = false;
   try {
-    const sourceImage = input.reviewedOpening?.sourceImage ?? await materializeImageInput(asset.imageUrl, userId);
     const promptDirector: VideoSubmissionPromptDirectorResult =
       input.directorPromptApproved
         ? {
@@ -780,7 +790,13 @@ export async function startShotVideoJob(
         : input.renderMode === "economy" && !input.directorPromptApproved
           ? compileViduSinglePrompt(promptDirector.engineering)
         : promptDirector.prompt;
-    const authoredPrompt = withArtSystemVideoPrompt(directedVideoPrompt, artBody, isMjVideo ? 500 : input.renderMode === "economy" ? 2000 : 5000);
+    const localDirection = sourceFrameReading.boundaries.length
+      ? "Track the existing boundaries through motion; keep their contrast and material continuous."
+      : "Carry local shading and fine texture through the motion.";
+    const room = isMjVideo ? 500 : input.renderMode === "economy" ? 2000 : 5000;
+    const measuredMotion = !input.directorPromptApproved && directedVideoPrompt.length + localDirection.length + 1 <= room
+      ? directedVideoPrompt + "\n" + localDirection : directedVideoPrompt;
+    const authoredPrompt = withArtSystemVideoPrompt(measuredMotion, artBody, isMjVideo ? 500 : input.renderMode === "economy" ? 2000 : 5000);
     const videoPrompt = input.reviewedOpening ? input.prompt : timelineDirection ? timelineDirection + "\n" + authoredPrompt : authoredPrompt;
 
     const renderProfile = buildRenderSnapshot(shotVideoRenderProfileId(input.renderMode), {
@@ -806,6 +822,7 @@ export async function startShotVideoJob(
       durationSec,
       aspectRatio,
       parameterSnapshot: snapshot({
+        sourceFrameReading,
         fingerprint:input.reviewedOpening?.fingerprint,
         timelineCue,
         renderMode: input.renderMode,
@@ -914,6 +931,7 @@ export async function startShotVideoJob(
       extractionCapability:
         managed?.status === "ok" ? "available" : "unavailable",
       parameterSnapshot: snapshot({
+        sourceFrameReading,
         fingerprint:input.reviewedOpening?.fingerprint,
         rerenderRequestId:input.rerenderRequestId,
         timelineCue,

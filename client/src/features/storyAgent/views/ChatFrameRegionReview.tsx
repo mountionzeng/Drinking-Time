@@ -7,13 +7,14 @@ import { frameLocationLabel, regionTreatmentLabel } from "../frameRegionPresenta
 import { ImageChangePreview } from "./ImageChangePreview";
 import { ChatRegionImageViewer } from "./ChatRegionImageViewer";
 
-export function ChatFrameRegionReview({ review, storyId, selectedImageId, onSelect, onFeedback, onContentChange, imageRevisions, pendingCloudRequests = [] }: {
+export function ChatFrameRegionReview({ review, storyId, selectedImageId, onSelect, onFeedback, onContentChange, shotLabel, imageRevisions, pendingCloudRequests = [] }: {
   review: FrameRegionReview; storyId: number | null; selectedImageId?: number | null; onSelect: (frame: FrameRegionSource) => void; onContentChange?: () => void;
+  shotLabel?: (number: number, stableShotId: string) => string;
   imageRevisions?: ChatImageRevision[]; pendingCloudRequests?: string[]; onFeedback?: (frame: FrameRegionSource) => void;
 }) {
   const { language } = useUiLanguage();
   const en = language === "en";
-  if (!review.tasks.length) return <ChatFrameReferences frames={review.frames} storyId={storyId} selectedImageId={selectedImageId} onSelect={onSelect} />;
+  if (!review.tasks.length) return <ChatFrameReferences shotLabel={shotLabel} frames={review.frames} storyId={storyId} selectedImageId={selectedImageId} onSelect={onSelect} />;
   const sourceFrames = [...review.frames, ...(review.sourceImages ?? [])]
     .filter((frame, index, all) => review.tasks.some(task => task.imageId === frame.imageId)
       && all.findIndex(other => other.imageId === frame.imageId) === index);
@@ -23,7 +24,7 @@ export function ChatFrameRegionReview({ review, storyId, selectedImageId, onSele
       : (en ? "Selected image" : "所选图片");
   };
   return <div className="mb-2 space-y-3" aria-label={en ? "Keyframe region review" : "关键帧范围确认 / Keyframe region review"}>
-    <p className="text-xs text-muted-foreground">{en ? "Shot" : "第"} {String(review.shotNo).padStart(2, "0")} {en ? "" : "镜"} · {en ? "Edit record" : "修改记录"} R{review.revision}</p>
+    <p className="text-xs text-muted-foreground">{en ? "Shot" : "第"} {shotLabel?.(review.shotNo, review.stableShotId) ?? String(review.shotNo).padStart(2, "0")} {en ? "" : "镜"} · {en ? "Edit record" : "修改记录"} R{review.revision}</p>
     <div className="flex gap-1 overflow-x-auto pb-1" aria-label={en ? "Source keyframes" : "原始关键帧 / Source keyframes"}>
       {sourceFrames.map(frame => <button key={frame.imageId} type="button" disabled={storyId !== review.storyId}
         aria-label={`${en ? "Select source frame" : "选择原帧 / Select source frame"} · ${sourceLabel(frame)} · #${frame.imageId}`}

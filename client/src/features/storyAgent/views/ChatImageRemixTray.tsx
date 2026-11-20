@@ -13,8 +13,9 @@ import { writeStoryImageDragPayload } from "../storyImageDrag";
  * 才能一直看得见；生成出来的新图也停在这里，直接拖去时间轴或镜头设计表。
  */
 export default function ChatImageRemixTray({
-  remix,
+  remix, onReference,
 }: {
+  onReference?: (id: number, shot?: string) => void;
   remix: ChatImageRemixController;
 }) {
   const _ui = useDesktopUiText();
@@ -29,6 +30,22 @@ export default function ChatImageRemixTray({
   const elapsed = Math.max(0, Math.floor((now - (remix.startedAt ?? now)) / 1000));
   if (refs.length === 0 && !draft && !result && !error && status !== "generating") return null;
 
+  const resultImage = result && (
+          <img
+            src={result.imageUrl}
+            alt={result.instruction}
+            draggable
+            onDragStart={event =>
+              writeStoryImageDragPayload(event.dataTransfer, {
+                imageId: result.imageId,
+                imageUrl: result.imageUrl,
+                label: "对话框改图",
+              })
+            }
+            className="h-16 w-16 shrink-0 cursor-grab rounded object-cover active:cursor-grabbing"
+            data-testid="chat-image-remix-result"
+          />
+  );
   return (
     <div className="mt-2.5 min-w-0" data-testid="chat-image-remix-tray">
       {refs.length > 0 ? (
@@ -128,20 +145,7 @@ export default function ChatImageRemixTray({
           className="mt-1.5 flex items-start gap-2 rounded-md border border-border bg-background px-2.5 py-2"
           aria-label={_ui("改图结果")}
         >
-          <img
-            src={result.imageUrl}
-            alt={result.instruction}
-            draggable
-            onDragStart={event =>
-              writeStoryImageDragPayload(event.dataTransfer, {
-                imageId: result.imageId,
-                imageUrl: result.imageUrl,
-                label: "对话框改图",
-              })
-            }
-            className="h-16 w-16 shrink-0 cursor-grab rounded object-cover active:cursor-grabbing"
-            data-testid="chat-image-remix-result"
-          />
+          {onReference ? <button type="button" aria-label={_ui("引用图片 #{0}", [result.imageId])} onClick={() => onReference(result.imageId, result.target?.stableShotId)}>{resultImage}</button> : resultImage}
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1.5 text-[9px] font-mono uppercase tracking-wider text-muted-foreground">
               <Sparkles className="h-3 w-3" />

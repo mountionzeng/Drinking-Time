@@ -26,6 +26,7 @@ import { COLOR_TRANSFER_MAX_TARGETS } from "@shared/colorTransferIntent";
 import { detachGeneratedImageFromShot } from "../repositories/images";
 import { artPreviewGenerationInput } from "../services/artPreview";
 import { pendingStoryboardImageTasks, recoverStoryboardImageTask, runStoryboardImageTask, type StoryboardImageRender } from "../services/storyboardImageTask";
+import { SourceFrameReadError } from "../services/sourceFrameReading";
 import { readImageDimensions } from '../services/imageEditDimensions';
 import { readChatImageEditBatch } from "../services/chatImageEditBatch";
 import { legnextRetexturePrompt } from "../services/legnextImage";
@@ -2616,6 +2617,7 @@ export const storyAgentRouter = router({
           if (prompt.length > 3500) throw new Error("生成描述与参考素材要求过长，请缩短描述后再生成；本次未提交图片任务。");
         }
         const gateContext = {
+          sourceOwnerId: ctx.user.id,
           referenceEditPrompt,
           creationEmotion: storyEmotion(story.body, { chapterId: input.moduleTarget ? String(input.moduleTarget.chapterId) : undefined, shotId: shotIdentity ?? undefined }),
           prompt,
@@ -3028,7 +3030,7 @@ export const storyAgentRouter = router({
         console.error("[generateForMobile] 图片生成失败:", err);
         return {
           status: "error" as const,
-          ...((input.imageEditPlanOutput || input.chatImageRemixQuoteId) && storyboardImage ? { submissionUncertain: true } : {}),
+          ...((input.imageEditPlanOutput || input.chatImageRemixQuoteId) && storyboardImage && !(err instanceof SourceFrameReadError) ? { submissionUncertain: true } : {}),
           error: err instanceof Error ? err.message : "图片生成失败",
         };
       }

@@ -4,10 +4,11 @@ import type { WarehouseRenderJob } from "../warehouseRenderActivity";
 import type { CreationEditorShot } from "../types";
 import { displayShotCode } from "@shared/shotIdentity";
 
-export function WarehouseRenderCards({ jobs, shots, inline = false }: {
+export function WarehouseRenderCards({ jobs, shots, inline = false, onReference }: {
   jobs: readonly WarehouseRenderJob[];
   shots: readonly CreationEditorShot[];
   inline?: boolean;
+  onReference?: (id: number, stableShotId?: string) => void;
 }) {
   const ui = useUiText();
   if (!jobs.length) return null;
@@ -18,9 +19,11 @@ export function WarehouseRenderCards({ jobs, shots, inline = false }: {
       const kind = ui(job.kind === "image" ? "图片" : job.kind === "video" ? "视频" : "声音");
       const name = `${shot ? ui("第 {0} 镜", [displayShotCode(shot)]) : ui("新素材")} · ${kind}`;
       const status = ui(job.state === "rendering" ? "生成中 / Generating" : job.state === "unknown" ? "状态待确认 / Checking" : job.state === "failed" ? "生成失败 / Failed" : "已生成 / Ready");
+      const id = job.assetId;
+      const photo = <img src={job.url} alt={name} className="h-full w-full object-contain" />;
       return <article key={job.id} data-render-state={job.state} className="w-[128px] max-w-full shrink-0 overflow-hidden rounded-md bg-muted/40" aria-label={`${name} · ${status}`}>
         <div className="relative flex h-[84px] items-center justify-center text-primary">
-          {job.state === "ready" && job.url ? job.kind === "image" ? <img src={job.url} alt={name} className="h-full w-full object-contain" />
+          {job.state === "ready" && job.url ? job.kind === "image" ? (id && onReference ? <button type="button" aria-label={ui("编辑图片 / Edit image {0}", [id])} className="h-full w-full" onClick={() => onReference(id, job.shotId)}>{photo}</button> : photo)
             : job.kind === "video" ? <video src={job.url} aria-label={name} controls preload="metadata" className="h-full w-full" />
               : <audio src={job.url} aria-label={name} controls preload="none" className="h-8 w-full" />
             : <><Icon className="size-6 opacity-60" aria-hidden="true" />

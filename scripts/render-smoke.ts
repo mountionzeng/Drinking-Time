@@ -84,7 +84,7 @@ async function main() {
     "image.mj-302-relax": () => { process.env.IMAGE_302_MJ_ROUTE_MODE = "dedicated"; return generateImage(`${prompt} --relax`, mj); },
     "image.mj-302-draft": () => generateImage(prompt, { ...mj, mjDraft: true, renderProfileId: "image.mj-302-draft" }),
     "image.legnext-v7-fast": () => submitRender("image.legnext-v7-fast", { prompt, onAccepted: async () => undefined, options: { aspectRatio: "16:9", inlinePoll: false } }),
-    "image.legnext-retexture": () => submitRender("image.legnext-retexture", { prompt, onAccepted: async () => undefined, options: {} } as never),
+    "image.legnext-retexture": () => submitRender("image.legnext-retexture", { prompt, onAccepted: async () => undefined, options: { editMode: "retexture", referenceImageUrl: "https://cdn.example/frame.png", inlinePoll: false } }),
     "image.gpt-image.generate": () => generateImage(prompt, { provider: "gpt-image", renderProfileId: "image.gpt-image.generate", fetcher }),
     "image.gpt-image.edit": () => editImage(PNG, "make it rain", { provider: "gpt-image", renderProfileId: "image.gpt-image.edit", fetcher }),
     "image.gpt-image-2.edit": () => editImage(PNG, "make it rain", { provider: "gpt-image", gptImageModel: "gpt-image-2", referenceRevision: true, renderProfileId: "image.gpt-image-2.edit", fetcher }),
@@ -101,6 +101,11 @@ async function main() {
     "video.vidu-q2-pro-fast": () => submitShotVideo({ ...frame, renderMode: "economy" }, { fetcher }),
     "video.mj-video": () => { ENV.video302SubmitPath = "/mj-turbo/submit/video"; return submitShotVideo(frame, { fetcher }); },
     "video.302-configured": () => { ENV.video302SubmitPath = "/configured/video/submit"; ENV.video302Model = "configured-model"; return submitShotVideo(frame, { fetcher }); },
+    "image.local-erase": async () => {
+      const { default: sharp } = await import("sharp");
+      const bytes = await sharp({ create: { width: 16, height: 16, channels: 3, background: "#ddeebb" } }).png().toBuffer();
+      return submitRender("image.local-erase", { bytes, region: { left: .2, top: .2, right: .8, bottom: .8 } });
+    },
     "image.local-color-transfer": async () => {
       const { default: sharp } = await import("sharp");
       const tiny = (r: number, g: number, b: number) => sharp({ create: { width: 16, height: 16, channels: 3, background: { r, g, b } } }).png().toBuffer();

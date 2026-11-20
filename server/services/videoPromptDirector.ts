@@ -1,3 +1,4 @@
+import { renderSourceDirection } from "./sourceFrameReading";
 import { estimateInferenceMaxCostMinor } from "../_core/inferenceBilling";
 import { toYuan } from "../../shared/computeMoney";
 import { ENV } from "../_core/env";
@@ -320,6 +321,7 @@ function systemPrompt(): string {
     "不要把台词、字幕、文字、UI、水印或抽象概念画进画面。",
     "不要编造首帧里看不到的人物、物件或事件。画面与剧本冲突时，以首帧可见事实为准。",
     "cameraRig、motionTimeline、cameraSubjectCoordination、preservationConstraints 用中文，具体且可执行。",
+    "先逐张读取实际提供的画面，核对哪些轮廓属于主体或界面，哪些接缝来自贴片。描述本镜变化如何沿用邻近材质、光向、边缘锐度与接触阴影，保护主体识别度。",
     "finalPrompt 必须是英文，70-140 个词，依次写人物与环境动作节拍、摄影机承载与路径、人物和摄影机配合、结束状态；不要只写 push-in、zoom 或 pan 这种空模板。",
     "必须返回严格 JSON，不要 markdown，不要解释。",
     'JSON: {"visualSummary":"中文","narrativeIntent":"中文","subjectPosition":"中文","facingGazeDirection":"中文","shotScaleChange":"中文","lightColorMaterial":"中文","materialProfile":{"medium":"oil-painting|watercolor|gouache|ink-wash|printmaking|pastel|charcoal|pencil-drawing|collage|digital-painting|photographic|mixed-media|other","support":"English","markMaking":"English","pigmentBehavior":"English","temporalRules":"English","prohibitedDrift":"English","confidence":0.0},"actionContinuity":"中文","continuity":"中文","transitionStrategy":"中文","cameraRig":"中文","motionTimeline":"中文","cameraSubjectCoordination":"中文","preservationConstraints":"中文","risks":[{"kind":"jump-cut|axis|space|action|look|none","detail":"中文"}],"subjectMotion":"English","cameraMotion":"English","recommendedMotion":"low|high","finalPrompt":"English motion only","confidence":0.0}',
@@ -358,6 +360,8 @@ export function quoteVideoDirector() {
 export async function directVideoPrompt(
   input: DirectVideoPromptInput
 ): Promise<VideoPromptDirectorResult> {
+  const sourceDirection = await renderSourceDirection([input.imageInput, input.endImageInput, input.middleImageInput,
+    input.identityImageInput, input.storyStyleImageInput, input.previousImageInput, input.nextImageInput].filter((url): url is string => Boolean(url)));
   const engineering = compileVideoPromptEngineering(input);
   const candidates = {
     fallback302Model: ENV.videoPrompt302Model,
@@ -380,7 +384,7 @@ export async function directVideoPrompt(
     > = [
       {
         type: "text",
-        text: `请分析当前首帧并生成视频提示词。上下文：${userContext(input, engineering)}`,
+        text: `请分析当前首帧并生成视频提示词。上下文：${userContext(input, engineering)}\n${sourceDirection}`,
       },
       {
         type: "image_url",

@@ -83,7 +83,8 @@ export function ChatImageRevisionGallery({
 }
 
 /** Display only; recovery and polling stay in the single gallery controller. */
-export function ChatImageRevisionCards({ revisions, onContentChange, onSelectImage, selectedImageId, onOpenShot }: {
+export function ChatImageRevisionCards({ revisions, onContentChange, onSelectImage, selectedImageId, onOpenShot, shotLabel }: {
+  shotLabel?: (number: number, stableShotId: string) => string;
   revisions: readonly ChatImageRevision[];
   onContentChange?: () => void;
   onSelectImage?: (image: { imageId: number; imageUrl: string; shotNo: number; stableShotId: string }) => void;
@@ -96,32 +97,24 @@ export function ChatImageRevisionCards({ revisions, onContentChange, onSelectIma
   return (
     <section className="space-y-4 py-2" aria-label={ui("对话改图")}>
       {revisions.map(revision => {
-        const label = String(revision.shotNo).padStart(2, "0");
+        const label = shotLabel?.(revision.shotNo, revision.stableShotId) ?? String(revision.shotNo).padStart(2, "0");
         if (
           (revision.decision || revision.requestId.startsWith("image:")) &&
           onOpenShot
         ) {
           if (shownShotCards.has(revision.stableShotId)) return null;
           shownShotCards.add(revision.stableShotId);
-          return (
-            <button
-              key={revision.requestId}
-              type="button"
-              onClick={() => onOpenShot(revision.stableShotId)}
-              className="flex w-full items-center gap-2 rounded-md border border-border p-2 text-left focus-visible:outline focus-visible:outline-2"
-            >
-              {revision.candidates[0] && (
-                <img
-                  src={revision.candidates[0].imageUrl}
-                  alt=""
-                  className="h-10 w-14 rounded object-contain"
-                />
-              )}
-              <span className="text-xs">
-                {ui("第 {0} 镜 · 对话与素材", [label])}
-              </span>
+          const image = revision.candidates[0];
+          return <div key={revision.requestId} className="flex w-full items-center gap-2 rounded-md border border-border p-2">
+            {image && onSelectImage && <button type="button" aria-label={ui("选择图片 #{0}", [image.imageId])}
+              onClick={() => onSelectImage({ ...image, shotNo: revision.shotNo, stableShotId: revision.stableShotId })}>
+              <img src={image.imageUrl} alt="" className="h-10 w-14 rounded object-contain" />
+            </button>}
+            <button type="button" onClick={() => onOpenShot(revision.stableShotId)} className="flex flex-1 items-center gap-2 text-left text-xs">
+              {image && !onSelectImage && <img src={image.imageUrl} alt="" className="h-10 w-14 rounded object-contain" />}
+              {ui("第 {0} 镜 · 对话与素材", [label])}
             </button>
-          );
+          </div>;
         }
         return (
           <article
@@ -142,7 +135,10 @@ export function ChatImageRevisionCards({ revisions, onContentChange, onSelectIma
             <div className={revision.sourceImageUrl ? "grid grid-cols-2 items-start gap-2" : ""}>
             {revision.sourceImageUrl && (
               <figure>
-                <img src={revision.sourceImageUrl} alt={ui("原图")} className="max-h-48 w-full rounded-lg object-contain" onLoad={onContentChange} />
+                {onSelectImage ? <button type="button" className="block w-full" aria-label={ui("选择图片 #{0}", [revision.sourceImageId])}
+                  onClick={() => onSelectImage({ imageId: revision.sourceImageId, imageUrl: revision.sourceImageUrl!, shotNo: revision.shotNo, stableShotId: revision.stableShotId })}>
+                  <img src={revision.sourceImageUrl} alt={ui("原图")} className="max-h-48 w-full rounded-lg object-contain" onLoad={onContentChange} />
+                </button> : <img src={revision.sourceImageUrl} alt={ui("原图")} className="max-h-48 w-full rounded-lg object-contain" onLoad={onContentChange} />}
                 <figcaption className="text-[11px] text-muted-foreground">{ui("原图")} #{revision.sourceImageId}</figcaption>
               </figure>
             )}

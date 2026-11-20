@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { TRPCError } from '@trpc/server';
-import { imageEditPlanQuote, chatImageEditPlanSchema, imageEditPlanOutput, adjustedImageEditPlanId } from '../../shared/chatImageEditPlan';
+import { imageEditPlanQuote, chatImageEditPlanSchema, imageEditPlanOutput, adjustedImageEditPlanId, localEraseReceiptId, keyframeBoardImageIds } from '../../shared/chatImageEditPlan';
 import { buildChatImageRemixRequest } from '../../shared/chatImageRefs';
 import { inlineChatImageIds, inlineChatParts } from '../../shared/inlineChatImages';
 import { shotIdentityFromShot } from '../../shared/shotIdentity';
@@ -40,10 +40,22 @@ export async function readChatImageEditBatch(input: { storyId: number; userId: n
   const parsed = chatImageEditPlanSchema.safeParse(message?.imageEditPlan);
   if (!parsed.success || parsed.data.status !== 'submitted') throw new TRPCError({ code: 'BAD_REQUEST', message: '修改要求尚未保存，请先确认要求。' });
   if (messages.some(message => message.id === adjustedImageEditPlanId(input.planMessageId))) throw new TRPCError({ code: 'CONFLICT', message: '修改要求已调整，请使用最新确认。' });
+  const originalId = input.planMessageId.replace(/^image-edit-confirmed:/, '');
+  if (messages.some(row => row.id === localEraseReceiptId(originalId))) throw new TRPCError({ code: "CONFLICT", message: "本次选区已完成本地擦除，请从最新一组继续。" });
+  if (originalId !== input.planMessageId && messages.some(row => row.id === adjustedImageEditPlanId(originalId)))
+    throw new TRPCError({ code: 'CONFLICT', message: '这份报价已被新的修改范围取代，请查看最新报价。' });
   const selection = jsonRecord(message?.selectionQuote);
   const shots = (Array.isArray(body.shots) ? body.shots : []).map(jsonRecord);
   const index = shots.findIndex((shot, i) => shotIdentityFromShot(shot, i) === selection.stableShotId);
   if (selection.storyId !== input.storyId || index < 0 || typeof selection.stableShotId !== 'string') throw new TRPCError({ code: 'CONFLICT', message: '原镜头已变化，请重新核对。' });
+  if (parsed.data.keyframeBoardId) {
+    const board = messages.find(row => row.id === parsed.data.keyframeBoardId && row.who === 's');
+    const origin = jsonRecord(board?.selectionQuote);
+    const ids = board ? keyframeBoardImageIds(String(board.id), String(board.text)) : [];
+    if (origin.storyId !== input.storyId || origin.stableShotId !== selection.stableShotId ||
+        JSON.stringify((parsed.data.regionScanSourceId ? parsed.data.images : parsed.data.images.filter(i => i.role === 'target')).map(i => i.imageId)) !== JSON.stringify(ids))
+      throw new TRPCError({ code: 'CONFLICT', message: '待改画面与本镜审图记录不一致，请核对原组。' });
+  }
   const images = await getStoryGeneratedImages(input.storyId, input.userId);
   const plan = { ...parsed.data, images: parsed.data.images.map(ref => {
     if (ref.role === 'omit') return ref;
@@ -79,7 +91,7 @@ export async function readChatImageEditBatch(input: { storyId: number; userId: n
         item.recoverable = Boolean(task.providerTaskId || task.providerResultUrl);
         item.error = task.result?.status === 'error' ? task.result.error : undefined;
       }
-    } else if (!economy) {
+    } else if (!economy && !plan.keyframeBoardId) {
       // Bridge the existing single-output quotes. Exact instruction + ordered IDs +
       // its quote window are required; visual similarity never claims a paid result.
       const candidates = new Map<number, typeof images[number]>();

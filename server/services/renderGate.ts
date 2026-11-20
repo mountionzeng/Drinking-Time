@@ -1,3 +1,4 @@
+import { renderSourceDirection, SourceFrameReadError } from "./sourceFrameReading";
 import { compileCreationEmotion, type CreationEmotionSnapshot } from "../../shared/creationEmotion";
 /**
  * 全站静态图片唯一的美术提示词工程入口。
@@ -52,6 +53,7 @@ export type RenderContext = {
   emotion?: string;
   /** 用户参考图 / 原图 URL（美术判断的主要参照之一） */
   referenceImages?: string[];
+  sourceOwnerId?: number;
   /** 关联镜号 */
   shotNo?: string;
   /** 关联项目 */
@@ -400,10 +402,10 @@ function withoutPreviousColorSection(prompt: string): string {
   }).join("\n").replace(/配色方法〔[^〕]*〕/gu, summary => colorDesignFromSummary(summary) ? "" : summary).trim();
 }
 
-export async function compileImagePrompt(ctx: RenderContext): Promise<CompiledImagePrompt> {
+export async function compileImagePrompt(ctx: RenderContext, reservedChars = 0): Promise<CompiledImagePrompt> {
   if (ctx.strictReferenceFidelity && ctx.referenceImages?.length && ctx.userInstructions?.some(value => value.trim())) {
     if (ctx.referenceEditPrompt) {
-      if (!/^[\x20-\x7E\r\n]+$/.test(ctx.referenceEditPrompt) || ctx.referenceEditPrompt.length > promptMaxLengthFor(ctx))
+      if (!/^[\x20-\x7E\r\n]+$/.test(ctx.referenceEditPrompt) || ctx.referenceEditPrompt.length > (promptMaxLengthFor(ctx) - reservedChars))
         throw new Error("美术修改提示词无效或过长，本次未提交图片任务。");
       return {prompt:ctx.referenceEditPrompt.replace(/\s+/g," ").trim()};
     }
@@ -414,11 +416,11 @@ export async function compileImagePrompt(ctx: RenderContext): Promise<CompiledIm
       "【本次用户原始要求】",
       ...ctx.userInstructions.map(value => value.trim()).filter(Boolean),
     ].filter(Boolean).join("\n");
-    if (prompt.length > promptMaxLengthFor(ctx)) throw new Error("保留原图的要求过长，请缩短后再生成；本次未提交图片任务。");
+    if (prompt.length > (promptMaxLengthFor(ctx) - reservedChars)) throw new Error("保留原图的要求过长，请缩短后再生成；本次未提交图片任务。");
     return { prompt };
   }
   if (ctx.preservePrompt) {
-    return { prompt: ctx.prompt.trim().slice(0, promptMaxLengthFor(ctx)) };
+    return { prompt: ctx.prompt.trim().slice(0, (promptMaxLengthFor(ctx) - reservedChars)) };
   }
   const additions: string[] = [];
   const instructions = cleanInstructions(ctx);
@@ -557,7 +559,7 @@ export async function compileImagePrompt(ctx: RenderContext): Promise<CompiledIm
   ].join("\n");
   const bodyBudget = Math.max(
     0,
-    promptMaxLengthFor(ctx) - hardConstraints.length - 1
+    (promptMaxLengthFor(ctx) - reservedChars) - hardConstraints.length - 1
   );
   const sourceContent = colorBlock ? withoutPreviousColorSection(ctx.prompt) : ctx.prompt.trim();
   let body = [sourceContent, additions.join("\n")]
@@ -745,6 +747,14 @@ export async function renderViaGate<R>(
   ctx: RenderContext,
   render: (prompt: string, compiled: CompiledImagePrompt) => Promise<R>
 ): Promise<R> {
-  const compiled = await compileImagePrompt(ctx);
-  return render(compiled.prompt, compiled);
+  if (!ctx.referenceImages?.length && (ctx.referencePolicy === "preserve-composition" || ctx.referencePolicy === "preserve-identity"))
+    throw new SourceFrameReadError("缺少指定的原画面，请重新选择后生成。");
+  const observations = await renderSourceDirection(ctx.referenceImages ?? [], ctx.sourceOwnerId);
+  // A signed-off visual director edit already incorporates the source analysis verbatim.
+  const suffix = observations && !ctx.referenceEditPrompt ? "\n" + observations : "";
+  if (suffix.length >= promptMaxLengthFor(ctx) || (ctx.preservePrompt && ctx.prompt.trim().length + suffix.length > promptMaxLengthFor(ctx)))
+    throw Error("画面依据和要求超过当前模型容量，请精简要求后再生成。");
+  const compiled = await compileImagePrompt(ctx, suffix.length);
+  const prompt = compiled.prompt + suffix;
+  return render(prompt, { ...compiled, prompt });
 }

@@ -1,3 +1,4 @@
+import { sourceImageFixture as sourceFixture } from "../testFixtures/sourceImage";
 import { beforeEach, expect, it, vi } from 'vitest';
 import type { TrpcContext } from '../_core/context';
 const provider = vi.hoisted(() => ({ editImage: vi.fn(), resume302GptImageTask: vi.fn(), toPublicImageUrl: vi.fn(async (url: string) => url) }));
@@ -16,7 +17,7 @@ beforeEach(() => { resetMemoryStateForTesting(); vi.clearAllMocks(); vi.stubGlob
 
 async function fixture() {
   const story = await createStory({ userId: 123, title: 'single remix', body: {} });
-  const source = await createGeneratedImage({ storyId: story.id, userId: 123, imageUrl: 'https://example.com/source.png', isCurrent: true });
+  const source = await createGeneratedImage({ storyId: story.id, userId: 123, imageUrl: await sourceFixture(), isCurrent: true });
   await updateStory(story.id, 123, { body: { shots: [{ shotNo: 3, stableShotId: 's3' }], videoWorkflow: { keep: 'draft' }, messages: [
     { id: 'u', who: 'u', timestamp: 1, text: `[[ref:image%3A${source.id}]] 只缩小飞机，保留颜色` },
     { id: 'q', who: 's', timestamp: 2, text: '已收到 1 张引用，待确认', selectionQuote: { storyId: story.id, stableShotId: 's3' } },

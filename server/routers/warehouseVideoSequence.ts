@@ -7,6 +7,8 @@ import { warehouseVideoSequenceInput, warehouseCueOpeningInput } from "../../sha
 import { quoteCueOpening, submitCueOpening } from "../services/warehouseCueOpening";
 import { refreshVideoTakeStatus } from "../services/videoJobs";
 import { cleanVideoOpening } from "../services/cleanVideoOpening";
+import { cutVideoWord, persistWordCutReply, wordCutInput } from "../services/videoWordTiming";
+import { saveReviewedTake } from "../services/saveReviewedTake";
 import { placeFirstReviewTake } from "../services/placeFirstReviewTake";
 import { replacePrimaryTake } from "../repositories/replacePrimaryTake";
 import { withVisualEditServiceLock } from "../services/visualClipEditing";
@@ -16,7 +18,18 @@ import {
   findWarehouseVideoSequence,
 } from "../services/warehouseVideoSequence";
 
+const reviewPlacementInput = z.object({
+    storyId:z.number().int().positive(), stableShotId:z.string().min(1).max(128),
+    takeId:z.number().int().positive(), expectedTakeId:z.number().int().positive().nullable(), expectedVersion:z.number().int().nonnegative(),
+  });
+
 export const warehouseVideoSequenceRouter = router({
+  cutWordTiming: protectedProcedure.input(wordCutInput).mutation(async ({ctx,input}) => {
+    const result = await withVisualEditServiceLock(input.storyId, ctx.user.id, () => cutVideoWord(input, ctx.user.id))
+      .catch((error: unknown) => ({ takeId: null, reply: "剪辑未完成。" + (error instanceof Error ? error.message : "请查看当前时间线。") }));
+    const saved = await persistWordCutReply(input, ctx.user.id, result.reply).catch(() => false);
+    return saved ? result : { ...result, reply: result.reply + " 聊天记录仍待保存。" };
+  }),
   reportFeedbackActivity: protectedProcedure.input(activityReport)
     .mutation(({ctx,input}) => reportVideoFeedbackActivity(ctx.user.id, input)),
   feedbackActivity: protectedProcedure
@@ -31,10 +44,9 @@ export const warehouseVideoSequenceRouter = router({
     requestId:z.string().uuid(), fingerprint:z.string().length(64),
     costConfirmation:z.object({accepted:z.literal(true),estimatedCny:z.number().nonnegative()}),
   })).mutation(({ctx,input})=>submitCueOpening({...input,confirmedCny:input.costConfirmation.estimatedCny},ctx.user.id)),
-  replacePrimary: protectedProcedure.input(z.object({
-    storyId:z.number().int().positive(), stableShotId:z.string().min(1).max(128),
-    takeId:z.number().int().positive(), expectedTakeId:z.number().int().positive().nullable(), expectedVersion:z.number().int().nonnegative(),
-  })).mutation(async ({ctx,input}) => {
+  saveReviewedTake: protectedProcedure.input(reviewPlacementInput).mutation(({ctx,input}) =>
+    withVisualEditServiceLock(input.storyId, ctx.user.id, () => saveReviewedTake({ ...input, userId: ctx.user.id }))),
+  replacePrimary: protectedProcedure.input(reviewPlacementInput).mutation(async ({ctx,input}) => {
     await withVisualEditServiceLock(input.storyId, ctx.user.id, () =>
       input.expectedTakeId === null
         ? placeFirstReviewTake({ ...input, userId: ctx.user.id })

@@ -9,7 +9,7 @@ export type LegnextProfileId = "image.legnext-v7-fast" | "image.legnext-retextur
 export type ShotVideoProfileId = "video.vidu-q2-pro-fast" | "video.mj-video" | "video.302-configured";
 export type StartEndVideoProfileId = "video.vidu-q2-turbo-start-end";
 export type LocalColorTransferProfileId = "image.local-color-transfer";
-export type ImageProfileId = Exclude<RenderProfileId, LegnextProfileId | ShotVideoProfileId | StartEndVideoProfileId | LocalColorTransferProfileId>;
+export type ImageProfileId = Exclude<RenderProfileId, LegnextProfileId | ShotVideoProfileId | StartEndVideoProfileId | LocalColorTransferProfileId | "image.local-erase">;
 
 /** What routing decided for an image request; executed verbatim by the image adapter. */
 export type ImageRouteDetail =
@@ -70,10 +70,14 @@ export type StartEndVideoSubmission = {
   submittedParameters: Record<string, unknown>;
 };
 
+export type LocalEraseInput = { bytes: Uint8Array; region: import("../../../shared/chatPictureRegion").PictureRegion };
+export type LocalEraseResult = { status: "ok"; png: Buffer } | { status: "error"; message: string };
+
 export type RenderInputByProfile<P extends RenderProfileId> =
   P extends LegnextProfileId ? LegnextRenderInput :
   P extends ShotVideoProfileId ? ShotVideoRenderInput :
   P extends StartEndVideoProfileId ? StartEndVideoRenderInput :
+  P extends "image.local-erase" ? LocalEraseInput :
   P extends LocalColorTransferProfileId ? LocalColorTransferRenderInput :
   ImageRenderInput;
 
@@ -81,5 +85,6 @@ export type RenderOutputByProfile<P extends RenderProfileId> =
   P extends LegnextProfileId ? ImageGenResult :
   P extends ShotVideoProfileId ? ShotVideoSubmitResult :
   P extends StartEndVideoProfileId ? StartEndVideoSubmission :
+  P extends "image.local-erase" ? LocalEraseResult :
   P extends LocalColorTransferProfileId ? LocalColorTransferResult :
   ImageGenResult;

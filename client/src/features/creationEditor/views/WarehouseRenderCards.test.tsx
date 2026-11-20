@@ -32,3 +32,11 @@ it("uses English labels throughout English mode", () => {
   expect(html).toContain("Generating");
   expect(html).not.toMatch(/[\u4e00-\u9fff]/);
 });
+
+it("only attaches a reference action when a ready image has an asset id", () => {
+  const ready = { ...job, state: "ready" as const, url: "/ready.png" };
+  const html = renderToStaticMarkup(<WarehouseRenderCards shots={shots} onReference={vi.fn()}
+    jobs={[{ ...ready, assetId: 123 }, { ...ready, id: "without-id" }, { ...job, id: "pending", assetId: 234 }]} />);
+  expect(html.match(/<button/g)).toHaveLength(1);
+  expect(html).toContain("123");
+});

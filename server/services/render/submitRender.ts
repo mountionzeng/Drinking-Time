@@ -43,6 +43,7 @@ function promptOf(profile: RenderProfile, input: unknown): string {
     case "legnext": return (input as LegnextRenderInput).prompt;
     case "shot-video": return (input as ShotVideoRenderInput).input.prompt;
     case "start-end-video": return (input as StartEndVideoRenderInput).spec.prompt;
+    case "local-erase":
     case "local-color-transfer": return "";
   }
 }
@@ -76,6 +77,7 @@ function refusal(profile: RenderProfile, message: string): unknown {
     case "image":
     case "legnext":
       return { status: "error", message } satisfies ImageGenResult;
+    case "local-erase":
     case "local-color-transfer":
       return { status: "error", message } satisfies LocalColorTransferResult;
     case "shot-video":

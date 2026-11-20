@@ -1,3 +1,4 @@
+import { sourceImageFixture as sourceFixture } from "../testFixtures/sourceImage";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ENV } from "../_core/env";
 import { directVideoPrompt, mjSafeVideoPrompt } from "./videoPromptDirector";
@@ -93,13 +94,13 @@ describe("directVideoPrompt", () => {
     vi.stubGlobal("fetch", fetch);
 
     const result = await directVideoPrompt({
-      imageInput: "data:image/png;base64,AAAA",
-      endImageInput: "data:image/png;base64,END",
-      middleImageInput: "data:image/png;base64,MIDDLE",
-      identityImageInput: "data:image/png;base64,IDENTITY",
-      storyStyleImageInput: "data:image/png;base64,COVER",
-      previousImageInput: "data:image/png;base64,PREVIOUS",
-      nextImageInput: "data:image/png;base64,NEXT",
+      imageInput: await sourceFixture("AAAA"),
+      endImageInput: await sourceFixture("END"),
+      middleImageInput: await sourceFixture("MIDDLE"),
+      identityImageInput: await sourceFixture("IDENTITY"),
+      storyStyleImageInput: await sourceFixture("COVER"),
+      previousImageInput: await sourceFixture("PREVIOUS"),
+      nextImageInput: await sourceFixture("NEXT"),
       fallbackPrompt: "subtle natural motion, stable camera",
       shotNo: 2,
       draftPrompt: "动作：坐在沙发边缘\n相机运动：稳定轻微推进",
@@ -157,20 +158,20 @@ describe("directVideoPrompt", () => {
     expect(body.messages[1].content[1]).toEqual({
       type: "image_url",
       image_url: {
-        url: "data:image/png;base64,AAAA",
+        url: await sourceFixture("AAAA"),
         detail: "high",
       },
     });
-    expect(body.messages[1].content[3].image_url.url).toContain("END");
+    expect(body.messages[1].content[3].image_url.url).toBe(await sourceFixture("END"));
     expect(body.messages[1].content[4].text).toContain("中间参考帧");
-    expect(body.messages[1].content[5].image_url.url).toContain("MIDDLE");
+    expect(body.messages[1].content[5].image_url.url).toBe(await sourceFixture("MIDDLE"));
     expect(body.messages[1].content[6].text).toContain("人物身份基准");
-    expect(body.messages[1].content[7].image_url.url).toContain("IDENTITY");
+    expect(body.messages[1].content[7].image_url.url).toBe(await sourceFixture("IDENTITY"));
     expect(body.messages[1].content[8].text).toContain("故事正式封面");
     expect(body.messages[1].content[8].text).toContain("不得作为人物身份");
-    expect(body.messages[1].content[9].image_url.url).toContain("COVER");
-    expect(body.messages[1].content[11].image_url.url).toContain("PREVIOUS");
-    expect(body.messages[1].content[13].image_url.url).toContain("NEXT");
+    expect(body.messages[1].content[9].image_url.url).toBe(await sourceFixture("COVER"));
+    expect(body.messages[1].content[11].image_url.url).toBe(await sourceFixture("PREVIOUS"));
+    expect(body.messages[1].content[13].image_url.url).toBe(await sourceFixture("NEXT"));
     expect(body.messages[0].content).toContain("手持不是默认装饰");
     expect(body.messages[0].content).toContain("脸、发型和服饰的唯一事实来源");
     expect(body.messages[0].content).toContain("高于“既有视频方案”");
@@ -227,7 +228,7 @@ describe("directVideoPrompt", () => {
     vi.stubGlobal("fetch", fetch);
 
     const result = await directVideoPrompt({
-      imageInput: "data:image/png;base64,WATERCOLOR",
+      imageInput: await sourceFixture("WATERCOLOR"),
       fallbackPrompt: "subtle motion",
       shotNo: 5,
       draftPrompt: "人物慢慢回头，相机轻微侧移",
@@ -272,7 +273,7 @@ describe("directVideoPrompt", () => {
     vi.stubGlobal("fetch", fetch);
 
     const result = await directVideoPrompt({
-      imageInput: "data:image/png;base64,BBBB",
+      imageInput: await sourceFixture("BBBB"),
       fallbackPrompt: "steam rises gently from the cooking pan",
       shotNo: 1,
       draftPrompt: "动作：锅里冒出蒸汽\n相机运动：轻微推进",
@@ -303,7 +304,7 @@ describe("directVideoPrompt", () => {
     );
 
     const result = await directVideoPrompt({
-      imageInput: "data:image/png;base64,AAAA",
+      imageInput: await sourceFixture("AAAA"),
       fallbackPrompt: "subtle natural motion, stable camera",
       shotNo: 2,
       draftPrompt: "动作：轻轻呼吸",
@@ -326,7 +327,7 @@ describe("directVideoPrompt", () => {
     vi.stubGlobal("fetch", fetch);
 
     const result = await directVideoPrompt({
-      imageInput: "data:image/png;base64,AAAA",
+      imageInput: await sourceFixture("AAAA"),
       fallbackPrompt: "subtle natural motion, stable camera",
       shotNo: 2,
       draftPrompt: "动作：轻轻呼吸",
@@ -344,6 +345,6 @@ describe("directVideoPrompt", () => {
 
 it("enforces the quoted input ceiling without calling a model or truncating user constraints",async()=>{
  const fetch=vi.fn();vi.stubGlobal("fetch",fetch);
- await expect(directVideoPrompt({imageInput:"data:,",fallbackPrompt:"keep",draftPrompt:"keep",shotNo:1,currentShot:{action:"critical instruction ".repeat(3000)}})).rejects.toThrow("报价范围");
+ await expect(directVideoPrompt({imageInput:await sourceFixture("budget"),fallbackPrompt:"keep",draftPrompt:"keep",shotNo:1,currentShot:{action:"critical instruction ".repeat(3000)}})).rejects.toThrow("报价范围");
  expect(fetch).not.toHaveBeenCalled();
 });

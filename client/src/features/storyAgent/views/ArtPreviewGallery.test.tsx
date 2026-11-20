@@ -13,5 +13,9 @@ it("groups candidate ordinals by shot, keeps versions, and needs no action butto
   expect(html).toContain("Shot previews"); expect(html).toContain("Preview version");
   expect(html).toContain("Shot 02 · Image 3"); expect(html).toContain("V2"); expect(html).toContain("Author");
   expect(html.match(/<img/g)).toHaveLength(8); expect(html).not.toContain("<button");
+  const editable = renderToStaticMarkup(<UiLanguageContext.Provider value={{ language: "en", setLanguage: () => {} }}><ArtPreviewGallery storyId={1} onReference={vi.fn()} shotCode={id => id === "s1" ? "07" : "08"} /></UiLanguageContext.Provider>);
+  expect(editable.match(/<button/g)).toHaveLength(8);
+  expect(editable).toContain("Shot 07 · Image 1");
+  expect(editable).not.toContain("disabled");
   vi.unstubAllGlobals();
 });

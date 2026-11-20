@@ -9,7 +9,7 @@ import { PAUSED_FRAME_SHORTCUT_EVENT } from "../frameNavigation";
 import { WarehouseRenderCards } from "./WarehouseRenderCards";
 import type { WarehouseRenderJob } from "../warehouseRenderActivity";
 import { WarehouseShotGroups, WarehouseShotMenu, useWarehouseShotGroups, warehouseMediaName } from "./WarehouseShotGroups";
-import { OPEN_SHOT_WAREHOUSE, type WarehouseMedia, type WarehouseShotGroup } from "../warehouseShotMedia";
+import { OPEN_SHOT_WAREHOUSE, UNASSIGNED_MEDIA, type WarehouseMedia, type WarehouseShotGroup } from "../warehouseShotMedia";
 import { useStorySpine, storySpineStore } from "@/features/storyAgent/spine/storySpine";
 import { useUiLanguage, useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { WarehouseBookMedia } from "./WarehouseBookMedia";
@@ -582,6 +582,7 @@ export default function MaterialWarehousePanel({
   const [drawerTab, setDrawerTab] = useState<"shots" | "images" | "videos" | "assets" | "music" | "text">(videoActions ? "shots" : "images");
   const [groupId, setGroupId] = useState<string | null>(focusedShotId ?? null);
   const grouped = useWarehouseShotGroups(activeStoryId, shots, materialState);
+  const libraryUtils = trpc.useUtils();
   const [conversationFocus, setConversationFocus] = useState<WarehouseConversationFocus | null>(null);
   const [warehouseOpenRevision, setWarehouseOpenRevision] = useState(0);
   useEffect(() => {
@@ -596,6 +597,9 @@ export default function MaterialWarehousePanel({
     window.addEventListener(WAREHOUSE_CONVERSATION_FOCUS, follow);
     return () => window.removeEventListener(WAREHOUSE_CONVERSATION_FOCUS, follow);
   }, [videoActions, variant, activeStoryId, grouped.groups]);
+  useEffect(() => {
+    if (activeStoryId && variant === "drawer") void libraryUtils.storyAgent.storyMaterialState.invalidate({ storyId: activeStoryId });
+  }, [activeStoryId, warehouseOpenRevision, variant]);
   const latestRender = renderJobs[renderJobs.length - 1];
   const latestRenderSeen = useRef(0);
   useEffect(() => {
@@ -676,12 +680,15 @@ export default function MaterialWarehousePanel({
       });
     };
     for (const image of materialState?.warehouseImages ?? materialState?.unassignedImages ?? []) {
+      const associations = image.libraryShotIds ?? [];
+      const owner = image.shotIdentity || (associations.length === 1 ? associations[0] : null);
+      const shot = owner ? shots.find(row => (row.stableShotId ?? row.shotIdentity) === owner) : undefined;
       addRow({
         image,
-        shotNo: null,
-        cueCode: null,
-        stableShotId: null,
-        relatedStableShotIds: [],
+        shotNo: shot?.shotNo ?? null,
+        cueCode: shot?.cueCode ?? null,
+        stableShotId: shot ? owner : null,
+        relatedStableShotIds: associations,
         isCurrent: false,
       });
     }
@@ -760,11 +767,11 @@ export default function MaterialWarehousePanel({
     currentMaterial?.timelineItem?.plannedDurationMs
   );
 
-  const openMaterialChat = (keepWarehouseOpen = false, imageId?: number) => {
+  const openMaterialChat = (keepWarehouseOpen = false, imageId?: number, stableShotId?: string | null) => {
     window.dispatchEvent(new CustomEvent(PAUSED_FRAME_SHORTCUT_EVENT, { detail: { kind: "clear", storyId: activeStoryId } }));
     setPreviewImage(null);
     if (!keepWarehouseOpen) onClose?.();
-    window.dispatchEvent(new CustomEvent("dt:open-creation-chat", { detail: { focusComposer: true, preserveSelection: true, imageId, storyId: activeStoryId } }));
+    window.dispatchEvent(new CustomEvent("dt:open-creation-chat", { detail: { focusComposer: true, preserveSelection: true, imageId, stableShotId, storyId: activeStoryId } }));
   };
   const selectImageMaterial = (item: WarehouseImageItem) => {
     if (insertIntoLayout) {
@@ -798,7 +805,7 @@ export default function MaterialWarehousePanel({
       objectVersion: `image:${item.image.id}`,
       materialStatus: item.isCurrent ? "current-image" : "candidate-image",
     });
-    openMaterialChat(true, item.image.id);
+    openMaterialChat(true, item.image.id, item.stableShotId);
   };
 
   const selectVideoMaterial = (item: WarehouseVideoItem, sourceTimeSec?: number) => {
@@ -1229,6 +1236,12 @@ export default function MaterialWarehousePanel({
                       </Popover>
                     );
   };
+  const referenceGeneratedImage = videoActions && !insertIntoLayout
+    ? (imageId: number, stableShotId?: string) => openMaterialChat(true, imageId, stableShotId) : undefined;
+  const previewShotCode = (id: string) => {
+    const shot = shots.find(s => (s.stableShotId ?? s.shotIdentity) === id);
+    return shot && displayShotCode(shot);
+  };
   const renderGroupedImage = (media: WarehouseMedia, group: WarehouseShotGroup, name: string) => {
     const existing = imageItems.find(item => item.image.id === media.id);
     const shot = shots.find(s => (s.stableShotId ?? s.shotIdentity) === group.id);
@@ -1247,11 +1260,12 @@ export default function MaterialWarehousePanel({
 
   if (variant === "drawer") {
     const visibleJobs = renderJobs.filter(job => job.storyId === activeStoryId &&
-      (drawerTab === "shots" ? (!job.shotId || job.shotId === (groupId ?? currentStableShotId))
+      (drawerTab === "shots" ? (job.shotId ?? UNASSIGNED_MEDIA) === (groupId ?? currentStableShotId)
         : job.kind === (drawerTab === "music" ? "audio" : drawerTab === "videos" ? "video" : "image")) &&
-      // Once a take exists, its ordinary warehouse tile carries the live status.
+      // Archived results use their ordinary, chronologically sorted tiles.
+      !(job.kind === "image" && job.state === "ready" && imageItems.some(item => item.image.id === job.assetId)) &&
       !(job.kind === "video" && videoItems.some(item => item.take.id === job.takeId)));
-    const renderCards = visibleJobs.length ? <WarehouseRenderCards jobs={visibleJobs} shots={shots} inline /> : undefined;
+    const renderCards = visibleJobs.length ? <WarehouseRenderCards onReference={referenceGeneratedImage} jobs={visibleJobs} shots={shots} inline /> : undefined;
     const drawerItems =
       drawerTab === "images" ? imageItems : drawerTab === "videos" ? videoItems : [];
     const drawer = (
@@ -1385,7 +1399,7 @@ export default function MaterialWarehousePanel({
             renderImage={renderGroupedImage} onSelectVideo={(id, time) => {const item = videoItems.find(v => v.take.id === id); if (item) selectVideoMaterial(item, time);}} /> : (drawerTab === "music" || drawerTab === "text") && activeStoryId ? <WarehouseBookMedia key={`${activeStoryId}:${drawerTab}`} storyId={activeStoryId} kind={drawerTab} leading={drawerTab === "music" ? renderCards : undefined}/> : drawerTab === "assets" ? (
             <>
             <ArtSystemLibrary storyId={activeStoryId ?? null} images={visualAssetImages} />
-            {activeStoryId != null && <ArtPreviewGallery key={activeStoryId} storyId={activeStoryId} includePlans />}
+            {activeStoryId != null && <ArtPreviewGallery shotCode={previewShotCode} onReference={referenceGeneratedImage} key={activeStoryId} storyId={activeStoryId} includePlans />}
             <VisualAssetLibrary
               storyId={activeStoryId ?? null}
               images={visualAssetImages}
@@ -1629,7 +1643,7 @@ export default function MaterialWarehousePanel({
 
           <div className="mx-4 mb-4 rounded-lg border border-border bg-background p-3">
             <ArtSystemLibrary storyId={activeStoryId ?? null} images={visualAssetImages} />
-            {activeStoryId != null && <ArtPreviewGallery key={activeStoryId} storyId={activeStoryId} includePlans />}
+            {activeStoryId != null && <ArtPreviewGallery shotCode={previewShotCode} onReference={referenceGeneratedImage} key={activeStoryId} storyId={activeStoryId} includePlans />}
             <VisualAssetLibrary
               storyId={activeStoryId ?? null}
               images={visualAssetImages}

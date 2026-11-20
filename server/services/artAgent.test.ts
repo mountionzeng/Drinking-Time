@@ -1,3 +1,4 @@
+import { sourceImageFixture } from "../testFixtures/sourceImage";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const imageGenMocks = vi.hoisted(() => ({
@@ -22,7 +23,7 @@ describe("createArtRiff", () => {
 
   it("把参考图分析交给统一美术工程，不再自行追加电影感色调", async () => {
     await createArtRiff({
-      imageUrl: "https://storage.example/reference.png",
+      imageUrl: await sourceImageFixture("art-reference"),
       instruction: "让主体更小，空间更不可思议",
       projectPreference: "避免统一暗色调",
       previousPrompt: "一个人站在空房间里",

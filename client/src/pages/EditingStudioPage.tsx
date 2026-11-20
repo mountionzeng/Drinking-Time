@@ -1,3 +1,5 @@
+import { videoAcknowledgement, wordTimingCommand } from "@/features/storyAgent/commandConversation";
+import { parseDialogueVisualSync } from "@shared/dialogueVisualSync";
 import { ExportButton } from "@/features/creationEditor/ExportTimelineButton";
 import type { WechatMailboxReceiptValue } from "@/features/storyMailbox/WechatMailboxReceipt";
 import { hasPendingStudioDraft } from "@/features/storyAgent/studioDraftState";
@@ -692,6 +694,7 @@ export default function EditingStudioPage() {
       window.removeEventListener("dt:story-open-settled", settleStoryOpen);
   }, []);
   const utils = trpc.useUtils();
+  const wordCut = trpc.warehouseVideoSequence.cutWordTiming.useMutation({ retry: false });
   const timelineEditMut = trpc.creationAgent.timelineEditCommand.useMutation();
   const runArtPreviewChat = useArtPreviewChat();
   const runImageRevisionChat = useImageRevisionChat();
@@ -783,9 +786,62 @@ export default function EditingStudioPage() {
         storySpineStore.getState().activeStoryId
       );
       if (storyId == null) return null;
+      const surface = requestedWorkspace ?? (workspace === "publishing" || workspace === "images" ? "book" : "video");
+      if (surface === "video") {
+        const messages = storySpineStore.getState().messages;
+        const command = wordTimingCommand(instruction, messages, storyId, selectionContext);
+        if (command?.reply) return { handled: true as const, reply: command.reply };
+        if (command?.word) {
+          const material = utils.storyAgent.storyMaterialState.getData({ storyId }) ?? await utils.storyAgent.storyMaterialState.fetch({ storyId });
+          const shot = material?.shots.find(s => command.shotNo ? s.shotNo === command.shotNo : s.stableShotId === selectionContext?.stableShotId);
+          const primary = material?.timeline.items.find(i => i.stableShotId === shot?.stableShotId)?.primaryVideoEdit;
+          const message = messages.at(-1);
+          if (!material || !shot || !primary || message?.role !== "user" || message.content.trim() !== instruction.trim())
+            return { handled: true as const, reply: "请选中要剪的视频镜头后再发送。" };
+          const result = await wordCut.mutateAsync({ storyId, stableShotId: shot.stableShotId, expectedVersion: material.timeline.version,
+            shotNo: shot.shotNo, sentAt: message.timestamp, instruction, expectedTakeId: primary.takeId, sourceTakeId: command.sourceTakeId ?? primary.takeId, messageId: message.id, word: command.word, hold: command.hold });
+          await Promise.all([utils.storyAgent.storyMaterialState.invalidate({storyId}), utils.storyAgent.storyVideoAssets.invalidate({storyId})]);
+          return { handled: true as const, reply: result.reply };
+        }
+      }
+      const sync = surface === "video" && parseDialogueVisualSync(instruction);
+      const editTimeline = async () => {
+        const result = await timelineEditMut.mutateAsync({
+          storyId,
+          instruction,
+          selectionContext,
+          // 「把这里改一下」里的「这里」：没有显式选中素材时，就是播放头
+          // 停在的那一刻。服务端会把它解析成那一帧真正可见的镜头。
+          playheadMs: storySpineStore.getState().playheadMs,
+        });
+        if (!result.handled) return null;
+        if (!sync &&
+          shouldDeferStoryboardImageCommand({
+            sourceType: selectionContext?.sourceType,
+            appliedCount: result.appliedCount,
+            hasProposal: Boolean(result.proposal),
+          })
+        ) {
+          return null;
+        }
+        if (result.appliedCount > 0) {
+          if ("undoSnapshot" in result && result.undoSnapshot) {
+            recordTimelineUndoSnapshot(storyId, result.undoSnapshot);
+          }
+          await Promise.all([
+            utils.storyAgent.storyMaterialState.invalidate({ storyId }),
+            utils.storyAgent.storyVideoAssets.invalidate({ storyId }),
+          ]);
+        }
+        return {
+          handled: true as const,
+          reply: result.reply,
+          transitionCandidate: result.proposal,
+        };
+      };
+      if (sync) return editTimeline();
       const files = await runWarehouseFileChat(storyId, instruction);
       if (files) return files;
-      const surface = requestedWorkspace ?? (workspace === "publishing" || workspace === "images" ? "book" : "video");
       if (surface === "video") {
         const review = await runFrameRegionReviewChat(storyId, instruction, selectionContext);
         if (review) return review;
@@ -844,40 +900,11 @@ export default function EditingStudioPage() {
                 : "剪辑台还没有载入完成，暂时不能撤销。请等右侧时间线出现后再试。",
         };
       }
-      const result = await timelineEditMut.mutateAsync({
-        storyId,
-        instruction,
-        selectionContext,
-        // 「把这里改一下」里的「这里」：没有显式选中素材时，就是播放头
-        // 停在的那一刻。服务端会把它解析成那一帧真正可见的镜头。
-        playheadMs: storySpineStore.getState().playheadMs,
-      });
-      if (!result.handled) return null;
-      if (
-        shouldDeferStoryboardImageCommand({
-          sourceType: selectionContext?.sourceType,
-          appliedCount: result.appliedCount,
-          hasProposal: Boolean(result.proposal),
-        })
-      ) {
-        return null;
-      }
-      if (result.appliedCount > 0) {
-        if ("undoSnapshot" in result && result.undoSnapshot) {
-          recordTimelineUndoSnapshot(storyId, result.undoSnapshot);
-        }
-        await Promise.all([
-          utils.storyAgent.storyMaterialState.invalidate({ storyId }),
-          utils.storyAgent.storyVideoAssets.invalidate({ storyId }),
-        ]);
-      }
-      return {
-        handled: true as const,
-        reply: result.reply,
-        transitionCandidate: result.proposal,
-      };
+      const acknowledgement = videoAcknowledgement(instruction, storySpineStore.getState().messages, storyId, selectionContext?.stableShotId);
+      if (acknowledgement) return { handled: true as const, reply: acknowledgement };
+      return editTimeline();
     },
-    [workspace, activeStoryId, timelineEditMut, utils, runArtPreviewChat, runImageRevisionChat, runFrameRegionReviewChat, runWarehouseFileChat, runVisualUnderstandingChat, runColorTransferChat]
+    [workspace, activeStoryId, timelineEditMut, wordCut, utils, runArtPreviewChat, runImageRevisionChat, runFrameRegionReviewChat, runWarehouseFileChat, runVisualUnderstandingChat, runColorTransferChat]
   );
 
   return (

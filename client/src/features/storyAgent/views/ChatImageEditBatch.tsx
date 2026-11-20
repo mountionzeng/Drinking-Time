@@ -1,3 +1,5 @@
+import { collectKeyframeReview } from "../keyframeReview";
+import { storySpineStore } from "../spine/storySpine";
 import { useEffect, useRef, useState } from 'react';
 import type { ImageEditBatch } from '../../../../../server/services/chatImageEditBatch';
 import { formatComputeQuote } from '@shared/computeMoney';
@@ -26,16 +28,18 @@ export function ChatImageEditBatchView({ batch, busy, disabled, error, onConfirm
   const ready = batch.items.filter(item => item.status === 'ready');
   const done = batch.items.filter(item => item.status === 'done');
   const blocked = batch.items.some(item => !['done', 'ready'].includes(item.status));
+  const reference = (image: { imageId: number; imageUrl: string }) =>
+    onSelect({ ...image, storyId: batch.storyId, stableShotId: batch.stableShotId, shotNo: batch.shotNo });
   const unit = batch.renderRoute === 'storyboard' ? '组' : '张';
   const labels = { ready: '待生成', pending: '正在生成', unknown: '等待回执', failed: '未完成', done: '已完成' };
   return <section aria-label="本批图片进度" className="space-y-1.5 text-xs">
     <p role="status">同批 {batch.items.length} {unit} · 已完成 {done.length}/{batch.items.length}{busy ? ' · 正在处理，请稍候' : ''}</p>
     <div className="grid grid-cols-2 gap-2">{batch.items.map(item => <div key={item.requestId} className="min-w-0 space-y-1 break-words text-[11px]" aria-label={`原图 #${item.imageId} 第${item.copy}张`}>
-      <ChatImageReferenceChip imageId={item.result?.imageId ?? item.imageId} imageUrl={item.result?.imageUrl ?? item.imageUrl} />
+      <ChatImageReferenceChip imageId={item.result?.imageId ?? item.imageId} imageUrl={item.result?.imageUrl ?? item.imageUrl} onReference={() => reference(item.result ?? item)} />
       <p>#{item.imageId} · {labels[item.status]}{item.result ? ` → #${item.result.imageId}` : ''}</p>
       {item.result && <button type="button" className="underline" onClick={() => onSelect({ storyId: batch.storyId, stableShotId: batch.stableShotId, shotNo: batch.shotNo, ...item.result! })}>继续修改</button>}
       {item.candidates?.filter(candidate => candidate.imageId !== item.result?.imageId).map(candidate =>
-        <div key={candidate.imageId}><ChatImageReferenceChip {...candidate} />
+        <div key={candidate.imageId}><ChatImageReferenceChip {...candidate} onReference={() => reference(candidate)} />
           <button type="button" className="underline" onClick={() => onSelect({ storyId: batch.storyId, stableShotId: batch.stableShotId, shotNo: batch.shotNo, ...candidate })}>继续修改 #{candidate.imageId}</button></div>)}
       {item.error && <p className="max-w-60 text-muted-foreground">{item.error}</p>}
     </div>)}</div>
@@ -52,6 +56,12 @@ export function ChatImageEditBatch(props: Props) {
   const input = { storyId, planMessageId };
   const utils = trpc.useUtils();
   const query = trpc.storyAgent.chatImageEditBatch.useQuery(input, imageEditBatchQueryOptions);
+  useEffect(() => {
+    const batch = query.data, state = storySpineStore.getState();
+    if (!batch || state.activeStoryId !== batch.storyId) return;
+    const rows = collectKeyframeReview(state.messages, batch, Date.now());
+    if (rows !== state.messages) state.setMessages(rows);
+  }, [query.data, props.planMessageId]);
   const generate = trpc.storyAgent.generateForMobile.useMutation();
   const recover = trpc.storyAgent.recoverStoryboardImage.useMutation();
   const running = useRef(false);

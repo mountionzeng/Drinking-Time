@@ -60,6 +60,11 @@
       ],
       "history": [
         {
+          "date": "2026-11-20",
+          "kind": "fix",
+          "summary": "视频聊天的简短确认在明确操作之后本地回复。剪辑请求中断时保留原消息、引用及状态，只有明确未处理才转普通聊天。"
+        },
+        {
           "date": "2026-11-13",
           "kind": "feature",
           "summary": "界面快照、类型化对话动作与真实邮箱服务接通；173项初步及182项最终定向通过，类型/构建/101卡通过。全量7795通过，1项旧FFmpeg超时后7项独立复跑通过。按用户顺序等待云层编辑完成再合入，真实模型/UI待验。"
@@ -345,7 +350,8 @@
         "client/src/features/creationEditor/views/WarehouseAssetCard.tsx",
         "client/src/features/creationEditor/views/WarehouseConnectionStatus.tsx",
         "client/src/features/storyAgent/views/ShotChatInspector.tsx",
-        "client/src/features/storyAgent/shotConversation.ts"
+        "client/src/features/storyAgent/shotConversation.ts",
+        "server/services/libraryImageShots.ts"
       ],
       "evidence": [
         "client/src/features/creationEditor/warehouseShotMedia.test.ts",
@@ -375,7 +381,9 @@
         "client/src/features/storyAgent/inlineChatDraft.test.ts",
         "server/services/inlineChatImageContent.test.ts",
         "server/archive/storyReply.inlineImages.test.ts",
-        "docs/qa/2026-11-17-chat-remix-followup.md"
+        "docs/qa/2026-11-17-chat-remix-followup.md",
+        "server/services/libraryImageShots.test.ts",
+        "client/src/features/storyAgent/views/ArtPreviewGallery.test.tsx"
       ],
       "invariants": [
         "保留横滑浮窗、原图预览/拖放/选择与原始资产，不因浏览分组而采用、复制、改名或解除素材。",
@@ -498,8 +506,15 @@
           "kind": "fix",
           "summary": "修复对话框新候选漏记镜头来源：2117回到03组V48最左，图片分类同序；素材与镜号通知合为单行。95图/10视频/14音频及采用逐对象不变，旧版本保留。 最终57专项、类型及标准构建含77草稿项通过；未付费或部署。",
           "evidence": [
-            "docs/qa/2026-11-17-chat-remix-followup.md"
+            "docs/qa/2026-11-17-chat-remix-followup.md",
+        "server/services/libraryImageShots.test.ts",
+        "client/src/features/storyAgent/views/ArtPreviewGallery.test.tsx"
           ]
+        },
+        {
+          "date": "2026-11-19",
+          "kind": "fix",
+          "summary": "在故事聊天及仓库点击生成图可引用原素材并继续编辑。用保存回执、显式关联和当前稳定镜头归组，独立查看原图，刷新恢复未发送的文字与引用。"
         }
       ]
     },
@@ -3274,11 +3289,19 @@
       "status": "observing",
       "userValue": "在同一条 Storyboard 时间线上，确认生成视频方案时自动生成字幕，也可从现有台词手动生成；字幕可直接点块改字、拖动、裁剪、拆分合并；旁白严格按字幕生成并绑定，音乐、环境声和音效可按播放头所在镜头的情绪、动作和场景通过 302 生成，也可本地导入；五类语义轨均可裁剪、调音量、淡入淡出与静音，重叠声音一起混音，Preview 与导出用同一份计划。",
       "entryPoints": [
+        "client/src/pages/EditingStudioPage.tsx",
         "client/src/features/creationEditor/views/StoryboardEditRow.tsx",
         "client/src/features/creationEditor/views/EditingNleWorkspace.tsx",
         "client/src/features/creationEditor/views/ShotPreview.tsx"
       ],
       "owners": [
+        "server/services/videoWordTiming.ts",
+        "scripts/cut-word-timing.py",
+        "client/src/features/storyAgent/commandConversation.ts",
+        "shared/dialogueVisualSync.ts",
+        "server/services/timelineEditAgent.ts",
+        "server/services/dialogueVisualSync.ts",
+        "scripts/dialogue-cup-onset.py",
         "shared/timelineSubtitleModel.ts",
         "shared/timelineAudioModel.ts",
         "shared/timelineSpeechBinding.ts",
@@ -3315,6 +3338,9 @@
         "shared/bookScreenText.ts"
       ],
       "evidence": [
+        "server/services/videoWordTiming.test.ts",
+        "server/services/dialogueVisualSync.test.ts",
+        "server/services/dialogueVisualSync.integration.test.ts",
         "shared/timelineSubtitleModel.test.ts",
         "shared/timelineAudioModel.test.ts",
         "shared/timelineSpeechBinding.test.ts",
@@ -3398,6 +3424,7 @@
       ],
       "replaces": [],
       "knownGaps": [
+        "聊天对齐需要镜头内有字幕和可辨认的旁白或对白起音。自动识别原片里的杯子限于项目现有五款素材、20 秒分析窗口，其他动作可提供原片秒数。音乐节拍检测尚未接入。正式发布前须验证 FFmpeg、Python 依赖及杯子模板随包可用。",
         "主仓 main:3000 已完成生成并改字幕、键盘移动/裁剪、Preview 与真实 Export；尚未完成付费旁白生成/替换及导入音乐后裁剪的整条不看说明任务，因此状态保持 observing。",
         "302 ElevenLabs 当前接口未提供已验证的幂等提交键或任务查询凭据；若进程恰好在供应商成功回包与 provider URL 持久化之间崩溃，该操作会冻结为 submission_unknown，必须人工对账，系统不会冒险自动重提。",
         "legacy 读取按 U10 数据门禁保留：2026-09-05 复核显示 37 个故事中有 3 个只能靠 ChatCut adapter 才有字幕/声音（0 个已迁移到正式 Timeline），因此本轮不删除任何旧读取。",
@@ -3412,6 +3439,20 @@
         "2026-11-06三版66字同稿中文短试听已受管入库为资产10/11/12，合计0.06算力；用户已选定豆包女声温柔小雅与男声温暖阿虎；MiniMax候选未选用。豆包通用接口不披露底层模型版本，使用明确unversioned服务标识。Qwen3文档版本实际404/Model not exist，未重试，应用0扣费。"
       ],
       "history": [
+        {
+          "date": "2026-11-20",
+          "kind": "fix",
+          "summary": "视频聊天读取同镜头的节奏反馈，定位录音和画面中的完整英文词，本机提前画面并按要求停留。写入原位后保存回执，保留原音字幕、素材和历史。",
+          "evidence": [
+            "server/services/videoWordTiming.test.ts",
+            "client/src/features/storyAgent/commandConversation.test.ts"
+          ]
+        },
+        {
+          "date": "2026-11-20",
+          "kind": "feature",
+          "summary": "在视频编辑聊天中将独立图片或主视频里的入场动作对齐到台词实际开口处。复用原素材、视觉历史与导出计划。"
+        },
         {
           "date": "2026-09-04",
           "kind": "feature",
@@ -3570,6 +3611,12 @@
             "docs/qa/2026-11-15-film-style-continuity-captions.md",
             "shared/bookScreenText.test.ts"
           ]
+        },
+        {
+          "date": "2026-11-20",
+          "kind": "fix",
+          "summary": "点击音频素材或裁剪把手时同步交接键盘焦点。",
+          "evidence": ["docs/qa/2026-11-20-launch-video-shortcuts-layers.md"]
         }
       ]
     },
@@ -3812,6 +3859,16 @@
             "shared/sceneObjectDirection.ts",
             "server/services/confirmedStoryboardImagePrompt.test.ts",
             "server/services/imagePromptDirector.ts"
+          ]
+        },
+        {
+          "date": "2026-11-19",
+          "kind": "fix",
+          "summary": "有参考图的统一出图入口先解码实际像素，按画面分区亮度及连续交界位置约束修改，保留有意设计的锐边与已确认导演指令。不可读原图阻止供应商提交。",
+          "evidence": [
+            "server/services/sourceFrameReading.ts",
+            "server/services/sourceFrameReading.test.ts",
+            "server/services/chatImageEditRoutes.test.ts"
           ]
         }
       ]
@@ -4354,6 +4411,16 @@
           "date": "2026-11-11",
           "kind": "fix",
           "summary": "对话可用三张原帧提出两段A→B、B→C方案，4/5秒720p，先合并估算导演与视频费用。确认拆镜只保存可撤销拆分和首尾帧，不购买；原视频切片总长度及音乐字幕保留，生成与采用仍各走现有流程。新增越权/过期范围/撤销重放测试，3001网页提案/取消通过；真实两段付费生成待验收，冻结供应商与工作流文件未改。"
+        },
+        {
+          "date": "2026-11-19",
+          "kind": "fix",
+          "summary": "视频导演读取提供的首、中、尾帧和原有视觉参考，结合实际画面的明暗与交界解释运动。单镜任务在预占前核对首帧，并在回执中保存像素读数。",
+          "evidence": [
+            "server/services/videoPromptDirector.ts",
+            "server/services/videoJobs.ts",
+            "server/services/videoJobs.test.ts"
+          ]
         }
       ]
     },
@@ -4498,6 +4565,14 @@
         "真实浏览器中『播放时点击调整画面 → 静帧出现 → 图片编辑器打开』仍需在拥有视频故事的账号下做端到端验收；同步时钟、同帧抽取编排和 Preview 抽帧渲染已有可执行回归覆盖。"
       ],
       "history": [
+        {
+          "date": "2026-11-19",
+          "kind": "fix",
+          "summary": "时间线素材复制粘贴只在视觉轨道内且无文字选区时接管普通 Cmd/Ctrl+C、V。4317 虚构故事复现旧版拦截选中文字；修复后验证了原生复制事件、向聊天草稿粘贴多行测试文字、替换选区、撤销以及轨道内的镜头复制。",
+          "evidence": [
+            "client/src/features/creationEditor/storyboardEditRow.test.ts"
+          ]
+        },
         {
           "date": "2026-09-03",
           "kind": "fix",
@@ -4760,6 +4835,12 @@
             "client/src/features/creationEditor/views/StoryboardEditRow.test.tsx",
             "server/services/visualDeleteRecovery.test.ts"
           ]
+        },
+        {
+          "date": "2026-11-20",
+          "kind": "fix",
+          "summary": "实点素材时方向键交给该素材，换层重建后恢复同一素材焦点。时间线右键菜单使用页面浮层，仓库打开时也能点击。",
+          "evidence": ["docs/qa/2026-11-20-launch-video-shortcuts-layers.md", "client/src/features/creationEditor/frameNavigation.test.ts"]
         }
       ]
     },
@@ -5373,7 +5454,14 @@
         "client/src/features/storyAgent/views/ChatImageEditBatch.tsx",
         "client/src/features/storyAgent/failedImageEditRecovery.ts",
         "client/src/features/storyAgent/views/ChatImageEditRecovery.tsx",
-        "client/src/features/storyAgent/imageEditPurchase.ts"
+        "client/src/features/storyAgent/imageEditPurchase.ts",
+        "client/src/features/storyAgent/views/ChatImageRegionHover.tsx",
+        "server/services/chatPictureRegion.ts",
+        "scripts/read-picture-region.swift",
+        "client/src/features/storyAgent/keyframeRegionScan.ts",
+        "server/services/keyframeRegionScan.ts",
+        "server/services/eraseKeyframeRegions.ts",
+        "server/services/localRegionErase.ts"
       ],
       "evidence": [
         "client/src/features/storyAgent/chatMediaAttachments.test.ts",
@@ -5407,7 +5495,12 @@
         "client/src/features/storyAgent/views/ChatImageEditBatch.purchase.test.tsx",
         "docs/qa/2026-11-17-image-confirm-generate.md",
         "client/src/features/storyAgent/views/ChatImageRouteChoice.test.tsx",
-        "server/services/chatImageEditRoutes.test.ts"
+        "server/services/chatImageEditRoutes.test.ts",
+        "client/src/features/storyAgent/views/chatHoverRegion.test.ts",
+        "server/services/chatPictureRegion.test.ts",
+        "client/src/features/storyAgent/keyframeRegionScan.test.ts",
+        "server/services/keyframeRegionScan.test.ts",
+        "server/services/localRegionErase.test.ts"
       ],
       "invariants": [
         "引用只认 generated_images 的 imageId：素材仓库、故事版、时间轴和对话框指的是同一张图，不得各存一份副本。",
@@ -5560,6 +5653,71 @@
           "evidence": [
             "shared/sceneObjectDirection.ts",
             "server/services/chatImageEditRoutes.test.ts"
+          ]
+        },
+        {
+          "date": "2026-11-19",
+          "kind": "fix",
+          "summary": "本镜整组审图反馈按真实回执顺序分开精修，保留逐帧要求与背景参考，按实际张数一次报价。整组反馈覆盖旧草案，刷新不授权付款。静帧提示保护物体交界的局部光色、纹理及清晰轮廓。真实画质待付费生成后审看。",
+          "evidence": [
+            "client/src/features/storyAgent/keyframeGroupEdit.test.ts",
+            "server/services/chatImageEditBatch.test.ts",
+            "client/src/features/storyAgent/views/ChatImageEditBatch.purchase.test.tsx"
+          ]
+        },
+        {
+          "date": "2026-11-19",
+          "kind": "fix",
+          "summary": "聊天改图在报价卡里免费读取底图和参考图，能展开逐帧依据。第05镜一次显示五张底图的精修总价，参考图单列。收到通用读图要求只存回执。",
+          "evidence": [
+            "client/src/features/storyAgent/views/SourceReviewedPlanCard.tsx",
+            "server/services/chatImageEditBatch.router.test.ts"
+          ]
+        },
+        {
+          "date": "2026-11-19",
+          "kind": "fix",
+          "summary": "本镜按张数索取修订图时，聊天核对审图顺序和修改草案。已完成则展示可引用的实图，加入新美术要求则继续改图。",
+          "evidence": [
+            "client/src/features/storyAgent/keyframeGroupEdit.ts",
+            "client/src/features/storyAgent/keyframeGroupEdit.test.ts"
+          ]
+        },
+        {
+          "date": "2026-11-19",
+          "kind": "fix",
+          "summary": "视频工作区聊天中的故事图片支持悬停原图、反向拖框和免费局部读图。松开后将原图引用、归一化范围和可识别的内容加入草稿。已移除缩略图旁的独立放大镜，单击仍可引用，Alt+Enter 可看 1:1 原图。",
+          "evidence": [
+            "client/src/features/storyAgent/views/chatHoverRegion.test.ts",
+            "server/services/chatPictureRegion.test.ts"
+          ]
+        },
+        {
+          "date": "2026-11-19",
+          "kind": "fix",
+          "summary": "点选原图引用整张，直接在缩略图或大图拖框会立即在输入框引用局部。预览避开输入框并在松手时收起，本地读图只更新同一枚引用；发送时携带原图 ID 与已选范围。",
+          "evidence": [
+            "client/src/features/storyAgent/views/chatHoverRegion.test.ts",
+            "client/src/features/storyAgent/views/InlineChatComposer.tsx",
+            "client/src/features/storyAgent/views/ChatImageRegionHover.tsx"
+          ]
+        },
+        {
+          "date": "2026-11-19",
+          "kind": "fix",
+          "summary": "右侧视频聊天可用一张原图的矩形选区检查本镜最新一组关键帧。每张图独立定位相同文字或局部图形；多处匹配与不确定位置留待核对。",
+          "evidence": [
+            "client/src/features/storyAgent/keyframeRegionScan.test.ts",
+            "server/services/keyframeRegionScan.test.ts"
+          ]
+        },
+        {
+          "date": "2026-11-19",
+          "kind": "fix",
+          "summary": "同组选区检查卡可直接本地擦除勾选内容并存为候选，复用原选区和原图像素，0 算力。",
+          "evidence": [
+            "server/services/localRegionErase.test.ts",
+            "server/services/render/renderProfiles.contract.test.ts"
           ]
         }
       ]
@@ -13616,7 +13774,7 @@
         "server/archive/storyReply.inlineImages.test.ts"
       ],
       "invariants": [
-        "真实暂停位置由播放时钟提供，普通聊天不附图。视频/视觉时间线普通左右键逐帧移动，上键引用、下键取消；输入框与菜单让开，修饰键原指令保留。",
+        "真实暂停位置由播放时钟提供，普通聊天不附图。预览与视觉轨空白处普通左右键逐帧移动，上键引用、下键取消。焦点在可移动素材块上时，方向键归素材。输入框、菜单及修饰键保留各自操作。",
         "暂停时轻提示，文字/语音引用画面时附真实缩略图，可悬停或聚焦看原图，普通聊天不自动附图，不新增一排按钮。",
         "引用时冻结帧、镜头和版本，后续移动播放头不得换图；显式图片或镜头优先，可更新或取消引用。",
         "服务端按所属账号故事、当前可见源及变速/倒放/叠层定位时间；新改图引用取原素材原尺寸，剪辑画布和裁切/旋转/缩放分离，旧预览引用兼容。空白失败不猜，不截取编辑器按钮，不把字幕或画布黑边混入新的改图素材。",
@@ -14173,6 +14331,7 @@
         "client/src/features/storyAgent/views/VideoFeedbackActivity.tsx",
         "shared/videoFeedbackActivity.ts",
         "server/services/placeFirstReviewTake.ts",
+        "server/services/saveReviewedTake.ts",
         "client/src/features/storyAgent/views/ChatTakePlacement.tsx",
         "client/src/features/storyAgent/views/NextShotDraftButton.tsx",
         "server/repositories/replacePrimaryTake.ts",
@@ -14308,6 +14467,11 @@
           "date": "2026-11-19",
           "kind": "feature",
           "summary": "候选视频审片卡将保存到剪辑框与保存反馈并列。首次保存把视频放进镜头，可用镜头后的空档；替换已有主视频沿用原入出点。首次落位可从剪辑历史恢复原图和旧素材。保存成功后定位后继镜头并询问想法；点先出一版会基于现有文字与素材留下分镜初稿。主仓3000实测第04镜保存、进入第05镜；临时同页实测点出草稿、参考帧、重开和恢复，58项定向测试通过。"
+        },
+        {
+          "date": "2026-11-20",
+          "kind": "fix",
+          "summary": "聊天保存完整时长的视频。前一镜后的空档可用时接入原轨，长度不合时选择该时段空闲的可见画面轨，刷新后仍能回看。"
         }
       ]
     }

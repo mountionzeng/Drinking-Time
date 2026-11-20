@@ -1,4 +1,4 @@
-import { SCENE_OBJECT_DIRECTION } from "./sceneObjectDirection";
+import { SCENE_OBJECT_DIRECTION, STILL_EDGE_INTEGRATION } from "./sceneObjectDirection";
 
 /**
  * 对话框的图片引用篮子 —— 图生图的入口。
@@ -123,6 +123,7 @@ export function buildChatImageRemixManifest(input: {
     "只按上面这句话决定从每张图里取什么。用户没有点名的图，不要主动搬它的构图、场景、人物或配色。",
     "画幅和整体构图以图1为基准，除非用户明确要求改构图。",
     SCENE_OBJECT_DIRECTION,
+    STILL_EDGE_INTEGRATION,
     "输出一张完整的新画面，不要拼贴、不要做成对比图或分格图。",
   ].join("\n");
 }

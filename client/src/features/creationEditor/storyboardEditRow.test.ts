@@ -731,6 +731,8 @@ describe("storyboard edit shortcuts", () => {
       kind: "pasteVisualObject",
     });
     expect(press("v", { metaKey: true, altKey: true })).toBeNull();
+    expect(press("v", { metaKey: true, shiftKey: true })).toBeNull();
+    expect(press("C", { ctrlKey: true, shiftKey: true })).toBeNull();
   });
 });
 
@@ -1069,6 +1071,14 @@ describe("storyboard edit key routing", () => {
       storyboardEditRowAcceptsGlobalShortcuts({ isConnected: false })
     ).toBe(false);
     expect(storyboardEditRowAcceptsGlobalShortcuts(null)).toBe(false);
+  });
+
+  it.each(["c", "V"])("lets text and the visual track own their respective clipboard shortcuts (%s)", key => {
+    const chord = { key, commandModifier: true };
+    expect(gate({ ...chord, isTimelineTarget: false })).toBe(false);
+    expect(gate({ ...chord, isTimelineTarget: true, hasTextSelection: true })).toBe(false);
+    expect(gate({ ...chord, isTimelineTarget: true, isEditableTarget: true })).toBe(false);
+    expect(gate({ ...chord, isTimelineTarget: true, hasTextSelection: false })).toBe(true);
   });
 
   it("still fires when focus has moved off the time bar onto a button", () => {

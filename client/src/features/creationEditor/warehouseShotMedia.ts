@@ -121,7 +121,6 @@ export function buildWarehouseShotGroups(input: {
     input.materialState?.storyId === input.storyId ? input.materialState : null;
   const images = new Map<number, ImageAsset>();
   for (const image of [
-    ...(state?.warehouseImages ?? state?.unassignedImages ?? []),
     ...(state?.visualAssets?.images ?? []),
     ...(state?.shots.flatMap(s => [
       ...s.imageVersions,
@@ -129,6 +128,7 @@ export function buildWarehouseShotGroups(input: {
       ...(s.imageGenerationReferences ?? []),
       ...(s.imageGenerationReference ? [s.imageGenerationReference] : []),
     ]) ?? []),
+    ...(state?.warehouseImages ?? state?.unassignedImages ?? []),
   ])
     if (image.storyId === input.storyId) images.set(image.id, image);
   const groups: WarehouseShotGroup[] = [];

@@ -1,7 +1,7 @@
 import { archiveMessagesFrom } from "./archiveChatMessages";
 export { archiveMessagesFrom } from "./archiveChatMessages";
 import { hasInlineChatImages, inlineChatInstruction } from "@shared/inlineChatImages";
-import { appendCommandConversation } from "./commandConversation";
+import { appendCommandConversation, insertTurnReply, interruptedChatReply } from "./commandConversation";
 import { type StudioUiContext } from "@shared/studioAssistant";
 import type { StudioCommandOutcome } from "./useStudioAssistant";
 import type { GenerationProfileArg, StoryboardImageRerenderResult, StoryboardImageRerenderRunner } from "./types";
@@ -1779,6 +1779,13 @@ export function StoryAgentProvider({
       const submittedUi = getInterfaceContext?.();
       const trimmed = text.trim();
       if ((!trimmed && !photoBase64) || isReplying) return false;
+      const messageId = options?.clientMessageId ?? newId("msg");
+      // A restored queue item may already have reached the server.
+      if (messages.some(message => message.id === messageId && message.role === "user")) {
+        return messages.some(message => message.id === `reply:${messageId}`);
+      }
+      let submitted: ChatMessage | undefined;
+      let answered = false;
       const emotionCommand = !inlineImages && !warehouseFileChatIds(trimmed).length && !photoBase64 && parseCreationEmotionChat(trimmed);
       let requestStoryId = activeStoryId;
       const shouldRecognizeIntent = !inlineImages && !parseVisualUnderstandingChat(trimmed) && !warehouseFileChatIds(trimmed).length &&
@@ -1840,7 +1847,7 @@ export function StoryAgentProvider({
 
         const userContent = trimmed || "帮我看看这张照片";
         const userMsg: ChatMessage = {
-          id: options?.clientMessageId ?? newId("msg"),
+          id: messageId,
           role: "user",
           content: userContent,
           timestamp: Date.now(),
@@ -1848,7 +1855,8 @@ export function StoryAgentProvider({
           ...(options?.workspaceContext === "video" && activeSelection && selectionBelongsToStory(activeSelection, activeStoryId)
             ? { selectionQuote: selectionQuoteFrom(activeSelection) } : {}),
         };
-        let nextMessages = [...messages, userMsg];
+        submitted = userMsg;
+        let nextMessages = [...storySpineStore.getState().messages, userMsg];
         setMessages(nextMessages);
 
         const interfaceOutcome: (StudioCommandOutcome & { frameReferences?: ChatMessage["frameReferences"]; frameReview?: ChatMessage["frameReview"]; imageEditPlan?: ChatMessage["imageEditPlan"]; transitionCandidate?: Omit<EditingTransitionCandidateReference, "status" | "error"> }) | null = !inlineImages && !photoBase64 && interfaceCommandRunner ? await interfaceCommandRunner(trimmed, submittedUi) : null;
@@ -1881,73 +1889,58 @@ export function StoryAgentProvider({
           !photoBase64 &&
           (interactionMode === "story" || selectedVideoForEditing || options?.workspaceContext)
         )) {
-          try {
-            const outcome = interfaceOutcome?.handled ? interfaceOutcome : await editingCommandRunner!(
-              trimmed,
-              (selectedVideoForEditing || selectedVisualForProduction) && activeSelection
-                ? {
-                    sourceType: activeSelection.sourceType,
-                    sourceId: activeSelection.sourceId,
-                    stableShotId: activeSelection.stableShotId,
-                    shotNo: activeSelection.shotNo,
-                    imageId: activeSelection.imageId,
-                    videoTakeId: activeSelection.videoTakeId,
-                    rangeId: activeSelection.rangeId,
-                    selection: activeSelection.selection,
-                  }
-                : undefined,
-              requestStoryId,
-              options?.workspaceContext
-            );
-            if (outcome?.handled) {
-              if (
-                isCurrent()
-              ) {
-                const replyMsg: ChatMessage = {
-                  id: newId("msg"),
-                  role: "assistant",
-                  content: outcome.reply,
-                  ...(interfaceOutcome?.handled ? { interfaceAction: true as const } : {}),
-                  frameReferences: outcome.frameReferences,
-                  frameReview: outcome.imageEditPlan ? undefined : outcome.frameReview,
-                  imageEditPlan: outcome.imageEditPlan,
-                  ...(outcome.imageEditPlan ? { selectionQuote: userMsg.selectionQuote } : {}),
-                  timestamp: Date.now(),
-                  editingTransitionCandidate: outcome.transitionCandidate
-                    ? { ...outcome.transitionCandidate, status: "pending" }
-                    : undefined,
-                };
-                const finalMessages = [...nextMessages, replyMsg];
-                setMessages(finalMessages);
-                const conversationStoryId = resolvePersistedStoryId(
-                  activeStoryId,
-                  remoteStoryId
-                );
-                await appendCommandConversation(appendConversationTurnMut.mutateAsync,
-                  conversationStoryId, userMsg, replyMsg, activeSelection);
-                await saveArchiveStory({
-                  messages: finalMessages,
-                  cards,
-                  scripts,
-                  storyShots,
-                  characters,
-                  remoteStoryId,
-                  title: storyTitle,
-                  logline: storyLogline,
-                  theme: storyTheme,
-                  arc: storyArc,
-                });
+          // Only an explicit unhandled result may continue to ordinary chat.
+          const outcome = interfaceOutcome?.handled ? interfaceOutcome : await editingCommandRunner!(
+            trimmed,
+            (selectedVideoForEditing || selectedVisualForProduction) && activeSelection
+              ? {
+                  sourceType: activeSelection.sourceType,
+                  sourceId: activeSelection.sourceId,
+                  stableShotId: activeSelection.stableShotId,
+                  shotNo: activeSelection.shotNo,
+                  imageId: activeSelection.imageId,
+                  videoTakeId: activeSelection.videoTakeId,
+                  rangeId: activeSelection.rangeId,
+                  selection: activeSelection.selection,
+                }
+              : undefined,
+            requestStoryId,
+            options?.workspaceContext
+          );
+          if (outcome?.handled) {
+            if (
+              isCurrent()
+            ) {
+              const replyMsg: ChatMessage = {
+                id: `reply:${messageId}`,
+                role: "assistant",
+                content: outcome.reply,
+                ...(interfaceOutcome?.handled ? { interfaceAction: true as const } : {}),
+                frameReferences: outcome.frameReferences,
+                frameReview: outcome.imageEditPlan ? undefined : outcome.frameReview,
+                imageEditPlan: outcome.imageEditPlan,
+                ...(outcome.imageEditPlan ? { selectionQuote: userMsg.selectionQuote } : {}),
+                timestamp: Date.now(),
+                editingTransitionCandidate: outcome.transitionCandidate
+                  ? { ...outcome.transitionCandidate, status: "pending" }
+                  : undefined,
+              };
+              const finalMessages = insertTurnReply(storySpineStore.getState().messages, userMsg, replyMsg);
+              answered = true;
+              setMessages(finalMessages);
+              const conversationStoryId = resolvePersistedStoryId(
+                activeStoryId,
+                remoteStoryId
+              );
+              await appendCommandConversation(appendConversationTurnMut.mutateAsync,
+                conversationStoryId, userMsg, replyMsg, activeSelection);
+              if (isCurrent()) {
+                const latest = storySpineStore.getState();
+                await saveArchiveStory({ ...latest, baseRevision: latest.serverRevision });
               }
-              if (isCurrent() && "afterReply" in outcome && typeof outcome.afterReply === "function") outcome.afterReply();
-              return true;
             }
-          } catch (err) {
-            if (interfaceOutcome?.handled) {
-              console.warn("[sendMessage] Interface result persistence failed:", err);
-              if (isCurrent()) interfaceOutcome.afterReply?.();
-              return true; // Never execute an already-handled action through a second agent.
-            }
-            console.warn("[sendMessage] 剪辑指令通道失败，回落普通聊天:", err);
+            if (isCurrent() && "afterReply" in outcome && typeof outcome.afterReply === "function") outcome.afterReply();
+            return true;
           }
         }
 
@@ -2159,7 +2152,7 @@ export function StoryAgentProvider({
         }
 
         const replyMsg: ChatMessage = {
-          id: newId("msg"),
+          id: `reply:${messageId}`,
           role: "assistant",
           content: result.reply || "我在。你可以再多说一点那个感觉。",
           timestamp: Date.now(),
@@ -2168,7 +2161,8 @@ export function StoryAgentProvider({
             bookRewrite: { text: result.rewriteText, target: options.writingContext.bookRewriteTarget },
           } : {}),
         };
-        const finalMessages = [...nextMessages, replyMsg];
+        const finalMessages = insertTurnReply(storySpineStore.getState().messages, userMsg, replyMsg);
+        answered = true;
         setMessages(finalMessages);
         const currentStoryTitle = storySpineStore.getState().storyTitle;
         const suggestedTitle = suggestAutomaticStoryTitleFromState({
@@ -2279,7 +2273,21 @@ export function StoryAgentProvider({
         return result.configured !== false;
       } catch (err) {
         console.error("storyAgent.chat failed", err);
-        toast.error("Agent 暂时没接上，再试一次？");
+        if (!isCurrent() || !submitted) return false;
+        if (answered) return true;
+        const reply: ChatMessage = {
+          id: `interrupted:${messageId}`,
+          role: "assistant",
+          content: interruptedChatReply(err),
+          selectionQuote: submitted.selectionQuote,
+          timestamp: Date.now(),
+        };
+        const latest = storySpineStore.getState();
+        const updated = insertTurnReply(latest.messages, submitted, reply);
+        if (updated !== latest.messages) {
+          setMessages(updated);
+          await saveArchiveStory({ ...latest, messages: updated, baseRevision: latest.serverRevision });
+        }
         return false;
       } finally {
         if (isCurrent()) setIsReplying(false);

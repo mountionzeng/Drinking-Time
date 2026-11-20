@@ -50,6 +50,7 @@ export function ShotChatInspector({
     shotIdentity?: string | null;
     parentImageId?: number | null;
     assignment?: string;
+    libraryShotIds?: readonly string[];
   }[];
   relatedImageIds?: readonly number[];
   selectedImageId?: number | null;
@@ -92,7 +93,7 @@ export function ShotChatInspector({
       for (const image of revision.candidates)
         allImages.set(image.imageId, image);
   const unassigned = archiveImages.filter(
-    image => image.assignment === "unassigned" && !allImages.has(image.id)
+    image => image.assignment === "unassigned" && !image.libraryShotIds?.length && !allImages.has(image.id)
   );
   const renderImage = (image: { imageId: number; imageUrl: string }) => (
     <figure key={image.imageId}>

@@ -1,3 +1,4 @@
+import { displayShotCode } from '@shared/shotIdentity';
 import type { StoryMaterialState } from '@shared/storyMaterial';
 import type { ImageAsset } from '@shared/imageAsset';
 import { shotRenderReferencesSchema, type ShotRenderReferences } from '@shared/shotImageRender';
@@ -16,22 +17,30 @@ export function promptParts(text: string): Array<{ text: string; key?: string }>
 export function composerImages(material: StoryMaterialState, language: string): ComposerImage[] {
   const images = new Map<number, ImageAsset>();
   for (const image of [
-    ...(material.warehouseImages ?? []), ...material.unassignedImages,
+    ...material.unassignedImages,
     ...material.shots.flatMap(shot => [...shot.imageVersions, ...(shot.relatedImages ?? []),
       ...(shot.currentImage ? [shot.currentImage] : []), ...(shot.imageGenerationReferences ?? []),
       ...(shot.imageGenerationReference ? [shot.imageGenerationReference] : [])]),
     ...(material.visualAssets?.images ?? []),
     ...(material.artSystemReference ? [material.artSystemReference.image] : []),
     ...(material.filmStyleReference?.image ? [material.filmStyleReference.image] : []),
+    ...(material.warehouseImages ?? []),
   ]) {
     if (image.imageUrl && image.availability !== 'missing' && (!image.storyId || image.storyId === material.storyId)) images.set(image.id, image);
   }
   const zh = language.startsWith('zh');
+  const shotCodes = new Map(material.shots.map(shot => [shot.stableShotId, displayShotCode(shot)]));
+  function label(image: ImageAsset) {
+    const ids = image.libraryShotIds ?? (image.shotIdentity ? [image.shotIdentity] : []);
+    const codes = ids.flatMap(id => shotCodes.has(id) ? [shotCodes.get(id)!] : []);
+    const source = codes.length ? (zh ? '镜头 ' : 'Shot ') + codes.join(' / ') : (zh ? '仓库图片' : 'Library image');
+    return source + ' · #' + image.id;
+  }
   return [
     ...shotRenderReferenceOptions(material).filter(option => option.kind),
     ...Array.from(images.values()).sort((a, b) => b.id - a.id).map(image => ({
       key: `image:${image.id}`, imageId: image.id, imageUrl: image.imageUrl, image,
-      label: `${image.canonicalShotNo || (zh ? '仓库图片' : 'Library image')} · #${image.id}`,
+      label: label(image),
     })),
   ];
 }
@@ -78,7 +87,10 @@ export function readImagePrompt(root: Node): string {
     if (node.nodeType === 3) return node.textContent ?? '';
     if (node.nodeType !== 1) return '';
     const element = node as HTMLElement;
-    if (element.hasAttribute('data-ref-key')) return referenceToken(element.getAttribute('data-ref-key')!);
+    if (element.hasAttribute('data-ref-key')) {
+      const token = referenceToken(element.getAttribute('data-ref-key')!);
+      return element.dataset.regionNote ? token + ' ' + element.dataset.regionNote : token;
+    }
     if (element.tagName === 'BR') return '\n';
     const text = children(node);
     return /^(DIV|P)$/.test(element.tagName) ? text + '\n' : text;
