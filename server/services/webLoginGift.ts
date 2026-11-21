@@ -5,7 +5,8 @@ import { COMPUTE_UNITS_PER_YUAN, MINOR_PER_YUAN } from "../../shared/computeMone
 import { ENV } from "../_core/env";
 import { consumePersistentRateLimit, normalizeAccountEmail } from "../repositories/accounts";
 import { listCreditLedgerEntries, type CreditLedgerExecutor } from "../repositories/computeLedger";
-import { openRegisteredAccountInMemory, registrationDatabase } from "../repositories/registrationMemory";
+import { registrationDatabase } from "../repositories/registrationDatabase";
+import { openRegisteredAccountInMemory } from "../repositories/registrationMemory";
 import { getUserById, getUserByOpenId } from "../repositories/users";
 import { grantCredit } from "./computeLedger";
 
@@ -77,7 +78,7 @@ export type OpenRegisteredAccountInput = {
   requestIp?: string | null;
   now?: Date;
   links?: Array<{ provider: "email" | "google" | "phone"; subject: string }>;
-  /** 已验证邮箱命中旧账号时是否认领。平台新注册传 false，只返回冲突、不改旧账。 */
+  /** 平台新注册传 false，已有邮箱或平台身份均返回冲突。 */
   claimExisting?: boolean;
 };
 
@@ -210,14 +211,17 @@ async function openRegisteredAccountOn(
   if (verified?.kind === "reuse") {
     await touchRegisteredUser(tx, verified.userId, input);
     const blocked = await attachLinksOn(tx, verified.userId, input);
-    if (blocked) return { outcome: "conflict", created: false, userId: 0, userIds: [verified.userId, blocked].sort((a, b) => a - b) };
+    if (blocked) throw new RegistrationConflict([verified.userId, blocked].sort((a, b) => a - b));
     return { outcome: "reused", created: false, userId: verified.userId };
   }
   const [existing] = await tx.select().from(users).where(eq(users.openId, input.openId)).for("update").limit(1);
   if (existing) {
+    if (input.claimExisting === false) {
+      return { outcome: "conflict", created: false, userId: 0, userIds: [existing.id] };
+    }
     await touchRegisteredUser(tx, existing.id, input);
     const blocked = await attachLinksOn(tx, existing.id, input);
-    if (blocked) return { outcome: "conflict", created: false, userId: 0, userIds: [existing.id, blocked].sort((a, b) => a - b) };
+    if (blocked) throw new RegistrationConflict([existing.id, blocked].sort((a, b) => a - b));
     return { outcome: "reused", created: false, userId: existing.id };
   }
   const [created] = await tx.insert(users).values({

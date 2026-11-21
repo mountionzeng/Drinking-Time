@@ -1196,7 +1196,7 @@ function ensureUtf8mb4(databaseUrl: string): string {
 }
 
 // Lazily create the drizzle instance so local tooling can run without a DB.
-export async function getDb() {
+export async function getDb({ allowLocalFallback = true } = {}) {
   const databaseUrl = process.env.DATABASE_URL?.trim();
   if (!_db && databaseUrl) {
     try {
@@ -1206,11 +1206,12 @@ export async function getDb() {
         mysqlModeLogged = true;
       }
     } catch (error) {
-      console.warn("[Database] Failed to connect:", error);
+      if (allowLocalFallback) console.warn("[Database] Failed to connect:", error);
+      else console.warn("[Database] Registration storage initialization failed");
       _db = null;
     }
   }
-  if (!_db) {
+  if (!_db && allowLocalFallback) {
     if (!localPersistModeLogged && !databaseUrl) {
       console.log("[Database] 未配置 DATABASE_URL，降级到本地持久化");
       localPersistModeLogged = true;

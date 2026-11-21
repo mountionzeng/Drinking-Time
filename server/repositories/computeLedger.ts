@@ -1,5 +1,5 @@
 /** Persistence operations for computeLedger. Local and MySQL behavior share this boundary. */
-import { eq, and, desc, asc, gt, lte, lt, inArray, or, sql, type SQL } from "drizzle-orm";
+import { eq, and, desc, asc, gt, lte, lt, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
 import { createKeyedSerialLock } from "../utils/keyedSerialLock";
 import {
   creditAccounts,
@@ -1233,6 +1233,32 @@ export async function listProviderAttemptsForOperation(
     .from(providerAttempts)
     .where(eq(providerAttempts.billingOperationId, operation.id))
     .orderBy(providerAttempts.attemptIndex);
+}
+
+/** Commit the first verified late receipt before attempting the wallet transaction. */
+export async function confirmProviderAttemptUsage(
+  attemptId: number,
+  receiptId: string,
+  usage: { kind: "inference_tokens"; yuanPer1kTokens: number; totalTokens: number },
+  costMinor: number
+): Promise<boolean> {
+  const db = await getDb();
+  const patch = { usage, costMinor, status: "succeeded" as const };
+  if (!db) {
+    const attempt = memoryState.providerAttempts.find(row =>
+      row.id === attemptId && row.receiptId === receiptId &&
+      row.status === "submission_unknown" && row.costMinor == null
+    );
+    if (!attempt) return false;
+    Object.assign(attempt, patch, { updatedAt: now() });
+    await persistMemoryState();
+    return true;
+  }
+  const [updated] = await db.update(providerAttempts).set(patch).where(and(
+    eq(providerAttempts.id, attemptId), eq(providerAttempts.receiptId, receiptId),
+    eq(providerAttempts.status, "submission_unknown"), isNull(providerAttempts.costMinor),
+  ));
+  return updated.affectedRows === 1;
 }
 
 /** Bounded keyset scan for media recovery; no business content is loaded. */

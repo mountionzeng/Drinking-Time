@@ -2,7 +2,6 @@ import type { User } from "../../drizzle/schema";
 import { ENV } from "../_core/env";
 import {
   applyDefinedValues,
-  getDb,
   memoryState,
   nextMemoryId,
   now,
@@ -102,6 +101,9 @@ export async function openRegisteredAccountInMemory(
     }
     const existing = memoryState.users.find(user => user.openId === input.openId);
     if (existing) {
+      if (input.claimExisting === false) {
+        return { outcome: "conflict", created: false, userId: 0, userIds: [existing.id] };
+      }
       const patch = { ...input };
       delete patch.requestIp;
       delete patch.now;
@@ -186,6 +188,3 @@ export async function bindWechatIdentityInMemory(userId: number, subject: string
 }
 
 /** 服务层走这里取数据库，避免再直接导入 server/db.ts。 */
-export async function registrationDatabase() {
-  return getDb();
-}

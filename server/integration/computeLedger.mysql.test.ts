@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 
 import mysql from "mysql2/promise";
@@ -5,6 +6,7 @@ import { describe, expect, it } from "vitest";
 
 import { fromYuan } from "../../shared/computeMoney";
 import {
+  createMysqlTestDatabase,
   spawnMysqlTestWorker,
   withMysqlTestDatabase,
   type MysqlTestWorker,
@@ -351,4 +353,56 @@ describeMysql("算力账本在真实 MySQL 上的并发与幂等", () => {
       }
     });
   }, 300_000);
+});
+
+
+describeMysql("durable inference receipt on isolated MySQL", () => {
+  it("preserves missing usage, selects one concurrent receipt, and replays a lost settlement reply once", async () => {
+    const database = await createMysqlTestDatabase();
+    const connection = await mysql.createConnection(database.databaseUrl);
+    try {
+      const source = await readFile("drizzle/migrations/0016_account_gift_credit.sql", "utf8");
+      const tables = new Set(["billing_operations", "credit_accounts", "credit_holds", "credit_ledger_entries", "provider_attempts"]);
+      for (const statement of source.split("--> statement-breakpoint").map(part => part.trim())) {
+        const table = /^CREATE TABLE `([a-z_]+)`/.exec(statement)?.[1];
+        if (table && tables.delete(table)) await connection.query(statement);
+      }
+      expect(tables.size).toBe(0);
+      const userId = 1;
+      const run = (input: unknown) => workerResult<{outcome?:string;status?:string}|null>(startWorker(database.databaseUrl, input));
+      await run({action:"grant",userId,amountMinor:10_000_000,idempotencyKey:"fixture-credit"});
+      const reserve = (operationId: string) => run({action:"reserve",userId,operationId,operationType:"inference.text",requestHash:operationId,maxCostMinor:1_000_000});
+      const operationId = "inference-race";
+      await reserve(operationId);
+      expect(await run({action:"inference-accepted",operationId})).toMatchObject({outcome:"frozen"});
+      expect(await run({action:"inference-reconcile",operationId})).toBeNull();
+      const [pending] = await connection.query("SELECT status, actualCostMinor FROM billing_operations WHERE operationId = ?",[operationId]);
+      expect(pending).toEqual([{status:"submission_unknown",actualCostMinor:null}]);
+      const [holds] = await connection.query("SELECT status, amountMinor FROM credit_holds WHERE operationId = ?",[operationId]);
+      expect(holds).toEqual([{status:"active",amountMinor:1_000_000}]);
+
+      const receipts = raceInputs([100,200].map(totalTokens=>({action:"inference-reconcile",operationId,totalTokens})));
+      const results = await Promise.all(receipts.map(run));
+      const winner = results.findIndex(result=>result?.outcome==="settled");
+      expect(winner).toBeGreaterThanOrEqual(0);
+      expect(results[1-winner]).toBeNull();
+      const winningTokens = [100,200][winner];
+      expect(await run({action:"inference-reconcile",operationId,totalTokens:winningTokens})).toMatchObject({outcome:"already_final",status:"settled"});
+
+      const lost = "inference-lost-ack";
+      await reserve(lost);
+      expect(await run({action:"inference-accepted",operationId:lost})).toMatchObject({outcome:"frozen"});
+      await expect(run({action:"inference-reconcile",operationId:lost,totalTokens:150,loseReply:true})).rejects.toThrow("worker failed (9)");
+      expect(await run({action:"inference-reconcile",operationId:lost})).toMatchObject({outcome:"already_final",status:"settled"});
+
+      const [debits] = await connection.query("SELECT operationId, amountMinor FROM credit_ledger_entries WHERE entryType = 'consumption' ORDER BY operationId");
+      const winningCharge = winningTokens*2000;
+      expect(debits).toEqual([{operationId:lost,amountMinor:-300_000},{operationId,amountMinor:-winningCharge}]);
+      const [balance] = await connection.query("SELECT balanceMinor, reservedMinor, lifetimeSpentMinor FROM credit_accounts WHERE userId = 1");
+      expect(balance).toEqual([{balanceMinor:10_000_000-300_000-winningCharge,reservedMinor:0,lifetimeSpentMinor:300_000+winningCharge}]);
+    } finally {
+      await connection.end();
+      await database.cleanup();
+    }
+  }, 120_000);
 });

@@ -233,6 +233,7 @@ export {
   findActiveCreditHold,
   type RecordProviderAttemptInput,
   recordProviderAttempt,
+  confirmProviderAttemptUsage,
   listProviderAttemptsForOperation,
 } from "./repositories/computeLedger";
 export {

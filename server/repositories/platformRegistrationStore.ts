@@ -1,7 +1,8 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import { accountIdentities, platformRegistrationChallenges } from "../../drizzle/schema";
-import { getDb, transientState, type PlatformRegistrationChallenge } from "./runtime";
+import { transientState, type PlatformRegistrationChallenge } from "./runtime";
+import { registrationDatabase } from "./registrationDatabase";
 
 export const PLATFORM_REGISTRATION_TTL_MS = 10 * 60 * 1000;
 export const PLATFORM_REGISTRATION_COOKIE = "dt_platform_reg";
@@ -82,7 +83,7 @@ function persistentFields(row: PlatformRegistrationChallenge) {
   };
 }
 
-type Database = NonNullable<Awaited<ReturnType<typeof getDb>>>;
+type Database = NonNullable<Awaited<ReturnType<typeof registrationDatabase>>>;
 type Transaction = Parameters<Parameters<Database["transaction"]>[0]>[0];
 
 function accepted(row: PlatformRegistrationChallenge, secret: string, openId: string, now: number) {
@@ -114,7 +115,7 @@ export async function insertPlatformRegistration(input: {
     otpExpiresAt: null,
     otpAttempts: 0,
   });
-  const db = await getDb();
+  const db = await registrationDatabase();
   if (!db) {
     transientState.platformRegistrationChallenges.push(row);
   } else {
@@ -138,7 +139,7 @@ export type PlatformRegistrationView =
   | { status: "pending"; expiresAt: number };
 
 async function readRow(id: string) {
-  const db = await getDb();
+  const db = await registrationDatabase();
   if (!db) return transientState.platformRegistrationChallenges.find(item => item.id === id) ?? null;
   const [row] = await db.select().from(platformRegistrationChallenges).where(eq(platformRegistrationChallenges.id, id)).limit(1);
   return row ? toRow(row) : null;
@@ -158,7 +159,7 @@ export async function viewPlatformRegistration(cookie: string | undefined, now: 
 export async function cancelPlatformRegistration(cookie: string | undefined, now: number) {
   const parsed = parsePlatformRegistrationCookie(cookie);
   if (!parsed) return;
-  const db = await getDb();
+  const db = await registrationDatabase();
   if (!db) {
     const row = transientState.platformRegistrationChallenges.find(item => item.id === parsed.id);
     if (!row || accepted(row, parsed.secret, parsed.openId, now)) return;
@@ -206,7 +207,7 @@ export async function mutatePlatformRegistration<T>(
 ): Promise<{ status: "missing" | "expired" } | { status: "ok"; value: T }> {
   const parsed = parsePlatformRegistrationCookie(cookie);
   if (!parsed) return { status: "missing" };
-  const db = await getDb();
+  const db = await registrationDatabase();
   if (!db) {
     return serial(async () => {
       const row = transientState.platformRegistrationChallenges.find(item => item.id === parsed.id);

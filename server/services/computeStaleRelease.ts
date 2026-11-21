@@ -32,7 +32,12 @@ export function evidenceFromAttempts(op: Op, attempts: Attempt[], assetStored: b
     else if (str(u.providerAudioUrl) || str(u.providerImageUrl) || str(u.providerVideoUrl)) outputUnstored = true;
     if (a.status === "succeeded") {
       if (media) outputUnstored = true; // provider says done but no stored asset found
-      else { storedOutput = true; verifiedCostMinor = Math.max(verifiedCostMinor ?? 0, Number(a.costMinor ?? 0)); }
+      else {
+        storedOutput = true;
+        if (typeof a.costMinor === "number" && Number.isSafeInteger(a.costMinor) && a.costMinor >= 0) {
+          verifiedCostMinor = Math.max(verifiedCostMinor ?? 0, a.costMinor);
+        }
+      }
     }
     if (str(a.providerTaskId) && (a.status === "submitted" || a.status === "task_known")) taskInFlight = true;
   }
@@ -47,6 +52,14 @@ export async function sweepStaleReservations(deps: StaleReleaseDeps, afterId = 0
   const ops = await deps.listOpen(new Date(now.getTime() - INFERENCE_STALE_MS), afterId, limit);
   const results: { operationId: string; decision: StaleDecision }[] = [];
   for (const op of ops) {
+    // Only the signed canary worker can settle this namespace. A generic
+    // stale sweep must not bypass the settlement switch or use the hold as cost.
+    if (op.operationId.startsWith("shiguang-canary:")) {
+      results.push({ operationId: op.operationId, decision: {
+        action: "manual", reason: "拾光灰度原操作保留给已授权结算路径",
+      }});
+      continue;
+    }
     try {
       const [holdActive, attempts, assetStored] = await Promise.all([
         deps.holdActive(op.operationId), deps.attempts(op.operationId), deps.audioAssetStored(op),

@@ -13,6 +13,8 @@ const input = JSON.parse(Buffer.from(process.argv[2], "base64url").toString("utf
   op: "issue" | "complete";
   openId?: string;
   email?: string;
+  channel?: "email" | "phone";
+  phone?: string;
   cookie?: string;
   code?: string;
   now?: number;
@@ -26,6 +28,8 @@ if (startAtMs && startAtMs > Date.now()) {
 }
 
 const now = input.now ?? Date.now();
+const channel = input.channel ?? "email";
+const subject = channel === "phone" ? input.phone : input.email;
 let result: unknown;
 if (input.op === "issue") {
   const started = await beginPlatformRegistration({
@@ -39,8 +43,8 @@ if (input.op === "issue") {
     let code = "";
     const sent = await sendPlatformRegistrationCode({
       cookie: started.cookieValue,
-      channel: "email",
-      subject: input.email,
+      channel,
+      subject,
       requestIp: "203.0.113.40",
       now,
       deliver: async (_channel, _subject, issued) => {
@@ -53,8 +57,8 @@ if (input.op === "issue") {
   try {
     result = await completePlatformRegistration({
       cookie: input.cookie,
-      channel: "email",
-      subject: input.email,
+      channel,
+      subject,
       code: input.code,
       requestIp: "203.0.113.40",
       now,

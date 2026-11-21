@@ -1,5 +1,5 @@
 import { createShiguangBridgeRouter } from "./shiguangBridge";
-import { accountDatabaseReady, allowShiguangBridgeAttempt, completeMinigameEmailLink, getAccountSessionPrincipal, getEmailIdentityHint, resolveWechatAccount } from "../services/accountIdentity";
+import { accountDatabaseReady, allowShiguangBridgeAttempt, completeMinigameEmailLink, findWechatWalletOwner, getAccountSessionPrincipal, getEmailIdentityHint } from "../services/accountIdentity";
 import { requestShiguangLinkEmailOtp } from "../services/minigameEmailOtp";
 import { ENV } from "./env";
 import { listOwnedStorySummariesPage, readOwnedStoryBody } from "../services/publishingPersistence";
@@ -11,7 +11,7 @@ export function shiguangBridgeRoutes() {
     secret,
     ready: accountDatabaseReady,
     allow: allowShiguangBridgeAttempt,
-    resolve: resolveWechatAccount,
+    resolve: findWechatWalletOwner,
     principal: getAccountSessionPrincipal,
     emailHint: getEmailIdentityHint,
     requestOtp: requestShiguangLinkEmailOtp,

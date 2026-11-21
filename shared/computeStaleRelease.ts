@@ -43,6 +43,12 @@ export function decideStaleRelease(input: {
   const age = input.now.getTime() - input.createdAt.getTime();
   if (age < staleThresholdMs(input.operationType)) return { action: "skip", reason: "未超时" };
   const e = input.evidence;
+  if (input.operationType.startsWith("inference.") || input.operationType === "semantic_annotation") {
+    if (e.storedOutput && typeof e.verifiedCostMinor === "number") {
+      return { action: "settle", reason: "stale-release: 文本用量已核验", verifiedCostMinor: e.verifiedCostMinor };
+    }
+    return { action: "manual", reason: "stale-release: 文本供应商结果或用量待核对，保留预占" };
+  }
   if (e.storedOutput) return { action: "settle", reason: "stale-release: 产出已入库，按报价/核验费用结算，不退款", verifiedCostMinor: e.verifiedCostMinor ?? null };
   if (e.taskInFlight) {
     return age < IN_FLIGHT_CAP_MS
@@ -50,5 +56,10 @@ export function decideStaleRelease(input: {
       : { action: "manual", reason: "stale-release: 任务号超过 24 小时仍未结束，保留预占转人工" };
   }
   if (e.outputUnstored) return { action: "manual", reason: "stale-release: 有产出证据但未入库，保留预占转人工" };
+  // A Shiguang reservation can already have reached the provider while this
+  // ledger still sees only "reserved". Its receipt is owned by the cloud worker.
+  if (input.operationType.startsWith("shiguang.")) {
+    return { action: "manual", reason: "stale-release: 拾光供应商结果未确认，保留预占待对账" };
+  }
   return { action: "release", reason: `stale-release: 超过 ${Math.round(staleThresholdMs(input.operationType) / 60_000)} 分钟无产出证据，释放预占` };
 }

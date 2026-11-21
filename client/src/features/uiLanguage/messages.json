@@ -1935,13 +1935,9 @@
     "en": "Unlimited",
     "fr": "Illimité"
   },
-  "本机累计使用": {
-    "en": "Local usage: ",
-    "fr": "Utilisation locale : "
-  },
-  "（仅已接入账本的调用）": {
-    "en": "(tracked requests only)",
-    "fr": "(requêtes comptabilisées uniquement)"
+  "历史已结算毛额 {0}。含已退款原结算，预占与待核对项暂未计入。": {
+    "en": "Lifetime gross settled usage: {0}. Includes original charges later refunded. Holds and items under review are excluded.",
+    "fr": "Total brut réglé depuis l’origine : {0}. Inclut les débits remboursés par la suite. Les réservations et éléments en cours de vérification sont exclus."
   },
   "账目对不上，请联系我们，先别继续生成": {
     "en": "Balance mismatch. Contact us before generating more.",
@@ -2907,9 +2903,9 @@
     "en": "Video clip {0}",
     "fr": "Séquence vidéo {0}"
   },
-  "本机开发不限额，累计使用 {0}": {
-    "en": "Local development, unlimited. Used {0}",
-    "fr": "Développement local, illimité. Utilisé : {0}"
+  "本机开发不限额。历史已结算毛额 {0}。含已退款原结算，预占与待核对项暂未计入。": {
+    "en": "Local development, unlimited. Lifetime gross settled usage: {0}. Includes original charges later refunded. Holds and items under review are excluded.",
+    "fr": "Développement local, illimité. Total brut réglé depuis l’origine : {0}. Inclut les débits remboursés par la suite. Les réservations et éléments en cours de vérification sont exclus."
   },
   "可用余额 {0}": {
     "en": "Available balance {0}",

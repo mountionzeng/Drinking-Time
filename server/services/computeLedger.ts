@@ -18,6 +18,7 @@ import {
   readComputeStatementSnapshot,
   listUserBillingStatementSources as readUserBillingStatementSources,
   recordProviderAttempt,
+  confirmProviderAttemptUsage,
   reserveComputeCredit,
   type CreditAccountSummary,
 } from "../db";
@@ -55,6 +56,8 @@ export function listOperationProviderAttempts(
 ) {
   return listProviderAttemptsForOperation(...args);
 }
+
+export { confirmProviderAttemptUsage };
 /** 账单读模型也必须经由唯一的算力 persistence seam。 */
 export function readAccountComputeStatementSnapshot(
   ...args: Parameters<typeof readComputeStatementSnapshot>
@@ -235,7 +238,7 @@ export async function settleOperation(
   }
 
   if (plan.action === "freeze") {
-    await applyComputeSettlement({
+    const applied = await applyComputeSettlement({
       operationId: input.operationId,
       chargeMinor: 0,
       releaseMinor: 0,
@@ -243,6 +246,8 @@ export async function settleOperation(
       nextHoldStatus: "active",
       reason: plan.reason,
     });
+    if (applied.kind === "missing") return { outcome: "missing" };
+    if (applied.kind === "already_final") return { outcome: "already_final", status: applied.status };
     return { outcome: "frozen", reason: plan.reason };
   }
 
@@ -261,7 +266,7 @@ export async function settleOperation(
           releaseMinor: plan.releaseMinor,
           balanceMinor: applied.balanceMinor,
         }
-      : { outcome: "already_final", status: operation.status };
+      : applied.kind === "missing" ? { outcome: "missing" } : { outcome: "already_final", status: applied.status };
   }
 
   if (plan.action === "exception") {
@@ -281,7 +286,7 @@ export async function settleOperation(
           balanceMinor: applied.balanceMinor,
           reason: plan.reason,
         }
-      : { outcome: "already_final", status: operation.status };
+      : applied.kind === "missing" ? { outcome: "missing" } : { outcome: "already_final", status: applied.status };
   }
 
   const applied = await applyComputeSettlement({
@@ -299,7 +304,7 @@ export async function settleOperation(
         releaseMinor: plan.releaseMinor,
         balanceMinor: applied.balanceMinor,
       }
-    : { outcome: "already_final", status: operation.status };
+    : applied.kind === "missing" ? { outcome: "missing" } : { outcome: "already_final", status: applied.status };
 }
 
 export async function getAccountBalance(

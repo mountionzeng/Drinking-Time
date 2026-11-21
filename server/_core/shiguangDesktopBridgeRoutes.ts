@@ -3,7 +3,7 @@ import {
   accountDatabaseReady,
   allowShiguangDesktopTransferAttempt,
   issuePairingCode,
-  resolveWechatAccount,
+  findWechatWalletOwner,
 } from "../services/accountIdentity";
 import { importShiguangStorySnapshot } from "../services/shiguangStoryImport";
 import { bindShiguangStoryAccess } from "../services/shiguangStoryAccess";
@@ -22,7 +22,7 @@ export function shiguangDesktopBridgeRoutes() {
     claimNonce: claimShiguangBridgeNonce,
     storyAccessReady: isShiguangStoryAuthorityConfigured,
     allow: allowShiguangDesktopTransferAttempt,
-    resolve: resolveWechatAccount,
+    resolve: findWechatWalletOwner,
     importStory: importShiguangStorySnapshot,
     bindStoryAccess: bindShiguangStoryAccess,
     issuePairing: userId => issuePairingCode({ userId }),

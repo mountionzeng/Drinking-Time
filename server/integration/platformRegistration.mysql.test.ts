@@ -54,6 +54,15 @@ describeMysql("platform registration MySQL", () => {
         expect(Number(gifts[0].count)).toBe(1);
         expect(await worker(databaseUrl, { op: "complete", cookie, email: "persist@example.com", code, now: Date.now() })).toMatchObject({ error: "missing" });
 
+        const secondEmail = "second@example.com";
+        const second = await worker(databaseUrl, { op: "issue", openId: "platform:mysql", email: secondEmail });
+        expect(await worker(databaseUrl, { op: "complete", cookie: second.cookie, email: secondEmail, code: second.code }))
+          .toMatchObject({ error: "conflict" });
+        const [secondIdentity] = await db.query<mysql.RowDataPacket[]>(
+          "SELECT COUNT(*) AS count FROM account_identities WHERE subject = ?", [secondEmail],
+        );
+        expect(Number(secondIdentity[0].count)).toBe(0);
+
         const expired = await worker(databaseUrl, { op: "issue", openId: "platform:expired", email: "expired@example.com", now: Date.now() });
         await db.query("UPDATE platform_registration_challenges SET expiresAt = '2000-01-01 00:00:00' WHERE id = ?", [String(expired.cookie).split(".")[0]]);
         expect(await worker(databaseUrl, { op: "complete", cookie: expired.cookie, email: "expired@example.com", code: expired.code, now: Date.now() })).toMatchObject({ error: "expired" });
@@ -86,6 +95,45 @@ describeMysql("platform registration MySQL", () => {
         expect(Number(clashUsers[0].count)).toBe(0);
         expect(Number(ownerGift[0].amountMinor)).toBe(4000000);
         expect(Number(identities[0].count)).toBe(1);
+      } finally {
+        await db.end();
+      }
+    });
+  }, 120_000);
+
+  it("serializes separate challenges for a single platform identity without attaching the losing contact", async () => {
+    await withMysqlTestDatabase(async ({ databaseUrl }) => {
+      const db = await mysql.createConnection(databaseUrl);
+      try {
+        const openId = "platform:two-challenges";
+        const email = "race@example.com";
+        const phone = "13800000001";
+        const emailChallenge = await worker(databaseUrl, { op: "issue", openId, email });
+        const phoneChallenge = await worker(databaseUrl, { op: "issue", openId, channel: "phone", phone });
+        expect(emailChallenge.ok).toBe(true);
+        expect(phoneChallenge.ok).toBe(true);
+
+        const [id, browserSecret] = String(emailChallenge.cookie).split(".");
+        const wrongPlatform = Buffer.from("platform:other").toString("base64url");
+        expect(await worker(databaseUrl, { op: "complete", email, cookie: `${id}.${browserSecret}.${wrongPlatform}`, code: emailChallenge.code }))
+          .toMatchObject({ error: "missing" });
+        expect(await worker(databaseUrl, { op: "complete", email: "different@example.com", cookie: emailChallenge.cookie, code: emailChallenge.code }))
+          .toMatchObject({ error: "invalid" });
+        expect(await worker(databaseUrl, { op: "complete", channel: "phone", phone, cookie: emailChallenge.cookie, code: emailChallenge.code }))
+          .toMatchObject({ error: "invalid" });
+
+        const startAtMs = Date.now() + 800;
+        const results = await Promise.all([
+          worker(databaseUrl, { op: "complete", email, cookie: emailChallenge.cookie, code: emailChallenge.code, startAtMs }),
+          worker(databaseUrl, { op: "complete", channel: "phone", phone, cookie: phoneChallenge.cookie, code: phoneChallenge.code, startAtMs }),
+        ]);
+        expect(results.map(result => result.outcome ?? result.error ?? "exception").sort()).toEqual(["conflict", "created"]);
+        const [rows] = await db.query<mysql.RowDataPacket[]>(
+          "SELECT i.provider, i.subject, l.amountMinor FROM users u JOIN account_identities i ON i.userId = u.id JOIN credit_ledger_entries l ON l.userId = u.id WHERE u.openId = ?",
+          [openId],
+        );
+        const [provider, subject] = results[0].outcome === "created" ? ["email", email] : ["phone", "+8613800000001"];
+        expect(rows).toEqual([{ provider, subject, amountMinor: 2_500_000 }]);
       } finally {
         await db.end();
       }

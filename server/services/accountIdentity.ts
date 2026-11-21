@@ -32,6 +32,7 @@ import {
   upsertUser,
 } from "../db";
 import type { WebLoginTransaction } from "../repositories/webLoginRequests";
+import { registrationDatabase } from "../repositories/registrationDatabase";
 import { bindWechatIdentityInMemory } from "../repositories/registrationMemory";
 import {
   PAIRING_CODE_LENGTH,
@@ -187,7 +188,7 @@ export async function allowMinigameEmailOtpVerify(email: string) {
 }
 
 export const OTP_TTL_MS = 10 * 60_000;
-export async function accountDatabaseReady() { return Boolean(await getDb()); }
+export async function accountDatabaseReady() { return Boolean(await getDb({ allowLocalFallback: false })); }
 /** Server-only caller context; never serialize the full account to game clients. */
 export async function getAccountWorkspaceUser(id: number) {
   if (!await getDb()) return null;
@@ -247,7 +248,7 @@ export function wechatRegistrationGiftInput(userId: number, subject: string) {
 }
 
 /**
- * 登录、绑定和读余额都不能补发。微信赠送只发生在 resolveWechatAccount
+ * 登录、绑定和读余额都不能补发。微信赠送只发生在明确注册
  * 新建用户、身份和账本的同一次提交里。
  */
 export async function ensureWechatRegistrationGift(
@@ -258,29 +259,43 @@ export async function ensureWechatRegistrationGift(
   return { kind: "ineligible" as const };
 }
 
-/** Creates the account and identity in one transaction, then grants 5 compute units. */
-export async function resolveWechatAccount(subject: string): Promise<number> {
-  const db = await getDb();
+type WechatIdentityReader = Pick<WebLoginTransaction, "select">;
+
+async function findWechatIdentity(db: WechatIdentityReader, subject: string) {
+  const [row] = await db.select({ userId: accountIdentities.userId, subject: accountIdentities.subject }).from(accountIdentities)
+    .where(and(eq(accountIdentities.provider, 'wechat'), eq(accountIdentities.subject, subject))).limit(1);
+  if (row && row.subject !== subject) throw new Error('wechat_identity_collision');
+  return row?.userId;
+}
+
+export async function findWechatWalletOwner(subject: string): Promise<number | null> {
+  const db = await getDb({ allowLocalFallback: false });
   if (!db) throw new Error('wechat_database_unavailable');
-  const find = async () => {
-    const [row] = await db.select({ userId: accountIdentities.userId, subject: accountIdentities.subject }).from(accountIdentities)
-      .where(and(eq(accountIdentities.provider, 'wechat'), eq(accountIdentities.subject, subject))).limit(1);
-    // Legacy database collations may be case-insensitive; openid is not.
-    if (row && row.subject !== subject) throw new Error('wechat_identity_collision');
-    return row?.userId;
-  };
+  return (await findWechatIdentity(db, subject)) ?? null;
+}
+
+/** Call only for explicit registration, after the caller has validated authorization. */
+export async function registerWechatAccountOnExecutor(subject: string, tx: WebLoginTransaction): Promise<number> {
+  const existing = await findWechatIdentity(tx, subject);
+  if (existing !== undefined) return existing;
+  const [user] = await tx.insert(users).values({
+    openId: `wx:${randomUUID()}`, loginMethod: 'wechat', role: 'user',
+  }).$returningId();
+  await tx.insert(accountIdentities).values({ userId: user.id, provider: 'wechat', subject, verifiedAt: new Date() });
+  await grantCredit(wechatRegistrationGiftInput(user.id, subject), tx as CreditLedgerExecutor);
+  return user.id;
+}
+
+/** Explicit, independently verified WeChat login used by the mini-game. */
+export async function resolveWechatAccount(subject: string): Promise<number> {
+  const db = await getDb({ allowLocalFallback: false });
+  if (!db) throw new Error('wechat_database_unavailable');
+  const find = () => findWechatIdentity(db, subject);
   const existing = await find();
   // 已有身份直接返回。老账号不补发；新建账号的赠送已经和用户行在同一次提交里。
   if (existing !== undefined) return existing;
   try {
-    return await db.transaction(async tx => {
-      const [user] = await tx.insert(users).values({
-        openId: `wx:${randomUUID()}`, loginMethod: 'wechat', role: 'user',
-      }).$returningId();
-      await tx.insert(accountIdentities).values({ userId: user.id, provider: 'wechat', subject, verifiedAt: new Date() });
-      await grantCredit(wechatRegistrationGiftInput(user.id, subject), tx as CreditLedgerExecutor);
-      return user.id;
-    });
+    return await db.transaction(tx => registerWechatAccountOnExecutor(subject, tx));
   } catch (error) {
     // 唯一约束的赢家已经提交了自己的用户和赠送。输家整笔回滚，不能再给旧账号补发。
     const winner = await find();
@@ -292,7 +307,7 @@ export async function resolveWechatAccount(subject: string): Promise<number> {
 /** Identity uniqueness is the serialization point shared with independent login.
  * Never transfers an identity from another account, even if it appears empty. */
 export async function bindWechatAccount(userId: number, subject: string, transaction?: WebLoginTransaction) {
-  const db = transaction ?? await getDb();
+  const db = transaction ?? await registrationDatabase();
   if (!db) return bindWechatIdentityInMemory(userId, subject);
   const find = async () => {
     const [row] = await db.select({ userId: accountIdentities.userId, subject: accountIdentities.subject }).from(accountIdentities)
@@ -300,14 +315,20 @@ export async function bindWechatAccount(userId: number, subject: string, transac
     if (row && row.subject !== subject) throw new Error('wechat_identity_collision');
     return row;
   };
-  const existing = await find();
-  if (existing) return existing.userId === userId ? 'bound' as const : 'merge_required' as const;
   if (transaction) {
     const [user] = await transaction.select({ id: users.id }).from(users).where(eq(users.id, userId)).for('update');
     if (!user) throw new Error('account_missing');
-    await transaction.insert(accountIdentities).values({ userId, provider: 'wechat', subject, verifiedAt: new Date() });
-    return 'bound' as const;
+    // The unique identity index decides concurrent claims. A duplicate leaves the existing row intact.
+    await transaction.insert(accountIdentities).values({ userId, provider: 'wechat', subject, verifiedAt: new Date() })
+      .onDuplicateKeyUpdate({ set: { id: sql`id` } });
+    const [owner] = await transaction.select({ userId: accountIdentities.userId, subject: accountIdentities.subject })
+      .from(accountIdentities).where(and(eq(accountIdentities.provider, 'wechat'), eq(accountIdentities.subject, subject)))
+      .limit(1).for('update');
+    if (!owner || owner.subject !== subject) throw new Error('wechat_identity_collision');
+    return owner.userId === userId ? 'bound' as const : 'merge_required' as const;
   }
+  const existing = await find();
+  if (existing) return existing.userId === userId ? 'bound' as const : 'merge_required' as const;
   try {
     await db.transaction(async tx => {
       const [user] = await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).for('update');

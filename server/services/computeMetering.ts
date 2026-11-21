@@ -15,14 +15,15 @@ export type MeteredComputeInput<T> = {
   storyId?: number | null;
   quoteExpiresAt?: Date | null;
   run: () => Promise<T>;
-  /** Verified cost in minor units for a successful provider result. */
-  costOf: (value: T) => number;
   /** Only explicitly proven uncharged failures release funds; unknown errors retain the hold. */
   failureOutcome?: (error: unknown) => Extract<
     ProviderOutcome,
     { kind: "not_charged_failure" | "submission_unknown" }
   >;
-};
+} & (
+  | { costOf: (value: T) => number; settleSuccess?: never }
+  | { costOf?: never; settleSuccess: (value: T) => Promise<SettleOperationResult> }
+);
 
 export type MeteredComputeResult<T> =
   | { kind: "completed"; value: T; settlement: SettleOperationResult }
@@ -83,7 +84,7 @@ export async function runMeteredCompute<T>(
     return { kind: "failed", error };
   }
 
-  const settlement = await settleOperation({
+  const settlement = input.settleSuccess ? await input.settleSuccess(value) : await settleOperation({
     operationId: input.operationId,
     outcome: { kind: "succeeded", verifiedCostMinor: input.costOf(value) },
   });

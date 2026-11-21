@@ -10,6 +10,7 @@ vi.mock("../services/computeRequestAccess", async importActual => ({
 import { fromYuan } from "../../shared/computeMoney";
 import { getUserByOpenId, resetMemoryStateForTesting, upsertUser } from "../db";
 import { getAccountBalance, grantCredit } from "../services/computeLedger";
+import * as ledger from "../services/computeLedger";
 import { runMeteredCompute } from "../services/computeMetering";
 import { withComputeUser } from "../services/computeRequestAccess";
 import { ENV } from "./env";
@@ -20,7 +21,7 @@ import {
   type InferenceRequest,
 } from "./inferenceOrchestrator";
 import { refundImagePromptCharges } from "../services/imagePromptRefund";
-import { estimateInferenceMaxCostMinor } from "./inferenceBilling";
+import { estimateInferenceMaxCostMinor, reconcileInferenceUsage } from "./inferenceBilling";
 
 const saved = { ...ENV };
 
@@ -171,15 +172,106 @@ describe("runInference 统一计费", () => {
     expect((await getAccountBalance(userId)).availableMinor).toBe(fromYuan(10));
   });
 
-  it("缺失用量按预占上限结算", async () => {
+  it("缺失用量保留预占，生成结果照常返回", async () => {
     const userId = await fundedUser("missing-usage", 10);
     stubProvider(undefined);
-    await withComputeUser(userId, () => runInference(request));
+    const result = await withComputeUser(userId, () => runInference(request));
+    expect(result.result.choices[0].message.content).toBe("ok");
+    expect(result.billing?.state).toBe("pending_reconciliation");
     const hold = estimateInferenceMaxCostMinor(request, [{
       id: "openai-next", label: "OpenAI Next", model: "gpt-5.6-terra", apiKey: "fake",
       baseUrl: "https://unused.invalid", chatCompletionsUrl: "https://unused.invalid",
     }]);
-    expect((await getAccountBalance(userId)).lifetimeSpentMinor).toBe(hold);
+    expect(await getAccountBalance(userId)).toMatchObject({
+      lifetimeSpentMinor: 0,
+      reservedMinor: hold,
+      balanceMinor: fromYuan(10),
+    });
+    const operationId = result.billing!.operationId;
+    expect(await ledger.listOperationProviderAttempts(operationId)).toMatchObject([
+      { receiptId: "r", status: "submission_unknown", usage: { yuanPer1kTokens: 1, totalTokens: null } },
+    ]);
+    vi.stubEnv("TEXT_PRICE_OPENAI_NEXT_PER_1K_YUAN", "9");
+    const receipt = { receiptId: "r", provider: "openai-next", model: "gpt-5.6-terra", totalTokens: 100 };
+    expect(await reconcileInferenceUsage(operationId, { ...receipt, receiptId: "other" })).toBeNull();
+    const settlements = await Promise.all([
+      reconcileInferenceUsage(operationId, receipt), reconcileInferenceUsage(operationId, receipt),
+    ]);
+    expect(settlements).toContainEqual(expect.objectContaining({ outcome: "settled", chargeMinor: fromYuan(0.1) }));
+    expect(settlements).toContainEqual({ outcome: "already_final", status: "settled" });
+    expect(await getAccountBalance(userId)).toMatchObject({
+      lifetimeSpentMinor: fromYuan(0.1), reservedMinor: 0, balanceMinor: fromYuan(9.9),
+    });
+    expect(await reconcileInferenceUsage(operationId, { ...receipt, totalTokens: 200 })).toBeNull();
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("派发前持久化报价，供应商返回前改变现价也不重新计价", async () => {
+    const userId = await fundedUser("frozen-price", 10);
+    const recorded = vi.spyOn(ledger, "recordOperationProviderAttempt");
+    const fetcher = vi.fn(async () => {
+      expect(recorded).toHaveBeenCalledWith(expect.objectContaining({
+        status: "prepared",
+        usage: { kind: "inference_quote", yuanPer1kTokens: 1 },
+      }));
+      vi.stubEnv("TEXT_PRICE_OPENAI_NEXT_PER_1K_YUAN", "9");
+      return new Response(JSON.stringify({ id: "r", choices: [], usage: { total_tokens: 100 } }));
+    });
+    await withComputeUser(userId, () => runInference({ ...request, fetchImpl: fetcher }));
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect((await getAccountBalance(userId)).lifetimeSpentMinor).toBe(fromYuan(0.1));
+  });
+
+  it("可信零用量结算为零，释放原预占", async () => {
+    const userId = await fundedUser("zero-usage", 10);
+    const fetcher = stubProvider({ total_tokens: 0, prompt_tokens: 0, completion_tokens: 0 });
+    const result = await withComputeUser(userId, () => runInference(request));
+    expect(result.billing?.state).toBe("settled");
+    expect(await getAccountBalance(userId)).toMatchObject({
+      lifetimeSpentMinor: 0, reservedMinor: 0, balanceMinor: fromYuan(10),
+    });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([-1, 0.5, "0", null])("无效 tokens %s 不转成零用量", async tokenCount => {
+    const userId = await fundedUser("invalid-usage", 10);
+    stubProvider({ total_tokens: tokenCount });
+    const result = await withComputeUser(userId, () => runInference(request));
+    expect(result.billing?.state).toBe("pending_reconciliation");
+    const balance = await getAccountBalance(userId);
+    expect(balance.lifetimeSpentMinor).toBe(0);
+    expect(balance.reservedMinor).toBeGreaterThan(0);
+  });
+
+  it("缺可信报价在预占与派发前拒绝", async () => {
+    const userId = await fundedUser("no-price", 10);
+    vi.stubEnv("TEXT_PRICE_OPENAI_NEXT_PER_1K_YUAN", undefined);
+    const fetcher = stubProvider({ total_tokens: 500 });
+    await expect(withComputeUser(userId, () => runInference(request))).rejects.toThrow("尚未配置可信算力报价");
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(await getAccountBalance(userId)).toMatchObject({ reservedMinor: 0, lifetimeSpentMinor: 0 });
+  });
+
+  it.each([false, true])("结算请求异常（已提交=%s）保留业务结果，按持久回执恢复", async committed => {
+    const userId = await fundedUser("lost-settlement", 10);
+    const fetcher = stubProvider({ total_tokens: 100 });
+    const original = ledger.settleOperation;
+    const settle = vi.spyOn(ledger, "settleOperation").mockImplementationOnce(async input => {
+      if (committed) await original(input);
+      throw new Error("settlement response lost");
+    });
+    const result = await withComputeUser(userId, () => runInference(request));
+    expect(result.result.choices[0].message.content).toBe("ok");
+    expect(result.billing?.state).toBe("pending_reconciliation");
+    settle.mockRestore();
+    vi.stubEnv("TEXT_PRICE_OPENAI_NEXT_PER_1K_YUAN", "9");
+    expect(await reconcileInferenceUsage(result.billing!.operationId)).toEqual(expect.objectContaining({
+      outcome: committed ? "already_final" : "settled",
+    }));
+    expect(await getAccountBalance(userId)).toMatchObject({
+      lifetimeSpentMinor: fromYuan(0.1), reservedMinor: 0, balanceMinor: fromYuan(9.9),
+    });
+    expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
   it("明确鉴权拒绝仍可回退，并只结算实际回答方", async () => {

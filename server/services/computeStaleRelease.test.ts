@@ -14,12 +14,15 @@ describe("decideStaleRelease", () => {
   });
   it("thresholds: inference 10 min, media 30 min", () => {
     expect(d({ createdAt: ago(9) }).action).toBe("skip");
-    expect(d({}).action).toBe("release");
+    expect(d({}).action).toBe("manual");
+    expect(d({ status: "reserved", operationType: "semantic_annotation" }).action).toBe("manual");
     expect(d({ operationType: "media.voice", createdAt: ago(29) }).action).toBe("skip");
-    expect(d({ operationType: "shiguang.image", createdAt: ago(31) }).action).toBe("release");
+    expect(d({ operationType: "shiguang.image", createdAt: ago(31) }).action).toBe("manual");
+    expect(d({ operationType: "media.image", createdAt: ago(31) }).action).toBe("release");
   });
   it("never refunds stored output", () => {
-    expect(d({ evidence: { ...none, storedOutput: true, outputUnstored: true } }).action).toBe("settle");
+    expect(d({ evidence: { ...none, storedOutput: true, verifiedCostMinor: 0 } }).action).toBe("settle");
+    expect(d({ evidence: { ...none, storedOutput: true, verifiedCostMinor: null } }).action).toBe("manual");
   });
   it("unstored output goes to manual and keeps the hold", () => {
     expect(d({ evidence: { ...none, outputUnstored: true } }).action).toBe("manual");
@@ -52,9 +55,20 @@ function fakeLedger(ops: { operationId: string; operationType: string; createdAt
 }
 
 describe("sweepStaleReservations", () => {
+  it("never settles or releases the isolated canary namespace, even with stored output", async () => {
+    const { deps, state } = fakeLedger([{ operationId: "shiguang-canary:7:fixture",
+      operationType: "shiguang.storyAudio", createdAt: ago(40), asset: true }]);
+    const pass = await sweepStaleReservations(deps);
+    expect(pass.results[0]?.decision.action).toBe("manual");
+    expect(deps.settleAtQuote).not.toHaveBeenCalled();
+    expect(deps.settleVerified).not.toHaveBeenCalled();
+    expect(deps.release).not.toHaveBeenCalled();
+    expect(state.get("shiguang-canary:7:fixture")?.status).toBe("submission_unknown");
+  });
   it("releases once, settles stored output, keeps unstored and fresh rows", async () => {
     const { deps, state } = fakeLedger([
       { operationId: "lost", operationType: "inference.text", createdAt: ago(20) },
+      { operationId: "legacy-release", operationType: "media.image", createdAt: ago(40) },
       { operationId: "voice-ok", operationType: "media.voice", createdAt: ago(40), attempts: [{ status: "submitted", usage: { audioUrl: "/a.mp3" } }] },
       { operationId: "music-asset", operationType: "audio.scene-generation", createdAt: ago(40), asset: true },
       { operationId: "narr-unstored", operationType: "tts.narration", createdAt: ago(40), attempts: [{ status: "submitted", usage: { providerAudioUrl: "https://x" } }] },
@@ -64,12 +78,13 @@ describe("sweepStaleReservations", () => {
     await sweepStaleReservations(deps);
     await sweepStaleReservations(deps);
     expect(deps.release).toHaveBeenCalledTimes(1);
-    expect(deps.release).toHaveBeenCalledWith("lost", expect.stringContaining("stale-release"));
+    expect(deps.release).toHaveBeenCalledWith("legacy-release", expect.stringContaining("stale-release"));
+    expect(state.get("lost")!.status).toBe("submission_unknown");
     expect(deps.settleAtQuote).toHaveBeenCalledTimes(2);
     expect(state.get("narr-unstored")!.status).toBe("submission_unknown");
     expect(state.get("video-running")!.status).toBe("submission_unknown");
     expect(state.get("fresh")!.status).toBe("submission_unknown");
-    expect((deps.log as ReturnType<typeof vi.fn>).mock.calls.filter(c => c[0] === "[stale-release] manual")).toHaveLength(1);
+    expect((deps.log as ReturnType<typeof vi.fn>).mock.calls.filter(c => c[0] === "[stale-release] manual")).toHaveLength(2);
   });
   it("settles a succeeded inference attempt at its verified cost", async () => {
     const { deps } = fakeLedger([{ operationId: "inf-ok", operationType: "inference.text", createdAt: ago(20), attempts: [{ status: "succeeded", costMinor: 42 }] }]);

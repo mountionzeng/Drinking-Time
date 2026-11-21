@@ -52,12 +52,14 @@ function response(usage?: { total_tokens: number }) {
 }
 
 describe("semantic annotation billing", () => {
-  it("missing usage charges the hold instead of zero", async () => {
+  it("missing usage retains the hold without discarding the annotation", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async () => response());
-    await generateAnnotation(params());
+    expect((await generateAnnotation(params())).status).toBe("active");
     expect(await findBillingOperation("semantic_annotation:10")).toMatchObject({
-      status: "settled", actualCostMinor: 50_000,
+      status: "submission_unknown", actualCostMinor: null,
     });
+    expect((await getAccountBalance(userId)).reservedMinor).toBe(50_000);
+    expect((await getAccountBalance(userId)).lifetimeSpentMinor).toBe(0);
   });
 
   it("cost above the hold reaches the ledger exception path", async () => {
