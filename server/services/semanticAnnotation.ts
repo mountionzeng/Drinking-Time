@@ -5,16 +5,13 @@
  * failures (10-minute cooldown).
  */
 
-import { type Message, type ResponseFormat } from '../_core/llm';
+import type { Message } from '../_core/llm';
 import { ENV } from '../_core/env';
 import { createSemanticAnnotation } from '../db';
 import type { SemanticAnnotation } from '../db';
 import { type EditDiff } from '../_core/editDiff';
-import { inferenceFailureOutcome, runInference, type InferenceOutcome } from '../_core/inferenceOrchestrator';
-import { createHash } from 'node:crypto';
+import { runBilledInference } from '../_core/inferenceOrchestrator';
 import { fromYuan } from '../../shared/computeMoney';
-import { inferenceVerifiedCostMinor } from '../_core/inferenceBilling';
-import { runMeteredCompute } from './computeMetering';
 
 const ANNOTATION_TIMEOUT_MS = 30_000;
 const CIRCUIT_BREAKER_THRESHOLD = 3;
@@ -174,33 +171,6 @@ export interface GenerateAnnotationParams {
   inlineCorrection?: InlineCorrection;
 }
 
-/**
- * 这里原本有一段「Next 就自己 fetch、否则走 invokeLLM」的特判——修好一次
- * 之后又长出了第二套客户端。现在只声明这次推理要什么，供应商选择、参数适配、
- * 失败分类和回退都由 orchestrator 负责。
- */
-async function invokeAnnotationLLM(params: {
-  messages: Message[];
-  responseFormat: ResponseFormat;
-  maxTokens: number;
-  temperature: number;
-  signal: AbortSignal;
-}): Promise<InferenceOutcome> {
-  return runInference({
-    useCase: 'text',
-    messages: params.messages,
-    candidates: { fallback302Model: ENV.llmModel },
-    responseFormat: params.responseFormat,
-    maxTokens: params.maxTokens,
-    temperature: params.temperature,
-    reasoningEffort: 'low',
-    // 标注是纯分析，没有工具调用也没有业务写入，可以安全重发。
-    replaySafe: true,
-    deadlineMs: ANNOTATION_TIMEOUT_MS,
-    signal: params.signal,
-  });
-}
-
 /** 输入有界（diff + 3 条历史 + 1024 输出 token），用保守固定上界预占。 */
 function maxCostMinorPerAnnotation(): number {
   const override = Number(process.env.SEMANTIC_ANNOTATION_MAX_COST_YUAN);
@@ -230,43 +200,28 @@ export async function generateAnnotation(
         content: buildUserPrompt(diff, previousAnnotations, inlineCorrection),
       },
     ];
-    const requestHash = createHash('sha256').update(JSON.stringify(messages)).digest('hex');
-    const maxCostMinor = maxCostMinorPerAnnotation();
-
-    const metered = await runMeteredCompute({
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      controller.abort(new DOMException('Annotation LLM timeout', 'TimeoutError'));
+    }, ANNOTATION_TIMEOUT_MS);
+    const metered = await runBilledInference({
+      useCase: 'text',
+      messages,
+      candidates: { fallback302Model: ENV.llmModel },
+      responseFormat: { type: 'json_object' },
+      maxTokens: 1024,
+      temperature: 0.3,
+      reasoningEffort: 'low',
+      replaySafe: true,
+      deadlineMs: ANNOTATION_TIMEOUT_MS,
+      signal: controller.signal,
+    }, {
       userId,
-      // 一个快照只提交一次；已有操作由恢复/对账处理，不重发供应商请求。
+      // 一个快照只提交一次；已有操作由恢复/对账处理。
       operationId: `semantic_annotation:${snapshotId}`,
       operationType: 'semantic_annotation',
-      requestHash,
-      maxCostMinor,
-      run: () => {
-        const controller = new AbortController();
-        let timer: ReturnType<typeof setTimeout> | undefined;
-        const timeoutPromise = new Promise<never>((_, reject) => {
-          timer = setTimeout(
-            () => {
-              const error = new DOMException('Annotation LLM timeout', 'TimeoutError');
-              controller.abort(error);
-              reject(error);
-            },
-            ANNOTATION_TIMEOUT_MS,
-          );
-        });
-        return Promise.race([
-          invokeAnnotationLLM({
-            messages,
-            responseFormat: { type: 'json_object' },
-            maxTokens: 1024,
-            temperature: 0.3,
-            signal: controller.signal,
-          }),
-          timeoutPromise,
-        ]).finally(() => clearTimeout(timer));
-      },
-      costOf: outcome => inferenceVerifiedCostMinor(outcome, maxCostMinor),
-      failureOutcome: inferenceFailureOutcome,
-    });
+      maxCostMinor: maxCostMinorPerAnnotation(),
+    }).finally(() => clearTimeout(timer));
 
     if (metered.kind === 'insufficient_balance' || metered.kind === 'rejected' || metered.kind === 'replayed') {
       // 余额不足或已有操作均非供应商故障；保存照常成功，不计入熔断。

@@ -5,14 +5,15 @@ import { ENV } from "../_core/env";
 import {
   consumeConfirmedWebLogin,
   decideWebLogin,
-  decideWebLoginWithBinding,
+  confirmWebLoginWithAccount,
   findOpenWebLoginByCode,
   findWebLoginByLookup,
   insertWebLoginRequest,
   markWebLoginScanned,
 } from "../repositories/webLoginRequests";
+import { registrationDatabase } from "../repositories/registrationDatabase";
 import { consumePersistentRateLimit } from "../repositories/accounts";
-import { bindWechatAccount, resolveWechatAccount } from "./accountIdentity";
+import { bindWechatAccount, registerWechatAccountOnExecutor } from "./accountIdentity";
 import {
   generatePairingCode,
   normalizePairingCode,
@@ -74,6 +75,7 @@ export async function createWebLoginRequest(input: {
   now?: Date;
 }): Promise<CreateWebLoginResult> {
   if (!secret().trim()) return { outcome: "not_configured" };
+  if (ENV.isProduction) await registrationDatabase();
   const now = input.now ?? new Date();
   const limit = await consumePersistentRateLimit({
     scope: "weblogin:create", subject: input.requestIp || "unknown", ...WEB_LOGIN_LIMITS.create, now,
@@ -115,6 +117,7 @@ export async function pollWebLoginRequest(input: {
 }): Promise<PollWebLoginResult> {
   if (!secret().trim()) return { status: "not_configured" };
   if (!TOKEN_PATTERN.test(input.l) || !TOKEN_PATTERN.test(input.v)) return { status: "expired" };
+  if (ENV.isProduction) await registrationDatabase();
   const now = input.now ?? new Date();
   const lookupHash = digest("lookup", input.l);
   const limit = await consumePersistentRateLimit({
@@ -143,6 +146,9 @@ export type ConfirmWebLoginResult =
   | { outcome: "rate_limited" }
   | { outcome: "not_configured" };
 
+/** 小程序云上下文的钱包身份。网页 OAuth 的 appId:openid 明文不能当作同一个 subject。 */
+const SHIGUANG_WALLET_SUBJECT = /^shiguang:[0-9a-f]{64}$/;
+
 /** subject 来自验过签的桥接请求，由云函数从 OPENID 计算，这里不接受客户端传入的身份。 */
 export async function confirmWebLoginBySubject(input: {
   subject: string;
@@ -152,6 +158,8 @@ export async function confirmWebLoginBySubject(input: {
   now?: Date;
 }): Promise<ConfirmWebLoginResult> {
   if (!secret().trim()) return { outcome: "not_configured" };
+  if (!SHIGUANG_WALLET_SUBJECT.test(input.subject)) return { outcome: "invalid" };
+  if (ENV.isProduction) await registrationDatabase();
   const now = input.now ?? new Date();
   for (const [scope, subject, limit] of [
     ["weblogin:confirm:minute", input.subject, WEB_LOGIN_LIMITS.confirmMinute],
@@ -175,24 +183,27 @@ export async function confirmWebLoginBySubject(input: {
     return (await decideWebLogin({ id: row.id, status: "denied", userId: null, now })) ? { outcome: "denied" } : { outcome: "invalid" };
   }
 
-  if (row.mode === "bind") {
-    if (!row.bindUserId) return { outcome: "invalid" };
-    const outcome = await decideWebLoginWithBinding({
-      id: row.id,
-      now,
-      bind: (userId, tx) => bindWechatAccount(userId, input.subject, tx),
-    });
-    return { outcome };
-  }
-  const userId = await resolveWechatAccount(input.subject);
+  const decision = await confirmWebLoginWithAccount({
+    id: row.id,
+    now: () => input.now ?? new Date(),
+    async resolve(locked, tx) {
+      if (locked.mode === "login") {
+        return { outcome: "confirmed", userId: await registerWechatAccountOnExecutor(input.subject, tx) };
+      }
+      const userId = locked.bindUserId!;
+      return await bindWechatAccount(userId, input.subject, tx) === "bound"
+        ? { outcome: "confirmed", userId } : { outcome: "merge_required" };
+    },
+  });
+  if (decision.outcome !== "confirmed" || decision.mode !== "login") return { outcome: decision.outcome };
   const name = input.displayName?.trim();
   if (name && Array.from(name).length <= 8) {
     // Only the signed cloud bridge supplies this profile. Never rename a linked
     // email account, and do not make optional profile sync block authentication.
     try {
-      const user = await getUserById(userId);
+      const user = await getUserById(decision.userId);
       if (user?.loginMethod === "wechat") await upsertUser({ openId: user.openId, name });
     } catch { console.warn("[web-login] profile sync unavailable"); }
   }
-  return (await decideWebLogin({ id: row.id, status: "confirmed", userId, now })) ? { outcome: "confirmed" } : { outcome: "invalid" };
+  return { outcome: "confirmed" };
 }

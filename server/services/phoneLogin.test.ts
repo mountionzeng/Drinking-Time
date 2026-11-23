@@ -77,7 +77,7 @@ describe("phone OTP login", () => {
     vi.stubEnv("PHONE_OTP_DIGEST_SECRET", "short");
     expect(phoneSmsConfigured()).toBe(false);
   });
-  it("creates only after proof, returns the same identity on later login, never grants or merges", async () => {
+  it("creates only after proof, grants the registration gift once, and does not merge", async () => {
     await upsertUser({
       openId: "email:existing@example.com",
       email: "existing@example.com",
@@ -98,7 +98,10 @@ describe("phone OTP login", () => {
     });
     expect((await getUserById(id))!.openId.length).toBeLessThanOrEqual(64);
     expect(memoryState.users).toHaveLength(2);
-    expect(memoryState.creditLedgerEntries).toHaveLength(0);
+    expect(memoryState.creditLedgerEntries).toEqual([
+      expect.objectContaining({ userId: id, amountMinor: 2_500_000, entryType: "gift" }),
+    ]);
+    expect(memoryState.creditAccounts.find(account => account.userId !== id)).toBeUndefined();
     expect(memoryState.stories).toHaveLength(0);
     await expect(verifyPhoneLoginCode(phone, code, "ip")).rejects.toMatchObject(
       { code: "invalid_or_expired" }
@@ -108,6 +111,7 @@ describe("phone OTP login", () => {
     await requestPhoneLoginCode(phone, "ip");
     expect(await verifyPhoneLoginCode(phone, codeSent(), "ip")).toBe(id);
     expect(memoryState.users).toHaveLength(2);
+    expect(memoryState.creditLedgerEntries).toHaveLength(1);
   });
   it("only consumes a code once under parallel verification", async () => {
     await requestPhoneLoginCode(phone, "ip");

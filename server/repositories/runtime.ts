@@ -87,11 +87,29 @@ import {
   createEmptyPersonalMemoryLocalState,
   normalizePersonalMemoryLocalState,
 } from "../../shared/personalMemory";
+export type PlatformRegistrationChallenge = {
+  id: string;
+  browserHash: string;
+  openIdHash: string;
+  name: string | null;
+  loginMethod: string | null;
+  expiresAt: number;
+  consumedAt: number | null;
+  otp: {
+    channel: "email" | "phone";
+    subjectHash: string;
+    codeHash: string;
+    expiresAt: number;
+    attempts: number;
+  } | null;
+};
+
 export const transientState = {
   memoryVideoTakeSubmissionClaimQueue: Promise.resolve() as Promise<void>,
   memoryInviteClaimQueue: Promise.resolve() as Promise<void>,
   memoryEmailOtps: [] as EmailOtp[],
   nextMemoryEmailOtpId: 1,
+  platformRegistrationChallenges: [] as PlatformRegistrationChallenge[],
 };
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -1178,7 +1196,7 @@ function ensureUtf8mb4(databaseUrl: string): string {
 }
 
 // Lazily create the drizzle instance so local tooling can run without a DB.
-export async function getDb() {
+export async function getDb({ allowLocalFallback = true } = {}) {
   const databaseUrl = process.env.DATABASE_URL?.trim();
   if (!_db && databaseUrl) {
     try {
@@ -1188,11 +1206,12 @@ export async function getDb() {
         mysqlModeLogged = true;
       }
     } catch (error) {
-      console.warn("[Database] Failed to connect:", error);
+      if (allowLocalFallback) console.warn("[Database] Failed to connect:", error);
+      else console.warn("[Database] Registration storage initialization failed");
       _db = null;
     }
   }
-  if (!_db) {
+  if (!_db && allowLocalFallback) {
     if (!localPersistModeLogged && !databaseUrl) {
       console.log("[Database] 未配置 DATABASE_URL，降级到本地持久化");
       localPersistModeLogged = true;
@@ -1314,6 +1333,7 @@ export function resetMemoryStateForTesting(): void {
   transientState.memoryInviteClaimQueue = Promise.resolve();
   transientState.memoryEmailOtps = [];
   transientState.nextMemoryEmailOtpId = 1;
+  transientState.platformRegistrationChallenges = [];
   // Mark as loaded so subsequent calls don't reload stale data from disk.
   memoryLoaded = true;
   memoryLoadPromise = null;

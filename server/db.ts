@@ -219,6 +219,7 @@ export {
   applyComputeSettlement,
   type AppendCreditEntryInput,
   type AppendCreditEntryResult,
+  type CreditLedgerExecutor,
   appendCreditLedgerEntry,
   listCreditLedgerEntries,
   findBillingOperation,
@@ -232,6 +233,7 @@ export {
   findActiveCreditHold,
   type RecordProviderAttemptInput,
   recordProviderAttempt,
+  confirmProviderAttemptUsage,
   listProviderAttemptsForOperation,
 } from "./repositories/computeLedger";
 export {

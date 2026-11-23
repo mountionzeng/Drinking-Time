@@ -1,5 +1,5 @@
 /** Persistence operations for computeLedger. Local and MySQL behavior share this boundary. */
-import { eq, and, desc, asc, gt, lte, lt, inArray, or, sql, type SQL } from "drizzle-orm";
+import { eq, and, desc, asc, gt, lte, lt, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
 import { createKeyedSerialLock } from "../utils/keyedSerialLock";
 import {
   creditAccounts,
@@ -466,6 +466,10 @@ export type AppendCreditEntryResult =
   /** 同一幂等键已经写过：重复赠送/重复迁移在这里被挡下 */
   | { kind: "duplicate" };
 
+type Database = NonNullable<Awaited<ReturnType<typeof getDb>>>;
+/** 调用方的数据库事务。新建账号要把赠送和用户行放进同一次提交。 */
+export type CreditLedgerExecutor = Parameters<Parameters<Database["transaction"]>[0]>[0];
+
 /**
  * 往账本追加一条记录（赠送、人工调整、退款），并同步余额投影。
  *
@@ -473,7 +477,8 @@ export type AppendCreditEntryResult =
  * `idempotencyKey` 的唯一约束收敛为零新增。
  */
 export async function appendCreditLedgerEntry(
-  input: AppendCreditEntryInput
+  input: AppendCreditEntryInput,
+  executor?: CreditLedgerExecutor,
 ): Promise<AppendCreditEntryResult> {
   if ((input.entryType as string) === "purchase") {
     throw new Error("充值必须通过订单结算入账");
@@ -489,6 +494,7 @@ export async function appendCreditLedgerEntry(
     ...(input.oncePerAccountPrefixes ?? []),
     ...(input.oncePerAccountPrefix ? [input.oncePerAccountPrefix] : []),
   ];
+  if (executor) return writeCreditLedgerEntry(executor, input, giftPrefixes);
   const db = await getDb();
   if (!db) {
     return memoryCreditAccountLock.run(input.userId, async () => {
@@ -527,57 +533,64 @@ export async function appendCreditLedgerEntry(
     });
   }
 
-  return db.transaction(async tx => {
-    await tx
-      .insert(creditAccounts)
-      .values({ userId: input.userId })
-      .onDuplicateKeyUpdate({ set: { userId: input.userId } });
-    const [account] = await tx
-      .select()
-      .from(creditAccounts)
-      .where(eq(creditAccounts.userId, input.userId))
-      .for("update")
-      .limit(1);
+  return db.transaction(tx => writeCreditLedgerEntry(tx, input, giftPrefixes));
+}
 
-    const [duplicate] = await tx
-      .select({ id: creditLedgerEntries.id })
+/** 账本行锁、幂等键和账号级赠送前缀在同一次提交里决定。 */
+async function writeCreditLedgerEntry(
+  tx: CreditLedgerExecutor,
+  input: AppendCreditEntryInput,
+  giftPrefixes: string[],
+): Promise<AppendCreditEntryResult> {
+  await tx
+    .insert(creditAccounts)
+    .values({ userId: input.userId })
+    .onDuplicateKeyUpdate({ set: { userId: input.userId } });
+  const [account] = await tx
+    .select()
+    .from(creditAccounts)
+    .where(eq(creditAccounts.userId, input.userId))
+    .for("update")
+    .limit(1);
+
+  const [duplicate] = await tx
+    .select({ id: creditLedgerEntries.id })
+    .from(creditLedgerEntries)
+    .where(eq(creditLedgerEntries.idempotencyKey, input.idempotencyKey))
+    .limit(1);
+  if (duplicate) return { kind: "duplicate" as const };
+
+  if (giftPrefixes.length) {
+    const [accountGift] = await tx.select({ id: creditLedgerEntries.id })
       .from(creditLedgerEntries)
-      .where(eq(creditLedgerEntries.idempotencyKey, input.idempotencyKey))
+      .where(and(eq(creditLedgerEntries.userId, input.userId),
+        or(...giftPrefixes.map(prefix => sql`LEFT(${creditLedgerEntries.idempotencyKey}, ${prefix.length}) = ${prefix}`))))
       .limit(1);
-    if (duplicate) return { kind: "duplicate" as const };
+    if (accountGift) return { kind: "duplicate" as const };
+  }
 
-    if (giftPrefixes.length) {
-      const [accountGift] = await tx.select({ id: creditLedgerEntries.id })
-        .from(creditLedgerEntries)
-        .where(and(eq(creditLedgerEntries.userId, input.userId),
-          or(...giftPrefixes.map(prefix => sql`LEFT(${creditLedgerEntries.idempotencyKey}, ${prefix.length}) = ${prefix}`))))
-        .limit(1);
-      if (accountGift) return { kind: "duplicate" as const };
-    }
-
-    await tx.insert(creditLedgerEntries).values({
-      userId: input.userId,
-      entryType: input.entryType,
-      amountMinor: input.amountMinor,
-      idempotencyKey: input.idempotencyKey,
-      giftCardId: input.giftCardId ?? null,
-      actorUserId: input.actorUserId ?? null,
-      reason: input.reason ?? null,
-    });
-
-    const nextBalance = Number(account?.balanceMinor ?? 0) + input.amountMinor;
-    await tx
-      .update(creditAccounts)
-      .set({
-        balanceMinor: nextBalance,
-        ...(input.enableAccess && !account?.accessEnabledAt
-          ? { accessEnabledAt: new Date() }
-          : {}),
-      })
-      .where(eq(creditAccounts.userId, input.userId));
-
-    return { kind: "appended" as const, balanceMinor: nextBalance };
+  await tx.insert(creditLedgerEntries).values({
+    userId: input.userId,
+    entryType: input.entryType,
+    amountMinor: input.amountMinor,
+    idempotencyKey: input.idempotencyKey,
+    giftCardId: input.giftCardId ?? null,
+    actorUserId: input.actorUserId ?? null,
+    reason: input.reason ?? null,
   });
+
+  const nextBalance = Number(account?.balanceMinor ?? 0) + input.amountMinor;
+  await tx
+    .update(creditAccounts)
+    .set({
+      balanceMinor: nextBalance,
+      ...(input.enableAccess && !account?.accessEnabledAt
+        ? { accessEnabledAt: new Date() }
+        : {}),
+    })
+    .where(eq(creditAccounts.userId, input.userId));
+
+  return { kind: "appended" as const, balanceMinor: nextBalance };
 }
 
 export async function listCreditLedgerEntries(
@@ -1220,6 +1233,32 @@ export async function listProviderAttemptsForOperation(
     .from(providerAttempts)
     .where(eq(providerAttempts.billingOperationId, operation.id))
     .orderBy(providerAttempts.attemptIndex);
+}
+
+/** Commit the first verified late receipt before attempting the wallet transaction. */
+export async function confirmProviderAttemptUsage(
+  attemptId: number,
+  receiptId: string,
+  usage: { kind: "inference_tokens"; yuanPer1kTokens: number; totalTokens: number },
+  costMinor: number
+): Promise<boolean> {
+  const db = await getDb();
+  const patch = { usage, costMinor, status: "succeeded" as const };
+  if (!db) {
+    const attempt = memoryState.providerAttempts.find(row =>
+      row.id === attemptId && row.receiptId === receiptId &&
+      row.status === "submission_unknown" && row.costMinor == null
+    );
+    if (!attempt) return false;
+    Object.assign(attempt, patch, { updatedAt: now() });
+    await persistMemoryState();
+    return true;
+  }
+  const [updated] = await db.update(providerAttempts).set(patch).where(and(
+    eq(providerAttempts.id, attemptId), eq(providerAttempts.receiptId, receiptId),
+    eq(providerAttempts.status, "submission_unknown"), isNull(providerAttempts.costMinor),
+  ));
+  return updated.affectedRows === 1;
 }
 
 /** Bounded keyset scan for media recovery; no business content is loaded. */

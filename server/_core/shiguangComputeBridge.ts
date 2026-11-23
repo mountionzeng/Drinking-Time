@@ -11,17 +11,25 @@ type Dependencies = {
   secret: string;
   ready: () => Promise<boolean>;
   claimNonce: (timestamp: string, nonce: string, now: number) => Promise<boolean>;
-  resolve: (subject: string) => Promise<number>;
+  resolve: (subject: string) => Promise<number | null>;
   allow: (subject: string) => Promise<boolean>;
+  canary?: {
+    acceptsNew: () => boolean;
+    acceptsSettlement: () => boolean;
+    admits: (subject: string, userId: number) => boolean;
+  };
 };
 const identity = z.object({ subject: z.string().regex(/^shiguang:[0-9a-f]{64}$/) }).strict();
 const operation = identity.extend({
   operationId: z.string().min(1).max(160),
 });
 const reserve = operation.extend({
-  operationType: z.enum(["chatInterview", "organizeMemory", "generateBiography", "storyImages", "storyAudio"]),
+  operationType: z.enum(["chatInterview", "organizeMemory", "generateBiography", "personalMemory", "storyImages", "storyAudio"]),
   requestHash: z.string().regex(/^[0-9a-f]{64}$/),
   maxCostMinor: z.number().int().positive().max(1_000_000_000),
+});
+const operationLookup = operation.pick({ subject: true, operationId: true }).extend({
+  requestHash: reserve.shape.requestHash,
 });
 const settle = operation.extend({
   outcome: z.discriminatedUnion("kind", [
@@ -113,8 +121,10 @@ function operationKey(userId: number, id: string) {
  */
 export function createShiguangComputeBridgeRouter(deps: Dependencies) {
   const router = Router();
-  router.use("/compute", json({ limit: "8kb" }));
-  router.post("/compute/:action", async (req, res) => {
+  const canary = deps.canary;
+  const path = canary ? "/compute-canary" : "/compute";
+  router.use(path, json({ limit: "8kb" }));
+  router.post(path + "/:action", async (req, res) => {
     res.setHeader("Cache-Control", "no-store");
     try {
       if (!deps.enabled || deps.secret.length < 32 || !await deps.ready())
@@ -126,12 +136,35 @@ export function createShiguangComputeBridgeRouter(deps: Dependencies) {
         return res.status(401).json({ error: "replayed_request" });
       const schema = req.params.action === "balance" ? identity
         : req.params.action === "statement" ? statementQuery
-        : req.params.action === "reserve" ? reserve : req.params.action === "settle" ? settle : null;
+        : req.params.action === "reserve" ? reserve : req.params.action === "settle" ? settle
+        : req.params.action === "operation" ? operationLookup : null;
       if (!schema) return res.status(404).json({ error: "unknown_action" });
       const parsed = schema.safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ error: "invalid_input" });
       if (!await deps.allow(parsed.data.subject)) return res.status(429).json({ error: "rate_limited" });
       const userId = await deps.resolve(parsed.data.subject);
+      const action = req.params.action;
+      // An admitted reservation is the durable evidence for recovery. The
+      // allowlist and the admission switch are only for new work and wallet reads.
+      if (canary && action !== "operation" && action !== "settle" &&
+          (userId == null || !canary.admits(parsed.data.subject, userId) ||
+            (action === "reserve" && (!canary.acceptsNew() || !canary.acceptsSettlement() || reserve.parse(parsed.data).operationType !== "storyAudio")))) {
+        return res.status(403).json({ error: "canary_not_admitted" });
+      }
+      if (userId == null) {
+        if (req.params.action === "balance") {
+          return res.json({ version: 1, unit: "compute", status: "registration_required" });
+        }
+        if (req.params.action === "statement") {
+          return res.json({ version: 1, available: false, reason: "registration_required" });
+        }
+        if (req.params.action === "reserve") return res.json({ outcome: "registration_required" });
+        return res.status(404).json({ error: "operation_not_found" });
+      }
+      const ledgerKey = (id: string) => canary
+        ? "shiguang-canary:" + userId + ":" + createHash("sha256")
+          .update(JSON.stringify([parsed.data.subject, id])).digest("hex")
+        : operationKey(userId, id);
       if (req.params.action === "statement") {
         const data = statementQuery.parse(parsed.data);
         const cursor = data.cursor === undefined ? null : decodeStatementCursor(data.cursor);
@@ -145,19 +178,33 @@ export function createShiguangComputeBridgeRouter(deps: Dependencies) {
       if (req.params.action === "reserve") {
         const data = reserve.parse(parsed.data);
         const result = await reserveForOperation({
-          ...data, userId, operationId: operationKey(userId, data.operationId),
+          ...data, userId, operationId: ledgerKey(data.operationId),
           operationType: "shiguang." + data.operationType,
         });
         // No currency amounts are part of the mobile public protocol.
         return res.json({ outcome: result.outcome, ...("status" in result ? { status: result.status } : {}) });
       }
       if (req.params.action === "settle") {
+        if (canary && !canary.acceptsSettlement()) return res.status(403).json({ error: "canary_settlement_paused" });
         const data = settle.parse(parsed.data);
-        const key = operationKey(userId, data.operationId);
+        const key = ledgerKey(data.operationId);
         const existing = await findBillingOperation(key);
-        if (!existing || existing.userId !== userId) return res.status(404).json({ error: "operation_not_found" });
+        if (!existing || existing.userId !== userId || (canary && existing.operationType !== "shiguang.storyAudio"))
+          return res.status(404).json({ error: "operation_not_found" });
         const result = await settleOperation({ operationId: key, outcome: data.outcome });
-        return res.json({ outcome: result.outcome });
+        const final = await findBillingOperation(key);
+        if (!final) return res.status(404).json({ error: "operation_not_found" });
+        return res.json({ outcome: result.outcome, status: final.status, actualCostMinor: final.actualCostMinor });
+      }
+      if (req.params.action === "operation") {
+        const data = operationLookup.parse(parsed.data);
+        const existing = await findBillingOperation(ledgerKey(data.operationId));
+        if (!existing || existing.userId !== userId || existing.operationType !== "shiguang.storyAudio" ||
+            existing.requestHash !== data.requestHash) return res.status(404).json({ error: "operation_not_found" });
+        // Signed workers only. For a fixed-price TTS segment this is the original quote.
+        return res.json({
+          status: existing.status, maxCostMinor: existing.maxCostMinor, actualCostMinor: existing.actualCostMinor,
+        });
       }
       const balance = await getAccountBalance(userId);
       const amounts = [balance.availableMinor, balance.reservedMinor, balance.lifetimeSpentMinor]

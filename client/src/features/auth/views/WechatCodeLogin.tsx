@@ -12,6 +12,11 @@ export type Created = { l: string; v: string; qrDataUrl: string; expiresAt: numb
 
 const POLL_INTERVAL_MS = 1500;
 
+/** 登录页只发起登录挑战，不带 mode:bind，也不接收客户端指定的 userId。 */
+export function webWechatLoginCreateBody() {
+  return { presentation: "qr" as const };
+}
+
 export function isPhoneBrowser(userAgent: string): boolean {
   return /iPhone|iPad|iPod|Android|Mobile/i.test(userAgent);
 }
@@ -50,7 +55,7 @@ export default function WechatCodeLogin({ onLoggedIn }: { onLoggedIn: () => void
       const res = await fetch("/api/auth/wechat-scan/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ presentation: "qr" }),
+        body: JSON.stringify(webWechatLoginCreateBody()),
       });
       if (!current()) return;
       if (res.status === 404) {

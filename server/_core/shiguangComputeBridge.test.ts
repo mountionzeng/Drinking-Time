@@ -1,11 +1,13 @@
 import express from "express";
 import { createServer } from "node:http";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createShiguangComputeBridgeRouter } from "./shiguangComputeBridge";
+import { shiguangComputeBridgeRoutes } from "./shiguangComputeBridgeRoutes";
 import { bridgeSignature } from "./shiguangBridgeSignature";
 import { resetMemoryStateForTesting, upsertUser, getUserByOpenId } from "../db";
-import { ensureWechatRegistrationGift } from "../services/accountIdentity";
-import { getAccountBalance } from "../services/computeLedger";
+import { wechatRegistrationGiftInput } from "../services/accountIdentity";
+import { getAccountBalance, grantCredit } from "../services/computeLedger";
+import { decideStaleRelease } from "../../shared/computeStaleRelease";
 import * as runtime from "../repositories/runtime";
 
 const secret = "test-compute-bridge-secret-at-least-32";
@@ -14,26 +16,33 @@ const otherSubject = `shiguang:${"b".repeat(64)}`;
 const servers: ReturnType<typeof createServer>[] = [];
 beforeEach(() => resetMemoryStateForTesting());
 afterEach(async () => {
+  vi.unstubAllEnvs();
   await Promise.all(servers.splice(0).map(server => new Promise<void>(resolve => server.close(() => resolve()))));
 });
 
-async function fixture(options?: { enabled?: boolean }) {
+async function fixture(options?: {
+  enabled?: boolean;
+  canary?: { acceptsNew: () => boolean; acceptsSettlement: () => boolean; admits: (subject: string, userId: number) => boolean };
+  remap?: (subject: string, users: Map<string, number>) => number | undefined;
+  configuredRoutes?: boolean;
+}) {
   const users = new Map<string, number>();
   for (const s of [subject, otherSubject]) {
     await upsertUser({ openId: s, loginMethod: "wechat" });
     const user = (await getUserByOpenId(s))!;
     users.set(s, user.id);
-    await ensureWechatRegistrationGift(user.id, s);
+    await grantCredit(wechatRegistrationGiftInput(user.id, s));
   }
   const nonces = new Set<string>();
   const app = express();
-  app.use("/api/shiguang", createShiguangComputeBridgeRouter({
-    enabled: options?.enabled ?? true, secret, ready: async () => true,
+  app.use("/api/shiguang", options?.configuredRoutes ? shiguangComputeBridgeRoutes() : createShiguangComputeBridgeRouter({
+    enabled: options?.enabled ?? true, secret, ready: async () => true, canary: options?.canary,
     claimNonce: async (_timestamp, nonce) => {
       if (nonces.has(nonce)) return false;
       nonces.add(nonce); return true;
     },
-    resolve: async s => users.get(s)!, allow: async () => true,
+    resolve: async s => options?.remap ? options.remap(s, users) ?? null : users.get(s) ?? null,
+    allow: async () => true,
   }));
   const server = createServer(app); servers.push(server);
   await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
@@ -41,7 +50,8 @@ async function fixture(options?: { enabled?: boolean }) {
   if (!address || typeof address === "string") throw new Error("no address");
   let sequence = 0;
   const post = async (action: string, body: object, nonce = `compute_nonce_${++sequence}`.padEnd(20, "_"), key = secret) => {
-    const path = `/compute/${action}`, timestamp = String(Date.now());
+    const route = options?.canary || options?.configuredRoutes ? "/compute-canary" : "/compute";
+    const path = `${route}/${action}`, timestamp = String(Date.now());
     const response = await fetch(`http://127.0.0.1:${address.port}/api/shiguang${path}`, {
       method: "POST", headers: {
         "content-type": "application/json", "x-shiguang-timestamp": timestamp,
@@ -58,7 +68,98 @@ async function fixture(options?: { enabled?: boolean }) {
   return { post, userId: users.get(subject)!, otherUserId: users.get(otherSubject)! };
 }
 
+describe("shared compute canary bridge", () => {
+  const input = { subject, operationId: "canary-audio", operationType: "storyAudio",
+    requestHash: "d".repeat(64), maxCostMinor: 100_000 };
+
+  it("keeps the configured route closed without explicit enablement and a separate key", async () => {
+    vi.stubEnv("SHIGUANG_COMPUTE_CANARY_ENABLED", "");
+    vi.stubEnv("SHIGUANG_COMPUTE_CANARY_SIGNING_KEY", secret);
+    vi.stubEnv("SHIGUANG_COMPUTE_CANARY_ACCEPT_NEW", "true");
+    expect((await (await fixture({ configuredRoutes: true })).post("reserve", input)).status).toBe(503);
+    vi.stubEnv("SHIGUANG_COMPUTE_CANARY_ENABLED", "true");
+    vi.stubEnv("SHIGUANG_BRIDGE_SECRET", secret);
+    expect((await (await fixture({ configuredRoutes: true })).post("reserve", input)).status).toBe(503);
+    expect(runtime.memoryState.billingOperations).toHaveLength(0);
+  });
+
+  it("requires signed admission and never grants access from caller-provided identity fields", async () => {
+    let admittedUser: number | undefined;
+    const f = await fixture({ canary: { acceptsSettlement: () => true, acceptsNew: () => true, admits: (s, id) => s === subject && id === admittedUser } });
+    admittedUser = f.userId;
+    expect((await f.post("reserve", input, undefined, "wrong")).status).toBe(401);
+    expect((await f.post("reserve", { ...input, userId: f.userId, trial: true })).status).toBe(400);
+    expect((await f.post("reserve", { ...input, subject: otherSubject })).status).toBe(403);
+    expect((await f.post("balance", { subject: otherSubject })).status).toBe(403);
+    expect((await f.post("reserve", { ...input, operationType: "storyImages" })).status).toBe(403);
+    expect(runtime.memoryState.billingOperations).toHaveLength(0);
+    const replies = await Promise.all([f.post("reserve", input), f.post("reserve", input)]);
+    expect(replies.map(r => r.body.outcome).sort()).toEqual(["replayed", "reserved"]);
+    expect(runtime.memoryState.billingOperations).toHaveLength(1);
+  });
+
+  it("stops new and replayed reserves while the original subject can read the frozen quote and settle once", async () => {
+    let running = true;
+    const f = await fixture({ canary: { acceptsSettlement: () => true, acceptsNew: () => running, admits: s => running && s === subject } });
+    expect((await f.post("reserve", input)).body.outcome).toBe("reserved");
+    running = false;
+    expect((await f.post("reserve", input)).status).toBe(403);
+    expect((await f.post("reserve", { ...input, operationId: "new-request" })).status).toBe(403);
+    let settlementEnabled = false;
+    const restarted = await fixture({ canary: { acceptsSettlement: () => settlementEnabled, acceptsNew: () => false, admits: () => false },
+      remap: (_subject, users) => users.get(subject) });
+    const lookup = { subject, operationId: input.operationId, requestHash: input.requestHash };
+    expect((await restarted.post("operation", { ...lookup, subject: otherSubject })).status).toBe(404);
+    expect((await restarted.post("operation", { ...lookup, requestHash: "e".repeat(64) })).status).toBe(404);
+    expect((await restarted.post("operation", lookup)).body).toMatchObject({ status: "reserved", maxCostMinor: 100_000 });
+    const unknown = { subject, operationId: input.operationId, outcome: { kind: "submission_unknown" } };
+    expect((await restarted.post("settle", unknown)).status).toBe(403);
+    expect((await restarted.post("operation", lookup)).body.status).toBe("reserved");
+    expect((await getAccountBalance(f.userId)).lifetimeSpentMinor).toBe(0);
+    settlementEnabled = true;
+    expect((await restarted.post("settle", unknown)).body).toMatchObject({ status: "submission_unknown" });
+    const row = runtime.memoryState.billingOperations[0]!;
+    expect(decideStaleRelease({
+      status: row.status, operationType: row.operationType, holdActive: true,
+      createdAt: row.createdAt, now: new Date(row.createdAt.getTime() + 25 * 3600_000),
+      evidence: { storedOutput: false, outputUnstored: false, taskInFlight: false },
+    }).action).toBe("manual");
+    const settlement = { subject, operationId: input.operationId, outcome: { kind: "succeeded", verifiedCostMinor: 25_000 } };
+    expect((await restarted.post("settle", { ...settlement, subject: otherSubject })).status).toBe(404);
+    expect((await restarted.post("settle", settlement)).body).toMatchObject({ status: "settled", actualCostMinor: 25_000 });
+    expect((await restarted.post("settle", settlement)).body).toMatchObject({ status: "settled", actualCostMinor: 25_000 });
+    expect((await restarted.post("operation", lookup)).body).toMatchObject({ status: "settled", maxCostMinor: 100_000, actualCostMinor: 25_000 });
+    expect((await getAccountBalance(f.userId)).lifetimeSpentMinor).toBe(25_000);
+  });
+
+  it("keeps legacy and canary operations independent even with an identical subject and request ID", async () => {
+    const legacy = await fixture();
+    const canary = await fixture({ canary: { acceptsSettlement: () => true, acceptsNew: () => true, admits: s => s === subject } });
+    expect((await legacy.post("reserve", input)).body.outcome).toBe("reserved");
+    const lookup = { subject, operationId: input.operationId, requestHash: input.requestHash };
+    expect((await canary.post("operation", lookup)).status).toBe(404);
+    expect((await canary.post("reserve", { ...input, maxCostMinor: 75_000 })).body.outcome).toBe("reserved");
+    expect((await legacy.post("operation", lookup)).body.maxCostMinor).toBe(100_000);
+    expect((await canary.post("operation", lookup)).body.maxCostMinor).toBe(75_000);
+    expect(runtime.memoryState.billingOperations).toHaveLength(2);
+  });
+});
+
 describe("shared compute bridge with the real account ledger", () => {
+  it("reports an unmapped wallet without a balance, hold, or grant", async () => {
+    const { post } = await fixture();
+    const unmapped = `shiguang:${"c".repeat(64)}`;
+    const before = runtime.memoryState.creditLedgerEntries.length;
+    expect((await post("balance", { subject: unmapped })).body).toEqual({
+      version: 1, unit: "compute", status: "registration_required",
+    });
+    expect((await post("statement", { subject: unmapped })).body).toEqual({
+      version: 1, available: false, reason: "registration_required",
+    });
+    expect(runtime.memoryState.creditLedgerEntries).toHaveLength(before);
+    expect(await getUserByOpenId(unmapped)).toBeUndefined();
+  });
+
   it("phone projects the desktop wallet; holds, settlement and retries converge", async () => {
     const { post, userId } = await fixture();
     expect((await post("balance", { subject })).body).toEqual({

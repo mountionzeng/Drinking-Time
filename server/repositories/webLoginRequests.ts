@@ -78,35 +78,42 @@ export async function decideWebLogin(input: {
   return result[0].affectedRows === 1;
 }
 
-/** Hold the request row lock while binding the identity in the same database transaction. */
-export async function decideWebLoginWithBinding(input: {
-  id: number;
-  now: Date;
-  bind: (userId: number, tx: WebLoginTransaction) => Promise<"bound" | "merge_required">;
-}): Promise<"confirmed" | "merge_required" | "invalid"> {
-  const db = await requireDb();
-  return db.transaction(async tx => {
-    const [row] = await tx.select().from(webLoginRequests).where(and(
-      eq(webLoginRequests.id, input.id),
-      inArray(webLoginRequests.status, ["pending", "scanned"]),
-      gt(webLoginRequests.expiresAt, input.now),
-    )).limit(1).for("update");
-    if (!row?.bindUserId) return "invalid";
+type AccountDecision = { outcome: "merge_required" } | { outcome: "confirmed"; userId: number };
+class ExpiredConfirmation extends Error {}
 
-    const bound = await input.bind(row.bindUserId, tx);
-    const status = bound === "bound" ? "confirmed" : "merge_required";
-    const updated = await tx.update(webLoginRequests).set({
-      status,
-      userId: bound === "bound" ? row.bindUserId : null,
-      confirmedAt: input.now,
-    }).where(and(
-      eq(webLoginRequests.id, row.id),
-      inArray(webLoginRequests.status, ["pending", "scanned"]),
-      gt(webLoginRequests.expiresAt, input.now),
-    ));
-    if (updated[0].affectedRows !== 1) return "invalid";
-    return status;
-  });
+/** Claim the authorization and perform account writes on the same executor. */
+export async function confirmWebLoginWithAccount(input: {
+  id: number;
+  now: () => Date;
+  resolve: (row: WebLoginRequest, tx: WebLoginTransaction) => Promise<AccountDecision>;
+}): Promise<(AccountDecision & { mode: "login" | "bind" }) | { outcome: "invalid" }> {
+  const db = await requireDb();
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await db.transaction(async tx => {
+        const [row] = await tx.select().from(webLoginRequests).where(eq(webLoginRequests.id, input.id)).limit(1).for("update");
+        if (!row || !["pending", "scanned"].includes(row.status) || row.expiresAt <= input.now() ||
+            (row.mode === "bind" && !row.bindUserId)) return { outcome: "invalid" };
+        const decision = await input.resolve(row, tx);
+        const confirmedAt = input.now();
+        if (row.expiresAt <= confirmedAt) throw new ExpiredConfirmation();
+        const [updated] = await tx.update(webLoginRequests).set({
+          status: decision.outcome,
+          userId: decision.outcome === "confirmed" ? decision.userId : null,
+          confirmedAt,
+        }).where(eq(webLoginRequests.id, row.id));
+        if (updated.affectedRows !== 1) throw new Error("web_login_decision_not_saved");
+        return { ...decision, mode: row.mode };
+      });
+    } catch (error) {
+      if (error instanceof ExpiredConfirmation) return { outcome: "invalid" };
+      const failure = error as { code?: string; cause?: { code?: string } };
+      const code = failure.cause?.code ?? failure.code;
+      // Independent verified requests for the same WeChat identity can race.
+      // Retry the whole transaction so a losing insert cannot leave an orphan.
+      if (attempt !== 0 || (code !== "ER_DUP_ENTRY" && code !== "ER_LOCK_DEADLOCK")) throw error;
+    }
+  }
 }
 
 /** confirmed → consumed 的原子领取：同一请求只有一个调用能拿到 userId。 */

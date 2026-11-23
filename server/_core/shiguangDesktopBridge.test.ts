@@ -147,7 +147,7 @@ describe("拾光家忆故事进入电脑", () => {
 });
 
 describe("契约 1.6.0 /web-login/confirm", () => {
-  async function confirm(deps: Record<string, unknown>, body: unknown, enabled = true) {
+  async function confirm(deps: Record<string, unknown>, body: unknown, enabled = true, signature?: string) {
     const app = express();
     const base = {
       enabled: true, secret, ready: async () => true, allow: async () => true, claimNonce: async () => true,
@@ -165,7 +165,7 @@ describe("契约 1.6.0 /web-login/confirm", () => {
     const response = await fetch(`http://127.0.0.1:${address.port}/api/shiguang${path}`, {
       method: "POST",
       headers: { "content-type": "application/json", "x-shiguang-timestamp": timestamp, "x-shiguang-nonce": nonce,
-        "x-shiguang-signature": bridgeSignature(secret, path, timestamp, nonce, body) },
+        "x-shiguang-signature": signature ?? bridgeSignature(secret, path, timestamp, nonce, body) },
       body: JSON.stringify(body),
     });
     return { response, base };
@@ -182,6 +182,16 @@ describe("契约 1.6.0 /web-login/confirm", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ outcome: "confirmed" });
     expect(base.webLogin.confirm).toHaveBeenCalledWith({ subject, code: "ABC234", decision: "confirm" });
+  });
+
+  it("浏览器伪造的签名不能让 subject 进入确认，验签后的云桥 subject 才会", async () => {
+    const body = { subject, code: "ABC234", decision: "confirm" };
+    const forged = await confirm({}, body, true, "f".repeat(64));
+    expect(forged.response.status).toBe(401);
+    expect(forged.base.webLogin.confirm).not.toHaveBeenCalled();
+    const signed = await confirm({}, body);
+    expect(signed.response.status).toBe(200);
+    expect(signed.base.webLogin.confirm).toHaveBeenCalledWith(body);
   });
 
   it("多余字段（例如 userId）被拒绝，不会执行", async () => {

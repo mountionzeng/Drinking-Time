@@ -3,11 +3,13 @@ vi.mock('../db', async importOriginal => ({
   ...(await importOriginal<typeof import('../db')>()),
   getDb: vi.fn(async () => null),
 }));
+import { getUserByOpenId, upsertUser } from '../db';
 import { loginWechatAccount, resolveWechatAccount } from './wechatAccount';
 import {
   ensureWechatRegistrationGift,
   WECHAT_REGISTRATION_GIFT_MINOR,
   wechatRegistrationGiftIdempotencyKey,
+  wechatRegistrationGiftInput,
 } from './accountIdentity';
 import { WEB_LOGIN_GIFT_MINOR } from './webLoginGift';
 import { formatComputeUnits } from '../../shared/computeMoney';
@@ -32,9 +34,12 @@ it('does not expose persistence exception details', async () => {
 it('defines one opaque, stable 5-compute-unit gift for an app-scoped WeChat identity', async () => {
   const grant = vi.fn(async () => ({ kind: 'appended' as const, balanceMinor: WECHAT_REGISTRATION_GIFT_MINOR }));
   const subject = 'wx0000000000000001:sensitive-openid';
-  await ensureWechatRegistrationGift(23, subject, grant);
-  expect(grant).toHaveBeenCalledWith({
-    userId: 23,
+  await upsertUser({ openId: 'wx:gift-definition', loginMethod: 'wechat' });
+  const account = (await getUserByOpenId('wx:gift-definition'))!;
+  expect(await ensureWechatRegistrationGift(account.id, subject, grant)).toEqual({ kind: 'ineligible' });
+  expect(grant).not.toHaveBeenCalled();
+  expect(wechatRegistrationGiftInput(account.id, subject)).toEqual({
+    userId: account.id,
     amountMinor: 2_500_000,
     idempotencyKey: wechatRegistrationGiftIdempotencyKey(subject),
     oncePerAccountPrefixes: ['wechat-registration-gift:', 'web-login-gift:'],

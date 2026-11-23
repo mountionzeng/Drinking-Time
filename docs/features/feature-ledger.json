@@ -6081,7 +6081,9 @@
         "minigame/src/accountView.ts",
         "client/src/pages/LoginPage.tsx",
         "client/src/features/auth/views/AuthEntryPanel.tsx",
-        "client/src/features/computeAccount/RechargeDialog.tsx"
+        "client/src/features/computeAccount/RechargeDialog.tsx",
+        "client/src/features/computeAccount/BindComputeAccount.tsx",
+        "client/src/features/auth/views/PlatformRegisterPage.tsx"
       ],
       "owners": [
         "server/services/accountIdentity.ts",
@@ -6094,6 +6096,7 @@
         "server/services/accountSecurity.ts",
         "server/services/computeBilling.ts",
         "server/services/computeLedger.ts",
+        "server/repositories/registrationDatabase.ts",
         "server/services/computeAccessPolicy.ts",
         "server/services/computeStatement.ts",
         "server/services/computeReconciliation.ts",
@@ -6122,6 +6125,8 @@
         "server/repositories/computePayments.ts",
         "server/routers/computePayment.ts",
         "client/src/features/computeAccount/RechargeDialog.tsx",
+        "client/src/features/computeAccount/BindComputeAccount.tsx",
+        "client/src/features/auth/views/PlatformRegisterPage.tsx",
         "server/services/computeMetering.ts",
         "server/services/computeSubscriptionPlans.ts",
         "server/_core/inferenceOrchestrator.ts",
@@ -6137,6 +6142,8 @@
         "server/services/computeTopUp.ts",
         "server/_core/alipayNotifyRoute.ts",
         "server/services/webLoginGift.ts",
+        "server/services/platformRegistration.ts",
+        "server/repositories/platformRegistrationStore.ts",
         "server/routers/index.ts",
         "client/src/_core/hooks/useAuth.ts"
       ],
@@ -6206,7 +6213,13 @@
         "server/services/payments/alipay.test.ts",
         "docs/qa/2026-11-02-wechat-account-followup.md",
         "docs/qa/2026-11-17-compute-coverage.md",
-        "client/src/features/computeAccount/ComputeBalanceBadge.test.tsx"
+        "client/src/features/computeAccount/ComputeBalanceBadge.test.tsx",
+        "server/services/sharedComputeWallet.test.ts",
+        "client/src/features/computeAccount/BindComputeAccount.test.tsx",
+        "server/services/platformRegistration.test.ts",
+        "server/integration/platformRegistration.mysql.test.ts",
+        "server/_core/platformRegistration.http.test.ts",
+        "client/src/features/auth/views/PlatformRegisterPage.test.tsx"
       ],
       "invariants": [
         "按 2026-09-23 用户确认，已绑定同一 userId 的手机和电脑共用同一本算力账；不同账号不自动合并，冲突停止，不修改故事或图片。",
@@ -6219,7 +6232,10 @@
         "支付宝单次自定义充值是该展示规则的明确例外：下单前显示人民币实付金额和对应算力，服务端按1算力=¥1定价，每笔最多10,000算力，只有支付宝验签成功后入账。",
         "正常运行时余额不足只阻止付费调用，不得阻止用户登录、浏览和编辑已有内容；用户可以站内申请追加测试算力。用户明确授权的全站紧急停用除外，停用必须保留原数据、审计记录与恢复路径。",
         "管理员可以管理赠送卡、续充申请、额度和费用，但不能借此读取用户的故事、提示词或媒体。",
-        "邮箱账号继续使用验证码、密码或 Google；微信账号使用微信授权与一次性电脑短码。真实支付订阅仍须通过独立上线门槛后开放。"
+        "邮箱账号继续使用验证码、密码或 Google；微信账号使用微信授权与一次性电脑短码。真实支付订阅仍须通过独立上线门槛后开放。",
+        "注册赠送只在第一次插入该账号的同一次提交里发放 5 算力。已经存在的账号不论创建时间、有无历史赠送，登录、绑定和读余额都不再补发。微信新账号的赠送和用户、身份在同一次提交里。绑定、换端和再次登录不重复赠送。两本已存在的账保持余额、赠送和预占，冲突只返回 merge_required。浏览器提交的 subject 不能充当绑定身份；只有验签通过的云桥 shiguang 哈希可以。故事信箱确认不写入钱包身份。",
+        "生产环境没有持久数据库时，平台注册挑战、创建账号、首次赠送及钱包绑定拒绝成功响应。对同一平台身份并发提交的多个挑战仅允许一个写入账号与联系方式。",
+        "缺少可信邮箱已验证标记的第三方平台新用户，必须先用邮箱或手机验证码完成验证，才在同一次提交里创建账号、身份和首次 5 算力。会话同步不创建账号，也不能先建一个不赠送的号再补领。已有平台账号可以登录且不补发，未验证邮箱不写入 users.email，也不据此合并。验证码命中已有邮箱或手机号时只返回冲突，不登录旧账号、不绑定平台身份、不改余额和预占。Google 等已经可信的验证入口不增加这一步。内测邀请仍然挡住尚未开放的新注册。查询参数不能证明注册资格。"
       ],
       "dependencies": [
         "invite-access-monitoring",
@@ -6231,7 +6247,9 @@
       "knownGaps": [
         "2026-09-29 正式站已获授权恢复并通过公网与浏览器表单验收；公开测试站仍停用、原余额保持零。真实邮箱验证码尚未在本次验收；Google 已于 2026-10-09 修复并完成原账号真实登录；详见恢复 QA。",
         "本轮补齐正式环境供应商提交前的零余额准入检查；它不替代原有预占结算，也不宣称所有正余额调用已完成逐笔计费。正式站余额保持零，不新增充值或自动赠送入口；未接入账本的正余额消费仍须后续补齐。",
-        "真实微信端已经接入余额与逐笔账单展示，微信账号下次成功登录会幂等领取固定注册算力（2026-10-30 起新发放为 5 算力/¥2.5 账本额度，此前已发放的 10 算力不回收不补差）；赠送卡领取、续充申请和管理入口仍未接入用户界面与业务路由，网页版尚未接入同等账单页面。",
+        "真实微信端已经接入余额与逐笔账单展示。注册赠送只跟第一次插入账号的事务走，已有账号不再因登录补发，已发放的 10 算力不回收不补差。赠送卡领取、续充申请和管理入口仍未接入用户界面与业务路由，网页版尚未接入同等账单页面。",
+        "本轮只补网页绑定入口和注册赠送边界。本地邮箱小程序功能线目前只见余额桥接，缺模型 reserve/settle；另一条 logo-ai 功能线有计费，两者不能合并后宣称小程序消费已互通。正式包 0.1.1113m 的精确上传树与线上开关、密钥状态未在本轮读取，不能声称已经上线。小程序确认页不在本仓库。",
+        "2026-11-16 平台注册授权和验证码摘要存在 MySQL 表 platform_registration_challenges，并与用户、身份、额度和赠送同一事务提交。隔离本机 MariaDB 已覆盖跨进程单次消费、过期拒绝、赠送回滚后重试和已有邮箱冲突。迁移没有在生产执行，其余既有 MySQL 套件本轮没有重跑。",
         "正式 MySQL、测试 MySQL 与本地历史数据尚未按迁移清单完成归属核对、冲突修复和可回滚切换；未提供 TEST_MYSQL_DATABASE_URL 时 MySQL 集成测试不会执行。",
         "微信小游戏的聊天生成和重新解读来信已增加零余额闸门；付费 AI 调用尚未在网页版与所有供应商路径全面接入算力预留、结算与失败释放，因此当前不能把全站账本基础视为已上线计费。",
         "微信与支付所需资质、渠道规则、退款、订阅和消费者告知仍待后续阶段核验。",
@@ -6246,6 +6264,41 @@
         "2026-11-17 主仓本机27.21仅为已入账消费；普通聊天GPT改图2117–2120各2.86算力报价未形成图片结算回执，报价合计11.44不能当作供应商实扣。顶栏已明确用量记录不完整，图片计费接线与历史实际费用核对仍未完成，未追扣旧任务。"
       ],
       "history": [
+        {
+          "date": "2026-11-19",
+          "kind": "fix",
+          "summary": "拾光章节收件箱、联系人、故事读取及电脑码路径只解析既有身份。扫码确认事务共用授权行、用户、身份和首次赠送。签名结算桥返回账本终态，朗读恢复可读取原报价。隔离 MySQL 覆盖拒绝及并发确认，无部署或真实扣账。"
+        },
+        {
+          "date": "2026-11-19",
+          "kind": "fix",
+          "summary": "拾光余额、流水、预占和结算只解析已存在身份，显式微信确认保留开户与绑定入口。第三方 OAuth 增加本站发起状态和一次性消费，超时清理保留缺供应商证据的拾光预占。生产配置和双端实测尚待验收。"
+        },
+        {
+          "date": "2026-11-19",
+          "kind": "fix",
+          "summary": "生产缺库时平台注册和钱包绑定返回 503，建号和首次赠送拒绝写本地。一次性验证码摘要包含挑战 ID；独立挑战冲突和绑定竞争由隔离 MySQL 验证。生产迁移、真实扫码和供应商验收尚未执行。"
+        },
+        {
+          "date": "2026-11-16",
+          "kind": "fix",
+          "summary": "平台注册授权和验证码摘要改存 MySQL，并与用户、身份、额度和首次赠送在同一事务提交。进程退出后未过期的挑战仍可在另一个进程完成；重复提交、过期和失败回滚由隔离库实测。没有在生产执行迁移。"
+        },
+        {
+          "date": "2026-11-16",
+          "kind": "fix",
+          "summary": "缺少可信邮箱验证的平台新用户，改为先完成邮箱或手机验证，再在同一次提交里建号、写入身份并赠送 5 算力。未验证回调和会话同步都不建号。验证命中已有邮箱或手机号时冲突，不登录旧账号、不合并余额和预占。已有平台账号仍可登录且不补发。Google 等已验证入口不增加步骤。注册挑战只在进程内存，MySQL 并发未执行。"
+        },
+        {
+          "date": "2026-11-16",
+          "kind": "fix",
+          "summary": "网页与小程序共用同一本算力账：赠送只在第一次插入账号的事务里发生，登录不再按创建时间补发。微信新账号的 5 算力与用户、身份同一次提交。已登录账号菜单可发起绑定；浏览器提交的 subject 被拒绝，验签后的云桥 subject 才进入确认。小程序消费预占结算和正式包上线仍未完成。"
+        },
+        {
+          "date": "2026-11-16",
+          "kind": "fix",
+          "summary": "注册额度和赠送改为同一事务，失败回滚后重试仍可领取。已验证邮箱复用唯一账号，多条存量映射冲突且不合并余额；未验证邮箱不认领旧账号。临时邮箱和来源地址限制按可信邮箱与套接字地址执行。访客绑定给出单独提示。内测邀请开启时，外部会话同步不再新建账号、也不发注册赠送。"
+        },
         {
           "date": "2026-11-06",
           "kind": "feature",

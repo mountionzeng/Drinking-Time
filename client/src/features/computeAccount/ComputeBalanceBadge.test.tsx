@@ -35,14 +35,14 @@ describe("compute balance coverage", () => {
 
   it.each([true, false])("labels local usage as incomplete in compact=%s", compact => {
     const html = render("zh", compact);
-    expect(html).toContain("已记账 27.21 算力 · 用量记录不完整");
-    expect(html).toContain('aria-label="本机开发不限额，已记账 27.21 算力，用量记录不完整"');
+    expect(html).toContain("历史已结算毛额 27.21 算力。含已退款原结算，预占与待核对项暂未计入。");
+    expect(html).toContain('aria-label="本机开发不限额。历史已结算毛额 27.21 算力。含已退款原结算，预占与待核对项暂未计入。"');
     expect(html).not.toContain("累计使用");
   });
 
   it.each([
-    ["en", "Recorded: 27.21 Credits · Usage records incomplete"],
-    ["fr", "Comptabilisé : 27.21 Crédits · Relevé incomplet"],
+    ["en", "Lifetime gross settled usage: 27.21 Credits. Includes original charges later refunded. Holds and items under review are excluded."],
+    ["fr", "Total brut réglé depuis l’origine : 27.21 Crédits. Inclut les débits remboursés par la suite. Les réservations et éléments en cours de vérification sont exclus."],
   ] as const)("keeps the coverage warning in %s", (language, warning) => {
     expect(render(language)).toContain(warning);
   });
@@ -58,7 +58,7 @@ describe("compute balance coverage", () => {
     expect(html).toContain('aria-label="可用余额 4.00 算力"');
     expect(html).toContain("1.00 算力");
     expect(html).toContain("预占中");
-    expect(html).not.toContain("用量记录不完整");
+    expect(html).not.toContain("历史已结算毛额");
   });
 
   it("does not present stale recorded amounts as current after a read failure", () => {

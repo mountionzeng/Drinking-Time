@@ -15,7 +15,7 @@ type Dependencies = {
   claimNonce: (timestamp:string,nonce:string,now:number) => Promise<boolean>;
   storyAccessReady: () => boolean;
   allow: (subject: string) => Promise<boolean>;
-  resolve: (subject: string) => Promise<number>;
+  resolve: (subject: string) => Promise<number | null>;
   importStory: (userId: number, story: ShiguangStorySnapshot) => Promise<{ storyId: number; created: boolean }>;
   bindStoryAccess: (userId:number, grant:ShiguangStoryAccessGrant)=>Promise<{id:number}>;
   issuePairing: (userId: number) => Promise<IssuePairingResult>;
@@ -100,6 +100,7 @@ export function createShiguangDesktopBridgeRouter(deps: Dependencies) {
       if (!await deps.ready()) return res.status(503).json({ error: "unavailable" });
 
       const userId = await deps.resolve(subject);
+      if (userId === null) return res.status(409).json({ error: "registration_required" });
       const imported = story ? await deps.importStory(userId, story) : null;
       const binding = storyAccess ? await deps.bindStoryAccess(userId, storyAccess) : null;
       const pairing = await deps.issuePairing(userId);
@@ -176,6 +177,11 @@ export function createShiguangDesktopBridgeRouter(deps: Dependencies) {
         if (!await deps.ready()) return res.status(503).json({ error: "unavailable" });
         if (!await deps.allow(body.subject)) return res.status(429).json({ error: "rate_limited" });
         const userId = await deps.resolve(body.subject);
+        if (userId === null) {
+          if (path === "/chapter-delivery/inbox") return res.json({ items: [] });
+          if (path === "/chapter-delivery/contacts") return res.json({ contacts: [] });
+          return res.status(409).json({ error: "registration_required" });
+        }
         const result = await deps.chapterDelivery.call(userId, path, body);
         return res.json(result);
       } catch (error) {

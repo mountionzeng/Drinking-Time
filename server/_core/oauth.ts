@@ -17,9 +17,11 @@ import {
   redeemPairingCode,
 } from "../services/accountIdentity";
 import { sdk } from "./sdk";
+import { consumePlatformOAuthState, issuePlatformOAuthState, PLATFORM_OAUTH_COOKIE, PLATFORM_OAUTH_STATE_TTL_MS } from "./platformOAuthState";
 import { ENV } from "./env";
 import { registerPhoneLoginRoutes } from "./phoneLoginRoutes";
 import { consumePersistentRateLimit } from "../repositories/accounts";
+import { registrationDatabase, RegistrationStorageUnavailable } from "../repositories/registrationDatabase";
 import { generateOtpCode as generateUniformOtpCode } from "../services/accountSecurity";
 import { googleAuthConfig } from "../services/googleAuthConfig";
 import { hashInviteCode } from "../services/inviteAccess";
@@ -38,6 +40,16 @@ import {
   isWechatScanLoginEnabled,
   pollWebLoginRequest,
 } from "../services/webLogin";
+import { openRegisteredAccount } from "../services/webLoginGift";
+import { phoneSmsConfigured, sendPhoneLoginSms } from "../services/phoneSms";
+import {
+  abandonPlatformRegistration,
+  beginPlatformRegistration,
+  completePlatformRegistration,
+  readPlatformRegistration,
+  sendPlatformRegistrationCode,
+} from "../services/platformRegistration";
+import { PLATFORM_REGISTRATION_COOKIE, PLATFORM_REGISTRATION_TTL_MS } from "../repositories/platformRegistrationStore";
 import {
   buildSupabaseGoogleAuthorizeUrl,
   verifySupabaseGoogleToken,
@@ -60,8 +72,13 @@ const DIRECT_GOOGLE_OAUTH_STATE_COOKIE = "dt_google_direct_oauth_state";
 const GOOGLE_RETURN_COOKIE = "dt_google_return_to";
 const GOOGLE_OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
 
+/** 只用 Express 在 trust proxy 关闭或仅回环时算出的地址，不读取客户端自己写的 X-Forwarded-For。 */
+export function trustedClientIp(req: { ip?: string; socket?: { remoteAddress?: string | null } }): string {
+  return req.ip || req.socket?.remoteAddress || "unknown";
+}
+
 function clientIp(req: Request): string {
-  return req.ip || req.socket.remoteAddress || "unknown";
+  return trustedClientIp(req);
 }
 
 /** 均匀分布的 6 位验证码（crypto.randomInt），与账号/手机登录共用。 */
@@ -202,21 +219,23 @@ async function establishEmailSession(
   req: Request,
   res: Response,
   email: string
-): Promise<void> {
-  const openId = `email:${email}`;
-  await db.upsertUser({
-    openId,
+): Promise<"ok" | "conflict"> {
+  const opened = await openRegisteredAccount({
+    openId: `email:${email}`,
     email,
+    emailVerified: true,
     loginMethod: "email",
     lastSignedIn: new Date(),
+    requestIp: clientIp(req),
   });
-  const user = await db.getUserByOpenId(openId);
+  if (opened.outcome === "conflict" || opened.userId == null) return "conflict";
+  const user = await db.getUserById(opened.userId);
   if (!user) {
     throw new Error("邮箱用户创建后无法读取");
   }
   await db.bindRedeemedInviteToUser(email, user.id);
 
-  const sessionToken = await sdk.createSessionToken(openId, {
+  const sessionToken = await sdk.createSessionToken(user.openId, {
     name: email.split("@")[0],
     expiresInMs: ONE_YEAR_MS,
   });
@@ -225,6 +244,7 @@ async function establishEmailSession(
     ...cookieOptions,
     maxAge: ONE_YEAR_MS,
   });
+  return "ok";
 }
 
 /**
@@ -249,14 +269,18 @@ async function establishAccountSession(
     });
     user = await db.getUserById(input.userId);
   } else {
-    const openId = `email:${input.email}`;
-    await db.upsertUser({
-      openId,
+    const opened = await openRegisteredAccount({
+      openId: `email:${input.email}`,
       email: input.email,
+      emailVerified: true,
       loginMethod: "email",
       lastSignedIn: new Date(),
+      requestIp: clientIp(req),
     });
-    user = await db.getUserByOpenId(openId);
+    if (opened.outcome === "conflict" || opened.userId == null) {
+      throw new Error("registration_identity_conflict");
+    }
+    user = await db.getUserById(opened.userId);
   }
   if (!user) throw new Error("邮箱用户创建后无法读取");
 
@@ -299,6 +323,18 @@ function respondNeedsManualMapping(res: Response) {
   });
 }
 
+async function registrationStorageReady(res: Response): Promise<boolean> {
+  if (!ENV.isProduction) return true;
+  try {
+    await registrationDatabase();
+    return true;
+  } catch (error) {
+    if (!(error instanceof RegistrationStorageUnavailable)) throw error;
+    res.status(503).json({ error: "not_configured" });
+    return false;
+  }
+}
+
 export function registerOAuthRoutes(app: Express) {
   registerPhoneLoginRoutes(app, establishUserSession);
   // ── 统一账号：邮箱验证码 ────────────────────────────────────────────
@@ -311,6 +347,7 @@ export function registerOAuthRoutes(app: Express) {
         return;
       }
       const purpose = req.body?.purpose === "recover" ? "recover" : "login";
+      if (purpose === "login" && !await registrationStorageReady(res)) return;
       const result = await issueEmailOtp({
         email,
         purpose,
@@ -347,6 +384,7 @@ export function registerOAuthRoutes(app: Express) {
         res.status(400).json({ error: "invalid_request" });
         return;
       }
+      if (!await registrationStorageReady(res)) return;
       const verified = await verifyEmailOtp({
         email,
         purpose: "login",
@@ -372,10 +410,18 @@ export function registerOAuthRoutes(app: Express) {
         return;
       }
 
-      await establishAccountSession(req, res, {
-        email,
-        userId: verified.userId,
-      });
+      try {
+        await establishAccountSession(req, res, {
+          email,
+          userId: verified.userId,
+        });
+      } catch (error) {
+        if (error instanceof Error && error.message === "registration_identity_conflict") {
+          respondNeedsManualMapping(res);
+          return;
+        }
+        throw error;
+      }
       res.json({ ok: true });
     }
   );
@@ -610,6 +656,7 @@ export function registerOAuthRoutes(app: Express) {
       }
 
       try {
+        if (!await registrationStorageReady(res)) return;
         const identity = await verifySupabaseGoogleToken({
           supabaseUrl: ENV.supabaseAuthUrl,
           publishableKey: ENV.supabaseAuthPublishableKey,
@@ -629,6 +676,7 @@ export function registerOAuthRoutes(app: Express) {
           email: identity.email,
           emailVerified: true,
           name: identity.name,
+          requestIp: clientIp(req),
         });
         if (resolution.outcome === "identity_conflict" || resolution.outcome === "needs_manual_mapping") {
           respondNeedsManualMapping(res);
@@ -670,6 +718,7 @@ export function registerOAuthRoutes(app: Express) {
       return;
     }
     try {
+      if (!await registrationStorageReady(res)) return;
       const redirectUri = config.redirectUri;
 
       // Exchange code → tokens
@@ -711,6 +760,7 @@ export function registerOAuthRoutes(app: Express) {
         email,
         emailVerified: email_verified === true,
         name,
+        requestIp: clientIp(req),
       });
       if (resolution.outcome === "invalid_profile") {
         res.redirect(302, "/login?error=google_email_not_verified");
@@ -746,6 +796,7 @@ export function registerOAuthRoutes(app: Express) {
       }
 
       try {
+        if (!await registrationStorageReady(res)) return;
         const claimedInvite = await db.redeemInviteForEmail(
           hashInviteCode(inviteCode),
           email
@@ -754,7 +805,10 @@ export function registerOAuthRoutes(app: Express) {
           res.status(403).json({ error: "invalid_invite" });
           return;
         }
-        await establishEmailSession(req, res, email);
+        if (await establishEmailSession(req, res, email) === "conflict") {
+          respondNeedsManualMapping(res);
+          return;
+        }
         res.json({ ok: true });
       } catch (error) {
         console.error("[InviteLogin] login failed", error);
@@ -795,12 +849,23 @@ export function registerOAuthRoutes(app: Express) {
   app.post("/api/auth/wechat-scan/create", async (req: Request, res: Response) => {
     res.setHeader("Cache-Control", "no-store");
     if (!isWechatScanLoginEnabled()) { res.status(404).json({ error: "disabled" }); return; }
+    if (req.body && typeof req.body === "object" && "subject" in req.body) {
+      res.status(400).json({ error: "subject_not_accepted" });
+      return;
+    }
     const qr = req.body?.presentation === "qr";
     if (qr && !wechatLoginQrConfigured()) { res.status(503).json({ error: "qr_not_configured" }); return; }
     let bindUserId: number | undefined;
     if (req.body?.mode === "bind") {
-      try { bindUserId = (await sdk.authenticateRequest(req)).id; }
-      catch { res.status(401).json({ error: "unauthenticated" }); return; }
+      if (!await registrationStorageReady(res)) return;
+      try {
+        const user = await sdk.authenticateRequest(req);
+        if (user.loginMethod === "guest" || user.openId?.startsWith("guest:") || user.openId === "local-guest") {
+          res.status(403).json({ error: "guest_not_bindable" });
+          return;
+        }
+        bindUserId = user.id;
+      } catch { res.status(401).json({ error: "unauthenticated" }); return; }
     }
     try {
       const result = await createWebLoginRequest({
@@ -821,6 +886,10 @@ export function registerOAuthRoutes(app: Express) {
   app.post("/api/auth/wechat-scan/poll", async (req: Request, res: Response) => {
     res.setHeader("Cache-Control", "no-store");
     if (!isWechatScanLoginEnabled()) { res.status(404).json({ error: "disabled" }); return; }
+    if (req.body && typeof req.body === "object" && "subject" in req.body) {
+      res.status(400).json({ error: "subject_not_accepted" });
+      return;
+    }
     const l = typeof req.body?.l === "string" ? req.body.l : "";
     const v = typeof req.body?.v === "string" ? req.body.v : "";
     try {
@@ -940,6 +1009,7 @@ export function registerOAuthRoutes(app: Express) {
       return;
     }
     try {
+      if (!await registrationStorageReady(res)) return;
       for (const [scope, subject, windowSeconds, max] of [
         ["verify:ip", privateRateSubject(clientIp(req)), 600, 60],
         ["verify:email", privateRateSubject(email), 600, 20],
@@ -994,7 +1064,10 @@ export function registerOAuthRoutes(app: Express) {
         res.status(401).json({ error: "invalid_or_expired" });
         return;
       }
-      await establishEmailSession(req, res, email);
+      if (await establishEmailSession(req, res, email) === "conflict") {
+        respondNeedsManualMapping(res);
+        return;
+      }
       res.json({ ok: true });
     } catch (error) {
       console.error("[EmailOTP] verify failed", error);
@@ -1002,17 +1075,149 @@ export function registerOAuthRoutes(app: Express) {
     }
   });
 
+  function platformCookie(req: Request) {
+    return parseCookieHeader(req.headers.cookie ?? "")[PLATFORM_REGISTRATION_COOKIE];
+  }
+
+  function clearPlatformCookie(req: Request, res: Response) {
+    res.clearCookie(PLATFORM_REGISTRATION_COOKIE, getSessionCookieOptions(req));
+  }
+
+  async function deliverPlatformCode(channel: "email" | "phone", subject: string, code: string) {
+    if (channel === "email") {
+      if (!ENV.resendApiKey) throw new Error("email_not_configured");
+      await sendOtpEmail(subject, code);
+      return;
+    }
+    if (!phoneSmsConfigured()) throw new Error("sms_not_configured");
+    await sendPhoneLoginSms(subject, code);
+  }
+
+  const platformRegistrationRoute =
+    (run: (req: Request, res: Response) => Promise<void>) =>
+    async (req: Request, res: Response) => {
+      res.setHeader("Cache-Control", "no-store");
+      try {
+        if (!await registrationStorageReady(res)) return;
+        await run(req, res);
+      } catch (error) {
+        if (error instanceof RegistrationStorageUnavailable) {
+          res.status(503).json({ error: "not_configured" });
+          return;
+        }
+        console.warn("[PlatformRegistration] Request could not be completed");
+        res.status(503).json({ error: "unavailable" });
+      }
+    };
+
+  app.get("/api/auth/platform-registration", platformRegistrationRoute(async (req, res) => {
+    const status = await readPlatformRegistration(platformCookie(req));
+    res.json(status);
+  }));
+
+  app.post("/api/auth/platform-registration/cancel", platformRegistrationRoute(async (req, res) => {
+    await abandonPlatformRegistration(platformCookie(req));
+    clearPlatformCookie(req, res);
+    res.json({ ok: true, status: "cancelled" });
+  }));
+
+  app.post("/api/auth/platform-registration/code", platformRegistrationRoute(async (req, res) => {
+    const channel = req.body?.channel === "phone" ? "phone" : req.body?.channel === "email" ? "email" : null;
+    if (!channel) {
+      res.status(400).json({ error: "invalid_subject" });
+      return;
+    }
+    const result = await sendPlatformRegistrationCode({
+      cookie: platformCookie(req),
+      channel,
+      subject: req.body?.subject,
+      requestIp: clientIp(req),
+      deliver: deliverPlatformCode,
+    });
+    if ("error" in result) {
+      const status = result.error === "not_configured" ? 503 : result.error === "rate_limited" ? 429 : result.error === "missing" || result.error === "expired" ? 401 : 400;
+      res.status(status).json(result);
+      return;
+    }
+    res.json(result);
+  }));
+
+  app.post("/api/auth/platform-registration/complete", platformRegistrationRoute(async (req, res) => {
+    const channel = req.body?.channel === "phone" ? "phone" : req.body?.channel === "email" ? "email" : null;
+    if (!channel) {
+      res.status(400).json({ error: "invalid" });
+      return;
+    }
+    const result = await completePlatformRegistration({
+      cookie: platformCookie(req),
+      channel,
+      subject: req.body?.subject,
+      code: req.body?.code,
+      requestIp: clientIp(req),
+    });
+    if ("error" in result) {
+      if (result.error === "conflict") clearPlatformCookie(req, res);
+      const status = result.error === "not_configured" ? 503 : result.error === "conflict" ? 409 : result.error === "rate_limited" ? 429 : result.error === "missing" || result.error === "expired" ? 401 : 400;
+      res.status(status).json({ error: result.error === "conflict" ? "identity_conflict" : result.error, ...("retryAfterMs" in result ? { retryAfterMs: result.retryAfterMs } : {}) });
+      return;
+    }
+    clearPlatformCookie(req, res);
+    await establishUserSession(req, res, result.userId);
+    res.json({ ok: true });
+  }));
+
+  function platformRedirectUri(req: Request) {
+    const origin = ENV.appOrigin || (!ENV.isProduction ? `${req.protocol}://${req.get("host")}` : "");
+    try {
+      const url = new URL(origin);
+      if (url.protocol !== "https:" && (ENV.isProduction || url.protocol !== "http:")) return null;
+      return new URL("/api/oauth/callback", url).toString();
+    } catch {
+      return null;
+    }
+  }
+
+  app.get("/api/oauth/login", async (req: Request, res: Response) => {
+    res.setHeader("Cache-Control", "no-store");
+    const redirectUri = platformRedirectUri(req);
+    const portal = process.env.OAUTH_PORTAL_URL || process.env.VITE_OAUTH_PORTAL_URL;
+    if (!portal || !redirectUri || !ENV.appId || !ENV.cookieSecret) {
+      res.status(503).json({ error: "platform_oauth_not_configured" });
+      return;
+    }
+    try {
+      const authorize = new URL(portal.replace(/\/+$/, "") + "/app-auth");
+      if (authorize.protocol !== "https:" || authorize.username || authorize.password) {
+        res.status(503).json({ error: "platform_oauth_not_configured" });
+        return;
+      }
+      if (!await registrationStorageReady(res)) return;
+      const issued = issuePlatformOAuthState(redirectUri, ENV.cookieSecret);
+      authorize.search = new URLSearchParams({ appId: ENV.appId, redirectUri, state: issued.state, type: "signIn" }).toString();
+      res.cookie(PLATFORM_OAUTH_COOKIE, issued.cookie, {
+        ...getSessionCookieOptions(req), path: "/api/oauth/callback", maxAge: PLATFORM_OAUTH_STATE_TTL_MS,
+      });
+      res.redirect(302, authorize.toString());
+    } catch {
+      res.status(503).json({ error: "platform_oauth_unavailable" });
+    }
+  });
+
   app.get("/api/oauth/callback", async (req: Request, res: Response) => {
+    res.setHeader("Cache-Control", "no-store");
     const code = getQueryParam(req, "code");
     const state = getQueryParam(req, "state");
 
-    if (!code || !state) {
-      res.status(400).json({ error: "code and state are required" });
-      return;
-    }
-
     try {
-      const tokenResponse = await sdk.exchangeCodeForToken(code, state);
+      if (!await registrationStorageReady(res)) return;
+      const redirectUri = platformRedirectUri(req);
+      const cookie = parseCookieHeader(req.headers.cookie ?? "")[PLATFORM_OAUTH_COOKIE];
+      if (!code || !redirectUri || !await consumePlatformOAuthState({ state, cookie, redirectUri, key: ENV.cookieSecret })) {
+        res.status(401).json({ error: "invalid_oauth_state" });
+        return;
+      }
+      res.clearCookie(PLATFORM_OAUTH_COOKIE, { ...getSessionCookieOptions(req), path: "/api/oauth/callback" });
+      const tokenResponse = await sdk.exchangeCodeForToken(code, redirectUri);
       const userInfo = await sdk.getUserInfo(tokenResponse.accessToken);
 
       if (!userInfo.openId) {
@@ -1020,18 +1225,33 @@ export function registerOAuthRoutes(app: Express) {
         return;
       }
       const existingUser = await db.getUserByOpenId(userInfo.openId);
-      if (ENV.betaInviteRequired && !existingUser) {
+      if (existingUser) {
+        await db.upsertUser({
+          openId: userInfo.openId,
+          name: existingUser.name ?? (userInfo.name || null),
+          loginMethod: userInfo.loginMethod ?? userInfo.platform ?? null,
+          lastSignedIn: new Date(),
+        });
+      } else if (ENV.betaInviteRequired) {
         res.status(403).json({ error: "invite_required" });
         return;
+      } else {
+        const started = await beginPlatformRegistration({
+          openId: userInfo.openId,
+          name: userInfo.name || null,
+          loginMethod: userInfo.loginMethod ?? userInfo.platform ?? null,
+        });
+        if ("error" in started) {
+          res.status(400).json({ error: started.error });
+          return;
+        }
+        res.cookie(PLATFORM_REGISTRATION_COOKIE, started.cookieValue, {
+          ...getSessionCookieOptions(req),
+          maxAge: PLATFORM_REGISTRATION_TTL_MS,
+        });
+        res.redirect(302, "/auth/platform-register");
+        return;
       }
-
-      await db.upsertUser({
-        openId: userInfo.openId,
-        name: existingUser?.name ?? (userInfo.name || null),
-        email: userInfo.email ?? null,
-        loginMethod: userInfo.loginMethod ?? userInfo.platform ?? null,
-        lastSignedIn: new Date(),
-      });
 
       const sessionToken = await sdk.createSessionToken(userInfo.openId, {
         name: userInfo.name || "",
@@ -1046,7 +1266,11 @@ export function registerOAuthRoutes(app: Express) {
 
       res.redirect(302, "/");
     } catch (error) {
-      console.error("[OAuth] Callback failed", error);
+      if (error instanceof RegistrationStorageUnavailable) {
+        res.status(503).json({ error: "not_configured" });
+        return;
+      }
+      console.error("[OAuth] Callback failed");
       res.status(500).json({ error: "OAuth callback failed" });
     }
   });

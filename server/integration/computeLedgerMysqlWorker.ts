@@ -1,3 +1,4 @@
+import { reconcileInferenceUsage, settleAcceptedInference } from "../_core/inferenceBilling";
 import {
   getAccountBalance,
   grantCredit,
@@ -27,6 +28,8 @@ type WorkerInput = {
       maxCostMinor: number;
     }
   | { action: "settle"; operationId: string; outcome: ProviderOutcome }
+  | { action: "inference-accepted"; operationId: string; totalTokens?: number }
+  | { action: "inference-reconcile"; operationId: string; totalTokens?: number; loseReply?: boolean }
   | { action: "balance"; userId: number }
   | { action: "statement"; userId: number }
 );
@@ -82,6 +85,20 @@ try {
         outcome: input.outcome,
       })
     );
+  } else if (input.action === "inference-accepted") {
+    const usage = input.totalTokens === undefined ? undefined
+      : { prompt_tokens: input.totalTokens, completion_tokens: 0, total_tokens: input.totalTokens };
+    await finish(await settleAcceptedInference(input.operationId, {
+      provider: "openai-next", providerLabel: "Fixture", model: "fixture-model", latencyMs: 0,
+      priorFailures: [], result: { id: `receipt:${input.operationId}`, created: 0, model: "fixture-model", choices: [], usage },
+    }, [{ provider: "openai-next", model: "fixture-model", yuanPer1kTokens: 2 }]));
+  } else if (input.action === "inference-reconcile") {
+    process.env.TEXT_PRICE_OPENAI_NEXT_PER_1K_YUAN = "999";
+    const result = await reconcileInferenceUsage(input.operationId, input.totalTokens === undefined ? undefined : {
+      provider: "openai-next", model: "fixture-model", receiptId: `receipt:${input.operationId}`, totalTokens: input.totalTokens,
+    });
+    if (input.loseReply && result?.outcome === "settled") process.exit(9);
+    await finish(result);
   } else if (input.action === "statement") {
     await finish(await getAccountStatement(input.userId));
   } else {

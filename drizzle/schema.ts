@@ -1917,6 +1917,28 @@ export const phoneLoginChallenges = mysqlTable("phone_login_challenges", {
 export type PhoneLoginChallenge = typeof phoneLoginChallenges.$inferSelect;
 
 /**
+ * PlatformRegistrationChallenges — 平台新用户注册授权。
+ *
+ * 浏览器密钥、平台 openId、验证码和邮箱/手机号只存摘要。
+ * 同一行上的验证码与授权一起提交，避免外壳进库而验证码留在进程内存。
+ */
+export const platformRegistrationChallenges = mysqlTable("platform_registration_challenges", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  browserHash: varchar("browserHash", { length: 64 }).notNull(),
+  openIdHash: varchar("openIdHash", { length: 64 }).notNull(),
+  name: varchar("name", { length: 255 }),
+  loginMethod: varchar("loginMethod", { length: 64 }),
+  expiresAt: timestamp("expiresAt").notNull(),
+  consumedAt: timestamp("consumedAt"),
+  otpChannel: mysqlEnum("otpChannel", ["email", "phone"]),
+  otpSubjectHash: varchar("otpSubjectHash", { length: 64 }),
+  otpCodeHash: varchar("otpCodeHash", { length: 64 }),
+  otpExpiresAt: timestamp("otpExpiresAt"),
+  otpAttempts: int("otpAttempts").default(0).notNull(),
+});
+export type PlatformRegistrationChallengeRow = typeof platformRegistrationChallenges.$inferSelect;
+
+/**
  * AccountCredentials — 密码等可校验凭据。
  *
  * `secret` 存版本化 scrypt record（含算法参数与随机 salt），永远不是裸 SHA-256。

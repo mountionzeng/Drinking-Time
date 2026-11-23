@@ -651,12 +651,17 @@ export async function consumeDevicePairingCode(input: {
   });
 }
 
+type Database = NonNullable<Awaited<ReturnType<typeof getDb>>>;
+type RateLimitExecutor = Parameters<Parameters<Database["transaction"]>[0]>[0];
+
 export async function consumePersistentRateLimit(input: {
   scope: string;
   subject: string;
   windowSeconds: number;
   maxAttempts: number;
   now?: Date;
+  /** 与注册用户、赠送同一事务。传入后不再另开连接。 */
+  executor?: RateLimitExecutor;
 }): Promise<RateLimitDecision> {
   const current = input.now ?? new Date();
   const windowMs = input.windowSeconds * 1000;
@@ -695,6 +700,7 @@ export async function consumePersistentRateLimit(input: {
     };
   };
 
+  if (input.executor) return writePersistentRateLimit(input.executor, input, current, decide);
   const db = await getDb();
   if (!db) {
     return memoryRateLimitLock.run(key, async () => {
@@ -724,47 +730,54 @@ export async function consumePersistentRateLimit(input: {
     });
   }
 
-  return db.transaction(async tx => {
-    await tx
-      .insert(accountRateLimits)
-      .values({
-        scope: input.scope,
-        subject: input.subject,
-        windowSeconds: input.windowSeconds,
-        windowStartedAt: current,
-        attemptCount: 0,
-      })
-      .onDuplicateKeyUpdate({ set: { windowSeconds: input.windowSeconds } });
+  return db.transaction(tx => writePersistentRateLimit(tx, input, current, decide));
+}
 
-    const [row] = await tx
-      .select()
-      .from(accountRateLimits)
-      .where(
-        and(
-          eq(accountRateLimits.scope, input.scope),
-          eq(accountRateLimits.subject, input.subject)
-        )
+async function writePersistentRateLimit(
+  tx: RateLimitExecutor,
+  input: { scope: string; subject: string; windowSeconds: number },
+  current: Date,
+  decide: (
+    windowStartedAt: Date,
+    attemptCount: number
+  ) => { decision: RateLimitDecision; nextStartedAt: Date; nextCount: number },
+) {
+  await tx
+    .insert(accountRateLimits)
+    .values({
+      scope: input.scope,
+      subject: input.subject,
+      windowSeconds: input.windowSeconds,
+      windowStartedAt: current,
+      attemptCount: 0,
+    })
+    .onDuplicateKeyUpdate({ set: { windowSeconds: input.windowSeconds } });
+
+  const [row] = await tx
+    .select()
+    .from(accountRateLimits)
+    .where(
+      and(
+        eq(accountRateLimits.scope, input.scope),
+        eq(accountRateLimits.subject, input.subject)
       )
-      .for("update")
-      .limit(1);
+    )
+    .for("update")
+    .limit(1);
 
-    const outcome = decide(
-      row?.windowStartedAt ?? current,
-      row?.attemptCount ?? 0
+  const outcome = decide(row?.windowStartedAt ?? current, row?.attemptCount ?? 0);
+  await tx
+    .update(accountRateLimits)
+    .set({
+      windowStartedAt: outcome.nextStartedAt,
+      attemptCount: outcome.nextCount,
+      windowSeconds: input.windowSeconds,
+    })
+    .where(
+      and(
+        eq(accountRateLimits.scope, input.scope),
+        eq(accountRateLimits.subject, input.subject)
+      )
     );
-    await tx
-      .update(accountRateLimits)
-      .set({
-        windowStartedAt: outcome.nextStartedAt,
-        attemptCount: outcome.nextCount,
-        windowSeconds: input.windowSeconds,
-      })
-      .where(
-        and(
-          eq(accountRateLimits.scope, input.scope),
-          eq(accountRateLimits.subject, input.subject)
-        )
-      );
-    return outcome.decision;
-  });
+  return outcome.decision;
 }

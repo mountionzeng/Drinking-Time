@@ -8,10 +8,11 @@ import {
 } from "../services/computeRequestAccess";
 import { runMeteredCompute } from "../services/computeMetering";
 import type { ProviderOutcome } from "../services/computeBilling";
+import { recordOperationProviderAttempt } from "../services/computeLedger";
 import {
-  estimateInferenceMaxCostMinor,
+  freezeInferenceQuote,
   inferenceRequestHash,
-  inferenceVerifiedCostMinor,
+  settleAcceptedInference,
   shouldMeterInference,
 } from "./inferenceBilling";
 import {
@@ -172,6 +173,7 @@ export type InferenceOutcome = {
   latencyMs: number;
   /** 前面失败过的尝试，供调用方做可观测性判断。 */
   priorFailures: readonly AttemptError[];
+  billing?: { operationId: string; state: "settled" | "pending_reconciliation" };
 };
 
 const MAX_PROVIDER_ATTEMPTS = 2;
@@ -536,6 +538,7 @@ async function attemptOpenAiCompatible(
 }
 
 type ClaudeMessageResponse = {
+  id?: string;
   content?: Array<{ type?: string; text?: string }>;
   model?: string;
   usage?: {
@@ -668,7 +671,7 @@ async function attemptClaudeMessages(
   return {
     ok: true,
     result: {
-      id: "",
+      id: data.id ?? "",
       created: Math.floor(Date.now() / 1000),
       model: data.model || candidate.model,
       usage: normalizeClaudeUsage(data.usage),
@@ -727,18 +730,12 @@ export async function runInference(
     resolveComputeCandidates(request.useCase, request.candidates);
   if (resolved.length === 0) return runInferenceChain(request);
 
-  const maxCostMinor = estimateInferenceMaxCostMinor(request, resolved);
   const operationId = `inference:${randomUUID()}`;
-  const metered = await runMeteredCompute({
+  const metered = await runBilledInference(request, {
     userId: scope.userId,
     operationId,
     operationType: `inference.${request.useCase}`,
-    requestHash: inferenceRequestHash(request, resolved),
-    maxCostMinor,
-    run: () => runInferenceChain({ ...request, explicitCandidates: resolved }, true),
-    costOf: outcome => inferenceVerifiedCostMinor(outcome, maxCostMinor),
-    failureOutcome: inferenceFailureOutcome,
-  });
+  }, resolved);
   if (metered.kind === "completed") {
     const s = metered.settlement;
     const chargeMinor =
@@ -749,7 +746,14 @@ export async function runInference(
     }
     if (chargeMinor > 0)
       inferenceBillingScope.getStore()?.push({ operationId, chargeMinor });
-    return metered.value;
+    return {
+      ...metered.value,
+      billing: {
+        operationId,
+        state: s.outcome === "settled" || (s.outcome === "already_final" && s.status === "settled")
+          ? "settled" : "pending_reconciliation",
+      },
+    };
   }
   if (metered.kind === "failed") throw metered.error;
   if (metered.kind === "insufficient_balance") {
@@ -758,15 +762,54 @@ export async function runInference(
       message: "算力余额不足，无法调用 AI。你仍可查看和手工编辑已有内容。",
     });
   }
+  if (metered.kind === "rejected" && metered.reason === "no_trusted_max_cost") {
+    throw new ComputeAccessError({
+      code: "SERVICE_UNAVAILABLE",
+      message: "此模型尚未配置可信算力报价，未发起调用。",
+    });
+  }
   throw new ComputeAccessError({
     code: "SERVICE_UNAVAILABLE",
     message: "暂时无法核对算力余额，请稍后再试。",
   });
 }
 
+/** Shared by regular inference and the annotation path that owns a stable operation ID. */
+export async function runBilledInference(
+  request: InferenceRequest,
+  billing: { userId: number; operationId: string; operationType: string; maxCostMinor?: number },
+  candidates = request.explicitCandidates ?? resolveComputeCandidates(request.useCase, request.candidates),
+) {
+  const quote = freezeInferenceQuote(request, candidates);
+  if (!quote) return { kind: "rejected", reason: "no_trusted_max_cost" } as const;
+  return runMeteredCompute({
+    ...billing,
+    requestHash: inferenceRequestHash(request, candidates),
+    maxCostMinor: billing.maxCostMinor ?? quote.maxCostMinor,
+    run: () => runInferenceChain({ ...request, explicitCandidates: candidates }, true, async (index, candidate) => {
+      const price = quote.prices.find(p => p.provider === candidate.id && p.model === candidate.model);
+      try {
+        const prepared = await recordOperationProviderAttempt({
+          operationId: billing.operationId, attemptIndex: index,
+          provider: candidate.id, model: candidate.model,
+          status: "prepared",
+          usage: { kind: "inference_quote", yuanPer1kTokens: price?.yuanPer1kTokens },
+        });
+        if (prepared.kind === "recorded") return;
+      } catch {
+        // The attempt is still before dispatch. Do not send if its quote cannot be recorded.
+      }
+      throw new ComputeAccessError({ code: "SERVICE_UNAVAILABLE", message: "暂时无法保存算力报价，未发起调用。" });
+    }),
+    settleSuccess: outcome => settleAcceptedInference(billing.operationId, outcome, quote.prices),
+    failureOutcome: inferenceFailureOutcome,
+  });
+}
+
 async function runInferenceChain(
   request: InferenceRequest,
-  stopOnUnknownSubmission = false
+  stopOnUnknownSubmission = false,
+  prepareAttempt?: (index: number, candidate: InferenceCandidate) => Promise<void>,
 ): Promise<InferenceOutcome> {
   const now = request.now ?? (() => Date.now());
   const startedAt = now();
@@ -815,6 +858,10 @@ async function runInferenceChain(
     if (remainingMs !== undefined && remainingMs <= 0) break;
 
     const candidate = candidates[candidateIndex];
+    if (prepareAttempt) {
+      await prepareAttempt(attemptsUsed + 1, candidate);
+      if (request.signal?.aborted) throw new InferenceError("LLM invoke aborted by caller", failures);
+    }
     const capabilities = describeModelCapabilities(candidate.model);
     const attemptStartedAt = now();
 

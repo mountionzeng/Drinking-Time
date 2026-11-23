@@ -8,6 +8,7 @@ import { ENV } from '../_core/env';
 
 vi.mock('../db', () => ({
   createSemanticAnnotation: vi.fn(),
+  recordProviderAttempt: async () => ({ kind: 'recorded' }),
 }));
 
 vi.mock('./computeMetering', () => ({
@@ -119,6 +120,8 @@ function makeAnnotation(overrides?: Partial<SemanticAnnotation>): SemanticAnnota
 
 describe('generateAnnotation', () => {
   beforeEach(() => {
+    vi.stubEnv('TEXT_PRICE_OPENAI_NEXT_PER_1K_YUAN', '1');
+    vi.stubEnv('TEXT_PRICE_302_PER_1K_YUAN', '1');
     // 计费层直通：真正跑 run，结算结果固定为已结算。
     mockMetered.mockReset();
     mockMetered.mockImplementation(async (input) => {
@@ -150,6 +153,7 @@ describe('generateAnnotation', () => {
       llmModel: originalOpenAINext.llmModel,
     });
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 
   it('routes semantic annotation through OpenAI Next when configured', async () => {

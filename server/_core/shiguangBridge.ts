@@ -10,7 +10,7 @@ export type ShiguangBridgeDependencies = {
   secret: string;
   ready: () => Promise<boolean>;
   allow: (subject: string) => Promise<boolean>;
-  resolve: (subject: string) => Promise<number>;
+  resolve: (subject: string) => Promise<number | null>;
   principal: (userId: number) => Promise<Principal | null | undefined>;
   emailHint: (userId: number) => Promise<string | null>;
   requestOtp: (user: Principal, email: string, requestKey: string) => Promise<"sent" | "rate_limited" | "unavailable">;
@@ -57,11 +57,18 @@ export function createShiguangBridgeRouter(deps: ShiguangBridgeDependencies) {
       if (!res.headersSent) res.status(503).json({ error: "unavailable" });
     }
   });
-  const endpoint = (handler: (req: Request, res: Response, user: Principal, subject: string) => Promise<void>) =>
+  const endpoint = (
+    handler: (req: Request, res: Response, user: Principal, subject: string) => Promise<void>,
+    unregistered?: (res: Response) => void,
+  ) =>
     async (req: Request, res: Response) => {
       try {
         const subject = res.locals.shiguangSubject as string;
         const userId = await deps.resolve(subject);
+        if (userId === null) {
+          if (unregistered) return unregistered(res);
+          return res.status(409).json({ error: "registration_required" });
+        }
         const user = await deps.principal(userId);
         if (!user) return res.status(503).json({ error: "unavailable" });
         await handler(req, res, user, subject);
@@ -87,7 +94,7 @@ export function createShiguangBridgeRouter(deps: ShiguangBridgeDependencies) {
   router.post("/status", endpoint(async (_req, res, user) => {
     const emailHint = await deps.emailHint(user.id);
     res.json({ linked: Boolean(emailHint), emailHint: emailHint ?? "" });
-  }));
+  }, res => { res.json({ linked: false, emailHint: "" }); }));
   router.post("/stories", endpoint(async (req, res, user) => {
     if (!await deps.emailHint(user.id)) return void res.status(409).json({ error: "not_linked" });
     const cursor = req.body?.cursor ?? 0;

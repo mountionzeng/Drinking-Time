@@ -22,6 +22,8 @@ import {
   upsertUser,
 } from "../db";
 import { issueEmailOtp, setAccountPassword } from "../services/accountIdentity";
+import { getAccountBalance } from "../services/computeLedger";
+import { WEB_LOGIN_GIFT_MINOR } from "../services/webLoginGift";
 import { hashInviteCode } from "../services/inviteAccess";
 import { ENV } from "./env";
 import { registerOAuthRoutes } from "./oauth";
@@ -158,7 +160,12 @@ describe("现有邀请码登录链路（characterization）", () => {
     expect(token).not.toBeNull();
     const session = await sdk.verifySession(token);
     expect(session?.openId).toBe(`email:${email}`);
-    expect(await getUserByOpenId(`email:${email}`)).toBeDefined();
+    const created = await getUserByOpenId(`email:${email}`);
+    expect(created).toBeDefined();
+    expect((await getAccountBalance(created!.id)).balanceMinor).toBe(WEB_LOGIN_GIFT_MINOR);
+    const again = await post("/api/auth/email/invite-login", { email, inviteCode });
+    expect(again.status).toBe(200);
+    expect((await getAccountBalance(created!.id)).balanceMinor).toBe(WEB_LOGIN_GIFT_MINOR);
   });
 
   it("OTP 请求与校验走通后建立会话", async () => {
@@ -507,6 +514,7 @@ describe("直连 Google 登录兼容路径", () => {
     const session = await sdk.verifySession(sessionCookieFrom(response));
     expect(session?.openId).toBe(`email:${email}`);
     expect(await getLoginIdentity("google", "direct-subject")).toMatchObject({ userId: existing!.id });
+    expect((await getAccountBalance(existing!.id)).balanceMinor).toBe(0);
   });
 
   it("拒绝 Google 没有确认的邮箱", async () => {

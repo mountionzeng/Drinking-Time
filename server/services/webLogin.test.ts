@@ -13,7 +13,7 @@ vi.mock("../repositories/accounts", () => ({
     store.limited.has(input.scope) ? { allowed: false, attemptCount: 99, retryAfterMs: 1000 } : { allowed: true, attemptCount: 1, retryAfterMs: 0 }),
 }));
 vi.mock("./accountIdentity", () => ({
-  resolveWechatAccount: vi.fn(async () => 77),
+  registerWechatAccountOnExecutor: vi.fn(async () => 77),
   bindWechatAccount: vi.fn(async (_userId: number, _subject: string, tx?: unknown) => { bind.transactions.push(tx); return bind.result; }),
 }));
 const profile = vi.hoisted(() => ({ save: vi.fn(), method: "wechat" }));
@@ -38,13 +38,16 @@ vi.mock("../repositories/webLoginRequests", () => ({
     Object.assign(row, { status: input.status, userId: input.userId, confirmedAt: input.now });
     return true;
   }),
-  decideWebLoginWithBinding: vi.fn(async (input: { id: number; now: Date; bind: (userId: number, tx: unknown) => Promise<"bound" | "merge_required"> }) => {
+  confirmWebLoginWithAccount: vi.fn(async (input: {
+    id: number;
+    now: () => Date;
+    resolve: (row: Row, tx: unknown) => Promise<{ outcome: "confirmed"; userId: number } | { outcome: "merge_required" }>;
+  }) => {
     const row = store.rows.find(item => item.id === input.id);
-    if (!row || !row.bindUserId || !["pending", "scanned"].includes(row.status) || row.expiresAt <= input.now) return "invalid";
-    const outcome = await input.bind(row.bindUserId, transaction);
-    Object.assign(row, { status: outcome, userId: outcome === "bound" ? row.bindUserId : null, confirmedAt: input.now });
-    if (outcome === "bound") row.status = "confirmed";
-    return outcome;
+    if (!row || !["pending", "scanned"].includes(row.status) || row.expiresAt <= input.now()) return { outcome: "invalid" };
+    const decision = await input.resolve(row, transaction);
+    Object.assign(row, { status: decision.outcome, userId: decision.outcome === "confirmed" ? decision.userId : null, confirmedAt: input.now() });
+    return { ...decision, mode: row.mode };
   }),
   consumeConfirmedWebLogin: vi.fn(async (input: { lookupHash: string; verifierHash: string; now: Date }) => {
     const row = store.rows.find(item => item.lookupHash === input.lookupHash && item.verifierHash === input.verifierHash && item.status === "confirmed" && !item.consumedAt);
@@ -99,7 +102,7 @@ describe("网页登录请求", () => {
     expect(c.clientHint).toBe("Mac · Chrome");
   });
 
-  it("确认后登录到 resolveWechatAccount 返回的 userId，且只能取一次", async () => {
+  it("确认后登录到事务返回的 userId，且只能取一次", async () => {
     const c = await create();
     expect(await confirmWebLoginBySubject({ subject, code: c.code, decision: "confirm", now: later(5_000) })).toEqual({ outcome: "confirmed" });
     const first = await pollWebLoginRequest({ l: c.l, v: c.v, requestIp: "1.2.3.4", now: later(6_000) });
@@ -186,6 +189,22 @@ describe("网页登录请求", () => {
     const expired = await create({ bindUserId: 5 });
     expect(await confirmWebLoginBySubject({ subject, code: expired.code, decision: "confirm", now: later(121_000) })).toEqual({ outcome: "invalid" });
     expect(bind.transactions).toHaveLength(0);
+  });
+
+  it("缺失、明文 openid 和重放都不能绑定", async () => {
+    expect(await confirmWebLoginBySubject({ subject, code: "ABCDEF", decision: "confirm", now: later(1_000) })).toEqual({ outcome: "invalid" });
+    const fresh = await create({ bindUserId: 5 });
+    expect(await confirmWebLoginBySubject({
+      subject: "wx0000000000000001:openid", code: fresh.code, decision: "confirm", now: later(1_000),
+    })).toEqual({ outcome: "invalid" });
+    expect(bind.transactions).toHaveLength(0);
+    expect(await confirmWebLoginBySubject({ subject, code: fresh.code, decision: "confirm", now: later(2_000) })).toEqual({ outcome: "confirmed" });
+    expect(bind.transactions).toHaveLength(1);
+    expect(await confirmWebLoginBySubject({ subject, code: fresh.code, decision: "confirm", now: later(3_000) })).toEqual({ outcome: "invalid" });
+    expect(bind.transactions).toHaveLength(1);
+    const expired = await create({ bindUserId: 5 });
+    expect(await confirmWebLoginBySubject({ subject, code: expired.code, decision: "confirm", now: later(121_000) })).toEqual({ outcome: "invalid" });
+    expect(bind.transactions).toHaveLength(1);
   });
 
   it("只记粗粒度的系统和浏览器", () => {

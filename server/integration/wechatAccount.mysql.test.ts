@@ -63,6 +63,8 @@ mysqlTest('racing bindings have one owner; login resolves it; retry is idempoten
       expect(Number(rows[0].n)).toBe(2);
       const [identities] = await pool.query<mysql.RowDataPacket[]>('SELECT userId FROM account_identities');
       expect(identities).toHaveLength(1); expect(identities[0].userId).toBe(owner);
+      const [gifts] = await pool.query<mysql.RowDataPacket[]>('SELECT COUNT(*) AS n FROM credit_ledger_entries');
+      expect(Number(gifts[0].n)).toBe(0);
     } finally { await pool.end(); }
   });
 }, 120000);
@@ -81,6 +83,13 @@ mysqlTest('binding and first login racing never transfer an identity or orphan a
       await expect(bindWechatAccount(2147483000, 'wxd6aeb0bc3a031d39:missing-user')).rejects.toThrow();
       const [identities] = await pool.query<mysql.RowDataPacket[]>('SELECT COUNT(*) AS n FROM account_identities');
       expect(Number(identities[0].n)).toBe(1);
+      const [gifts] = await pool.query<mysql.RowDataPacket[]>('SELECT userId, amountMinor FROM credit_ledger_entries');
+      if (loggedIn === account.insertId) expect(gifts).toHaveLength(0);
+      else {
+        expect(gifts).toHaveLength(1);
+        expect(Number(gifts[0].userId)).toBe(loggedIn);
+        expect(Number(gifts[0].amountMinor)).toBe(WECHAT_REGISTRATION_GIFT_MINOR);
+      }
     } finally { await pool.end(); }
   });
 }, 120000);
