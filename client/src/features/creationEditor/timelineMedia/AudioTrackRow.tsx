@@ -1,3 +1,4 @@
+import { TimelinePositionView } from "../useTimelinePlaybackClock";
 import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 /**
  * Formal U6 audio lanes. They share the Storyboard viewport and interaction
@@ -200,7 +201,6 @@ export function AudioTrackRow({
   const _ui = useDesktopUiText();
   const [drag, setDrag] = useState<AudioDragState | null>(null);
   const profile = timelineMediaKindProfile(track.kind);
-  const playheadPx = storyboardEditPlayheadPx(playheadMs, viewport);
 
   const beginDrag = useCallback(
     (
@@ -414,13 +414,16 @@ export function AudioTrackRow({
           </div>
         );
       })}
-      {playheadPx != null ? (
+      <TimelinePositionView fallbackMs={playheadMs}>{ms => {
+        const playheadPx = storyboardEditPlayheadPx(ms, viewport);
+        return playheadPx != null ? (
         <span
           className="pointer-events-none absolute bottom-0 top-0 z-30 w-px -translate-x-1/2 bg-rose-500"
           style={{ left: playheadPx }}
           data-testid={`storyboard-audio-playhead-${track.kind}`}
         />
-      ) : null}
+      ) : null;
+      }}</TimelinePositionView>
       <span aria-live="polite" className="sr-only">
         {pending ? _ui("{0}保存中", [_ui(profile.label)]) : (error ?? "")}
       </span>

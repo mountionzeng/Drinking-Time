@@ -36,6 +36,7 @@ type UseVoiceInputOptions = {
   preferLive?: boolean;
   allowLocalTranscription?: boolean;
   onPreview?: (text: string) => void;
+  onRecordingStarted?: () => void;
   scopeKey?: string | number;
 };
 
@@ -86,6 +87,7 @@ export function useVoiceInput({
   preferLive = false,
   allowLocalTranscription = false,
   onPreview,
+  onRecordingStarted,
   scopeKey,
 }: UseVoiceInputOptions) {
   const [status, setStatus] = useState<VoiceInputStatus>("idle");
@@ -93,8 +95,8 @@ export function useVoiceInput({
   const [localRecovery, setLocalRecovery] = useState(false);
   const liveSession = useRef<ReturnType<typeof startLiveDictation> | null>(null);
   const liveState = useRef<DictationState>("idle");
-  const callbacks = useRef({ onTranscribed, onPreview, onError });
-  callbacks.current = { onTranscribed, onPreview, onError };
+  const callbacks = useRef({ onTranscribed, onPreview, onError, onRecordingStarted });
+  callbacks.current = { onTranscribed, onPreview, onError, onRecordingStarted };
   const currentScope = useRef(scopeKey);
   currentScope.current = scopeKey;
   const chunksRef = useRef<BlobPart[]>([]);
@@ -221,6 +223,7 @@ export function useVoiceInput({
           },
           onState: next => {
             if (!active()) return;
+            if (next === "listening") callbacks.current.onRecordingStarted?.();
             liveState.current = next;
             setStatus(next === "listening" ? "recording" : next === "stopping" ? "transcribing" : next);
           },
@@ -295,6 +298,7 @@ export function useVoiceInput({
       };
 
       recorder.start();
+      callbacks.current.onRecordingStarted?.();
       if (allowLocalTranscription) {
         setLocalRecovery(true);
         recordingLimit.current = setTimeout(() => {

@@ -2,6 +2,7 @@ import { archiveMessagesFrom } from "./archiveChatMessages";
 export { archiveMessagesFrom } from "./archiveChatMessages";
 import { hasInlineChatImages, inlineChatInstruction } from "@shared/inlineChatImages";
 import { appendCommandConversation, insertTurnReply, interruptedChatReply } from "./commandConversation";
+import { isFeedbackQuote } from "./timelineFeedbackLocation";
 import { type StudioUiContext } from "@shared/studioAssistant";
 import type { StudioCommandOutcome } from "./useStudioAssistant";
 import type { GenerationProfileArg, StoryboardImageRerenderResult, StoryboardImageRerenderRunner } from "./types";
@@ -36,7 +37,7 @@ import {
 import { toast } from "sonner";
 import type { WritingCompanionSnapshot } from "@/features/writingCompanion/writingCompanionText";
 
-type ChatSendOptions = { clientMessageId?: string; writingContext?: WritingCompanionSnapshot; workspaceContext?: "book" | "video"; selection?: SelectionState | null };
+type ChatSendOptions = { clientMessageId?: string; writingContext?: WritingCompanionSnapshot; workspaceContext?: "book" | "video"; selection?: SelectionState | null; onMessageAdded?: () => void };
 import { LegacyStoryRecovery } from "./views/LegacyStoryRecovery";
 import { restoreLegacyDraftToCurrentAccount } from "./restoreLegacyDraftToCurrentAccount";
 import { artTargetFrom } from "./storyAgentUtils";
@@ -1767,8 +1768,9 @@ export function StoryAgentProvider({
         pendingIntentDraft, activeSelection: currentSelection, activeStoryId, isReplying } = current;
       const inlineImages = hasInlineChatImages(text);
       const submittedSelection = options?.selection !== undefined ? options.selection : currentSelection;
-      const namedShot = !inlineImages && options?.workspaceContext === "video" ? resolveConversationShot(text, storyShots) : undefined;
-      const activeSelection = namedShot && activeStoryId ? shotConversationSelection(activeStoryId, namedShot)
+      const timeFeedback = options?.workspaceContext === "video" && isFeedbackQuote(options.selection) && options.selection?.storyId === activeStoryId;
+      const namedShot = !timeFeedback && !inlineImages && options?.workspaceContext === "video" ? resolveConversationShot(text, storyShots) : undefined;
+      const activeSelection = timeFeedback ? submittedSelection : namedShot && activeStoryId ? shotConversationSelection(activeStoryId, namedShot)
         : options?.workspaceContext === "video" && hasConversationShotReference(text) ? null : submittedSelection;
       const isCurrent = () => {
         const latest = storySpineStore.getState();
@@ -1858,13 +1860,14 @@ export function StoryAgentProvider({
         submitted = userMsg;
         let nextMessages = [...storySpineStore.getState().messages, userMsg];
         setMessages(nextMessages);
+        options?.onMessageAdded?.();
 
-        const interfaceOutcome: (StudioCommandOutcome & { frameReferences?: ChatMessage["frameReferences"]; frameReview?: ChatMessage["frameReview"]; imageEditPlan?: ChatMessage["imageEditPlan"]; transitionCandidate?: Omit<EditingTransitionCandidateReference, "status" | "error"> }) | null = !inlineImages && !photoBase64 && interfaceCommandRunner ? await interfaceCommandRunner(trimmed, submittedUi) : null;
+        const interfaceOutcome: (StudioCommandOutcome & { frameReferences?: ChatMessage["frameReferences"]; frameReview?: ChatMessage["frameReview"]; imageEditPlan?: ChatMessage["imageEditPlan"]; transitionCandidate?: Omit<EditingTransitionCandidateReference, "status" | "error"> }) | null = !timeFeedback && !inlineImages && !photoBase64 && interfaceCommandRunner ? await interfaceCommandRunner(trimmed, submittedUi) : null;
         if (interfaceOutcome?.handled) {
           nextMessages = nextMessages.map(m => m.id === userMsg.id ? { ...m, interfaceAction: true } : m);
           setMessages(nextMessages);
         }
-        const artCommand = !inlineImages && !interfaceOutcome?.handled && !parseVisualUnderstandingChat(trimmed) && !warehouseFileChatIds(trimmed).length && !isFrameReferenceChat(trimmed) && !emotionCommand && !photoBase64 && !parseArtPreviewChat(trimmed) && parseArtSystemChat(trimmed, Boolean(artDirection.recipe?.system) && !activeSelection);
+        const artCommand = !timeFeedback && !inlineImages && !interfaceOutcome?.handled && !parseVisualUnderstandingChat(trimmed) && !warehouseFileChatIds(trimmed).length && !isFrameReferenceChat(trimmed) && !emotionCommand && !photoBase64 && !parseArtPreviewChat(trimmed) && parseArtSystemChat(trimmed, Boolean(artDirection.recipe?.system) && !activeSelection);
         if (artCommand) {
           return sendArtSystemChat({ command: artCommand, instruction: trimmed,
             storyId: resolvePersistedStoryId(activeStoryId, remoteStoryId),
@@ -1883,7 +1886,7 @@ export function StoryAgentProvider({
         if (interfaceOutcome?.handled || (
           editingCommandRunner &&
           !inlineImages &&
-          !emotionCommand &&
+          (timeFeedback || !emotionCommand) &&
           !options?.writingContext &&
           trimmed &&
           !photoBase64 &&
@@ -1932,9 +1935,12 @@ export function StoryAgentProvider({
                 activeStoryId,
                 remoteStoryId
               );
-              await appendCommandConversation(appendConversationTurnMut.mutateAsync,
+              const savedTurn = await appendCommandConversation(appendConversationTurnMut.mutateAsync,
                 conversationStoryId, userMsg, replyMsg, activeSelection);
-              if (isCurrent()) {
+              if (timeFeedback && !savedTurn && isCurrent()) {
+                setMessages(rows => rows.map(row => row.id === replyMsg.id
+                  ? { ...row, content: row.content + " 这条定位暂时只保存在当前窗口。" } : row));
+              } else if (!timeFeedback && isCurrent()) {
                 const latest = storySpineStore.getState();
                 await saveArchiveStory({ ...latest, baseRevision: latest.serverRevision });
               }

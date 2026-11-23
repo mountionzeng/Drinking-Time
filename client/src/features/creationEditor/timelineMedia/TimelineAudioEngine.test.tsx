@@ -9,6 +9,23 @@ import {
   createTimelineAudioRuntime,
   type TimelineAudioContextLike,
 } from "./TimelineAudioEngine";
+import { isVideoOnlyMp4 } from "./embeddedAudio";
+
+function movieWithTracks(...handlers: string[]) {
+  const box = (type: string, ...contents: Buffer[]) => {
+    const body = Buffer.concat(contents);
+    const header = Buffer.alloc(8);
+    header.writeUInt32BE(8 + body.length);
+    header.write(type, 4);
+    return Buffer.concat([header, body]);
+  };
+  const tracks = handlers.map(type => {
+    const fields = Buffer.alloc(24);
+    fields.write(type, 8);
+    return box("trak", box("mdia", box("hdlr", fields)));
+  });
+  return Uint8Array.from(box("moov", ...tracks)).buffer;
+}
 
 class FakeAudioBuffer {
   duration = 20;
@@ -114,6 +131,70 @@ function syncInput(
 }
 
 describe("TimelineAudioEngine runtime", () => {
+  it("prepares the parked music without playing it, then reuses the decode on Play", async () => {
+    const context = new FakeAudioContext();
+    context.state = "suspended";
+    const loadArrayBuffer = vi.fn(async () => new ArrayBuffer(8));
+    const runtime = createTimelineAudioRuntime({ audioContext: context, loadArrayBuffer });
+    const plan = planWithClip();
+    await runtime.sync(syncInput(plan, { isPlaying: false }));
+    expect(context.sources).toHaveLength(0);
+    expect(context.resume).not.toHaveBeenCalled();
+    await runtime.sync(syncInput(plan));
+    expect(loadArrayBuffer).toHaveBeenCalledTimes(1);
+    expect(context.decodeAudioData).toHaveBeenCalledTimes(1);
+    expect(context.sources).toHaveLength(1);
+  });
+  it("uses current playback time when decoding or UI work finishes late", async () => {
+    const context = new FakeAudioContext();
+    let frame = 0;
+    const readCurrentFrame = () => frame;
+    const runtime = createTimelineAudioRuntime({
+      audioContext: context,
+      loadArrayBuffer: async () => { frame = 15; return new ArrayBuffer(8); },
+    });
+    const input = { ...syncInput(planWithClip()), readCurrentFrame };
+    await runtime.sync(input);
+    expect(context.sources[0].starts[0].offset).toBeCloseTo(1.5);
+    context.currentTime += 1;
+    frame += 30;
+    await runtime.sync(input);
+    expect(context.sources).toHaveLength(1);
+    frame = 140;
+    await runtime.sync(input);
+    expect(context.sources).toHaveLength(2);
+    expect(context.sources[1].starts[0].offset).toBeCloseTo(1 + 140 / 30);
+  });
+
+  it("skips confirmed video-only files once, decodes embedded audio and reports real damage", async () => {
+    const silent = movieWithTracks("vide");
+    const sound = movieWithTracks("vide", "soun");
+    const truncated = silent.slice(0, -1);
+    expect(isVideoOnlyMp4(silent)).toBe(true);
+    expect(isVideoOnlyMp4(sound)).toBe(false);
+    expect(isVideoOnlyMp4(truncated)).toBe(false);
+    const context = new FakeAudioContext();
+    const onInputError = vi.fn();
+    const loadArrayBuffer = vi.fn(async () => silent);
+    const runtime = createTimelineAudioRuntime({ audioContext: context, loadArrayBuffer, onInputError });
+    const plan = planWithClip();
+    const visualPlan: AudioMixPlan = { ...plan, inputs: plan.inputs.map(track => ({
+      ...track, kind: "visual-source", source: { kind: "visual-source", visualSourceId: "clip" }
+    })) };
+    const input = syncInput(visualPlan);
+    await runtime.sync(input);
+    await runtime.sync(input);
+    expect(loadArrayBuffer).toHaveBeenCalledTimes(1);
+    expect(context.decodeAudioData).not.toHaveBeenCalled();
+    expect(onInputError).not.toHaveBeenCalled();
+    loadArrayBuffer.mockResolvedValue(sound);
+    await runtime.sync({ ...input, resolveSourceUrl: () => "/with-audio.mp4" });
+    expect(context.sources).toHaveLength(1);
+    loadArrayBuffer.mockResolvedValue(truncated);
+    context.decodeAudioData.mockRejectedValueOnce(new Error("unreadable"));
+    await runtime.sync({ ...input, resolveSourceUrl: () => "/damaged.mp4" });
+    expect(onInputError).toHaveBeenCalledOnce();
+  });
   it("plays, pauses, resumes and seeks into the middle with the correct source offset", async () => {
     const context = new FakeAudioContext();
     const runtime = createTimelineAudioRuntime({

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import {
   advanceTimelinePlayhead,
   clampTimelinePlayheadMs,
@@ -30,6 +30,27 @@ export type TimelinePlaybackClockState = {
   playheadMs: number;
   isPlaying: boolean;
 };
+
+/** Only the moving parts of the editor subscribe to individual frames. */
+export type TimelinePosition = {
+  subscribe: (listener: () => void) => () => void;
+  getTimeMs: () => number;
+  getPlaybackTimeMs: () => number;
+};
+
+const noSubscription = () => () => {};
+export const TimelinePositionContext = createContext<TimelinePosition | undefined>(undefined);
+
+export function useTimelinePosition(position: TimelinePosition | undefined, fallbackMs: number) {
+  return useSyncExternalStore(position?.subscribe ?? noSubscription,
+    position?.getTimeMs ?? (() => fallbackMs), () => fallbackMs);
+}
+
+/** Subscribe only the moving marker, leaving its track and clips mounted. */
+export function TimelinePositionView(props: { fallbackMs: number; children: (ms: number) => ReactNode }) {
+  const position = useContext(TimelinePositionContext);
+  return props.children(useTimelinePosition(position, props.fallbackMs));
+}
 
 export type FrozenTimelineFrame = {
   timelineFrame: number;
@@ -67,6 +88,8 @@ export function resolvePlayRequest(
 export function createTimelinePlaybackRuntime(input: {
   totalMs: number;
   onPlayheadCommit?: (playheadMs: number) => void;
+  now?: () => number;
+  afterVideoFrame?: (publish: () => void) => void;
 }) {
   const normalizeTotalMs = (value: number) =>
     Number.isFinite(value) ? Math.max(0, value) : 0;
@@ -77,12 +100,72 @@ export function createTimelinePlaybackRuntime(input: {
     isPlaying: false,
   };
 
-  const commit = (next: TimelinePlaybackClockState) => {
+  const listeners = new Set<() => void>();
+  const subscribe = (listener: () => void) => {
+    listeners.add(listener);
+    return () => { listeners.delete(listener); };
+  };
+  let editorState = state;
+  let pendingEditorFrame = false;
+  let transportEpoch = 0;
+  let boundaries: readonly number[] = [];
+  let canPresentBeforeEditor: ((ms: number) => boolean) | undefined;
+  const now = input.now ?? (() => performance.now());
+  let originMs = 0;
+  const position: TimelinePosition = {
+    subscribe,
+    getTimeMs: () => state.playheadMs,
+    // Audio continues on its own clock while the main thread is painting.
+    getPlaybackTimeMs: () => state.isPlaying
+      ? clampTimelinePlayheadMs(now() - originMs, totalMs)
+      : state.playheadMs,
+  };
+  const changePlaying = (playing: boolean) => {
+    if (playing === state.isPlaying) return state;
+    const next = commit(resolvePlayRequest(state, playing, totalMs));
+    onPlayheadCommit?.(next.playheadMs);
+    return next;
+  };
+  const commit = (next: TimelinePlaybackClockState, tick = false) => {
+    const previous = state;
+    if (!tick || !next.isPlaying) {
+      transportEpoch++;
+      pendingEditorFrame = false;
+    }
+    if (!tick) originMs = now() - next.playheadMs;
     state = next;
+    const refreshEditor = !tick || !next.isPlaying ||
+      boundaries.some(ms => previous.playheadMs < ms && ms <= next.playheadMs);
+    if (refreshEditor && tick && next.isPlaying && input.afterVideoFrame &&
+        (!canPresentBeforeEditor || (canPresentBeforeEditor(previous.playheadMs) && canPresentBeforeEditor(next.playheadMs)))) {
+      if (!pendingEditorFrame) {
+        const epoch = transportEpoch;
+        pendingEditorFrame = true;
+        input.afterVideoFrame(() => {
+          if (epoch !== transportEpoch) return;
+          pendingEditorFrame = false;
+          editorState = state;
+          onPlayheadCommit?.(state.playheadMs);
+          for (const listener of listeners) listener();
+        });
+      }
+    } else if (refreshEditor) {
+      editorState = next;
+      if (tick && input.afterVideoFrame) onPlayheadCommit?.(next.playheadMs);
+    }
+    if (refreshEditor || timelinePlaybackFrame(previous.playheadMs) !== timelinePlaybackFrame(next.playheadMs)) {
+      for (const listener of listeners) listener();
+    }
     return state;
   };
 
   return {
+    position,
+    getEditorState: () => editorState,
+    setBoundaries: (times: readonly number[], canPresent?: (ms: number) => boolean) => {
+      boundaries = times;
+      canPresentBeforeEditor = canPresent;
+    },
     getState: () => state,
     setTotalMs: (nextTotalMs: number) => {
       totalMs = normalizeTotalMs(nextTotalMs);
@@ -98,10 +181,8 @@ export function createTimelinePlaybackRuntime(input: {
       onPlayheadCommit?.(playheadMs);
       return next;
     },
-    setPlaying: (isPlaying: boolean) =>
-      commit(resolvePlayRequest(state, isPlaying, totalMs)),
-    togglePlaying: () =>
-      commit(resolvePlayRequest(state, !state.isPlaying, totalMs)),
+    setPlaying: changePlaying,
+    togglePlaying: () => changePlaying(!state.isPlaying),
     advance: (deltaMs: number) => {
       if (!state.isPlaying) return state;
       const nextPlayhead = advanceTimelinePlayhead(
@@ -112,8 +193,8 @@ export function createTimelinePlaybackRuntime(input: {
       const next = commit({
         playheadMs: nextPlayhead.timeMs,
         isPlaying: !nextPlayhead.ended,
-      });
-      onPlayheadCommit?.(next.playheadMs);
+      }, true);
+      if (!input.afterVideoFrame) onPlayheadCommit?.(next.playheadMs);
       return next;
     },
     pauseAtCurrentFrame: (): FrozenTimelineFrame => {
@@ -132,10 +213,13 @@ export function createTimelinePlaybackRuntime(input: {
 
 export function useTimelinePlaybackClock(input: {
   totalMs: number;
+  boundaries: readonly number[];
+  canPresentBeforeEditor: (ms: number) => boolean;
   /** 播放头跨进新镜头时通知外部（用来同步选中态）。 */
   onPlayheadCommit?: (playheadMs: number) => void;
 }) {
   const { totalMs, onPlayheadCommit } = input;
+  const editorFrame = useRef<number | null>(null);
   const runtimeRef = useRef<ReturnType<
     typeof createTimelinePlaybackRuntime
   > | null>(null);
@@ -143,20 +227,23 @@ export function useTimelinePlaybackClock(input: {
     runtimeRef.current = createTimelinePlaybackRuntime({
       totalMs,
       onPlayheadCommit,
+      afterVideoFrame: publish => { editorFrame.current = requestAnimationFrame(publish); },
     });
   }
   const runtime = runtimeRef.current;
+  useEffect(() => () => {
+    if (editorFrame.current != null) cancelAnimationFrame(editorFrame.current);
+  }, []);
   runtime.setTotalMs(totalMs);
   runtime.setOnPlayheadCommit(onPlayheadCommit);
-  const [state, setState] = useState<TimelinePlaybackClockState>(() =>
-    runtime.getState()
-  );
+  runtime.setBoundaries(input.boundaries, input.canPresentBeforeEditor);
+  const state = useSyncExternalStore(runtime.position.subscribe, runtime.getEditorState, runtime.getEditorState);
   const [playbackRunId, setPlaybackRunId] = useState(0);
   const scheduledFrameRef = useRef<number | null>(null);
 
   const seek = useCallback(
     (requestedMs: number) => {
-      setState(runtime.seek(requestedMs));
+      runtime.seek(requestedMs);
     },
     [runtime]
   );
@@ -172,7 +259,6 @@ export function useTimelinePlaybackClock(input: {
         // 单独递增运行轮次，确保已取消的 rAF 一定会重新建立。
         setPlaybackRunId(current => current + 1);
       }
-      setState(next);
     },
     [runtime]
   );
@@ -185,7 +271,6 @@ export function useTimelinePlaybackClock(input: {
     } else if (next.isPlaying && scheduledFrameRef.current == null) {
       setPlaybackRunId(current => current + 1);
     }
-    setState(next);
   }, [runtime]);
 
   const pauseAtCurrentFrame = useCallback(() => {
@@ -194,7 +279,6 @@ export function useTimelinePlaybackClock(input: {
       scheduledFrameRef.current = null;
     }
     const position = runtime.pauseAtCurrentFrame();
-    setState(runtime.getState());
     return position;
   }, [runtime]);
 
@@ -202,23 +286,16 @@ export function useTimelinePlaybackClock(input: {
   // “一次 React 提交内先暂停再恢复”的情况，此时 isPlaying 本身不会变化。
   useEffect(() => {
     if (!state.isPlaying) return;
-    let previous = performance.now();
     let cancelled = false;
 
-    const tick = (now: number) => {
-      if (cancelled) return;
-      const wasPlaying = runtime.getState().isPlaying;
-      const next = runtime.advance(now - previous);
-      if (!wasPlaying) return;
-      previous = now;
-
-      // 先预约下一帧，再提交状态——顺序见文件头注释。
-      if (next.isPlaying) {
-        scheduledFrameRef.current = requestAnimationFrame(tick);
-      } else {
+    const tick = () => {
+      if (cancelled || !runtime.getState().isPlaying) return;
+      scheduledFrameRef.current = requestAnimationFrame(tick);
+      const next = runtime.advance(runtime.position.getPlaybackTimeMs() - runtime.getState().playheadMs);
+      if (!next.isPlaying && scheduledFrameRef.current != null) {
+        cancelAnimationFrame(scheduledFrameRef.current);
         scheduledFrameRef.current = null;
       }
-      setState(next);
     };
 
     scheduledFrameRef.current = requestAnimationFrame(tick);
@@ -232,8 +309,9 @@ export function useTimelinePlaybackClock(input: {
   }, [playbackRunId, runtime, state.isPlaying]);
 
   return {
-    playheadMs: state.playheadMs,
-    playheadFrame: timelinePlaybackFrame(state.playheadMs),
+    position: runtime.position,
+    get playheadMs() { return runtime.getState().playheadMs; },
+    get playheadFrame() { return timelinePlaybackFrame(runtime.getState().playheadMs); },
     isPlaying: state.isPlaying,
     seek,
     setPlaying,

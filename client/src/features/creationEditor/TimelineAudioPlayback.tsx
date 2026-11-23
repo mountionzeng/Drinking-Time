@@ -1,3 +1,4 @@
+import { useTimelinePosition, type TimelinePosition } from "./useTimelinePlaybackClock";
 import { useEffect, useMemo, useRef } from "react";
 import {
   chatCutPlaybackAudioTracks,
@@ -42,13 +43,16 @@ export function timelineAudioVolume(name: string): number {
 
 export function TimelineAudioPlayback({
   manifest,
-  playheadMs,
+  position,
+  playheadMs: initialMs,
   isPlaying,
 }: {
+  position?: TimelinePosition;
   manifest: ChatCutTimelineManifest | null;
   playheadMs: number;
   isPlaying: boolean;
 }) {
+  const playheadMs = useTimelinePosition(position, initialMs);
   const audioRefs = useRef(new Map<string, HTMLAudioElement>());
   const clips = useMemo(
     () =>

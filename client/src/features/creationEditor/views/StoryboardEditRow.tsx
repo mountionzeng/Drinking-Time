@@ -1,3 +1,4 @@
+import { TimelinePositionContext, TimelinePositionView } from "../useTimelinePlaybackClock";
 import { isFrameNavigationKey, isFrameNavigationTarget } from "../frameNavigation";
 import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { GripVertical, Loader2, Magnet } from "lucide-react";
@@ -766,7 +767,18 @@ function StoryboardEditTrack({
   const highlight = activeRange
     ? storyboardEditRangePx(activeRange, viewport)
     : null;
-  const playheadPx = storyboardEditPlayheadPx(timeline.playheadMs, viewport);
+  useLayoutEffect(() => {
+    const position = timeline.position;
+    const track = trackRef.current;
+    if (!position || !track) return;
+    const update = () => {
+      const ms = position.getTimeMs();
+      track.setAttribute("aria-valuenow", String(Math.round(ms)));
+      track.setAttribute("aria-valuetext", formatStoryboardTimestamp(ms));
+    };
+    update();
+    return position.subscribe(update);
+  }, [timeline.position, trackRef]);
   const markInPx =
     markInMs == null ? null : storyboardEditPlayheadPx(markInMs, viewport);
 
@@ -2397,7 +2409,9 @@ function StoryboardEditTrack({
             data-testid="storyboard-edit-mark-in"
           />
         ) : null}
-        {playheadPx != null ? (
+        <TimelinePositionView fallbackMs={timeline.playheadMs}>{ms => {
+          const playheadPx = storyboardEditPlayheadPx(ms, viewport);
+          return playheadPx != null ? (
           <span
             aria-hidden="true"
             className="pointer-events-none absolute bottom-0 top-0 z-40 w-px -translate-x-1/2"
@@ -2406,7 +2420,8 @@ function StoryboardEditTrack({
           >
             <span className="absolute bottom-0 left-1/2 top-0 w-px -translate-x-1/2 bg-rose-500 shadow-[0_0_0_1px_rgb(244_63_94_/_0.18)]" />
           </span>
-        ) : null}
+        ) : null;
+        }}</TimelinePositionView>
       </div>
       <span
         className="sr-only"
@@ -2552,6 +2567,7 @@ export function StoryboardEditRow({
   const childTimeline = useMemo<StoryboardBoardTimeline>(
     () => ({
       ...timeline,
+      get playheadMs() { return timeline.playheadMs; },
       multipleSelectedKeys,
       isStorySessionCurrent: isRenderedStorySessionCurrent,
     }),
@@ -3304,6 +3320,7 @@ export function StoryboardEditRow({
   };
 
   const handleShortcut = (event: KeyboardEvent) => {
+    if (timeline.position) headRef.current = timeline.position.getTimeMs();
     if (batchSelection?.objects.length && (event.key === "Delete" || event.key === "Backspace")) {
       event.preventDefault(); event.stopPropagation(); void deleteBatch(); return;
     }
@@ -3481,6 +3498,7 @@ export function StoryboardEditRow({
     return () => window.removeEventListener("keydown", onKeyDown, true);
   }, []);
 
+  const subtitle = timeline.subtitle;
   const selectedSubtitleCue =
     timeline.subtitle?.cues.find(
       cue => cue.id === timeline.subtitle?.selectedCueId
@@ -3490,7 +3508,7 @@ export function StoryboardEditRow({
   );
 
   return (
-    <>
+    <TimelinePositionContext.Provider value={timeline.position}>
       <EditingConfirmationDialog
         open={confirmBatch != null}
         title={_ui("删除 V{0} · {1} 项", [(confirmBatch?.layer ?? 0) + 1, confirmBatch?.objects.length ?? 0])}
@@ -3692,7 +3710,7 @@ export function StoryboardEditRow({
           </div>
         </>
       ) : null}
-      {timeline.subtitle && showMediaInspector ? (
+      {subtitle && showMediaInspector ? (
         <>
           <div
             role="rowheader"
@@ -3709,10 +3727,10 @@ export function StoryboardEditRow({
             className="border-b border-r p-1"
             style={{ gridColumn: `span ${Math.max(1, columnSpan)}` }}
           >
-            <TimelineMediaInspector
+            <TimelinePositionView fallbackMs={timeline.playheadMs}>{ms => <TimelineMediaInspector
               subtitleState={{
-                tracks: timeline.subtitle.tracks ? [...timeline.subtitle.tracks] : [
-                  { id: "subtitle-main", cues: [...timeline.subtitle.cues] },
+                tracks: subtitle.tracks ? [...subtitle.tracks] : [
+                  { id: "subtitle-main", cues: [...subtitle.cues] },
                 ],
               }}
               selectedCue={selectedSubtitleCue}
@@ -3720,12 +3738,12 @@ export function StoryboardEditRow({
               selectedAudioClipId={timeline.audio?.selectedClipId}
               playheadFrame={Math.max(
                 0,
-                Math.round((timeline.playheadMs * 30) / 1_000)
+                Math.round((ms * 30) / 1_000)
               )}
-              pending={timeline.audio?.pending ?? timeline.subtitle.pending}
-              onSplit={timeline.subtitle.onSplit}
-              onMerge={timeline.subtitle.onMerge}
-              onDelete={timeline.subtitle.onDelete}
+              pending={timeline.audio?.pending ?? subtitle.pending}
+              onSplit={subtitle.onSplit}
+              onMerge={subtitle.onMerge}
+              onDelete={subtitle.onDelete}
               onSetAudioGain={timeline.audio?.onSetGain}
               onSetAudioMuted={timeline.audio?.onSetMuted}
               onSetAudioFade={timeline.audio?.onSetFade}
@@ -3739,7 +3757,7 @@ export function StoryboardEditRow({
               onDiscardNarrationCandidate={
                 timeline.audio?.onDiscardNarrationCandidate
               }
-            />
+            />}</TimelinePositionView>
           </div>
         </>
       ) : null}
@@ -3838,6 +3856,6 @@ export function StoryboardEditRow({
           onClose={closeObjectMenu}
         />
       ) : null}
-    </>
+    </TimelinePositionContext.Provider>
   );
 }

@@ -1,3 +1,5 @@
+import { timelinePlaybackFrame, type TimelinePosition } from "../useTimelinePlaybackClock";
+import { isVideoOnlyMp4 } from "./embeddedAudio";
 import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { useEffect, useRef, useState } from "react";
 import { STORY_TIMELINE_FPS } from "@shared/storyMaterial";
@@ -53,6 +55,7 @@ export type TimelineAudioRuntimeSync = {
   storySessionKey: string;
   plan: AudioMixPlan;
   playheadFrame: number;
+  readCurrentFrame?: () => number;
   isPlaying: boolean;
   resolveSourceUrl: (input: AudioMixPlanInput) => string | null;
 };
@@ -117,7 +120,7 @@ export function createTimelineAudioRuntime(input: {
   onInputError?: (input: AudioMixPlanInput, error: unknown) => void;
 }) {
   const context = input.audioContext;
-  const decoded = new Map<string, Promise<TimelineAudioBufferLike>>();
+  const decoded = new Map<string, Promise<TimelineAudioBufferLike | null>>();
   const reversed = new Map<string, TimelineAudioBufferLike>();
   const failedUrls = new Set<string>();
   const retryAfterByUrl = new Map<string, number>();
@@ -168,23 +171,24 @@ export function createTimelineAudioRuntime(input: {
     }
   };
 
-  const bufferFor = (url: string) => {
-    let promise = decoded.get(url);
+  const bufferFor = (url: string, visualSource: boolean) => {
+    const key = (visualSource ? "visual:" : "asset:") + url;
+    let promise = decoded.get(key);
     if (!promise) {
       const pending = input
         .loadArrayBuffer(url)
-        .then(bytes => context.decodeAudioData(bytes.slice(0)))
+        .then(bytes => visualSource && isVideoOnlyMp4(bytes) ? null : context.decodeAudioData(bytes))
         .then(buffer => {
           failedUrls.delete(url);
           retryAfterByUrl.delete(url);
           return buffer;
         })
         .catch(error => {
-          if (decoded.get(url) === pending) decoded.delete(url);
+          if (decoded.get(key) === pending) decoded.delete(key);
           throw error;
         });
       promise = pending;
-      decoded.set(url, pending);
+      decoded.set(key, pending);
     }
     return promise;
   };
@@ -197,7 +201,7 @@ export function createTimelineAudioRuntime(input: {
     if (disposed || epoch !== expectedEpoch || !latest?.isPlaying) return null;
     const current = resolveAudioMixPlanAtFrame(
       latest.plan,
-      latest.playheadFrame
+      latest.readCurrentFrame?.() ?? latest.playheadFrame
     ).find(candidate => candidate.id === inputId);
     if (
       !current ||
@@ -217,12 +221,12 @@ export function createTimelineAudioRuntime(input: {
   ) => {
     if ((retryAfterByUrl.get(url) ?? 0) > Date.now()) return;
     try {
-      const decodedBuffer = await bufferFor(url);
+      const decodedBuffer = await bufferFor(url, planned.kind === "visual-source");
       const currentPlanned = currentWantedInput(planned.id, url, expectedEpoch);
-      if (!currentPlanned || nodes.has(planned.id)) {
+      if (!decodedBuffer || !currentPlanned || nodes.has(planned.id)) {
         return;
       }
-      const currentFrame = latest!.playheadFrame;
+      const currentFrame = latest!.readCurrentFrame?.() ?? latest!.playheadFrame;
       const sourceFrame = audioMixInputSourceFrameAt(
         currentPlanned,
         currentFrame
@@ -285,6 +289,7 @@ export function createTimelineAudioRuntime(input: {
       };
       source.start(0, offsetSeconds, sourceDurationSeconds);
     } catch (error) {
+      if (!currentWantedInput(planned.id, url, expectedEpoch)) return;
       retryAfterByUrl.set(url, Date.now() + 2_000);
       if (!failedUrls.has(url)) {
         failedUrls.add(url);
@@ -303,15 +308,23 @@ export function createTimelineAudioRuntime(input: {
     }
     if (!next.isPlaying) {
       stopAll();
+      // Reading and decoding do not start playback or resume the context.
+      // Prime only the managed sounds at the parked playhead.
+      for (const planned of resolveAudioMixPlanAtFrame(next.plan, next.playheadFrame)) {
+        if (planned.kind === "visual-source" || planned.muted || planned.baseGain <= 0) continue;
+        const url = next.resolveSourceUrl(planned);
+        if (url) void bufferFor(url, false).catch(() => undefined);
+      }
       return;
     }
     const expectedEpoch = epoch;
     if (!(await ensureRunning())) return;
     if (disposed || epoch !== expectedEpoch || latest !== next) return;
 
+    const currentFrame = next.readCurrentFrame?.() ?? next.playheadFrame;
     const activeInputs = resolveAudioMixPlanAtFrame(
       next.plan,
-      next.playheadFrame
+      currentFrame
     ).filter(planned => !planned.muted && planned.baseGain > 0);
     const wanted = new Map(
       activeInputs.flatMap(planned => {
@@ -335,14 +348,14 @@ export function createTimelineAudioRuntime(input: {
           (context.currentTime - active.startedContextTime) * STORY_TIMELINE_FPS
       );
       if (
-        Math.abs(inferredTimelineFrame - next.playheadFrame) >
+        Math.abs(inferredTimelineFrame - currentFrame) >
         DRIFT_RESTART_FRAMES
       ) {
         stopNode(id);
         continue;
       }
       active.gain.gain.setValueAtTime(
-        audioMixInputGainAtFrame(current.planned, next.playheadFrame),
+        audioMixInputGainAtFrame(current.planned, currentFrame),
         context.currentTime
       );
     }
@@ -376,6 +389,7 @@ export function createTimelineAudioRuntime(input: {
 }
 
 export function TimelineAudioEngine(props: {
+  position?: TimelinePosition;
   storySessionKey: string;
   plan: AudioMixPlan;
   playheadFrame: number;
@@ -421,17 +435,22 @@ export function TimelineAudioEngine(props: {
   }, [props.onInputError]);
 
   useEffect(() => {
-    void runtimeRef.current?.sync({
+    const position = props.position;
+    const sync = () => void runtimeRef.current?.sync({
       storySessionKey: props.storySessionKey,
       plan: props.plan,
       playheadFrame: props.playheadFrame,
+      readCurrentFrame: position ? () => timelinePlaybackFrame(position.getPlaybackTimeMs()) : undefined,
       isPlaying: props.isPlaying,
       resolveSourceUrl: props.resolveSourceUrl,
     });
+    sync();
+    if (props.isPlaying) return position?.subscribe(sync);
   }, [
     props.isPlaying,
     props.plan,
     props.playheadFrame,
+    props.position,
     props.resolveSourceUrl,
     props.storySessionKey,
   ]);

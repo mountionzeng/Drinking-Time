@@ -1,3 +1,4 @@
+import { TimelinePositionView, useTimelinePosition, type TimelinePosition } from "../useTimelinePlaybackClock";
 import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import {
   ArrowLeft,
@@ -91,6 +92,7 @@ import {
 } from "../storyboardVisualDragProtocol";
 
 export type StoryboardBoardTimeline = {
+  position?: TimelinePosition;
   /** Changes whenever the active Story/editor session changes. */
   storySessionKey?: string;
   /** False once the render that supplied this timeline is no longer current. */
@@ -551,6 +553,7 @@ export function StoryboardEditTransport({
 }: {
   timeline: StoryboardBoardTimeline;
 }) {
+  const playheadMs = useTimelinePosition(timeline.position, timeline.playheadMs);
   const _ui = useDesktopUiText();
   return (
     <span
@@ -581,7 +584,7 @@ export function StoryboardEditTransport({
         )}
       </button>
       <span className="font-mono text-[9px] tabular-nums text-rose-600">
-        {formatStoryboardTimestamp(timeline.playheadMs)}
+        {formatStoryboardTimestamp(playheadMs)}
       </span>
     </span>
   );
@@ -922,7 +925,19 @@ export function StoryboardVisualLayerRow({
   } | null>(null);
   const visibleClipPointerPreview =
     clipPointerPreview ?? clipPointerCommitPreview;
-  const playheadPx = storyboardEditPlayheadPx(timeline.playheadMs, viewport);
+  const [highlightMs, setHighlightMs] = useState(timeline.playheadMs);
+  useEffect(() => {
+    const position = timeline.position;
+    if (!position || !frames.length) return;
+    let active: string | undefined;
+    const update = () => {
+      const ms = position.getTimeMs();
+      const flags = frames.map(frame => Math.abs(ms - frame.atMs) <= 50 ? "1" : "0").join("");
+      if (flags !== active) { active = flags; setHighlightMs(ms); }
+    };
+    update();
+    return position.subscribe(update);
+  }, [frames, timeline.position]);
   const seekFromClientX = (clientX: number) => {
     const rect = trackRef.current?.getBoundingClientRect();
     if (!rect || rect.width <= 0) return;
@@ -1615,7 +1630,7 @@ export function StoryboardVisualLayerRow({
           )}
           {frameLayout.placements.map(({ frame, x, lane }) => {
             const { shot, clip } = frame;
-            const active = Math.abs(timeline.playheadMs - frame.atMs) <= 50;
+            const active = Math.abs((timeline.position ? highlightMs : timeline.playheadMs) - frame.atMs) <= 50;
             return (
               <div
                 key={`${shot.stableShotId}-${clip?.id ?? frame.id}-${visualLayer}`}
@@ -1946,15 +1961,17 @@ export function StoryboardVisualLayerRow({
                   );
                 })
             : null}
-          {showTopPlayhead && playheadPx != null ? (
+          {showTopPlayhead && <TimelinePositionView fallbackMs={timeline.playheadMs}>{ms => {
+            const playheadPx = storyboardEditPlayheadPx(ms, viewport);
+            return playheadPx != null ? (
             <div
               role="slider"
               tabIndex={0}
               aria-label={_ui("拖动顶层播放头")}
               aria-valuemin={0}
               aria-valuemax={Math.round(totalMs)}
-              aria-valuenow={Math.round(timeline.playheadMs)}
-              aria-valuetext={formatStoryboardTimestamp(timeline.playheadMs)}
+              aria-valuenow={Math.round(ms)}
+              aria-valuetext={formatStoryboardTimestamp(ms)}
               title={_ui("播放头位于所有视觉剪辑层最上方")}
               className="group absolute bottom-0 top-0 z-50 w-5 -translate-x-1/2 cursor-ew-resize touch-none outline-none focus-visible:ring-2 focus-visible:ring-rose-400/60"
               style={{ left: playheadPx }}
@@ -1986,7 +2003,8 @@ export function StoryboardVisualLayerRow({
               <span className="absolute left-1/2 top-0 h-3 w-3 -translate-x-1/2 rounded-b-sm bg-rose-500 shadow-sm ring-1 ring-white/80 transition group-hover:scale-110" />
               <span className="absolute bottom-0 left-1/2 top-2 w-px -translate-x-1/2 bg-rose-500 shadow-[0_0_0_1px_rgb(244_63_94_/_0.18)]" />
             </div>
-          ) : null}
+          ) : null;
+          }}</TimelinePositionView>}
         </div>
         {transitionMenu ? (
           <div

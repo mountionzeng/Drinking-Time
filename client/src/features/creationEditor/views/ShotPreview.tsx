@@ -1,3 +1,4 @@
+import { useTimelinePosition, timelinePlaybackFrame, type TimelinePosition } from "../useTimelinePlaybackClock";
 import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { formatComputeQuote } from "@shared/computeMoney";
 import { holdOutgoingVideo, prepareStandbyVideo, previewVideoKey } from "../previewVideoHandoff";
@@ -68,13 +69,15 @@ export default function ShotPreview({
   shot,
   timing,
   sourceClip,
-  timelineVideoSource,
+  timelineVideoSource: providedVideoSource,
+  position,
+  resolveVideoAt,
   upcomingVideo,
   timelineImageSource,
   editorPreview,
   suppressDefaultVideo,
-  playheadMs,
-  playheadFrame,
+  playheadMs: providedMs,
+  playheadFrame: providedFrame,
   timelinePlaying,
   format,
   subtitlePlan,
@@ -95,9 +98,12 @@ export default function ShotPreview({
   timing?: { startMs: number; endMs: number; durationMs: number };
   sourceClip?: ChatCutTimelineClip | null;
   timelineVideoSource?: TimelineVideoSource | null;
+  position?: TimelinePosition;
+  resolveVideoAt?: (ms: number) => TimelineVideoSource | null;
   upcomingVideo?: TimelineVideoSource | null;
   timelineImageSource?: {
     opacity?: number;
+    opacityAtFrame?: (frame: number) => number;
     imageUrl: string;
     transform?: TimelineTransform;
   } | null;
@@ -127,6 +133,9 @@ export default function ShotPreview({
   onMaskAdopted?: () => void;
   extractingCurrentVideoFrame?: boolean;
 }) {
+  const playheadMs = useTimelinePosition(position, providedMs);
+  const playheadFrame = position ? timelinePlaybackFrame(playheadMs) : providedFrame;
+  const timelineVideoSource = timelinePlaying && resolveVideoAt ? resolveVideoAt(playheadMs) : providedVideoSource;
   const _ui = useDesktopUiText();
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const maskPromptRef = useRef<HTMLTextAreaElement | null>(null);
@@ -268,7 +277,8 @@ export default function ShotPreview({
   const activeKey = editorPreview
     ? `editor-${editorPreview.target.takeId}-${editorPreview.target.clipId ?? "primary"}`
     : timelineVideoSource ? previewVideoKey(timelineVideoSource) : videoUrl;
-  const standby = editorPreview ? null : upcomingVideo;
+  const standby = !editorPreview && upcomingVideo && previewVideoKey(upcomingVideo) !== activeKey
+    ? upcomingVideo : null;
   const standbyRef = useRef<HTMLVideoElement>(null);
   const heldFrame = useRef<HTMLCanvasElement>(null);
   const holdWhilePlaying = useRef(false);
@@ -803,10 +813,13 @@ export default function ShotPreview({
         sourceEndSeconds - VIDEO_END_HOLD_EPSILON_SECONDS
       )
     );
-    const targetTime = Math.min(
-      shouldHoldLastFrame ? lastFrameTime : targetVideoTimeSeconds,
-      maximumTime
-    );
+    // React can finish laying out the surrounding editor well after the frame
+    // was sampled. Never seek a running decoder back to that stale sample.
+    const liveSource = timelinePlaying && position && resolveVideoAt && !editorPreview
+      ? resolveVideoAt(position.getPlaybackTimeMs()) : null;
+    if (liveSource && previewVideoKey(liveSource) !== activeKey) return;
+    const targetTime = Math.min(shouldHoldLastFrame ? lastFrameTime :
+      (liveSource?.sourceTimeSec ?? targetVideoTimeSeconds), maximumTime);
     const drift = Math.abs(video.currentTime - targetTime);
     video.defaultPlaybackRate = playbackRate;
     video.playbackRate = playbackRate;
@@ -835,6 +848,8 @@ export default function ShotPreview({
     targetVideoTimeSeconds,
     seekPreviewVideo,
     activeKey,
+    position,
+    resolveVideoAt,
     editorPreview,
     timelinePlaying,
     videoUrl,
@@ -1134,7 +1149,7 @@ export default function ShotPreview({
                     src={overlayImageUrl}
                     alt={_ui("{0} 当前图片帧", [shot ? shotLabel(shot) : _ui("当前镜头")])}
                     className="pointer-events-none absolute inset-0 z-10 h-full w-full object-cover"
-                    style={{ ...timelineTransformStyle(timelineImageSource?.transform), opacity: timelineImageSource?.opacity ?? 1 }}
+                    style={{ ...timelineTransformStyle(timelineImageSource?.transform), opacity: timelineImageSource?.opacityAtFrame?.(playheadFrame ?? timelinePlaybackFrame(playheadMs)) ?? timelineImageSource?.opacity ?? 1 }}
                     data-testid="editing-preview-frame-overlay"
                     onLoad={event =>
                       setPreviewImageSize({

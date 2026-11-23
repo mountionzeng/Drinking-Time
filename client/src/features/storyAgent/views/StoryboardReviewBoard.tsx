@@ -1,3 +1,4 @@
+import { useStoryboardPlaybackFollow } from "./useStoryboardPlaybackFollow";
 import { videoSubmitNoticeKey } from "./videoSubmitNotice";
 import { useVideoSubmitNotices } from "./useVideoSubmitNotices";
 import { VideoSubmitNotices } from "./VideoSubmitNotices";
@@ -207,8 +208,6 @@ import {
   quickShotVideoRenderPlan,
   scrollElementHorizontallyIntoView,
   shortText,
-  storyboardPlaybackCenterInset,
-  storyboardPlaybackFollowDelta,
   storyboardCandidateImageStyle,
   storyboardCharacterContinuityGenerationParams,
   storyboardCharacterContinuityMatchesTarget,
@@ -285,6 +284,11 @@ import {
  * 一镜通常几秒，太短等于没让、太长又会让人以为跟随坏了。
  */
 const MANUAL_BOARD_SCROLL_GRACE_MS = 2_500;
+
+// A closed Radix menu should not build all its command elements at every cut.
+function MediaMenuItems({ children }: { children: () => ReactNode }) {
+  return children();
+}
 
 export function StoryboardReviewBoard({
   storyId,
@@ -917,40 +921,13 @@ export function StoryboardReviewBoard({
     };
   }, [shouldShow, viewMode]);
 
-  // 播放时让整张表逐帧从固定播放头下面滑过。用几何位置算本帧差值，
-  // 不依赖镜头切点；因此短镜头、长镜头都保持相同的连续滚动节奏。
-  useLayoutEffect(() => {
-    if (
-      viewMode !== "full" ||
-      simplifiedDisplay ||
-      !boardTimeline?.isPlaying ||
-      Date.now() < manualBoardScrollUntilRef.current
-    ) {
-      return;
-    }
-    const scroller = boardScrollRef.current;
-    const track = boardRef.current?.querySelector<HTMLElement>(
-      '[data-testid="storyboard-edit-track"]'
-    );
-    if (!scroller || !track) return;
-    const scrollerRect = scroller.getBoundingClientRect();
-    const trackRect = track.getBoundingClientRect();
-    const delta = storyboardPlaybackFollowDelta({
-      scrollerLeft: scrollerRect.left,
-      trackLeft: trackRect.left,
-      trackWidth: trackRect.width,
-      playheadMs: boardTimeline.playheadMs,
-      totalMs: boardTimeline.totalMs,
-      leftInset: storyboardPlaybackCenterInset(scrollerRect.width, STORYBOARD_TRACK_HEADER_WIDTH),
-    });
-    if (delta !== 0) scroller.scrollBy({ left: delta, behavior: "auto" });
-  }, [
-    boardTimeline?.isPlaying,
-    boardTimeline?.playheadMs,
-    boardTimeline?.totalMs,
-    simplifiedDisplay,
-    viewMode,
-  ]);
+  useStoryboardPlaybackFollow(
+    viewMode === "full" && !simplifiedDisplay,
+    boardTimeline,
+    boardScrollRef,
+    boardRef,
+    manualBoardScrollUntilRef,
+  );
 
   useEffect(() => {
     if (selectedShotNo == null || boardTimeline?.isPlaying) return;
@@ -4054,6 +4031,7 @@ export function StoryboardReviewBoard({
                                     className="z-[90] min-w-[178px] rounded-sm border border-border bg-popover p-1 text-popover-foreground shadow-lg"
                                     data-testid={`storyboard-candidate-menu-${frame.id}`}
                                   >
+                                    <MediaMenuItems>{() => <>
                                     <ContextMenu.Item
                                       disabled={
                                         !candidateManageInput ||
@@ -4071,6 +4049,7 @@ export function StoryboardReviewBoard({
                                     >
                                       <Trash2 className="h-3.5 w-3.5" />
                                       {_ui("删除这组候选")}</ContextMenu.Item>
+                                    </>}</MediaMenuItems>
                                   </ContextMenu.Content>
                                 </ContextMenu.Portal>
                               </ContextMenu.Root>
@@ -4248,6 +4227,7 @@ export function StoryboardReviewBoard({
                                     className="z-[90] min-w-[178px] rounded-sm border border-border bg-popover p-1 text-popover-foreground shadow-lg"
                                     data-testid={`storyboard-frame-menu-${frame.id}`}
                                   >
+                                    <MediaMenuItems>{() => <>
                                     <ContextMenu.Item
                                       disabled={
                                         !canManageFrame ||
@@ -4323,6 +4303,7 @@ export function StoryboardReviewBoard({
                                     >
                                       <Trash2 className="h-3.5 w-3.5" />
                                       {_ui("从镜头移除（仓库保留）")}</ContextMenu.Item>
+                                    </>}</MediaMenuItems>
                                   </ContextMenu.Content>
                                 </ContextMenu.Portal>
                               </ContextMenu.Root>
@@ -4463,6 +4444,7 @@ export function StoryboardReviewBoard({
                                     className="z-[90] min-w-[178px] rounded-sm border border-border bg-popover p-1 text-popover-foreground shadow-lg"
                                     data-testid={`storyboard-video-menu-clip-${clip.id}`}
                                   >
+                                    <MediaMenuItems>{() => <>
                                     <ContextMenu.Item
                                       disabled={
                                         !onCopyVideo || !insertStableShotId
@@ -4554,6 +4536,7 @@ export function StoryboardReviewBoard({
                                     >
                                       <Trash2 className="h-3.5 w-3.5" />
                                       {_ui("从画面移除")}</ContextMenu.Item>
+                                    </>}</MediaMenuItems>
                                   </ContextMenu.Content>
                                 </ContextMenu.Portal>
                               </ContextMenu.Root>
@@ -4731,6 +4714,7 @@ export function StoryboardReviewBoard({
                                     className="z-[90] min-w-[178px] rounded-sm border border-border bg-popover p-1 text-popover-foreground shadow-lg"
                                     data-testid={`storyboard-video-menu-take-${take.id}`}
                                   >
+                                    <MediaMenuItems>{() => <>
                                     <ContextMenu.Item
                                       disabled={
                                         !onCopyVideo || !insertStableShotId
@@ -4807,6 +4791,7 @@ export function StoryboardReviewBoard({
                                     >
                                       <Trash2 className="h-3.5 w-3.5" />
                                       {_ui("从画面移除")}</ContextMenu.Item>
+                                    </>}</MediaMenuItems>
                                   </ContextMenu.Content>
                                 </ContextMenu.Portal>
                               </ContextMenu.Root>
@@ -4903,6 +4888,7 @@ export function StoryboardReviewBoard({
                               className="z-[90] min-w-[190px] rounded-sm border border-border bg-popover p-1 text-popover-foreground shadow-lg"
                               data-testid={`storyboard-video-paste-${insertStableShotId ?? shot.shotNo}`}
                             >
+                              <MediaMenuItems>{() => <>
                               <ContextMenu.Item
                                 disabled={
                                   !insertStableShotId ||
@@ -4957,6 +4943,7 @@ export function StoryboardReviewBoard({
                                   {videoClipboardLabel}
                                 </ContextMenu.Label>
                               ) : null}
+                              </>}</MediaMenuItems>
                             </ContextMenu.Content>
                           </ContextMenu.Portal>
                         </ContextMenu.Root>

@@ -1,3 +1,5 @@
+import { useTimelineFeedbackLocation } from "../useTimelineFeedbackLocation";
+import { focusFeedbackQuote, isFeedbackQuote, locateTimelineFeedback } from "../timelineFeedbackLocation";
 import { keyframeGroupEdit } from "../keyframeGroupEdit";
 import { KeyframePlanDisclosure } from "./KeyframePlanDisclosure";
 import { shotKeyframeBeats, keyframeChatTurns, orderedKeyframeRefs, reviewedKeyframeTarget, openKeyframeReview, keyframeApproval, matchingKeyframeReview } from "../shotKeyframeBrief";
@@ -405,7 +407,9 @@ export default function StoryAgentChat({
   const [rerenderResultByMessageId, setRerenderResultByMessageId] = useState<
     Record<string, StoryboardImageRerenderResult>
   >({});
-  const creationEditor = useOptionalCreationEditor();
+  // The conversation follows its explicit quote. Commands can still read
+  // the live playhead selection when the user sends a message.
+  const creationEditor = useOptionalCreationEditor({ observeShotSelection: false });
   useStudioDraftState(activeStoryId, Boolean(creationEditor?.isSaving || creationEditor?.timelineWritePending));
   const creationFlow = useCreationFlowChat(creationEditor?.refetch, Boolean(creationEditor?.isSaving || creationEditor?.timelineWritePending));
   const soundDirector = useStorySoundDirector(
@@ -414,6 +418,7 @@ export default function StoryAgentChat({
   const writingSource = useDesktopWritingSession(state => state.session);
   const accountId = useStorySpine(state => state.accountId);
   const storyList = useStorySpine(state => state.storyList);
+  const feedbackLoadEpoch = useStorySpine(state => state.storyLoadEpoch);
   const scopeEpoch = useStorySpine(state => state.storyScopeEpoch);
   const writingSession = workspaceContext !== "video" && writingSource?.storyId === activeStoryId && writingSource.accountId === accountId && writingSource.epoch === scopeEpoch
     ? writingSource : null;
@@ -634,6 +639,8 @@ export default function StoryAgentChat({
     }
   }, [remix.result, activeStoryId]);
   const [voicePreview, setVoicePreview] = useState("");
+  const feedbackClock = useTimelineFeedbackLocation(workspaceContext === "video" ? activeStoryId : null,
+    [workspaceContext, accountId, activeStoryId, scopeEpoch, feedbackLoadEpoch].join("/"), input);
   const [voiceNotice, setVoiceNotice] = useState<{ message: string; recovery?: "keyboard" } | null>(null);
   useEffect(() => {
     setVoicePreview("");
@@ -934,8 +941,9 @@ export default function StoryAgentChat({
   }, [clearSelection, resizeAndFocusInput, sendMessage]);
 
   const handleVoiceError = useCallback((message: string, recovery?: "keyboard") => {
+    if (!input.trim()) feedbackClock.reset();
     setVoiceNotice({ message, recovery });
-  }, []);
+  }, [input, feedbackClock.reset]);
 
   const allowLocalTranscription = import.meta.env.DEV && typeof location !== "undefined" &&
     ["localhost", "127.0.0.1", "[::1]"].includes(location.hostname);
@@ -945,6 +953,7 @@ export default function StoryAgentChat({
     allowLocalTranscription,
     scopeKey: `${accountId}:${activeStoryId}`,
     onPreview: setVoicePreview,
+    onRecordingStarted: () => feedbackClock.begin(!input.trim()),
     onTranscribed: handleVoiceTranscribed,
     onError: handleVoiceError,
   });
@@ -1162,10 +1171,35 @@ export default function StoryAgentChat({
     }
   };
 
+  const canLocateFeedback = workspaceContext === "video" && activeStoryId && !pendingMedia.length &&
+    !composition && !soundDirector.active && !mediaQuestion && !pausedFrameChat.hasManualFrame &&
+    !activeSelection?.imageId && (!activeSelection?.selection || activeSelection.selection.kind === "time");
+  const previousTurn = messages.at(-1);
+  const previousFeedback = previousTurn?.role === "assistant" && previousTurn.id === "reply:" + messages.at(-2)?.id
+    ? messages.at(-2)?.selectionQuote : undefined;
+  const feedbackDraft = [input, voicePreview].filter(Boolean).join(" ").trim();
+  const feedbackPreview = canLocateFeedback && feedbackDraft && feedbackClock.snapshot && !hasInlineChatImages(feedbackDraft)
+    ? locateTimelineFeedback(feedbackDraft, feedbackClock.snapshot, previousFeedback) : null;
   const handleSubmit = async () => {
     draftEpoch.current++;
     const submittedInput = input;
     let entered = creationFlow.resolveVersionReply?.(input.trim()) ?? input.trim();
+    if (canLocateFeedback && !readWarehouseChatSelection(activeStoryId)?.imageIds.length && entered && !voice.isBusy && !isImportingMedia && !hasInlineChatImages(entered)) {
+      const clock = feedbackClock.begin();
+      const result = clock && locateTimelineFeedback(entered, clock, previousFeedback);
+      if (result?.error) { toast.info(result.error); return; }
+      if (result?.selection) {
+        followCurrentConversation();
+        if (isReplying || chatQueue.items.length) {
+          if (!chatQueue.enqueue(entered, undefined, "video", undefined, undefined, result.selection)) return;
+          setInput("");
+        } else {
+          await sendMessage(entered, undefined, undefined, { workspaceContext: "video", selection: result.selection,
+            onMessageAdded: () => setInput(current => current === submittedInput ? "" : current) });
+        }
+        resizeAndFocusInput(); return;
+      }
+    }
     if (workspaceContext === "video" && activeStoryId && creationEditor?.activeStoryId === activeStoryId && !pendingMedia.length &&
         !composition && !soundDirector.active && !pausedFrameChat.hasManualFrame && !readWarehouseChatSelection(activeStoryId)?.imageIds.length && !activeSelection?.selection &&
         !activeSelection?.imageId && !hasInlineChatImages(entered) && !voice.isBusy && !isImportingMedia) {
@@ -2418,7 +2452,9 @@ export default function StoryAgentChat({
                   <div className="mb-1.5">
                     <SelectionContextCard
                       selection={currentShotQuote(m.selectionQuote)}
-                      onOpen={m.selectionQuote.storyId === activeStoryId && m.selectionQuote.stableShotId ? () => openConversationShot(m.selectionQuote!.stableShotId!) : undefined}
+                      onOpen={m.selectionQuote.storyId === activeStoryId && activeStoryId && isFeedbackQuote(m.selectionQuote)
+                        ? () => toast.info(focusFeedbackQuote(activeStoryId, m.selectionQuote!))
+                        : m.selectionQuote.storyId === activeStoryId && m.selectionQuote.stableShotId ? () => openConversationShot(m.selectionQuote!.stableShotId!) : undefined}
                       compact
                     />
                   </div>
@@ -3154,15 +3190,16 @@ export default function StoryAgentChat({
             voiceOptions={!voice.isBusy && <ChatVoiceOptions key={`${accountId}:${activeStoryId}`}
               notice={voiceNotice?.message ?? ""} allowLocal={allowLocalTranscription} disabled={isImportingMedia}
               onFocusDraft={voiceNotice?.recovery === "keyboard" ? resizeAndFocusInput : undefined}
-              onDismiss={() => setVoiceNotice(null)} onFile={file => void voice.transcribeLocalFile(file)}
+              onDismiss={() => setVoiceNotice(null)} onFile={file => { feedbackClock.begin(!input.trim()); void voice.transcribeLocalFile(file); }}
               onRecord={() => {
+                feedbackClock.begin(!input.trim());
                 pausedFrameChat.begin();
                 if (allowLocalTranscription) void voice.startLocalRecording();
                 else voice.toggleRecording();
               }} />}
             onFiles={stageMediaFiles} onVoice={() => {
               setVoiceNotice(null);
-              if (voice.status === "idle") pausedFrameChat.begin();
+              if (voice.status === "idle") { feedbackClock.begin(!input.trim()); pausedFrameChat.begin(); }
               voice.toggleRecording();
             }} />
           <div className="chat-dock-editor desktop-companion-input min-w-0 flex-1">
@@ -3182,11 +3219,14 @@ export default function StoryAgentChat({
           </article>}
           {!selectedChatShot && !activeSelection?.imageId && pausedFrameChat.panel}
           {scanStatus && <p role="status" className="text-xs text-muted-foreground">{scanStatus}</p>}
+          {feedbackPreview && <p role="status" data-testid="timeline-feedback-location" className="text-[11px] text-muted-foreground">
+            {feedbackPreview.error ?? feedbackPreview.label}
+          </p>}
           {workspaceContext === "video" ? <InlineChatComposer
             key={`${accountId}:${activeStoryId}`} ref={inlineInputRef} value={[input, voicePreview].filter(Boolean).join(" ")}
             images={inlineImages} placeholder={_ui(inputPlaceholder)}
             disabled={isImportingMedia || Boolean(voicePreview) || (soundDirector.active && !soundDirector.session?.question && !parseSoundChat(input))}
-            onChange={text => { pausedFrameChat.change(text); setInput(text); }}
+            onChange={text => { feedbackClock.change(text); pausedFrameChat.change(text); setInput(text); }}
             onSubmit={() => void handleSubmit()} onError={message => toast.info(message)}
           /> : <textarea
             ref={inputRef}

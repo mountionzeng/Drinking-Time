@@ -21,6 +21,7 @@ import type {
   StoryTimelineItem,
 } from "@shared/storyMaterial";
 import {
+  STORY_TIMELINE_FPS,
   timelineFramesToMs,
   timelineImageClipStartFrame,
   timelineOffsetMsToFrames,
@@ -44,6 +45,8 @@ import { readStoryImageDragPayload } from "@/features/storyAgent/storyImageDrag"
 import { readVideoTakeDragPayload } from "@/features/storyAgent/views/videoTakeDrag";
 import { useStorySpine } from "@/features/storyAgent/spine/storySpine";
 import { useTimelinePlaybackClock } from "../useTimelinePlaybackClock";
+import { registerFeedbackEditor } from "@/features/storyAgent/timelineFeedbackLocation";
+import { audioClipEndFrame } from "@shared/timelineAudioModel";
 import { createStoryboardSelectionFollow } from "../storyboardSelectionFollow";
 import { useCurrentFrameEditingSession } from "../currentFrameEditingSession";
 import { useVisualObjectEditingSession } from "../useVisualObjectEditingSession";
@@ -1036,7 +1039,7 @@ export default function EditingNleWorkspace({
    * 1. 播放中 rAF 每帧都会推一次播放头。每帧写一次全局 store 会触发整棵树
    *    重渲染，rAF 那个 effect 被清理重建，时钟当场停摆——表现就是「播放键
    *    亮着但时间不走」。这是 2026-08-24 实测踩到的，不是理论担心。
-   * 2. 聊聊只在用户发消息那一刻需要这个值，而那时用户必然不在播放。
+   * 2. 聊天开始录音或输入时按需读取独立时钟。
    */
   const [boardSelectedRange, setBoardSelectedRange] =
     useState<StoryboardEditRange | null>(null);
@@ -1216,17 +1219,49 @@ export default function EditingNleWorkspace({
     },
     [setSelectedShotNo]
   );
-  const playbackClock = useTimelinePlaybackClock({
-    totalMs: boardTimelineTotalMs,
-    onPlayheadCommit: selectShotFromPlayhead,
-  });
-  useEffect(() => {
-    if (suspended) playbackClock.setPlaying(false);
-  }, [suspended, playbackClock.setPlaying]);
   const subtitleRenderPlan = useMemo(
     () => buildSubtitleRenderPlan(timelineMedia.subtitleState),
     [timelineMedia.subtitleState]
   );
+  const videoBoundaries = useMemo(
+    () => previewVideoBoundaries(timelineItems, timelineOverlays),
+    [timelineItems, timelineOverlays]
+  );
+  const editorBoundaries = useMemo(() => {
+    const times = new Set(videoBoundaries);
+    // Visual placements use the nearest frame. Millisecond video cuts also
+    // keep their exact boundary for source trims and standby handoff.
+    const addFrame = (frame: number) => times.add(Math.max(0, (frame - 0.5) * 1000 / STORY_TIMELINE_FPS));
+    for (const row of buildTimelineLayout(timelineItems)) {
+      addFrame(row.startFrame);
+      addFrame(row.endFrame);
+      for (const clip of row.item.imageClips ?? []) {
+        const start = timelineImageClipStartFrame(clip, row.startFrame);
+        addFrame(start);
+        addFrame(start + clip.durationFrames);
+      }
+    }
+    for (const overlay of timelineOverlays) {
+      addFrame(overlay.startFrame);
+      addFrame(overlay.mediaEndFrame);
+      addFrame(overlay.endFrame);
+    }
+    return [...times];
+  }, [timelineItems, timelineOverlays, videoBoundaries]);
+  const playbackClock = useTimelinePlaybackClock({
+    totalMs: boardTimelineTotalMs,
+    onPlayheadCommit: selectShotFromPlayhead,
+    boundaries: editorBoundaries,
+    // Native video and formal subtitles already follow their own position
+    // subscription. Images, intentional gaps and legacy captions need the
+    // editor's new placement in the very same frame.
+    canPresentBeforeEditor: ms => timelineMedia.subtitleSlicePresent && Boolean(
+      resolveTimelineVideoSource(shots, timelineShotIds, ms, timelineOverlays, timelineVisualLayerState.hidden)
+    ),
+  });
+  useEffect(() => {
+    if (suspended) playbackClock.setPlaying(false);
+  }, [suspended, playbackClock.setPlaying]);
   const browserVisualAudioSources = useMemo(
     () =>
       buildBrowserVisualAudioSources({
@@ -1280,6 +1315,36 @@ export default function EditingNleWorkspace({
   }, [setSpinePlayheadMs, playbackClock.isPlaying, playbackClock.playheadMs]);
   const setPausedPreviewFrame = useStorySpine(state => state.setPausedPreviewFrame);
   const pausedTimelineVersion = creationEditor.materialState?.timeline.version;
+  useEffect(() => {
+    if (suspended || !activeStoryId || pausedTimelineVersion == null || !boardTimelineTotalMs) return;
+    return registerFeedbackEditor(activeStoryId, {
+      read: () => ({
+        storyId: activeStoryId, version: pausedTimelineVersion, totalMs: boardTimelineTotalMs,
+        positionMs: Math.round(playbackClock.position.getPlaybackTimeMs()), playing: playbackClock.isPlaying,
+        range: activeSelection?.storyId === activeStoryId && activeSelection.sourceType === "timeline-range" ? boardSelectedRange : null,
+        rows: timings, hidden: timelineVisualLayerState.hidden, cues: timelineMedia.cues,
+      }),
+      focus: (span, tracks) => {
+        playbackClock.setPlaying(false);
+        playbackClock.seek(span.startMs);
+        setBoardSelectedRange(span.endMs > span.startMs ? span : null);
+        const audio = tracks.filter(track => track !== "visual");
+        const frame = timelineOffsetMsToFrames(span.startMs);
+        const endFrame = Math.max(frame + 1, timelineOffsetMsToFrames(span.endMs));
+        const clips = timelineMedia.audioState.tracks
+          .filter(({ kind }) => audio.some(track => track === kind || (track === "narration" && kind === "dialogue")))
+          .flatMap(track => track.clips.filter(clip => clip.timelineStartFrame < endFrame && audioClipEndFrame(clip) > frame));
+        timelineMedia.selectAudioClip(clips.length === 1 ? clips[0].id : null);
+        if (!tracks.length) return "";
+        if (audio.length && clips.length === 0) return "此处没有匹配的独立声音片段，可以继续说要定位到哪一秒。";
+        if (clips.length === 1) return "对应的声音片段已选中，可在剪辑线上试听或调整。";
+        if (audio.length) return "此处有多个声音片段，可以在对应轨道上试听。";
+        return "可以从这里播放，检查画面节奏。";
+      },
+    });
+  }, [activeStoryId, suspended, pausedTimelineVersion, boardTimelineTotalMs, playbackClock.position,
+    playbackClock.seek, playbackClock.setPlaying, playbackClock.isPlaying, activeSelection, boardSelectedRange, timings, timelineVisualLayerState.hidden,
+    timelineMedia.cues, timelineMedia.audioState, timelineMedia.selectAudioClip]);
   useEffect(() => {
     setPausedPreviewFrame(!playbackClock.isPlaying && !videoEditorTarget && !imageEditorTarget && !timelineWritePending && activeStoryId && pausedTimelineVersion != null ? {
       storyId: activeStoryId,
@@ -1346,10 +1411,6 @@ export default function EditingNleWorkspace({
     () => resolveActiveVideoSource(previewPlayheadMs),
     [resolveActiveVideoSource, previewPlayheadMs]
   );
-  const videoBoundaries = useMemo(
-    () => previewVideoBoundaries(timelineItems, timelineOverlays),
-    [timelineItems, timelineOverlays]
-  );
   const nextBoundaryIndex = videoBoundaries.findIndex(time => time > previewPlayheadMs);
   const activeVideoKey = activeTimelineVideoSource ? previewVideoKey(activeTimelineVideoSource) : null;
   const upcomingVideo = useMemo(
@@ -1398,14 +1459,14 @@ export default function EditingNleWorkspace({
     () =>
       activeTimelineVisualFrame.kind === "image"
         ? {
-            opacity: (() => {
+            opacityAtFrame: (frame: number) => {
               const { clip, startFrame } = activeTimelineVisualFrame.placement;
               const c = clip.composition;
               if (!c) return 1;
-              const local = playbackClock.playheadFrame - startFrame;
+              const local = frame - startFrame;
               return c.opacity * Math.min(1, c.fadeInFrames ? local / c.fadeInFrames : 1,
                 c.fadeOutFrames ? (clip.durationFrames - local) / c.fadeOutFrames : 1);
-            })(),
+            },
             imageUrl: activeTimelineVisualFrame.placement.clip.imageUrl,
             transform: activeTimelineVisualFrame.placement.clip.transform,
             imageId: activeTimelineVisualFrame.placement.clip.imageId,
@@ -1413,7 +1474,7 @@ export default function EditingNleWorkspace({
             stableShotId: activeTimelineVisualFrame.placement.stableShotId,
           }
         : null,
-    [activeTimelineVisualFrame, playbackClock.playheadFrame]
+    [activeTimelineVisualFrame]
   );
   useEffect(() => {
     if (selectedShotNo == null && selectedShot) {
@@ -2163,7 +2224,8 @@ export default function EditingNleWorkspace({
     () => ({
       storySessionKey: editingStorySessionKey,
       isStorySessionCurrent: isEditingStorySessionCurrent,
-      playheadMs: playbackClock.playheadMs,
+      position: playbackClock.position,
+      get playheadMs() { return playbackClock.playheadMs; },
       isPlaying: playbackClock.isPlaying,
       totalMs: boardTimelineTotalMs,
       audioClips: storyboardAudioClips,
@@ -2781,6 +2843,8 @@ export default function EditingNleWorkspace({
             sourceClip={previewSourceClip}
             timelineVideoSource={activeTimelineVideoSource}
             upcomingVideo={upcomingVideo}
+            position={playbackClock.position}
+            resolveVideoAt={resolveActiveVideoSource}
             timelineImageSource={previewTimelineImageSource}
             maskEditTarget={previewObjectMaskTarget}
             editorPreview={
@@ -2868,6 +2932,7 @@ export default function EditingNleWorkspace({
       {formalAudioEnabled && activeStoryId != null ? (
         <TimelineAudioEngine
           storySessionKey={editingStorySessionKey}
+          position={playbackClock.position}
           plan={audioMixPlan}
           playheadFrame={playbackClock.playheadFrame}
           isPlaying={playbackClock.isPlaying}
@@ -2876,6 +2941,7 @@ export default function EditingNleWorkspace({
         />
       ) : (
         <TimelineAudioPlayback
+          position={playbackClock.position}
           manifest={chatCutTimeline}
           playheadMs={playbackClock.playheadMs}
           isPlaying={playbackClock.isPlaying}

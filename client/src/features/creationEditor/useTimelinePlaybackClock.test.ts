@@ -92,6 +92,55 @@ describe("按下播放时的状态解析", () => {
 });
 
 describe("播放时钟运行边界", () => {
+  it("presents a warm video cut first and cancels its queued selection on seek", () => {
+    const queued: (() => void)[] = [], selected: number[] = [];
+    const clock = createTimelinePlaybackRuntime({ totalMs: 600,
+      afterVideoFrame: run => queued.push(run), onPlayheadCommit: ms => selected.push(ms) });
+    clock.setBoundaries([100, 200], ms => ms < 200);
+    clock.setPlaying(true);
+    const initial = clock.getEditorState();
+    clock.advance(100);
+    expect(clock.position.getTimeMs()).toBe(100);
+    expect(clock.getEditorState()).toBe(initial);
+    expect(queued).toHaveLength(1);
+    clock.seek(35);
+    queued.shift()!();
+    expect(selected.at(-1)).toBe(35);
+    clock.advance(70);
+    queued.shift()!();
+    expect(clock.getEditorState().playheadMs).toBe(105);
+    clock.advance(100);
+    expect(queued).toHaveLength(0);
+    expect(clock.getEditorState().playheadMs).toBe(205);
+  });
+  it("keeps frame updates local until a cut, seek, pause or the end", () => {
+    let now = 100;
+    const runtime = createTimelinePlaybackRuntime({ totalMs: 500, now: () => now });
+    runtime.setBoundaries([100]);
+    runtime.setPlaying(true);
+    const initial = runtime.getEditorState();
+    const positions: number[] = [];
+    const unsubscribe = runtime.position.subscribe(() => positions.push(runtime.position.getTimeMs()));
+    runtime.advance(34);
+    expect(runtime.getEditorState()).toBe(initial);
+    expect(positions).toEqual([34]);
+    now += 130;
+    expect(runtime.position.getPlaybackTimeMs()).toBe(130);
+    runtime.advance(96);
+    expect(runtime.getEditorState().playheadMs).toBe(130);
+    runtime.seek(30);
+    expect(runtime.getEditorState().playheadMs).toBe(30);
+    expect(runtime.position.getPlaybackTimeMs()).toBe(30);
+    runtime.setPlaying(false);
+    now += 1000;
+    expect(runtime.position.getPlaybackTimeMs()).toBe(30);
+    runtime.setPlaying(true);
+    runtime.advance(500);
+    expect(runtime.getEditorState()).toEqual({ playheadMs: 500, isPlaying: false });
+    runtime.togglePlaying();
+    expect(runtime.position.getPlaybackTimeMs()).toBe(0);
+    unsubscribe();
+  });
   it("同步冻结后，即使旧的动画帧回调抵达也不能继续推进播放头", () => {
     const committed: number[] = [];
     const runtime = createTimelinePlaybackRuntime({

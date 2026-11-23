@@ -1,3 +1,4 @@
+import { TimelinePositionView } from "../useTimelinePlaybackClock";
 import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { useEffect, useMemo, useState } from "react";
 import { msToPx, type TimelineViewport } from "@shared/timelineViewport";
@@ -235,7 +236,6 @@ export function StoryboardAudioTrack({
   playheadMs: number;
 }) {
   const _ui = useDesktopUiText();
-  const playheadPx = storyboardEditPlayheadPx(playheadMs, viewport);
   return (
     <div
       className="relative h-12 min-w-0 overflow-hidden border-b border-r bg-muted/15"
@@ -253,13 +253,16 @@ export function StoryboardAudioTrack({
         <span className="absolute inset-0 flex items-center justify-center text-[8px] text-muted-foreground/70">
           {_ui("导入旁白、音乐或原声后显示声音变化")}</span>
       )}
-      {playheadPx != null ? (
+      <TimelinePositionView fallbackMs={playheadMs}>{ms => {
+        const playheadPx = storyboardEditPlayheadPx(ms, viewport);
+        return playheadPx != null ? (
         <span
           className="pointer-events-none absolute bottom-0 top-0 z-30 w-px -translate-x-1/2 bg-rose-500"
           style={{ left: playheadPx }}
           data-testid="storyboard-audio-playhead"
         />
-      ) : null}
+      ) : null;
+      }}</TimelinePositionView>
     </div>
   );
 }

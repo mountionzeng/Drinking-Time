@@ -1,3 +1,4 @@
+import { TimelinePositionView } from "../useTimelinePlaybackClock";
 import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 /**
  * 字幕轨：主画面之下、声音之上的唯一一条可编辑字幕行。
@@ -188,8 +189,6 @@ export function SubtitleTrackRow({
   disabled?: boolean;
 }) {
   const _ui = useDesktopUiText();
-  const playheadPx = storyboardEditPlayheadPx(playheadMs, viewport);
-  const playheadFrame = Math.max(0, Math.round((playheadMs * 30) / 1_000));
   const [editingCueId, setEditingCueId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [composing, setComposing] = useState(false);
@@ -574,13 +573,16 @@ export function SubtitleTrackRow({
         );
       })}
 
-      {playheadPx != null ? (
+      <TimelinePositionView fallbackMs={playheadMs}>{ms => {
+        const playheadPx = storyboardEditPlayheadPx(ms, viewport);
+        return playheadPx != null ? (
         <span
           className="pointer-events-none absolute bottom-0 top-0 z-30 w-px -translate-x-1/2 bg-rose-500"
           style={{ left: playheadPx }}
           data-testid="storyboard-subtitle-playhead"
         />
-      ) : null}
+      ) : null;
+      }}</TimelinePositionView>
 
       {binding.sourceUpdatedHint ? (
         <span
@@ -600,12 +602,12 @@ export function SubtitleTrackRow({
       </span>
 
       {/* Split 需要播放头 + caret，交互入口在 Inspector；这里只暴露当前帧供它使用。 */}
-      <span
+      <TimelinePositionView fallbackMs={playheadMs}>{ms => <span
         hidden
         data-testid="storyboard-subtitle-playhead-frame"
-        data-frame={playheadFrame}
+        data-frame={Math.max(0, Math.round((ms * 30) / 1_000))}
         data-selected-index={selectedIndex}
-      />
+      />}</TimelinePositionView>
     </div>
   );
 }

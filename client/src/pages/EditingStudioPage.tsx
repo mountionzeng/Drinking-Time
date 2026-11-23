@@ -1,3 +1,4 @@
+import { focusFeedbackQuote, isFeedbackQuote } from "@/features/storyAgent/timelineFeedbackLocation";
 import { videoAcknowledgement, wordTimingCommand } from "@/features/storyAgent/commandConversation";
 import { parseDialogueVisualSync } from "@shared/dialogueVisualSync";
 import { ExportButton } from "@/features/creationEditor/ExportTimelineButton";
@@ -788,6 +789,9 @@ export default function EditingStudioPage() {
       if (storyId == null) return null;
       const surface = requestedWorkspace ?? (workspace === "publishing" || workspace === "images" ? "book" : "video");
       if (surface === "video") {
+        if (selectionContext?.sourceId && isFeedbackQuote(selectionContext)) {
+          return { handled: true as const, reply: focusFeedbackQuote(storyId, { sourceId: selectionContext.sourceId, selection: selectionContext.selection }) };
+        }
         const messages = storySpineStore.getState().messages;
         const command = wordTimingCommand(instruction, messages, storyId, selectionContext);
         if (command?.reply) return { handled: true as const, reply: command.reply };

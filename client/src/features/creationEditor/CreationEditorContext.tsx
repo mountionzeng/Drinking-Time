@@ -1,3 +1,4 @@
+import { createShotSelection } from "./shotSelectionStore";
 import { creationTimelineShotId, SHOT_STORY_IDENTITY_FIELDS } from "./timelineShotIdentity";
 export { creationTimelineShotId, resolveTimelineShots } from "./timelineShotIdentity";
 import { askMediaChatConfirmation } from "@/features/storyAgent/mediaChatSession";
@@ -11,6 +12,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type PropsWithChildren,
 } from "react";
 import { trpc } from "@/lib/trpc";
@@ -612,6 +614,9 @@ type CreationEditorContextValue = {
 const CreationEditorContext = createContext<CreationEditorContextValue | null>(
   null
 );
+const ShotSelectionContext = createContext<ReturnType<typeof createShotSelection> | null>(null);
+const noShotSubscription = () => () => {};
+const noSelectedShot = () => null;
 const EMPTY_STORY_SHOTS: readonly StoryShot[] = [];
 
 function stringValue(value: unknown): string {
@@ -1545,7 +1550,8 @@ export function CreationEditorProvider({
   const [localActiveStoryId, setLocalActiveStoryId] = useState<number | null>(
     null
   );
-  const [selectedShotNo, setSelectedShotNo] = useState<number | null>(null);
+  const [shotSelection] = useState(createShotSelection);
+  const setSelectedShotNo = shotSelection.select;
   const [rerenderingShotNos, setRerenderingShotNos] = useState<number[]>([]);
   const [rerenderError, setRerenderError] = useState<string | null>(null);
   const [promotingFrameCropShotNo, setPromotingFrameCropShotNo] = useState<
@@ -2187,10 +2193,6 @@ export function CreationEditorProvider({
       await reorderShotInTimelineCommand(sourceShotId, targetShotId);
     },
     [reorderShotInTimelineCommand]
-  );
-  const selectedShot = useMemo(
-    () => shots.find(shot => shot.shotNo === selectedShotNo) ?? null,
-    [selectedShotNo, shots]
   );
   const processingVideoTakeIds = useMemo(() => {
     return videoTakeIdsToRefresh(shots, recentVideoTakeIds);
@@ -4119,9 +4121,9 @@ export function CreationEditorProvider({
       rollTimelineJoin,
       detachTimelineMagnet,
       resetTimelineShots,
-      selectedShotNo,
+      get selectedShotNo() { return shotSelection.read(); },
       setSelectedShotNo,
-      selectedShot,
+      get selectedShot() { return shots.find(shot => shot.shotNo === shotSelection.read()) ?? null; },
       initialStoryLoading: resolveInitialStoryLoading({
         activeId,
         spineActiveStoryId,
@@ -4230,8 +4232,7 @@ export function CreationEditorProvider({
       chatCutTimeline,
       storyboardFieldVersions,
       error,
-      selectedShot,
-      selectedShotNo,
+      shotSelection,
       setActiveStoryId,
       promotingFrameCropShotNo,
       generatingVideoShotNos,
@@ -4298,14 +4299,14 @@ export function CreationEditorProvider({
   );
 
   return (
-    <CreationEditorContext.Provider value={value}>
-      {children}
-    </CreationEditorContext.Provider>
+    <ShotSelectionContext.Provider value={shotSelection}>
+      <CreationEditorContext.Provider value={value}>{children}</CreationEditorContext.Provider>
+    </ShotSelectionContext.Provider>
   );
 }
 
 export function useCreationEditor() {
-  const ctx = useContext(CreationEditorContext);
+  const ctx = useOptionalCreationEditor();
   if (!ctx)
     throw new Error(
       "useCreationEditor must be used within CreationEditorProvider"
@@ -4313,6 +4314,13 @@ export function useCreationEditor() {
   return ctx;
 }
 
-export function useOptionalCreationEditor() {
-  return useContext(CreationEditorContext);
+export function useOptionalCreationEditor(options: { observeShotSelection?: boolean } = {}) {
+  const editor = useContext(CreationEditorContext);
+  const selection = useContext(ShotSelectionContext);
+  const observe = options.observeShotSelection !== false;
+  const shotNo = useSyncExternalStore(observe && selection ? selection.subscribe : noShotSubscription,
+    observe && selection ? selection.read : noSelectedShot, noSelectedShot);
+  return useMemo(() => observe && editor ? {
+    ...editor, selectedShotNo: shotNo, selectedShot: editor.shots.find(shot => shot.shotNo === shotNo) ?? null,
+  } : editor, [observe, editor, shotNo]);
 }

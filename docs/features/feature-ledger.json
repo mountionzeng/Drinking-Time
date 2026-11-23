@@ -1051,6 +1051,8 @@
         "client/src/features/creationEditor/views/ShotPreview.tsx"
       ],
       "owners": [
+        "client/src/features/storyAgent/timelineFeedbackLocation.ts",
+        "client/src/features/storyAgent/useTimelineFeedbackLocation.ts",
         "shared/selectionContext.ts",
         "client/src/features/writingCompanion/WritingCompanionButton.tsx",
         "client/src/features/writingCompanion/writingCompanionText.ts",
@@ -1091,6 +1093,8 @@
         "client/src/features/storyAgent/views/useShotImageRender.tsx"
       ],
       "evidence": [
+        "client/src/features/storyAgent/timelineFeedbackLocation.test.ts",
+        "client/src/features/storyAgent/useTimelineFeedbackLocation.test.tsx",
         "docs/brainstorms/2026-08-31-selection-scoped-chat-editing-requirements.md",
         "client/src/features/storyAgent/selectionScopedChatEditing.integration.test.ts",
         "client/src/features/storyAgent/selectionSubmissionRouter.test.ts",
@@ -1148,6 +1152,11 @@
         "本轮原帧精修已接入真实对话报价；用户已授权三张原帧MJ精修共4.86算力及302读图，尚未提交媒体任务，真实输出及明暗/灰度/构图保持待浏览器控制恢复后验收。原视频运镜/14.5秒时长继承的视频编辑尚未接入，不能用现有首帧生视频冒充。"
       ],
       "history": [
+        {
+          "date": "2026-11-23",
+          "kind": "feature",
+          "summary": "聊天草稿在开始输入或录音时读取播放时间。反馈可分别定位到同秒的画面、音乐或旁白，保留区间追问与保存后的引用回跳。"
+        },
         {
           "date": "2026-10-13",
           "kind": "improvement",
@@ -3304,6 +3313,8 @@
         "client/src/features/creationEditor/views/ShotPreview.tsx"
       ],
       "owners": [
+        "client/src/features/creationEditor/useTimelinePlaybackClock.ts",
+        "client/src/features/creationEditor/timelineMedia/embeddedAudio.ts",
         "server/services/videoWordTiming.ts",
         "scripts/cut-word-timing.py",
         "client/src/features/storyAgent/commandConversation.ts",
@@ -3348,6 +3359,8 @@
         "client/src/features/creationEditor/previewVideoHandoff.ts"
       ],
       "evidence": [
+        "client/src/features/creationEditor/useTimelinePlaybackClock.test.ts",
+        "client/src/features/creationEditor/timelineMedia/TimelineAudioEngine.test.tsx",
         "server/services/videoWordTiming.test.ts",
         "server/services/dialogueVisualSync.test.ts",
         "server/services/dialogueVisualSync.integration.test.ts",
@@ -3450,6 +3463,11 @@
         "2026-11-06三版66字同稿中文短试听已受管入库为资产10/11/12，合计0.06算力；用户已选定豆包女声温柔小雅与男声温暖阿虎；MiniMax候选未选用。豆包通用接口不披露底层模型版本，使用明确unversioned服务标识。Qwen3文档版本实际404/Model not exist，未重试，应用0扣费。"
       ],
       "history": [
+        {
+          "date": "2026-11-23",
+          "kind": "fix",
+          "summary": "预览、播放头和混音按播放位置独立更新。无声 MP4 可跳过原声解码，暂停和定位继续共享同一个时钟。"
+        },
         {
           "date": "2026-11-20",
           "kind": "fix",
