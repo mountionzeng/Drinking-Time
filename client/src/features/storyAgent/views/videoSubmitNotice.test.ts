@@ -10,6 +10,8 @@ it("keeps a scoped failure across refresh and clears only the accepted shot", ()
   expect(notices[0].reason).not.toContain("未扣费");
   notices = updateVideoSubmitNotices(notices, a, null, 48, store);
   expect(readVideoSubmitNotices(48, store)).toEqual([{ key: b, reason: notices[0].reason }]);
+  notices = updateVideoSubmitNotices(notices, a, "新的失败", 48, store);
+  expect(readVideoSubmitNotices(48, store)).toEqual([notices[0], { key: a, reason: "新的失败" }]);
   expect(videoSubmitNoticeKey(1, { stableShotId: "shot-a", shotNo: 4 })).toBe(a);
 });
 it("survives unavailable or corrupt browser storage and bounds persisted notices", () => {

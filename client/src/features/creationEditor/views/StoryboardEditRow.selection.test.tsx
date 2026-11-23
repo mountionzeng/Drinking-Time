@@ -118,6 +118,25 @@ it("single-selection delete confirms the V2 clip and cancel writes nothing", asy
   expect(s.remove).toHaveBeenCalledWith([{ type: "image-clip", clipId: "v2-99", ownerStableShotId: "s2" }], 1);
   expect(s.timeline.onVisualObjectCommand).not.toHaveBeenCalled();
 });
+
+it("keeps the V2 confirmation visible while saving and shows a failed save in the dialog", async () => {
+  const s = setup();
+  let rejectSave!: (error: Error) => void;
+  s.remove.mockReturnValueOnce(new Promise<void>((_, reject) => { rejectSave = reject; }));
+  const button = nodes(s.clickImage()).find(n => n.props["data-testid"] === "delete-selected-visual-object");
+  button.props.onClick();
+  const dialog = () => nodes(s.render()).find(n => n.type === EditingConfirmationDialog).props;
+  const save = dialog().onConfirm();
+  expect(dialog()).toMatchObject({ open: true, pendingLabel: "正在删除…" });
+  dialog().onConfirm();
+  expect(s.remove).toHaveBeenCalledTimes(1);
+  rejectSave(new Error("保存失败，请重试"));
+  await save;
+  expect(dialog()).toMatchObject({ open: true, error: "保存失败，请重试" });
+  await dialog().onConfirm();
+  expect(dialog().open).toBe(false);
+  expect(s.remove).toHaveBeenCalledTimes(2);
+});
 it("a removed V2 selection clears without falling back to a destructive V1 target", () => {
   const s = setup(); s.clickImage(); s.removeImage();
   expect(s.v2().props.selectedVisualObject).toBeNull();

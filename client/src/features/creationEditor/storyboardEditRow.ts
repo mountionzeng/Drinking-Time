@@ -167,6 +167,9 @@ export function createStoryboardVisualClipNudgeQueue(input?: {
   };
 
   return {
+    get pending() {
+      return inFlight !== null || pending.size > 0;
+    },
     enqueue(nudge: StoryboardVisualClipNudge) {
       if (disposed) return;
       const previous = latestTarget.get(nudge.clipId);

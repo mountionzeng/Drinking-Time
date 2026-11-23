@@ -104,6 +104,7 @@ import VideoClipEditorPanel from "./VideoClipEditorPanel";
 import type { StoryboardBoardTimeline } from "./StoryboardEditRow";
 import ExtractedFrameTransitionRequirementsDialog from "./ExtractedFrameTransitionRequirementsDialog";
 import ShotPreview from "./ShotPreview";
+import { nextPreviewVideo, previewVideoBoundaries, previewVideoKey } from "../previewVideoHandoff";
 import { useTimelineMediaController } from "../timelineMedia/useTimelineMediaController";
 import { buildSubtitleCandidates } from "../timelineMedia/subtitleCandidates";
 import { TimelineAudioEngine } from "../timelineMedia/TimelineAudioEngine";
@@ -1329,23 +1330,31 @@ export default function EditingNleWorkspace({
       timelineVisualLayerState.hidden,
     ]
   );
-  const activeTimelineVideoSource = useMemo(
-    () =>
+  const resolveActiveVideoSource = useCallback(
+    (playheadMs: number) =>
       resolveTimelineVideoSource(
         shots,
         timelineShotIds,
-        previewPlayheadMs,
+        playheadMs,
         timelineOverlays,
         timelineVisualLayerState.hidden,
         { ignoreImageClips: true }
       ),
-    [
-      shots,
-      timelineOverlays,
-      previewPlayheadMs,
-      timelineShotIds,
-      timelineVisualLayerState.hidden,
-    ]
+    [shots, timelineOverlays, timelineShotIds, timelineVisualLayerState.hidden]
+  );
+  const activeTimelineVideoSource = useMemo(
+    () => resolveActiveVideoSource(previewPlayheadMs),
+    [resolveActiveVideoSource, previewPlayheadMs]
+  );
+  const videoBoundaries = useMemo(
+    () => previewVideoBoundaries(timelineItems, timelineOverlays),
+    [timelineItems, timelineOverlays]
+  );
+  const nextBoundaryIndex = videoBoundaries.findIndex(time => time > previewPlayheadMs);
+  const activeVideoKey = activeTimelineVideoSource ? previewVideoKey(activeTimelineVideoSource) : null;
+  const upcomingVideo = useMemo(
+    () => nextPreviewVideo(videoBoundaries, nextBoundaryIndex, activeVideoKey, resolveActiveVideoSource),
+    [videoBoundaries, nextBoundaryIndex, activeVideoKey, resolveActiveVideoSource]
   );
   const previewStableShotId =
     activeTimelineVisualFrame.kind === "shot"
@@ -1424,18 +1433,6 @@ export default function EditingNleWorkspace({
     [activeStoryId, setActiveSelection, setSelectedShotNo, shots]
   );
 
-  const resolveActiveVideoSource = useCallback(
-    (playheadMs: number) =>
-      resolveTimelineVideoSource(
-        shots,
-        timelineShotIds,
-        playheadMs,
-        timelineOverlays,
-        timelineVisualLayerState.hidden,
-        { ignoreImageClips: true }
-      ),
-    [shots, timelineOverlays, timelineShotIds, timelineVisualLayerState.hidden]
-  );
   const {
     editingStorySessionKey,
     isEditingStorySessionCurrent,
@@ -2778,6 +2775,7 @@ export default function EditingNleWorkspace({
             timing={previewShotTiming ?? undefined}
             sourceClip={previewSourceClip}
             timelineVideoSource={activeTimelineVideoSource}
+            upcomingVideo={upcomingVideo}
             timelineImageSource={previewTimelineImageSource}
             maskEditTarget={previewObjectMaskTarget}
             editorPreview={

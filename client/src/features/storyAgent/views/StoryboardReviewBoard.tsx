@@ -3315,7 +3315,7 @@ export function StoryboardReviewBoard({
         </div>
       ) : null}
 
-      <VideoSubmitNotices storyId={storyId} shots={creationShots} notices={videoSubmitNotices} />
+      <VideoSubmitNotices storyId={storyId} shots={creationShots} notices={videoSubmitNotices} onDismiss={key => recordVideoSubmitNotice(key, null)} />
       <StoryboardManuscriptSection visible={presentation === "manuscript"} timeline={boardTimeline} viewport={storyboardViewport}
         shots={storyboardEditShots} selectedShotNo={selectedShotNo} selectMatrixShot={selectMatrixShot}
         shotActions={storyboardEditShotActions} updateShotTimingPreview={updateShotTimingPreview}

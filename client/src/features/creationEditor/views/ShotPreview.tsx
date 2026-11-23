@@ -1,10 +1,12 @@
 import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { formatComputeQuote } from "@shared/computeMoney";
+import { holdOutgoingVideo, prepareStandbyVideo, previewVideoKey } from "../previewVideoHandoff";
 import { ImageSubtitleOverlay } from "./ImageSubtitleOverlay";
 import { Check, Crosshair, Loader2, Pencil, Video } from "lucide-react";
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useReducer,
   useRef,
   useState,
@@ -65,6 +67,7 @@ export default function ShotPreview({
   timing,
   sourceClip,
   timelineVideoSource,
+  upcomingVideo,
   timelineImageSource,
   editorPreview,
   suppressDefaultVideo,
@@ -89,6 +92,7 @@ export default function ShotPreview({
   timing?: { startMs: number; endMs: number; durationMs: number };
   sourceClip?: ChatCutTimelineClip | null;
   timelineVideoSource?: TimelineVideoSource | null;
+  upcomingVideo?: TimelineVideoSource | null;
   timelineImageSource?: {
     opacity?: number;
     imageUrl: string;
@@ -257,6 +261,32 @@ export default function ShotPreview({
   });
   const { videoUrl, overlayImageUrl, standaloneImageUrl, posterUrl } =
     mediaLayerPlan;
+  const activeKey = editorPreview
+    ? `editor-${editorPreview.target.takeId}-${editorPreview.target.clipId ?? "primary"}`
+    : timelineVideoSource ? previewVideoKey(timelineVideoSource) : videoUrl;
+  const standby = editorPreview ? null : upcomingVideo;
+  const standbyRef = useRef<HTMLVideoElement>(null);
+  const heldFrame = useRef<HTMLCanvasElement>(null);
+  const holdWhilePlaying = useRef(false);
+  const setActiveVideo = useCallback((node: HTMLVideoElement | null) => {
+    if (!node && holdWhilePlaying.current && videoRef.current && heldFrame.current) {
+      holdOutgoingVideo(videoRef.current, heldFrame.current);
+    }
+    videoRef.current = node;
+  }, []);
+  const seekPreviewVideo = useCallback((video: HTMLVideoElement, time: number) => {
+    if (holdWhilePlaying.current && heldFrame.current) holdOutgoingVideo(video, heldFrame.current);
+    video.currentTime = time;
+  }, []);
+  const revealDecodedFrame = (video: HTMLVideoElement) => {
+    if (videoRef.current === video && heldFrame.current && !video.seeking && video.readyState >= 2) {
+      heldFrame.current.hidden = true;
+    }
+  };
+  useLayoutEffect(() => {
+    if (standby && standbyRef.current) prepareStandbyVideo(standbyRef.current, standby.sourceTimeSec);
+  }, [standby]);
+
   const visibleImageUrl =
     overlayImageUrl ?? standaloneImageUrl ?? posterUrl ?? null;
   const aspectRatio = format ? `${format.width} / ${format.height}` : "1 / 1";
@@ -755,7 +785,9 @@ export default function ShotPreview({
     return () => observer.disconnect();
   }, []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    holdWhilePlaying.current = timelinePlaying && !editorPreview;
+    if (!holdWhilePlaying.current && heldFrame.current) heldFrame.current.hidden = true;
     const video = videoRef.current;
     if (!video || video.readyState < HTMLMediaElement.HAVE_METADATA) return;
     const maximumTime = Math.max(0, video.duration - 0.001);
@@ -781,11 +813,13 @@ export default function ShotPreview({
         ignoreNextVideoPauseRef.current = true;
         video.pause();
       }
-      if (drift > 0.004) video.currentTime = targetTime;
+      if (drift > 0.004 && (!timelinePlaying || !video.seeking)) seekPreviewVideo(video, targetTime);
+      revealDecodedFrame(video);
       return;
     }
 
-    if (drift > 0.35) video.currentTime = targetTime;
+    if (!video.seeking && drift > 0.35) seekPreviewVideo(video, targetTime);
+    revealDecodedFrame(video);
     if (video.paused) void video.play().catch(() => undefined);
   }, [
     playbackRate,
@@ -794,6 +828,9 @@ export default function ShotPreview({
     sourceEndSeconds,
     sourceStartSeconds,
     targetVideoTimeSeconds,
+    seekPreviewVideo,
+    activeKey,
+    editorPreview,
     timelinePlaying,
     videoUrl,
     sourceMuted,
@@ -933,17 +970,16 @@ export default function ShotPreview({
                   }
                 >
                   <video
-                    key={
-                      editorPreview
-                        ? `editor-${editorPreview.target.takeId}-${editorPreview.target.clipId ?? "primary"}`
-                        : videoUrl
-                    }
-                    ref={videoRef}
+                    key={activeKey}
+                    ref={setActiveVideo}
                     src={videoUrl}
-                    poster={posterUrl ?? undefined}
+                    poster={timelineVideoSource && !editorPreview ? undefined : posterUrl ?? undefined}
                     controls
                     playsInline
-                    preload="metadata"
+                    preload="auto"
+                    onLoadedData={event => revealDecodedFrame(event.currentTarget)}
+                    onSeeked={event => revealDecodedFrame(event.currentTarget)}
+                    onError={() => { if (heldFrame.current) heldFrame.current.hidden = true; }}
                     onPointerDown={() => {
                       previewControlInteractionAtRef.current = Date.now();
                     }}
@@ -972,10 +1008,10 @@ export default function ShotPreview({
                             sourceEndSeconds - VIDEO_END_HOLD_EPSILON_SECONDS
                           )
                         : targetVideoTimeSeconds;
-                      event.currentTarget.currentTime = Math.min(
-                        targetTime,
-                        maximumTime
-                      );
+                      const time = Math.min(targetTime, maximumTime);
+                      if (Math.abs(event.currentTarget.currentTime - time) > 0.004) {
+                        event.currentTarget.currentTime = time;
+                      }
                       if (timelinePlaying && !shouldHoldLastFrame && !reverse) {
                         void event.currentTarget.play().catch(() => undefined);
                       }
@@ -1046,10 +1082,10 @@ export default function ShotPreview({
                       ) {
                         ignoreNextVideoPauseRef.current = true;
                         event.currentTarget.pause();
-                        event.currentTarget.currentTime = Math.max(
+                        seekPreviewVideo(event.currentTarget, Math.max(
                           sourceStartSeconds,
                           endSeconds - VIDEO_END_HOLD_EPSILON_SECONDS
-                        );
+                        ));
                       }
                     }}
                     className="h-full w-full object-contain"
@@ -1060,6 +1096,22 @@ export default function ShotPreview({
                     }
                     aria-label={_ui("{0} 视频预览", [shot ? shotLabel(shot) : _ui("当前镜头")])}
                   />
+                  {standby && (
+                    <video
+                      key={previewVideoKey(standby)}
+                      ref={standbyRef}
+                      src={standby.videoUrl}
+                      muted
+                      playsInline
+                      preload="auto"
+                      aria-hidden="true"
+                      tabIndex={-1}
+                      className="pointer-events-none absolute inset-0 h-full w-full opacity-0"
+                      onLoadedMetadata={event => prepareStandbyVideo(event.currentTarget, standby.sourceTimeSec)}
+                    />
+                  )}
+                  <canvas hidden ref={heldFrame} data-handoff-hold
+                    className="pointer-events-none absolute inset-0 z-[1] h-full w-full bg-black object-contain" />
                 </div>
                 {overlayImageUrl ? (
                   <img

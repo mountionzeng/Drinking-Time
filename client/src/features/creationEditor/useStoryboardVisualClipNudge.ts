@@ -52,7 +52,7 @@ export function useStoryboardVisualClipNudge(
   }
   useEffect(() => () => queueRef.current?.dispose(), []);
 
-  return useCallback(
+  const nudgeVisualClip = useCallback(
     (input: StoryboardVisualClipNudgeInput) => {
       if (!move) return;
       const node = document.activeElement?.closest<HTMLElement>('[data-visual-clip-move-target="true"]');
@@ -74,4 +74,5 @@ export function useStoryboardVisualClipNudge(
     },
     [move, storySessionKey]
   );
+  return { nudgeVisualClip, isNudgePending: () => queueRef.current?.pending === true };
 }

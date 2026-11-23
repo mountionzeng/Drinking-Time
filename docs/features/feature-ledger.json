@@ -3344,7 +3344,8 @@
         "shared/bookVideoAudio.ts",
         "server/services/bookVideoAudio.ts",
         "scripts/align-book-narration.py",
-        "shared/bookScreenText.ts"
+        "shared/bookScreenText.ts",
+        "client/src/features/creationEditor/previewVideoHandoff.ts"
       ],
       "evidence": [
         "server/services/videoWordTiming.test.ts",
@@ -3397,7 +3398,8 @@
         "server/services/chatCutProjectMigration.test.ts",
         "docs/qa/2026-11-10-chatcut-launch-migration.md",
         "docs/qa/2026-11-15-film-style-continuity-captions.md",
-        "shared/bookScreenText.test.ts"
+        "shared/bookScreenText.test.ts",
+        "client/src/features/creationEditor/previewVideoHandoff.test.ts"
       ],
       "invariants": [
         "所有字幕与音频结构时间使用 30fps 非负整数帧；总时长取视觉、字幕、音频三者的最大结束帧。",
@@ -3626,6 +3628,11 @@
           "kind": "fix",
           "summary": "点击音频素材或裁剪把手时同步交接键盘焦点。",
           "evidence": ["docs/qa/2026-11-20-launch-video-shortcuts-layers.md"]
+        },
+        {
+          "date": "2026-11-23",
+          "kind": "fix",
+          "summary": "在预览切点预加载下一段，等待下一帧解码时保留前一画面。独立保留主动停顿和空白间隔。"
         }
       ]
     },
@@ -4372,7 +4379,9 @@
         "shared/shotSplitChat.test.ts",
         "client/src/features/storyAgent/useShotSplitChat.test.tsx",
         "server/services/storyVisualObjectUndo.test.ts",
-        "server/services/videoPromptDirector.test.ts"
+        "server/services/videoPromptDirector.test.ts",
+        "client/src/features/storyAgent/views/VideoSubmitNotices.test.tsx",
+        "client/src/features/storyAgent/views/videoSubmitNotice.test.ts"
       ],
       "invariants": [
         "同时具备首帧和尾帧的镜头才走 Vidu 首尾帧，否则回落单图链路。",
@@ -4430,6 +4439,11 @@
             "server/services/videoJobs.ts",
             "server/services/videoJobs.test.ts"
           ]
+        },
+        {
+          "date": "2026-11-23",
+          "kind": "fix",
+          "summary": "分镜页可以单独关闭当前故事的提交失败提醒，新的失败仍可出现。"
         }
       ]
     },
@@ -12806,7 +12820,8 @@
         "docs/qa/2026-11-11-chat-i2v-loop.md",
         "server/routers.creationAgentAdoptPrimary.test.ts",
         "server/services/visualDeleteRecovery.test.ts",
-        "docs/qa/2026-11-16-launch-repair-continuation.md"
+        "docs/qa/2026-11-16-launch-repair-continuation.md",
+        "client/src/features/creationEditor/views/StoryboardEditRow.selection.test.tsx"
       ],
       "invariants": [
         "正式视觉剪辑与兼容时间轴保存启用；快照与时间轴同一CAS事务提交，失败、冲突和相同内容不建修订。",
@@ -12844,6 +12859,11 @@
             "server/services/visualDeleteRecovery.test.ts",
             "docs/qa/2026-11-16-launch-repair-continuation.md"
           ]
+        },
+        {
+          "date": "2026-11-23",
+          "kind": "fix",
+          "summary": "删除确认等待保存读回，失败可重试，取消后焦点回到原片段。正在微调位置时暂缓删除。"
         }
       ]
     },

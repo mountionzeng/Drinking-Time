@@ -2522,6 +2522,7 @@ export function StoryboardEditRow({
   const [batchSelection, setBatchSelection] = useState<{ objects: VisualObjectRef[]; layer: number } | null>(null);
   const [batchPending, setBatchPending] = useState(false);
   const [confirmBatch, setConfirmBatch] = useState<typeof batchSelection>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const batchLock = useRef(false);
   const multipleSelectedKeys = useMemo(() => new Set(batchSelection?.objects.map(visualObjectRefKey) ?? []), [batchSelection]);
   const focusReturnRef = useRef<HTMLElement | null>(null);
@@ -2600,6 +2601,7 @@ export function StoryboardEditRow({
     setBatchSelection(null);
     setBatchPending(false);
     setConfirmBatch(null);
+    setDeleteError(null);
     batchLock.current = false;
     if (controlledSelectedVisualObject === undefined)
       setLocalSelectedVisualObject(null);
@@ -2709,6 +2711,11 @@ export function StoryboardEditRow({
     return object && layer != null ? [{ object, layer }] : [];
   });
   const selectionFingerprint = selectableVisuals.map(({ object, layer }) => `${visualObjectRefKey(object)}@${layer}`).join("|");
+  const { nudgeVisualClip, isNudgePending } = useStoryboardVisualClipNudge(
+    timeline.onMoveVisualClip,
+    timeline.storySessionKey,
+    selectionFingerprint,
+  );
   useEffect(() => {
     setBatchSelection(selection => {
       if (!selection) return selection;
@@ -2741,19 +2748,31 @@ export function StoryboardEditRow({
     });
   };
   const deleteBatch = async (confirmed = false) => {
-    if (!batchSelection?.objects.length || !timeline.onDeleteSelectedVisualObjects || timeline.writePending || batchLock.current) return;
+    const selection = confirmed ? confirmBatch : batchSelection;
+    if (!selection?.objects.length || !timeline.onDeleteSelectedVisualObjects || batchLock.current) return;
+    if (confirmed && selection !== batchSelection) {
+      setDeleteError("所选画面已删除或换层，请重新选择后删除");
+      return;
+    }
+    if (timeline.writePending || isNudgePending()) {
+      (confirmed ? setDeleteError : setStatusMessage)("另一个剪辑操作仍在保存");
+      return;
+    }
+    setDeleteError(null);
     if (!confirmed) { setConfirmBatch(batchSelection); return; }
-    if (confirmBatch !== batchSelection) { setConfirmBatch(null); return; }
-    setConfirmBatch(null);
-    const { objects, layer } = batchSelection;
+    const { objects, layer } = selection;
     const sessionToken = renderedStorySessionToken;
     batchLock.current = true;
     setBatchPending(true);
     try {
       await timeline.onDeleteSelectedVisualObjects(objects, layer);
-      if (isStorySessionTokenCurrent(sessionToken)) { setBatchSelection(null); setStatusMessage("已删除所选画面，可撤销或从历史版本恢复"); }
+      if (isStorySessionTokenCurrent(sessionToken)) {
+        setConfirmBatch(null);
+        setBatchSelection(null);
+        setStatusMessage("已删除所选画面，可撤销或从历史版本恢复");
+      }
     } catch (error) {
-      if (isStorySessionTokenCurrent(sessionToken)) setStatusMessage(error instanceof Error ? error.message : "删除失败");
+      if (isStorySessionTokenCurrent(sessionToken)) setDeleteError(error instanceof Error ? error.message : "删除失败");
     } finally {
       if (isStorySessionTokenCurrent(sessionToken)) { batchLock.current = false; setBatchPending(false); }
     }
@@ -2784,11 +2803,16 @@ export function StoryboardEditRow({
   };
   const requestSingleDelete = (object: VisualObjectRef): boolean => {
     if (!timeline.onDeleteSelectedVisualObjects) return false;
-    if (timeline.writePending || batchLock.current) return true;
+    if (batchLock.current) return true;
+    if (timeline.writePending || isNudgePending()) {
+      setStatusMessage("另一个剪辑操作仍在保存");
+      return true;
+    }
     const layer = visualObjectLayer(object);
     if (layer == null) return true;
     const selection = { layer, objects: [object] };
     setBatchSelection(selection);
+    setDeleteError(null);
     setObjectMenu(null);
     setConfirmBatch(selection);
     return true;
@@ -2811,11 +2835,6 @@ export function StoryboardEditRow({
       layer,
     });
   const mainLayerHidden = visualLayerState.hidden.includes(0);
-  const nudgeVisualClip = useStoryboardVisualClipNudge(
-    timeline.onMoveVisualClip,
-    timeline.storySessionKey,
-    selectionFingerprint,
-  );
   const manageVisualLayer = (action: TimelineVisualLayerAction) => {
     if (!timeline.onManageVisualLayer || timeline.writePending) return;
     if (action.kind === "move") {
@@ -3472,7 +3491,26 @@ export function StoryboardEditRow({
 
   return (
     <>
-      <EditingConfirmationDialog open={confirmBatch != null} title={_ui("删除 V{0} · {1} 项", [(confirmBatch?.layer ?? 0) + 1, confirmBatch?.objects.length ?? 0])} description={_ui(confirmBatch?.objects.some(object => object.type === "story-shot") ? "选区包含完整镜头，会同时删除对应镜头文字及主画面。素材仍保留在仓库，可从历史恢复。" : "只删除所选时间线片段，其他画面层保持原样。素材仍保留在仓库，可撤销或从历史恢复。")} confirmLabel={_ui("确认删除所选画面 / Delete selected")} onCancel={() => setConfirmBatch(null)} onConfirm={() => void deleteBatch(true)} />
+      <EditingConfirmationDialog
+        open={confirmBatch != null}
+        title={_ui("删除 V{0} · {1} 项", [(confirmBatch?.layer ?? 0) + 1, confirmBatch?.objects.length ?? 0])}
+        description={_ui(confirmBatch?.objects.some(object => object.type === "story-shot") ? "选区包含完整镜头，会同时删除对应镜头文字及主画面。素材仍保留在仓库，可从历史恢复。" : "只删除所选时间线片段，其他画面层保持原样。素材仍保留在仓库，可撤销或从历史恢复。")}
+        confirmLabel={_ui("确认删除所选画面 / Delete selected")}
+        pendingLabel={batchPending ? _ui("正在删除…") : undefined}
+        error={deleteError ? _ui(deleteError) : null}
+        onCancel={() => {
+          setConfirmBatch(null);
+          setDeleteError(null);
+          if (!multiSelect) setBatchSelection(null);
+        }}
+        onConfirm={() => deleteBatch(true)}
+        onCloseAutoFocus={event => {
+          const clip = focusReturnRef.current;
+          if (!clip?.isConnected) return;
+          event.preventDefault();
+          clip.focus({ preventScroll: true });
+        }}
+      />
       {timeline.onDeleteSelectedVisualObjects && <div role="cell" style={{ gridColumn: "1 / -1" }} className="flex flex-wrap items-center gap-2 border-y px-2 py-1 text-xs" aria-label="画面多选操作">
         <button type="button" aria-pressed={multiSelect} className="rounded border px-2 py-1" disabled={batchPending} onClick={() => { setMultiSelect(!multiSelect); setBatchSelection(null); }}>{_ui("多选画面 / Select clips")}</button>
         {!multiSelect && selectedVisualObject && selectedVisualObject.type !== "story-shot" && selectedSingleLayer != null && (
