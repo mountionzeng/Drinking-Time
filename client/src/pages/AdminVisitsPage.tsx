@@ -1,3 +1,5 @@
+import { ACTIVITY_TIME_ZONE, activityBeijingDate } from "@shared/activityJourney";
+import AdminCreationJourney from "./AdminCreationJourney";
 import { trpc } from "@/lib/trpc";
 import { ArrowLeft, RefreshCcw } from "lucide-react";
 import AdminUserOverview from "./AdminUserOverview";
@@ -15,6 +17,7 @@ function formatDuration(totalSeconds: number) {
 
 function formatTime(value: Date) {
   return new Intl.DateTimeFormat("zh-CN", {
+    timeZone: ACTIVITY_TIME_ZONE,
     month: "numeric",
     day: "numeric",
     hour: "2-digit",
@@ -38,11 +41,10 @@ function formatRelativeTime(value: Date, now: Date) {
 
 function formatSessionPeriod(startedAt: Date, lastSeenAt: Date) {
   const sameDay =
-    startedAt.getFullYear() === lastSeenAt.getFullYear() &&
-    startedAt.getMonth() === lastSeenAt.getMonth() &&
-    startedAt.getDate() === lastSeenAt.getDate();
+    activityBeijingDate(startedAt.getTime()) === activityBeijingDate(lastSeenAt.getTime());
   const time = (value: Date) =>
     new Intl.DateTimeFormat("zh-CN", {
+      timeZone: ACTIVITY_TIME_ZONE,
       hour: "2-digit",
       minute: "2-digit",
       hour12: false,
@@ -136,6 +138,7 @@ export default function AdminVisitsPage() {
 
       <div className="mx-auto max-w-6xl px-5 py-8 sm:px-8">
         <AdminUserOverview siteHost={siteHost} />
+        <AdminCreationJourney />
         <details className="mt-10 border-t pt-5">
         <summary className="mb-5 cursor-pointer text-sm font-medium">访问与生成详情（原邮箱用户看板）</summary>
         <section

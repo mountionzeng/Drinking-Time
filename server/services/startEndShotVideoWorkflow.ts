@@ -1,3 +1,4 @@
+import { recordGenerationResolved, recordGenerationSubmitted, recordVideoAvailability } from "../repositories/activityJourney";
 import { buildRenderSnapshot } from "./render/snapshot";
 import { submitRender } from "./render/submitRender";
 import {
@@ -760,6 +761,7 @@ export async function startEndShotVideoJob(
       extractionCapability: "unavailable",
     });
     take = reserved.take;
+    if (reserved.created) await recordGenerationSubmitted(userId, "video", take.id);
   }
 
   if (take.status === "available" || take.taskId) {
@@ -819,6 +821,7 @@ export async function startEndShotVideoJob(
         { status: "failed", errorMessage: message },
         { submissionState: "not_submitted" }
       );
+      await recordGenerationResolved(userId, "video", take.id, "failed");
       return { status: "error", error: message, take, estimate };
     }
   }
@@ -967,6 +970,7 @@ export async function startEndShotVideoJob(
       },
       { submissionState: unknown ? "unknown" : "not_submitted" }
     );
+    await recordGenerationResolved(userId, "video", take.id, unknown ? "unknown" : "failed");
     return {
       status: "error",
       error: take.errorMessage ?? message,
@@ -1027,6 +1031,7 @@ export async function refreshStartEndShotVideoTake(
           generationState: "download_failed",
         }
       );
+      if (failed.status === "failed") await recordGenerationResolved(userId, "video", current.id, "failed");
       return { status: "ok", take: failed };
     }
     const metadata = await probeVideoFileMetadata(
@@ -1042,6 +1047,7 @@ export async function refreshStartEndShotVideoTake(
           generationState: "invalid_aspect_ratio",
         }
       );
+      if (failed.status === "failed") await recordGenerationResolved(userId, "video", current.id, "failed");
       return { status: "ok", take: failed };
     }
     const ready = await patchTake(
@@ -1062,6 +1068,7 @@ export async function refreshStartEndShotVideoTake(
         appliedToTimeline: false,
       }
     );
+    await recordVideoAvailability(ready);
     return { status: "ok", take: ready };
   }
   if (refreshed.status === "processing" || refreshed.status === "retryable") {
@@ -1084,5 +1091,9 @@ export async function refreshStartEndShotVideoTake(
     { status: "failed", errorMessage: refreshed.message },
     { generationState: refreshed.status }
   );
+  if (failed.status === "failed") {
+    await recordGenerationResolved(userId, "video", current.id,
+      refreshed.status === "task_failed" ? (refreshed.cancelled ? "cancelled" : "failed") : "unknown");
+  }
   return { status: "ok", take: failed };
 }

@@ -49,7 +49,7 @@ export async function refreshViduSingleVideo(
   });
   if (result.status === "available" || result.status === "processing") return result;
   if (result.status === "task_failed") {
-    return { status: "failed", providerConfirmed: true, taskId, message: result.message };
+    return { status: "failed", providerConfirmed: true, ...(result.cancelled ? { cancelled: true } : {}), taskId, message: result.message };
   }
   return {
     status: "timeout",

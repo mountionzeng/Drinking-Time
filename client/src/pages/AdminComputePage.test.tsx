@@ -11,6 +11,7 @@ it("shows real credits rather than generation counts, with email lookup and acco
  expect(html).toContain("1.00 算力"); expect(html).toContain("4.00 算力");
  expect(html).toContain("按完整邮箱查询"); expect(html).toContain("查看");
  expect(html).toContain("仅统计已进入算力账本的调用");
+ expect(html).toContain("2026/10/18 08:00:00");
 });
 it("does not render cached account data when refresh fails", () => {
  state.error = new Error("unavailable");

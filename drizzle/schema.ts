@@ -3245,3 +3245,27 @@ export const storyMailboxHandoffs = mysqlTable("story_mailbox_handoffs", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, t => [uniqueIndex("mailbox_handoff_code").on(t.codeHash), index("mailbox_handoff_owner").on(t.userId), index("mailbox_handoff_recipient").on(t.recipientSubject)]);
 export type StoryMailboxHandoff = typeof storyMailboxHandoffs.$inferSelect;
+
+/** Website funnel, independent of the historical PR's unversioned event layout. */
+export const activityJourneyEvents = mysqlTable("activity_journey_v2_events", {
+  userId: int("userId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  schemaVersion: int("schemaVersion").notNull(),
+  platform: mysqlEnum("platform", ["web", "miniprogram", "unknown"]).notNull(),
+  eventName: mysqlEnum("eventName", [
+    "creation.entered", "generation.submitted", "generation.resolved", "result.opened",
+  ]).notNull(),
+  result: mysqlEnum("result", [
+    "none", "succeeded", "failed", "cancelled", "timeout", "unknown",
+  ]).notNull(),
+  subjectKind: mysqlEnum("subjectKind", ["image", "video"]),
+  subjectRef: int("subjectRef"),
+  visitKey: varchar("visitKey", { length: 64 }),
+  attemptKey: varchar("attemptKey", { length: 64 }),
+  dedupeKey: varchar("dedupeKey", { length: 64 }).primaryKey(),
+  /** Unix epoch milliseconds. MySQL session timezone does not affect comparisons. */
+  occurredAtMs: bigint("occurredAtMs", { mode: "number" }).notNull(),
+}, table => [
+  index("activity_v2_time_idx").on(table.schemaVersion, table.occurredAtMs),
+  index("activity_v2_attempt_idx").on(table.userId, table.attemptKey, table.eventName),
+  index("activity_v2_result_idx").on(table.userId, table.subjectKind, table.subjectRef, table.eventName),
+]);

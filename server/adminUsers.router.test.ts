@@ -172,3 +172,14 @@ it("persists explicit classifications without changing roles or balances and sum
     caller.setCategory({ userId: 99999, category: "own" })
   ).rejects.toMatchObject({ code: "NOT_FOUND" });
 });
+
+it("protects funnel reads and exports and derives activity actor from authentication", async () => {
+  const input = { from: "2026-11-21", through: "2026-11-22" };
+  for (const user of [null, await account("synthetic-non-admin")]) {
+    const caller = adminUsersRouter.createCaller(ctx(user));
+    await expect(caller.journeySummary(input)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(caller.journeyExport(input)).rejects.toMatchObject({ code: "FORBIDDEN" });
+  }
+  const anonymous = adminUsersRouter.createCaller(ctx(null));
+  await expect(anonymous.journeySignal({ eventName: "creation.entered" })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+});

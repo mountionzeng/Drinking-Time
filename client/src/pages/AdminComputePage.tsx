@@ -3,7 +3,7 @@ import { trpc } from "@/lib/trpc";
 import { formatComputeBalance } from "@shared/computeMoney";
 import type { ComputeStatementItem } from "@shared/computeStatement";
 
-const time = (value: Date | string) => new Date(value).toLocaleString("zh-CN");
+const time = (value: Date | string) => new Date(value).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false });
 const statuses = {
   posted: "已入账",
   reserved: "预占中",
@@ -183,7 +183,7 @@ export default function AdminComputePage() {
           </button>
         </form>
         <p className="mb-4 text-xs text-muted-foreground">
-          邮箱来自实际登录账号。未注册的邮箱不会创建虚拟用户；无邮箱的账号显示账号编号。仅统计已进入算力账本的调用。
+          邮箱来自实际登录账号。未注册的邮箱不会创建虚拟用户；无邮箱的账号显示账号编号。仅统计已进入算力账本的调用。时间均为北京时间。
         </p>
         {query.isLoading ? (
           <p>正在读取…</p>

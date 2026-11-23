@@ -10615,10 +10615,15 @@
         "server/repositories/adminUsers.ts",
         "server/routers/adminUsers.ts",
         "client/src/pages/AdminUserOverview.tsx",
+        "client/src/pages/AdminCreationJourney.tsx",
+        "server/repositories/activityJourney.ts",
         "drizzle/0034_admin_user_labels.sql"
       ],
       "evidence": [
         "server/adminUsers.router.test.ts",
+        "server/activityJourney.test.ts",
+        "server/integration/activityJourney.mysql.test.ts",
+        "docs/activity-journey.md",
         "client/src/pages/AdminUserOverview.test.tsx",
         "server/integration/adminUsers.mysql.test.ts",
         "server/repositories/stateCompatibility.test.ts",
@@ -10644,9 +10649,15 @@
         "累计消耗只含已结算扣款，长期停在待核对的预占（例：某账号7笔、0.68，累计消耗0.00）只显示在预占列，页面不自动核对或释放；异常流水若已扣款计入累计消耗。",
         "总览按当前环境账号库统计、访问按当前域名，不合并本地、测试站与正式库。",
         "当前读取账号汇总全集并在页面筛选分页，尚未做大规模用户压测。",
-        "分类保存最后一次管理员操作，保留最后操作者与时间，不提供历史分类审计列表。"
+        "分类保存最后一次管理员操作，保留最后操作者与时间，不提供历史分类审计列表。",
+        "网站创作漏斗仅覆盖已接入的持久图片任务和指定视频 Take，默认关闭；历史来源和其他生成入口未归因。生产迁移、采集及浏览器验收待授权。"
       ],
       "history": [
+        {
+          "date": "2026-11-22",
+          "kind": "improvement",
+          "summary": "复用用户管理页及现有分类，新增按北京时间查询的网站创作漏斗和纯汇总 CSV。尝试按持久化任务标识去重，查看核对同一结果归属，采集默认关闭。"
+        },
         {
           "date": "2026-10-21",
           "kind": "feature",

@@ -1,3 +1,4 @@
+import { recordGenerationResolved, recordGenerationSubmitted } from "../repositories/activityJourney";
 import { MEDIA_STALE_MS } from "../../shared/computeStaleRelease";
 import { randomUUID } from "node:crypto";
 import type { ImageGenerationTaskRow } from "../../drizzle/schema";
@@ -53,7 +54,11 @@ export async function registerImageTask(store: ImageTaskStore, input: RegisterIn
     nextPollAt: null, leaseOwner: null, leaseUntil: null, requestSentAt: null, submittedAt: null, completedAt: null,
     createdAt: now, updatedAt: now,
   };
-  return store.insert(row);
+  const claim = await store.insert(row);
+  if (!claim.replayed && claim.row.mediaKind === "image") {
+    await recordGenerationSubmitted(claim.row.userId, "image", claim.row.id);
+  }
+  return claim;
 }
 
 async function transition(store: ImageTaskStore, row: ImageGenerationTaskRow, to: ImageTaskStatus, patch: ImageTaskPatch, now: Date) {
@@ -83,12 +88,15 @@ export async function markAccepted(store: ImageTaskStore, id: string, providerTa
 }
 
 /** Provider answered with a definite rejection and no receipt. */
-export async function markRejected(deps: ImageTaskDeps, id: string, message: string) {
+export async function markRejected(deps: ImageTaskDeps, id: string, message: string, evidence: "failed" | "timeout" = "failed") {
   const now = nowOf(deps);
   const row = await deps.store.get(id);
   if (!row || row.providerTaskId || row.status !== "submitting") return row; // never fail a task that has a receipt
   const next = await transition(deps.store, row, "failed", { error: message, completedAt: now }, now);
-  if (next) await settleTask(deps, next);
+  if (next) {
+    if (next.mediaKind === "image") await recordGenerationResolved(next.userId, "image", next.id, evidence);
+    await settleTask(deps, next);
+  }
   return next;
 }
 
@@ -98,6 +106,7 @@ export async function markSubmissionUnknown(deps: ImageTaskDeps, id: string, mes
   const row = await deps.store.get(id);
   if (!row || row.providerTaskId || row.status !== "submitting") return row;
   const next = await transition(deps.store, row, "submission_unknown", { error: message }, now);
+  if (next?.mediaKind === "image") await recordGenerationResolved(next.userId, "image", next.id, "unknown");
   if (next?.billingOperationId) await deps.settle(next.billingOperationId, { kind: "submission_unknown" });
   return next;
 }
@@ -149,13 +158,18 @@ export async function pollImageTask(deps: ImageTaskDeps, row: ImageGenerationTas
   }
   if (decision.action === "manual") {
     deps.log?.("[image-task] accepted task exceeded poll window; kept hold for reconciliation", { id: row.id });
-    return deps.store.update(row.id, { version: row.version, status: row.status as ImageTaskStatus },
+    const next = await deps.store.update(row.id, { version: row.version, status: row.status as ImageTaskStatus },
       { pollCount: row.pollCount + 1, nextPollAt: new Date(now.getTime() + 60 * 60_000) }, now);
+    if (next?.mediaKind === "image") await recordGenerationResolved(next.userId, "image", next.id, "timeout");
+    return next;
   }
   if (decision.action === "fail") {
     const message = dedupeAcceptedPrefix(result.message ?? "供应商确认生成失败");
     const next = await transition(deps.store, row, "failed", { error: message, completedAt: now }, now);
-    if (next) await refundPromptOnce(deps, next, message);
+    if (next) {
+      if (next.mediaKind === "image") await recordGenerationResolved(next.userId, "image", next.id, "failed");
+      await refundPromptOnce(deps, next, message);
+    }
     return next ? settleTask(deps, next) : null;
   }
   const raw = result.candidates ?? (result.imageUrl ? [{ imageUrl: result.imageUrl, imageKey: result.imageKey }] : []);
@@ -173,6 +187,10 @@ export async function completeTask(deps: ImageTaskDeps, id: string, candidates: 
   // Only the writer that actually stored the images settles; a duplicate completion is a no-op
   // (a crash in between leaves settlement=null for reconciliation, never a double charge).
   if (!done.inserted) return done.row;
+  if (done.row.mediaKind === "image") {
+    const available = done.row.candidates.filter(candidate => candidate.imageId > 0 && candidate.imageUrl.trim());
+    await recordGenerationResolved(done.row.userId, "image", done.row.id, "succeeded", available.map(candidate => candidate.imageId));
+  }
   return settleTask(deps, done.row);
 }
 
@@ -185,7 +203,7 @@ async function refundPromptOnce(deps: ImageTaskDeps, row: ImageGenerationTaskRow
 /** Handle a stale `submitting` row by the expiry rule. Never resubmits. */
 export async function expireSubmittingTask(deps: ImageTaskDeps, row: ImageGenerationTaskRow) {
   const decision = decideExpiry({ status: row.status as ImageTaskStatus, providerTaskId: row.providerTaskId, updatedAt: row.updatedAt, requestSent: !!row.requestSentAt }, nowOf(deps));
-  if (decision.action === "release") return markRejected(deps, row.id, "任务未提交到供应商即中断，已退回预占。");
+  if (decision.action === "release") return markRejected(deps, row.id, "任务未提交到供应商即中断，已退回预占。", "timeout");
   if (decision.action === "mark_unknown") return markSubmissionUnknown(deps, row.id, "提交结果未知，已保留预占待对账，不会重新提交。");
   return row;
 }

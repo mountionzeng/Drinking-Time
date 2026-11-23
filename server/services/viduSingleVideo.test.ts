@@ -75,3 +75,13 @@ it("refreshes the recorded economy provider even when current default is MJ", as
   expect(getShotVideoProviderStatus("economy").model).toBe("viduq2-pro-fast");
   expect(getShotVideoProviderStatus().model).toBe("mj-video");
 });
+
+it("keeps explicit synthetic Vidu cancellation distinct from a provider failure", async () => {
+  const query = (state: string) => refreshShotVideoTask("synthetic-receipt", {
+    renderMode: "economy",
+    fetcher: vi.fn(async () => new Response(JSON.stringify({ state }))),
+  });
+  expect(await query("cancelled")).toMatchObject({ status: "failed", providerConfirmed: true, cancelled: true });
+  expect(await query("failed")).not.toHaveProperty("cancelled");
+  expect(await query("processing")).toMatchObject({ status: "processing" });
+});

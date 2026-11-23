@@ -49,6 +49,7 @@ export type ViduTransitionRefreshResult =
     }
   | {
       status: "task_failed";
+      cancelled?: true;
       taskId: string;
       message: string;
       providerCode?: string;
@@ -527,6 +528,7 @@ export async function refreshViduTransition(
   if (["failed", "failure", "error", "cancelled", "canceled"].includes(state)) {
     return {
       status: "task_failed",
+      ...(["cancelled", "canceled"].includes(state) ? { cancelled: true as const } : {}),
       taskId,
       message: failureMessage(json, "Vidu 视频生成失败"),
       providerCode: providerCode(json),

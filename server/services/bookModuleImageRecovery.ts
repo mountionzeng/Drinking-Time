@@ -1,3 +1,4 @@
+import { recordGenerationResolved, recordGenerationSubmitted } from "../repositories/activityJourney";
 import { isLegnextReceipt, resumeLegnextImage } from "./legnextImage";
 import { randomUUID } from "node:crypto";
 import { bookImageText } from "../../shared/bookImageBlock";
@@ -50,17 +51,23 @@ async function accept(scope: Scope, id: string, providerTaskId: string) {
   });
 }
 async function finish(scope: Scope, id: string, candidates: ImageGenCandidate[], meta?: { prompt?: string; promptCompilationId?: number | null }) {
-  return mutateModuleImageTasks(scope, async (tasks, store) => {
+  const stored = await mutateModuleImageTasks(scope, async (tasks, store) => {
     const task = tasks.find(t => t.id === id && matches(t, scope));
     if (!task) throw new Error("任务记录不存在");
-    if (task.status !== "succeeded") {
+    const inserted = task.status !== "succeeded";
+    if (inserted) {
       if (!candidates.length || candidates.length > 4) throw new Error("图片候选数量无效");
       task.candidates = await store(candidates.map(c => ({ ...c, ...meta })));
       task.status = "succeeded";
       delete task.error;
     }
-    return task.candidates.map(c => ({ id: c.imageId, imageUrl: c.imageUrl }));
+    return { inserted, candidates: task.candidates.map(c => ({ id: c.imageId, imageUrl: c.imageUrl })) };
   });
+  if (stored.inserted) {
+    const usableIds = stored.candidates.filter(candidate => candidate.id > 0 && candidate.imageUrl.trim()).map(candidate => candidate.id);
+    await recordGenerationResolved(scope.userId, "image", id, "succeeded", usableIds);
+  }
+  return stored.candidates;
 }
 export type ModuleImageHooks = {
   /** Table mode only: return immediately after the provider accepts; the worker fetches the result. */
@@ -94,19 +101,28 @@ export async function runModuleImageTask<T extends { status: string; error?: str
     return task;
   });
   if (claimed.id !== id) return response(claimed);
+  await recordGenerationSubmitted(scope.userId, "image", id);
   let acceptedId: string | undefined;
   let settlementStarted = false;
+  let definiteFailure = false;
   const onAccepted = async (taskId: string) => { acceptedId = taskId; await accept(scope, id, taskId); };
   try {
     const result = await generate({ onMidjourneyTaskAccepted: onAccepted, onProviderTaskAccepted: onAccepted,
+      onDefiniteFailure: () => { definiteFailure = true; },
       storeCandidates: (candidates, meta) => { settlementStarted = true; return finish(scope, id, candidates, meta); } });
-    if (result.status !== "ok") await mutateModuleImageTasks(scope, tasks => {
-      const task = tasks.find(t => t.id === id)!;
-      if (task.status === "succeeded") return;
-      task.providerTaskId ||= result.providerTaskId || acceptedId;
-      task.status = task.providerTaskId ? "accepted" : result.submissionUncertain || settlementStarted ? "unknown" : "failed";
-      task.error = result.error;
-    });
+    if (result.status !== "ok") {
+      const outcome = await mutateModuleImageTasks(scope, tasks => {
+        const task = tasks.find(t => t.id === id)!;
+        if (task.status === "succeeded") return;
+        task.providerTaskId ||= result.providerTaskId || acceptedId;
+        task.status = task.providerTaskId ? "accepted" : result.submissionUncertain || settlementStarted ? "unknown" : "failed";
+        task.error = result.error;
+        return task.status;
+      });
+      if (outcome === "failed" || outcome === "unknown") {
+        await recordGenerationResolved(scope.userId, "image", id, outcome === "failed" && definiteFailure ? "failed" : "unknown");
+      }
+    }
     return result;
   } catch (error) {
     // Keep the durable claim even when saving a receipt or final response fails.

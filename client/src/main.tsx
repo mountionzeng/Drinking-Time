@@ -1,3 +1,5 @@
+import { ACTIVITY_VISIT_HEADER } from "@shared/activityJourney";
+import { configureActivitySignals, getActivityVisitId } from "@/features/activityJourney/activityJourney";
 import { assertCurrentApp } from '@/features/appVersion/releaseCheck';
 import { trpc } from "@/lib/trpc";
 import { refreshComputeAfterMutation } from "@/features/computeAccount/computeBalanceRefresh";
@@ -37,9 +39,15 @@ const httpLinkOptions = {
   transformer: superjson,
   fetch(input: URL | RequestInfo, init?: RequestInit) {
     if (init?.method?.toUpperCase() === 'POST') assertCurrentApp();
+    const headers = new Headers(init?.headers);
+    if (init?.method?.toUpperCase() === "POST") {
+      const visitId = getActivityVisitId();
+      if (visitId) headers.set(ACTIVITY_VISIT_HEADER, visitId);
+    }
     return globalThis.fetch(input, {
       ...(init ?? {}),
       credentials: "include",
+      headers,
     });
   },
 };
@@ -58,6 +66,8 @@ const trpcClient = trpc.createClient({
     }),
   ],
 });
+
+configureActivitySignals(signal => trpcClient.adminUsers.journeySignal.mutate(signal));
 
 createRoot(document.getElementById("root")!).render(
   <trpc.Provider client={trpcClient} queryClient={queryClient}>

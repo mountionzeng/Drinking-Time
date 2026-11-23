@@ -1,3 +1,4 @@
+import CreationEntryTracker from '@/features/activityJourney/CreationEntryTracker';
 import AppVersionNotice from '@/features/appVersion/AppVersionNotice';
 import AppProviders from '@/app/providers/AppProviders';
 import AppRouter from '@/app/router/AppRouter';
@@ -8,6 +9,7 @@ function App() {
     <AppProviders>
       <AppVersionNotice />
       <AccessTracker />
+      <CreationEntryTracker />
       <AppRouter />
     </AppProviders>
   );

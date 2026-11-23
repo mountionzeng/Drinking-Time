@@ -1,3 +1,4 @@
+import { openTrackedResult } from "@/features/activityJourney/activityJourney";
 import React, { useState } from "react";
 import { ImageIcon } from "lucide-react";
 import { trpc } from "@/lib/trpc";
@@ -60,6 +61,7 @@ export function MobileAccountImages({
                   <button
                     className="block w-full overflow-hidden rounded-xl bg-muted/40 focus-visible:outline-2 focus-visible:outline-primary"
                     aria-label={t("放大图片 {0}", [item.id])}
+                    onClick={() => openTrackedResult("image", item.id)}
                   >
                     <img
                       src={item.imageUrl}

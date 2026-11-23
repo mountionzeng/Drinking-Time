@@ -1,3 +1,4 @@
+import { openTrackedResult } from "@/features/activityJourney/activityJourney";
 import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import {
   Ban,
@@ -252,13 +253,14 @@ export default function AnimaticMaterialDrawer({
                       ) : canPreview ? (
                         <button
                           type="button"
-                          onClick={() =>
+                          onClick={() => {
+                            openTrackedResult("video", take.id);
                             setLoadedVideoTakeIds(current => {
                               const next = new Set(current);
                               next.add(take.id);
                               return next;
-                            })
-                          }
+                            });
+                          }}
                           className="flex aspect-video w-full flex-col items-center justify-center gap-2 bg-muted text-xs text-muted-foreground transition hover:bg-muted/80 hover:text-foreground"
                         >
                           <Video className="h-5 w-5" />

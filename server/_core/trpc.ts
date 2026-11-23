@@ -1,3 +1,4 @@
+import { activityWebVisit, readActivityWebVisit } from "../services/activityJourneyContext";
 import { inferenceFailureMessage } from "@shared/inferenceFailureMessage";
 import { withComputeUser } from "../services/computeRequestAccess";
 import { NOT_ADMIN_ERR_MSG, UNAUTHED_ERR_MSG } from '@shared/const';
@@ -11,8 +12,10 @@ const t = initTRPC.context<TrpcContext>().create({
 });
 
 export const router = t.router;
-const baseProcedure = t.procedure.use(({ ctx, next }) =>
-  withComputeUser(ctx.user?.id ?? null, () => next())
+const baseProcedure = t.procedure.use(({ ctx, next, type }) => {
+  const visit = type === "mutation" ? readActivityWebVisit(ctx.user?.id, ctx.req?.headers) : undefined;
+  return activityWebVisit.run(visit, () => withComputeUser(ctx.user?.id ?? null, () => next()));
+}
 );
 export const publicProcedure = baseProcedure;
 

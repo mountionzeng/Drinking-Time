@@ -79,6 +79,7 @@ export type ShotVideoTaskRefreshResult =
       taskId: string;
       /** The provider itself reported FAILURE (not our query failing). */
       providerConfirmed?: true;
+      cancelled?: true;
       /** Our status query failed (HTTP error); says nothing about the generation. */
       queryFailed?: true;
       /** No stored route; must not poll the current VIDEO_302_* config. */
