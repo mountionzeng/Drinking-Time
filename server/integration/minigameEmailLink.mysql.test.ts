@@ -21,18 +21,21 @@ const mysqlTest = process.env.TEST_MYSQL_DATABASE_URL ? it : it.skip;
 const secret = 'test-only-email-binding-secret-32-characters';
 const subject = 'wxd6aeb0bc3a031d39:email-link-test';
 const email = 'old@example.com';
-async function fixture(run: (pool: mysql.Pool, source: number, target: number) => Promise<void>) {
+async function fixture(run: (pool: mysql.Pool, source: number, target: number) => Promise<void>, account: "legacy" | "registered" = "legacy") {
   await withMysqlTestDatabase(async database => {
     const pool = mysql.createPool({ uri: database.databaseUrl, connectionLimit: 8 });
     const previousUrl = process.env.DATABASE_URL;
     process.env.DATABASE_URL = database.databaseUrl;
     access.getDb.mockResolvedValue(drizzle(pool));
     try {
-      // Legacy linking requires an empty pre-gift account. Current WeChat
-      // registration grants credit and must not become eligible for a merge.
-      const [created] = await pool.execute<mysql.ResultSetHeader>("INSERT INTO users (openId,loginMethod) VALUES ('wx:legacy-empty','wechat')");
-      const source = created.insertId;
-      await pool.execute("INSERT INTO account_identities (userId,provider,subject,verifiedAt) VALUES (?,'wechat',?,NOW())", [source, subject]);
+      let source: number;
+      if (account === "registered") {
+        source = await resolveWechatAccount(subject);
+      } else {
+        const [created] = await pool.execute<mysql.ResultSetHeader>("INSERT INTO users (openId,loginMethod) VALUES ('wx:legacy-empty','wechat')");
+        source = created.insertId;
+        await pool.execute("INSERT INTO account_identities (userId,provider,subject,verifiedAt) VALUES (?,'wechat',?,NOW())", [source, subject]);
+      }
       const [row] = await pool.execute<mysql.ResultSetHeader>("INSERT INTO users (openId,email,loginMethod) VALUES ('legacy:old',?,'email')", [email]);
       await run(pool, source, row.insertId);
     } finally {
@@ -58,7 +61,7 @@ mysqlTest('verified optional linking retains the old account/data, revokes sourc
   const [story] = await pool.query<mysql.RowDataPacket[]>('SELECT userId,title FROM stories');
   expect(story).toEqual([{ userId: target, title: '旧故事' }]);
   const [credit] = await pool.query<mysql.RowDataPacket[]>('SELECT userId,balanceMinor FROM credit_accounts');
-  expect(credit).toEqual([{ userId: target, balanceMinor: 123456 + WECHAT_REGISTRATION_GIFT_MINOR }]);
+  expect(credit).toEqual([{ userId: target, balanceMinor: 123456 }]);
   const [users] = await pool.query<mysql.RowDataPacket[]>('SELECT sessionVersion FROM users WHERE id=?', [source]);
   expect(users[0].sessionVersion).toBe(2);
   const [audit] = await pool.query<mysql.RowDataPacket[]>('SELECT COUNT(*) AS n FROM data_migration_receipts');
@@ -203,4 +206,4 @@ mysqlTest('real HTTP/session/database chain: gifted WeChat login cannot transfer
     const [credits] = await pool.query<mysql.RowDataPacket[]>('SELECT userId,balanceMinor FROM credit_accounts');
     expect(credits).toEqual([{ userId: source, balanceMinor: WECHAT_REGISTRATION_GIFT_MINOR }]);
   } finally { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); }
-}));
+}, "registered"));
