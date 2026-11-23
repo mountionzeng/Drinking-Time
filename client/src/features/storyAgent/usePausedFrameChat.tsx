@@ -363,6 +363,7 @@ export function usePausedFrameChat(input: {
               : ""
           );
           if (!frame || !input.reviewFrame || !pausedDraftIsCurrent(d, frame.storyId)) return;
+          if (detail.kind === "capture" && detail.editKeyframe && detail.snapshot.displayedVideo) return;
           const selected = storySpineStore.getState().activeSelection;
           d.inspection = input.reviewFrame(frame, en ? "Review this frame" : "查看这一帧", { inspectOnly: true });
           const result = await d.inspection;

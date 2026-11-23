@@ -1,4 +1,7 @@
 {
+  "引用当前帧到聊天": {"en": "Quote current frame in chat", "fr": "Citer l’image actuelle dans la discussion"},
+  "引用当前帧": {"en": "Quote frame", "fr": "Citer cette image"},
+  "等画面显示后，再引用这一帧。": {"en": "Wait for the frame to appear, then select it.", "fr": "Attendez que l’image soit affichée avant de la citer."},
   "这个窗口未允许网页录音。回到输入框后，按 Mac 听写键说话；也可在独立浏览器允许本站录音。": {"en": "This window hasn’t allowed microphone access. Return to the message box and press your Mac dictation key, or allow the mic for this site in a standalone browser.", "fr": "Cette fenêtre n’a pas autorisé le micro. Revenez au champ de saisie et appuyez sur la touche de dictée du Mac, ou autorisez le micro pour ce site dans un navigateur indépendant."},
   "回到输入框": {"en": "Return to message box", "fr": "Revenir au champ de saisie"},
   "浏览器未开放实时语音识别。点「本机录音」，说完后点停止。": {"en": "Live dictation is unavailable. Select “Record locally”, then stop when you finish speaking.", "fr": "La dictée en direct est indisponible. Sélectionnez « Enregistrer sur cet appareil », puis arrêtez l’enregistrement après avoir parlé."},

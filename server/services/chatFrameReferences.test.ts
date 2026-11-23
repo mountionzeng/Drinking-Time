@@ -60,6 +60,14 @@ describe("warehouse-only video references", () => {
     const retry = await extractChatFrameReferences(input, deps);
     expect(retry.frames).toHaveLength(3); expect(images).toHaveLength(3);
     expect(deps.capture).toHaveBeenCalledTimes(4);
+    const frame = retry.frames[0];
+    const paused = await extractChatFrameReferences({ ...input, pausedFrame: {
+      storyId: 7, timelineVersion: 16, timelineFrame: frame.timelineFrame!, hiddenVisualLayers: [],
+      width: 1024, height: 1024, imageMode: "source",
+    } }, deps);
+    expect(paused.frames[0]).toMatchObject({ imageId: frame.imageId, timelineFrame: frame.timelineFrame, origin: "paused-preview" });
+    expect(deps.capture).toHaveBeenCalledTimes(4);
+    expect(deps.createImage).toHaveBeenCalledTimes(3);
     expect(deps.storeBytes.mock.calls[0][2].storageKey).toMatch(/^generated\/frame-references\/source-ref-[a-f0-9]+\.png$/);
     expect(deps.capture.mock.calls[0][0]).toMatchObject({preserveAspect:true, preserveDimensions:true, userId:1,takeId:10});
   });

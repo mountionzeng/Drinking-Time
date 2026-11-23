@@ -103,6 +103,18 @@ it("rejects stale versions, wrong stories, gaps and unavailable media", () => {
   state.shots[0].videoTakes = [];
   expect(() => planPausedFrame(state, snapshot)).toThrow("不可用");
 });
+it("pairs the visible source timestamp with its timeline frame and rejects a different Take", () => {
+  const state = fixture();
+  const atDisplayed = (takeId:number,sourceTimeSec:number) => planPausedFrame(state,{
+    ...snapshot,imageMode:"source",displayedVideo:{takeId,sourceTimeSec}
+  });
+  expect(atDisplayed(10,5.875).descriptor).toMatchObject({kind:"video",takeId:10,atSec:5.875,timelineFrame:90});
+  expect(planPausedFrame(state,snapshot).descriptor).toMatchObject({atSec:6,timelineFrame:90});
+  expect(()=>atDisplayed(11,5.875)).toThrow("预览画面已经切换");
+  expect(()=>atDisplayed(10,10)).toThrow("时间超出");
+  state.timeline.items[0].imageClips=[{id:"still",imageId:99,imageUrl:"/image.png",label:"still",offsetFrames:0,durationFrames:120,visualLayer:2}];
+  expect(()=>atDisplayed(10,5.875)).toThrow("预览画面已经切换");
+});
 it("selects upper stills and respects hidden layers; passes their crop transforms", () => {
   const state = fixture();
   state.timeline.items[0].imageClips = [

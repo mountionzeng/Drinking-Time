@@ -43,6 +43,9 @@ it("uses the presented frame during playback and clears a stale timestamp on see
   video.currentTime=4;
   const snapshot = {storyId:7,timelineVersion:16,timelineFrame:150,hiddenVisualLayers:[2],width:1080,height:1080};
   attach(7,10,()=>snapshot);
+  expect(refs).toHaveLength(1);
+  tick!(0, {mediaTime:4} as VideoFrameCallbackMetadata);
+  attach(7,10,()=>snapshot);
   expect(refs[1]).toMatchObject({kind:"capture",editKeyframe:true,snapshot:{...snapshot,displayedVideo:{takeId:10,sourceTimeSec:4}}});
   cleanup();
   expect(video.cancelVideoFrameCallback).toHaveBeenCalledWith(3);

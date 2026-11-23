@@ -2771,6 +2771,11 @@ export default function EditingNleWorkspace({
         >
           <ShotPreview
             storyId={activeStoryId}
+            freezeTimelineForChat={activeStoryId && pausedTimelineVersion != null && !videoEditorTarget && !imageEditorTarget && !timelineWritePending
+              ? () => ({ storyId: activeStoryId, timelineVersion: pausedTimelineVersion,
+                timelineFrame: playbackClock.pauseAtCurrentFrame().timelineFrame, hiddenVisualLayers: [...timelineVisualLayerState.hidden],
+                width: chatCutTimeline?.width ?? 1024, height: chatCutTimeline?.height ?? 1024 })
+              : undefined}
             shot={previewShot}
             timing={previewShotTiming ?? undefined}
             sourceClip={previewSourceClip}

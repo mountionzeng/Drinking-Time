@@ -99,12 +99,13 @@ export async function extractChatFrameReferences(input: Input, overrides: Partia
   if (input.pausedFrame && input.warehouseFrame) throw new Error("Choose one frame source");
   const paused = input.pausedFrame ? planPausedFrame(state, input.pausedFrame) : null;
   const sourceFrame = !input.pausedFrame || input.pausedFrame.imageMode === "source";
+  const displayedSource = Boolean(input.warehouseFrame || input.pausedFrame?.displayedVideo);
   const plan = input.warehouseFrame ? [planWarehouseVideoFrame(state, input.warehouseFrame)] : paused ? [paused] : planChatReferenceFrames(state, input);
   const frames: ChatFrameReference[] = [];
   const failures: string[] = [];
   for (const { shot, descriptor, offset } of plan) {
     try {
-      const digest = createHash("sha256").update(JSON.stringify([input.userId, input.storyId, shot.stableShotId, descriptor.kind === "video" ? [descriptor.takeId, descriptor.rangeId, descriptor.atSec.toFixed(3)] : [descriptor.imageId], paused ? [input.pausedFrame, paused.transform, "paused-preview-v1"] : input.warehouseFrame ? "warehouse-source-v1" : "source-native-v2"])).digest("hex").slice(0, 32);
+      const digest = createHash("sha256").update(JSON.stringify([input.userId, input.storyId, shot.stableShotId, descriptor.kind === "video" ? [descriptor.takeId, descriptor.rangeId, descriptor.atSec.toFixed(3)] : [descriptor.imageId], paused && !sourceFrame ? [input.pausedFrame, paused.transform, "paused-preview-v1"] : displayedSource ? "warehouse-source-v1" : "source-native-v2"])).digest("hex").slice(0, 32);
       const key = `generated/frame-references/source-ref-${digest}.png`;
       let pending = saving.get(key);
       if (!pending) {
@@ -117,7 +118,7 @@ export async function extractChatFrameReferences(input: Input, overrides: Partia
           if (descriptor.kind === "video") {
             // A presented media timestamp can be 1/24s. Rounding it UP to
             // milliseconds makes ffmpeg select the next frame; seek just before it.
-            const captureTimeSec = input.warehouseFrame ? Math.floor(descriptor.atSec * 1000 + 1e-6) / 1000 : descriptor.atSec;
+            const captureTimeSec = displayedSource ? Math.floor(descriptor.atSec * 1000 + 1e-6) / 1000 : descriptor.atSec;
             const capture = await runTimelineFrameCapture({ userId: input.userId, takeId: descriptor.takeId, rangeId: descriptor.rangeId, atSec: captureTimeSec, variant: sourceFrame ? "source-native" : "source-aspect", capture: () => deps.capture({ userId: input.userId, takeId: descriptor.takeId, rangeId: descriptor.rangeId, atSec: captureTimeSec, preserveAspect: true, ...(sourceFrame ? { preserveDimensions: true } : {}) }) });
             bytes = await deps.readFile(capture.path);
           } else {

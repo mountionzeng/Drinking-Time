@@ -399,3 +399,14 @@ it("does not deliver an old warehouse capture after another frame is attached", 
   await vi.waitFor(() => expect(review).toHaveBeenCalledOnce());
   expect(review).toHaveBeenCalledWith(expect.objectContaining({takeId:10}), expect.any(String), {inspectOnly:true});
 });
+
+it("attaches the main preview source without starting a review before the user sends instructions", async () => {
+  const review = vi.fn(async () => ({reply:"source inspected"}));
+  setup(undefined, review);
+  const snapshot = { ...m.state.pausedPreviewFrame, imageMode: "source", displayedVideo: { takeId: 10, sourceTimeSec: 2.875 } };
+  window.dispatchEvent(new CustomEvent(PAUSED_FRAME_SHORTCUT_EVENT, {detail: {kind: "capture", editKeyframe: true, snapshot}}));
+  await vi.waitFor(() => expect(m.invalidate).toHaveBeenCalled());
+  expect(m.capture).toHaveBeenCalledWith(expect.objectContaining({ pausedFrame: snapshot }));
+  expect(review).not.toHaveBeenCalled();
+  expect(m.messages).toHaveLength(0);
+});

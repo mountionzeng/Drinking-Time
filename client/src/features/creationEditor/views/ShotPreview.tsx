@@ -19,6 +19,8 @@ import type { SubtitleRenderPlan } from "@shared/timelineSubtitleModel";
 
 import { trpc } from "@/lib/trpc";
 import { formatStoryboardTimestamp } from "@/features/storyAgent/storyboardTiming";
+import { useReviewVideoFrame } from "@/features/storyAgent/views/ReviewFrameVideo";
+import type { PausedFrameSnapshot } from "@shared/chatFrameReference";
 import { useStoryAgentActions } from "@/features/storyAgent/StoryAgentContext";
 import type { ImageRegionEditHandoffRunner } from "@/features/storyAgent/imageRegionEditHandoff";
 import { storySpineStore } from "@/features/storyAgent/spine/storySpine";
@@ -83,6 +85,7 @@ export default function ShotPreview({
   onEditImage,
   onSelectImageForChat,
   onEditCurrentVideoFrame,
+  freezeTimelineForChat,
   storyId,
   maskEditTarget,
   onMaskAdopted,
@@ -118,6 +121,7 @@ export default function ShotPreview({
   onEditImage?: () => void;
   onSelectImageForChat?: () => void;
   onEditCurrentVideoFrame?: () => void;
+  freezeTimelineForChat?: () => PausedFrameSnapshot;
   storyId?: number | null;
   maskEditTarget?: ImageClipEditorTarget | null;
   onMaskAdopted?: () => void;
@@ -287,6 +291,7 @@ export default function ShotPreview({
     if (standby && standbyRef.current) prepareStandbyVideo(standbyRef.current, standby.sourceTimeSec);
   }, [standby]);
 
+  const attachVideoFrame = useReviewVideoFrame(videoRef, activeKey);
   const visibleImageUrl =
     overlayImageUrl ?? standaloneImageUrl ?? posterUrl ?? null;
   const aspectRatio = format ? `${format.width} / ${format.height}` : "1 / 1";
@@ -912,11 +917,22 @@ export default function ShotPreview({
                   : _ui("调整这张图")}
             </button>
           ) : null}
-          <span className="shrink-0 font-mono text-[10px] tabular-nums text-muted-foreground">
+          {freezeTimelineForChat && storyId && timelineVideoSource && videoUrl && !overlayImageUrl && !editorPreview ? (
+            <button type="button" className="shrink-0 text-[10px] tabular-nums text-muted-foreground underline"
+              aria-label={_ui("引用当前帧到聊天")} onClick={() => {
+                if (heldFrame.current && !heldFrame.current.hidden) {
+                  toast.info(_ui("等画面显示后，再引用这一帧。"));
+                  return;
+                }
+                attachVideoFrame(storyId, timelineVideoSource.takeId, freezeTimelineForChat);
+              }}>
+              {formatStoryboardTimestamp(playheadMs)} · {_ui("引用当前帧")}
+            </button>
+          ) : <span className="shrink-0 font-mono text-[10px] tabular-nums text-muted-foreground">
             {timing
               ? `${formatStoryboardTimestamp(timing.startMs)} / ${formatStoryboardTimestamp(timing.endMs)}`
               : "00:00.000"}
-          </span>
+          </span>}
         </div>
       </div>
 

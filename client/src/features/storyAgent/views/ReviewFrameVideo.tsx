@@ -29,7 +29,11 @@ export function useReviewVideoFrame(ref: RefObject<HTMLVideoElement | null>, url
   const { language } = useUiLanguage();
   return (storyId: number, takeId: number, freezeTimeline?: () => PausedFrameSnapshot) => {
     const video = ref.current;
-    if (!video || video.seeking || video.readyState < 2 || video.error) {
+    if (freezeTimeline && video && !video.requestVideoFrameCallback) {
+      toast.info(language === "en" ? "Use a browser that supports video frame timestamps to quote the preview." : "请用支持视频帧时间戳的浏览器引用主预览画面。");
+      return;
+    }
+    if (!video || video.seeking || video.readyState < 2 || video.error || (freezeTimeline && displayed.current === null)) {
       toast.info(language === "en" ? "Wait for the frame to appear, then select it." : "等画面显示后，再引用这一帧。");
       return;
     }

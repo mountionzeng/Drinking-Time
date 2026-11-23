@@ -47,6 +47,9 @@ export function planPausedFrame(
   if (resolved.status !== "ok")
     throw new Error("这里没有可读取的画面 / No readable picture at this frame");
   const descriptor = resolved.descriptor;
+  const displayed = snapshot.displayedVideo;
+  if (displayed && (descriptor.kind !== "video" || descriptor.takeId !== displayed.takeId))
+    throw new Error("预览画面已经切换，请重新引用当前帧 / The displayed video changed");
   const shot = state.shots.find(
     s => s.stableShotId === descriptor.ownerStableShotId
   );
@@ -73,6 +76,9 @@ export function planPausedFrame(
         t.status === "available"
     );
     if (!take) throw new Error("原视频不可用 / Source video unavailable");
+    if (displayed && (!Number.isFinite(displayed.sourceTimeSec) || displayed.sourceTimeSec < 0 ||
+        (take.durationSec != null && displayed.sourceTimeSec >= take.durationSec)))
+      throw new Error("时间超出原视频 / Time is outside the source video");
     const overlay = state.timeline.overlays?.find(
       o => o.id === descriptor.sourceClipId
     );
@@ -91,7 +97,7 @@ export function planPausedFrame(
   const scale = Math.min(1, 1280 / Math.max(snapshot.width, snapshot.height));
   return {
     shot,
-    descriptor,
+    descriptor: displayed && descriptor.kind === "video" ? { ...descriptor, atSec: displayed.sourceTimeSec } : descriptor,
     offset: Math.max(0, snapshot.timelineFrame - (row?.startFrame ?? 0)),
     transform,
     dimensions: {
