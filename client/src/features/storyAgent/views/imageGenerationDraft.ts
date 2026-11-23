@@ -1,3 +1,4 @@
+import { frameVersionName, keyframesByImage } from "@shared/storyKeyframes";
 import { displayShotCode } from '@shared/shotIdentity';
 import type { StoryMaterialState } from '@shared/storyMaterial';
 import type { ImageAsset } from '@shared/imageAsset';
@@ -29,8 +30,11 @@ export function composerImages(material: StoryMaterialState, language: string): 
     if (image.imageUrl && image.availability !== 'missing' && (!image.storyId || image.storyId === material.storyId)) images.set(image.id, image);
   }
   const zh = language.startsWith('zh');
+  const families = keyframesByImage(material.keyframeFamilies);
   const shotCodes = new Map(material.shots.map(shot => [shot.stableShotId, displayShotCode(shot)]));
   function label(image: ImageAsset) {
+    const frame = families.get(image.id);
+    if (frame) return frameVersionName(frame, image.id);
     const ids = image.libraryShotIds ?? (image.shotIdentity ? [image.shotIdentity] : []);
     const codes = ids.flatMap(id => shotCodes.has(id) ? [shotCodes.get(id)!] : []);
     const source = codes.length ? (zh ? '镜头 ' : 'Shot ') + codes.join(' / ') : (zh ? '仓库图片' : 'Library image');

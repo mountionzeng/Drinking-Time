@@ -37,8 +37,10 @@ export function warehouseConversationTarget(message: ChatMessage, storyId: numbe
 
 export function resolveWarehouseConversationGroup(groups: WarehouseShotGroup[], focus: WarehouseConversationFocus) {
   if (!Array.isArray(focus.mediaKeys)) return undefined;
-  return groups.find(group => (!focus.stableShotId || group.id === focus.stableShotId) &&
-    focus.mediaKeys.some(key => group.items.some(item => item.key === key)));
+  return groups.find(group => group.items.some(item => {
+    if (focus.stableShotId && group.id !== focus.stableShotId && item.frame?.sourceShotId !== focus.stableShotId) return false;
+    return focus.mediaKeys.includes(item.key) || item.frame?.versions.some(id => focus.mediaKeys.includes(`image:${id}`));
+  }));
 }
 
 export function focusWarehouseConversation(message: ChatMessage, storyId: number) {

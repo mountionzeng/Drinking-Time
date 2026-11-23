@@ -347,6 +347,8 @@
         "client/src/features/storyAgent/views/StoryAgentChat.tsx"
       ],
       "owners": [
+        "shared/storyKeyframes.ts",
+        "server/services/storyKeyframes.ts",
         "client/src/features/creationEditor/warehouseShotMedia.ts",
         "client/src/features/creationEditor/views/WarehouseShotGroups.tsx",
         "client/src/features/creationEditor/warehouseRenderActivity.ts",
@@ -363,6 +365,7 @@
         "server/services/libraryImageShots.ts"
       ],
       "evidence": [
+        "server/services/storyKeyframes.test.ts",
         "client/src/features/creationEditor/warehouseShotMedia.test.ts",
         "client/src/features/creationEditor/views/WarehouseShotGroups.test.tsx",
         "client/src/features/creationEditor/views/MaterialWarehousePanel.test.tsx",
@@ -423,6 +426,11 @@
       ],
       "history": [
         {
+          "date": "2026-11-24",
+          "kind": "feature",
+          "summary": "按镜头与关键帧版本显示已保存图片，历史版本可以按原图身份引用。"
+        },
+        {
           "date": "2026-11-10",
           "kind": "feature",
           "summary": "本地实现镜头分组、混合媒体顺序/命名版本/时长、显式选镜打开及仓库通知。3000故事1217实测01/02/03切组、旧参考图、全片10份音频、同镜回选、刷新及播放不重开；对话同步显式引用。44专项、类型/构建通过，未提交/部署/付费。"
@@ -467,6 +475,7 @@
           "kind": "fix",
           "summary": "按用户截图将聊天本镜图库移入已有仓库分组，入口绑定故事与稳定镜头；保留最新在左和原素材。3000实测第03镜47张图片、#2116编辑回原聊天，剪辑28保持；22专项/类型/build含77草稿安全通过，未生成/采用/部署。",
           "evidence": [
+        "server/services/storyKeyframes.test.ts",
             "docs/qa/2026-11-16-launch-repair-continuation.md"
           ]
         },
@@ -475,6 +484,7 @@
           "kind": "fix",
           "summary": "按用户最新要求改为生成时间从左至右由早到晚，缺时间最后；点击镜头或提交识别到镜头的聊天自动打开全部素材。完整镜头仓库导航在本地处理，不吞编辑要求。3000实测03组55项及02组4项；58最后回归/类型/build通过，原素材和草稿保留。",
           "evidence": [
+        "server/services/storyKeyframes.test.ts",
             "docs/qa/2026-11-16-launch-repair-continuation.md"
           ]
         },
@@ -483,6 +493,7 @@
           "kind": "fix",
           "summary": "旧改图回执按原时间插回对话，重复打开同镜仓库回到生成顺序起点，图片迟到加载保持最新定位；原3000刷新/横滑/重选及未发送草稿验收。",
           "evidence": [
+        "server/services/storyKeyframes.test.ts",
             "docs/qa/2026-11-16-launch-repair-continuation.md",
             "client/src/features/storyAgent/chatRevisionOrder.test.ts"
           ]
@@ -492,6 +503,7 @@
           "kind": "fix",
           "summary": "纠正上一轮误改的升序展示和断言，遵守用户最新在左要求：混排/图片/视频时间降序，无日期末尾，版本编号与多选点击顺序保留；最近通知同方向取最新。38专项、类型/build含77草稿项通过。3000实测55混排、94图、10视频全部createdAt顺序及重开/刷新通过；2116/V47最左、视频1617最左，剪辑35/采用/媒体/草稿保持。",
           "evidence": [
+        "server/services/storyKeyframes.test.ts",
             "docs/qa/2026-11-16-warehouse-newest-correction.md",
             "client/src/features/creationEditor/warehouseShotMedia.test.ts",
             "client/src/features/creationEditor/views/WarehouseShotGroups.test.tsx",
@@ -503,6 +515,7 @@
           "kind": "fix",
           "summary": "视频仓库选图保持打开，并在光标处插入可悬停原图的框内缩略引用；草稿/聊天刷新保留位置。输入自动增高、头像28px；报价按钮在消息内，刷新仅重填不复活授权。3000实测双图文字交错/删除撤销/刷新/真实单图本地报价与取消，未生成或扣费。精确2110、完整原话及模型多图内容顺序测试通过；剪辑35/采用/94图10视频14音频逐对象保留。详见QA，真实付费出图与采用仍待验收。",
           "evidence": [
+        "server/services/storyKeyframes.test.ts",
             "docs/qa/2026-11-16-inline-chat-images.md",
             "shared/inlineChatImages.test.ts",
             "client/src/features/storyAgent/inlineChatDraft.test.ts",
@@ -515,6 +528,7 @@
           "kind": "fix",
           "summary": "修复对话框新候选漏记镜头来源：2117回到03组V48最左，图片分类同序；素材与镜号通知合为单行。95图/10视频/14音频及采用逐对象不变，旧版本保留。 最终57专项、类型及标准构建含77草稿项通过；未付费或部署。",
           "evidence": [
+        "server/services/storyKeyframes.test.ts",
             "docs/qa/2026-11-17-chat-remix-followup.md",
         "server/services/libraryImageShots.test.ts",
         "client/src/features/storyAgent/views/ArtPreviewGallery.test.tsx"
@@ -5478,6 +5492,8 @@
         "client/src/features/storyAgent/views/StoryAgentChat.tsx"
       ],
       "owners": [
+        "client/src/features/storyAgent/imageReferenceRoles.ts",
+        "client/src/features/storyAgent/views/shotImageNames.ts",
         "client/src/features/storyAgent/chatMediaAttachments.ts",
         "client/src/features/storyAgent/chatImageRefs.ts",
         "shared/chatImageEditPlan.ts",
@@ -5511,6 +5527,7 @@
         "server/services/localRegionErase.ts"
       ],
       "evidence": [
+        "client/src/features/storyAgent/imageDirections.test.ts",
         "client/src/features/storyAgent/chatMediaAttachments.test.ts",
         "client/src/features/storyAgent/chatImageRefs.test.ts",
         "shared/chatImageEditPlan.test.ts",
@@ -5575,6 +5592,11 @@
       ],
       "history": [
         {
+          "date": "2026-11-24",
+          "kind": "feature",
+          "summary": "同一条消息中的逐图要求与旧版本图片绑定，同组冷暖对比可先检查并调整每张草稿。"
+        },
+        {
           "date": "2026-08-26",
           "kind": "feature",
           "summary": "聊天框拖入本地照片并附带明确的生成、重绘或改图指令时，导入所得 generated_images 行会直接成为当前 Story 的图生图参考，复用既有费用确认卡与 remixEdit 生成链路；分析类指令和『不要生成』等否定表达继续走普通素材分析，不会触发付费任务。新图仍只进入素材仓库，不自动替换镜头。"
@@ -5604,6 +5626,7 @@
           "kind": "fix",
           "summary": "视频仓库选图保持打开，并在光标处插入可悬停原图的框内缩略引用；草稿/聊天刷新保留位置。输入自动增高、头像28px；报价按钮在消息内，刷新仅重填不复活授权。3000实测双图文字交错/删除撤销/刷新/真实单图本地报价与取消，未生成或扣费。精确2110、完整原话及模型多图内容顺序测试通过；剪辑35/采用/94图10视频14音频逐对象保留。详见QA，真实付费出图与采用仍待验收。",
           "evidence": [
+        "client/src/features/storyAgent/imageDirections.test.ts",
             "docs/qa/2026-11-16-inline-chat-images.md",
             "shared/inlineChatImages.test.ts",
             "client/src/features/storyAgent/inlineChatDraft.test.ts",
@@ -5616,6 +5639,7 @@
           "kind": "fix",
           "summary": "新结果保存稳定镜头对话来源并持久显示，普通续改沿用新候选，明确引用/新选择/草稿优先；精确找回2117，不重购不采用。生成等待/报价与实扣未知分开，旧报价收起。3000真实2117续改报价/取消/刷新保持通过。 最终57专项、类型及标准构建含77草稿项通过；未付费或部署。",
           "evidence": [
+        "client/src/features/storyAgent/imageDirections.test.ts",
             "docs/qa/2026-11-17-chat-remix-followup.md"
           ]
         },
@@ -5624,6 +5648,7 @@
           "kind": "fix",
           "summary": "仓库当前多选在明确多图指代时按原序带入聊天，综合/融合转现有报价；显式引用、单图续改及视频路由不被旧多选覆盖。3000真实2118/2117两句原话重发一次2.86报价，未确认生成。 随后现场完成2119，HMR打断等待后刷新精确恢复，聊天和仓库V50可见，无重复生成、实扣未知；用户现场后续剪辑36保留。",
           "evidence": [
+        "client/src/features/storyAgent/imageDirections.test.ts",
             "docs/qa/2026-11-17-chat-status-retry.md",
             "client/src/features/creationEditor/warehouseChatSelection.test.ts"
           ]
@@ -5633,6 +5658,7 @@
           "kind": "fix",
           "summary": "增加原聊天多图要求确认，逐图职责/数量/修改与保护项，不把确认当付费；补修分别修改被别修改否定误判。36专项、类型及同步代码标准构建通过；原页截图2121免费导入、两图共用参考反馈保存。卡片同ID字段保存不一致，刷新验收未通过，按用户要求停在此项。未购图片、未采用；误路由文字调用247结果未知未重试。",
           "evidence": [
+        "client/src/features/storyAgent/imageDirections.test.ts",
             "docs/qa/2026-11-17-image-edit-confirmation.md"
           ]
         },
@@ -5641,6 +5667,7 @@
           "kind": "fix",
           "summary": "要求调整/确认追加确定ID的完整快照，复用旧修订合并保护；已确认计划逐图逐张接既有remix报价。原3000提交完整两图计划并刷新保留，2119实际显示2.86算力待确认，双图预计5.72；未购买/采用。52专项相关回归、类型、标准构建含77草稿项与范围审计通过；上轮卡片换行微调已精确整合。原媒体/剪辑/账务保持，旧消息去重及legacy shotKey省略如实记录。",
           "evidence": [
+        "client/src/features/storyAgent/imageDirections.test.ts",
             "docs/qa/2026-11-17-image-edit-plan-submit.md"
           ]
         },
@@ -5649,6 +5676,7 @@
           "kind": "fix",
           "summary": "同批进度及剩余报价接通，GPT remix复用storyboardImageTask持久回执和确定requestId。原3000双图同排/真实旧2122复用/剩余2092报价2.86/刷新保留通过；163专项相关回归、类型、标准build含77草稿、103卡和scope通过。无新付费或采用，剪辑36和原素材保留，历史恢复入口可查看；真实付费质量、飞机像素保护、实际结算仍待验收。",
           "evidence": [
+        "client/src/features/storyAgent/imageDirections.test.ts",
             "docs/qa/2026-11-17-image-edit-batch.md"
           ]
         },
@@ -5657,6 +5685,7 @@
           "kind": "fix",
           "summary": "修复带图“飞机大一点/调大/缩小”漏识别而误走普通聊天；保留疑问、比较、否定边界及原话/图片身份。50专项、类型、标准build含77草稿安全项通过；主3000原话草稿刷新保留，重送后出现2123的2.86报价，未确认生成，剪辑36/全部媒体/三账务表不变。普通文字通道401/500及249未知计费未解决，无自动重试。",
           "evidence": [
+        "client/src/features/storyAgent/imageDirections.test.ts",
             "docs/qa/2026-11-17-plane-feedback-route.md"
           ]
         },
@@ -5665,6 +5694,7 @@
           "kind": "fix",
           "summary": "新增失败单图原话的本地报价恢复入口，不依赖修改关键词；持久原图/原话及报价刷新后可继续，跨故事/缺图/区域/多图不接管，不重试未知文字或恢复费用授权。85专项/类型/标准build含77草稿项通过；主3000原图2126/原话/2.86报价/刷新恢复/仓库常开实测，104图与剪辑36/账务不变，未新付费或采用。",
           "evidence": [
+        "client/src/features/storyAgent/imageDirections.test.ts",
             "docs/qa/2026-11-17-chat-interruption.md"
           ]
         },
@@ -5673,6 +5703,7 @@
           "kind": "fix",
           "summary": "按用户反馈合并要求与费用确认：表单内实时总价，一次点击保存后核对完整请求并接既有批次生成；仅内存授权，刷新/失败不重购。163专项、类型、标准build含77草稿测试通过；主3000单/双张报价、原要求刷新保留及旧历史入口验证，无付费/新图/采用，真实擦除与实扣仍待验收。",
           "evidence": [
+        "client/src/features/storyAgent/imageDirections.test.ts",
             "docs/qa/2026-11-17-image-confirm-generate.md"
           ]
         },
@@ -5681,6 +5712,7 @@
           "kind": "fix",
           "summary": "在同一聊天改图草稿里比较原图精修和分镜 MJ 四候选的总价，切换沿用底图、参考图与美术要求。MJ 按目标图一组计价，使用分镜 V7 Fast，按原图宽高比提交。真实付费画质需用户另行确认生成后验收。",
           "evidence": [
+        "client/src/features/storyAgent/imageDirections.test.ts",
             "client/src/features/storyAgent/views/ChatImageRouteChoice.test.tsx",
             "server/services/chatImageEditRoutes.test.ts"
           ]
@@ -5690,6 +5722,7 @@
           "kind": "fix",
           "summary": "待发送图片可在原聊天打开大图、按实际尺寸查看。只保存图片后聊天保留同一仓库图片的可点击回执。",
           "evidence": [
+        "client/src/features/storyAgent/imageDirections.test.ts",
             "client/src/features/storyAgent/views/ChatPhotoPreview.tsx"
           ]
         },
@@ -5698,6 +5731,7 @@
           "kind": "fix",
           "summary": "聊天精修和分镜改图将主体的运动前端、目标与落点的局部画法一起交给渲染流程。主3000第04镜候选 #2169 可刷新后审看；真实付费出图质量待验。",
           "evidence": [
+        "client/src/features/storyAgent/imageDirections.test.ts",
             "shared/sceneObjectDirection.ts",
             "server/services/chatImageEditRoutes.test.ts"
           ]
@@ -5707,6 +5741,7 @@
           "kind": "fix",
           "summary": "本镜整组审图反馈按真实回执顺序分开精修，保留逐帧要求与背景参考，按实际张数一次报价。整组反馈覆盖旧草案，刷新不授权付款。静帧提示保护物体交界的局部光色、纹理及清晰轮廓。真实画质待付费生成后审看。",
           "evidence": [
+        "client/src/features/storyAgent/imageDirections.test.ts",
             "client/src/features/storyAgent/keyframeGroupEdit.test.ts",
             "server/services/chatImageEditBatch.test.ts",
             "client/src/features/storyAgent/views/ChatImageEditBatch.purchase.test.tsx"
@@ -5717,6 +5752,7 @@
           "kind": "fix",
           "summary": "聊天改图在报价卡里免费读取底图和参考图，能展开逐帧依据。第05镜一次显示五张底图的精修总价，参考图单列。收到通用读图要求只存回执。",
           "evidence": [
+        "client/src/features/storyAgent/imageDirections.test.ts",
             "client/src/features/storyAgent/views/SourceReviewedPlanCard.tsx",
             "server/services/chatImageEditBatch.router.test.ts"
           ]
@@ -5726,6 +5762,7 @@
           "kind": "fix",
           "summary": "本镜按张数索取修订图时，聊天核对审图顺序和修改草案。已完成则展示可引用的实图，加入新美术要求则继续改图。",
           "evidence": [
+        "client/src/features/storyAgent/imageDirections.test.ts",
             "client/src/features/storyAgent/keyframeGroupEdit.ts",
             "client/src/features/storyAgent/keyframeGroupEdit.test.ts"
           ]
@@ -5735,6 +5772,7 @@
           "kind": "fix",
           "summary": "视频工作区聊天中的故事图片支持悬停原图、反向拖框和免费局部读图。松开后将原图引用、归一化范围和可识别的内容加入草稿。已移除缩略图旁的独立放大镜，单击仍可引用，Alt+Enter 可看 1:1 原图。",
           "evidence": [
+        "client/src/features/storyAgent/imageDirections.test.ts",
             "client/src/features/storyAgent/views/chatHoverRegion.test.ts",
             "server/services/chatPictureRegion.test.ts"
           ]
@@ -5744,6 +5782,7 @@
           "kind": "fix",
           "summary": "点选原图引用整张，直接在缩略图或大图拖框会立即在输入框引用局部。预览避开输入框并在松手时收起，本地读图只更新同一枚引用；发送时携带原图 ID 与已选范围。",
           "evidence": [
+        "client/src/features/storyAgent/imageDirections.test.ts",
             "client/src/features/storyAgent/views/chatHoverRegion.test.ts",
             "client/src/features/storyAgent/views/InlineChatComposer.tsx",
             "client/src/features/storyAgent/views/ChatImageRegionHover.tsx"
@@ -5754,6 +5793,7 @@
           "kind": "fix",
           "summary": "右侧视频聊天可用一张原图的矩形选区检查本镜最新一组关键帧。每张图独立定位相同文字或局部图形；多处匹配与不确定位置留待核对。",
           "evidence": [
+        "client/src/features/storyAgent/imageDirections.test.ts",
             "client/src/features/storyAgent/keyframeRegionScan.test.ts",
             "server/services/keyframeRegionScan.test.ts"
           ]
@@ -5763,6 +5803,7 @@
           "kind": "fix",
           "summary": "同组选区检查卡可直接本地擦除勾选内容并存为候选，复用原选区和原图像素，0 算力。",
           "evidence": [
+        "client/src/features/storyAgent/imageDirections.test.ts",
             "server/services/localRegionErase.test.ts",
             "server/services/render/renderProfiles.contract.test.ts"
           ]

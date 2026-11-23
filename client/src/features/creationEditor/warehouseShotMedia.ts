@@ -1,4 +1,5 @@
 import type { ImageAsset } from "@shared/imageAsset";
+import { frameVersionName, keyframesByImage, type ShotKeyframe } from "@shared/storyKeyframes";
 import type { StoryMaterialState } from "@shared/storyMaterial";
 import type { ChatImageRevision } from "@shared/chatImageRevision";
 import { displayShotCode } from "@shared/shotIdentity";
@@ -29,6 +30,7 @@ export type WarehouseMedia = {
   ready: boolean;
   renderState?: "rendering" | "failed" | "unknown";
   aspectRatio?: string;
+  frame?: ShotKeyframe;
   assetVersion?: VisualAssetVersion;
   artRecipe?: StoryArtRecipe;
 };
@@ -131,6 +133,7 @@ export function buildWarehouseShotGroups(input: {
     ...(state?.warehouseImages ?? state?.unassignedImages ?? []),
   ])
     if (image.storyId === input.storyId) images.set(image.id, image);
+  const frames = keyframesByImage(state?.keyframeFamilies);
   const groups: WarehouseShotGroup[] = [];
   const usedImages = new Set<number>();
   const usedTakes = new Set<number>();
@@ -185,6 +188,7 @@ export function buildWarehouseShotGroups(input: {
       ...(material?.imageVersions ?? []),
       ...(material?.relatedImages ?? []),
     ].map(i => i.id);
+    related.push(...(state?.keyframeFamilies ?? []).flatMap(f => f.stableShotId === id && f.latestImageId != null ? [f.latestImageId] : []));
     related.push(...shotExplicitImageIds(shot));
     related.push(...revisions.flatMap(r => r.candidates.map(c => c.imageId)));
     const items = new Map<string, WarehouseMedia>();
@@ -193,11 +197,14 @@ export function buildWarehouseShotGroups(input: {
       id,
       related
     )) {
-      items.set(`image:${image.id}`, asImage(image, imageRole(shot, image.id)));
       usedImages.add(image.id);
+      const frame = frames.get(image.id);
+      if (frame && (frame.stableShotId !== id || frame.latestImageId !== image.id)) continue;
+      items.set(`image:${image.id}`, { ...asImage(image, imageRole(shot, image.id)), frame });
     }
     for (const revision of revisions)
       for (const image of revision.candidates) {
+        if (frames.has(image.imageId)) continue;
         if (!items.has(`image:${image.imageId}`))
           items.set(
             `image:${image.imageId}`,
@@ -224,7 +231,7 @@ export function buildWarehouseShotGroups(input: {
   const whole: WarehouseShotGroup = { id: WHOLE_STORY_MEDIA, items: [] };
   const unassigned: WarehouseShotGroup = { id: UNASSIGNED_MEDIA, items: [] };
   for (const image of images.values())
-    if (!usedImages.has(image.id))
+    if (!usedImages.has(image.id) && !frames.has(image.id))
       unassigned.items.push(asImage(image, "图片"));
   for (const take of allTakes.values())
     if (!usedTakes.has(take.id)) unassigned.items.push(asVideo(take));
@@ -258,7 +265,7 @@ export function buildWarehouseShotGroups(input: {
     const owners = groups.filter(group =>
       (state?.visualAssets?.bindings ?? []).some(binding => binding.stableShotId === group.id &&
         [binding.character, binding.pet, binding.scene, binding.style].some(ref => ref?.assetId === asset.id)) ||
-      asset.versions.some(version => version.references.some(ref => group.items.some(item => item.key === `image:${ref.imageId}`))));
+      asset.versions.some(version => version.references.some(ref => group.items.some(item => item.key === `image:${ref.imageId}` || item.frame?.versions.includes(ref.imageId)))));
     const targets = owners.length ? owners : [asset.kind === "style" ? whole : unassigned];
     for (const version of asset.versions) {
       const preview = images.get(version.boardImageId ?? version.views.find(view => view.status === "pass")?.imageId ?? version.references[0]?.imageId ?? -1);
@@ -282,6 +289,7 @@ export function buildWarehouseShotGroups(input: {
     // IDs, rather than adoption order, keep a version stable when the selected take changes.
     const versions = new Map<string, number>();
     for (const item of [...group.items].sort((a, b) => a.id - b.id)) {
+      if (item.frame) { item.version = frameVersionName(item.frame, item.id); continue; }
       if (item.kind === "asset") continue; // Real asset/recipe versions must not be renumbered.
       const kind = item.kind === "audio" ? item.role : item.kind;
       const n = (versions.get(kind) ?? 0) + 1;

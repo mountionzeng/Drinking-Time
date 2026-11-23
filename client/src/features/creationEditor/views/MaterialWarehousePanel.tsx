@@ -41,6 +41,8 @@ import {
 } from "react";
 import { toast } from "sonner";
 import type { ImageAsset } from "@shared/imageAsset";
+import { displayImageMentions } from "@/features/storyAgent/views/shotImageNames";
+import { frameVersionName, keyframesByImage } from "@shared/storyKeyframes";
 import type { SelectionContext } from "@shared/selectionContext";
 import type { StoryMaterialState } from "@shared/storyMaterial";
 import type { VideoTakeAsset } from "@shared/videoAsset";
@@ -64,7 +66,7 @@ import { ArtPreviewGallery } from "@/features/storyAgent/views/ArtPreviewGallery
 type WarehouseImage = Pick<
   ImageAsset,
   "id" | "imageUrl" | "shotIdentity" | "prompt" | "storyId"
->;
+> & Partial<Pick<ImageAsset, "availability">>;
 type WarehouseImageItem = {
   image: WarehouseImage;
   shotNo: number | null;
@@ -573,10 +575,15 @@ export default function MaterialWarehousePanel({
   const [imageSelection, setImageSelection] = useState<{scope:string;images:WarehouseSelectedImage[]}>({scope:"",images:[]});
   const [sequenceOpen, setSequenceOpen] = useState(false);
   const [previewImage, setPreviewImage] = useState<WarehouseImageItem | null>(null);
+  const historyAnchor = useRef<number | null>(null);
+  const [historyImageId, setHistoryImageId] = useState<number | null>(null);
   const hoverClose = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previewLocked = useRef(false);
   const cancelPreviewClose = () => { if (hoverClose.current) clearTimeout(hoverClose.current); };
-  const closePreviewSoon = () => { cancelPreviewClose(); hoverClose.current = setTimeout(() => { if (!previewLocked.current) setPreviewImage(null); }, 220); };
+  const closePreviewSoon = () => { cancelPreviewClose(); hoverClose.current = setTimeout(() => { if (!previewLocked.current && historyAnchor.current === null) setPreviewImage(null); }, 220); };
+  useEffect(() => {
+    if (previewImage?.image.id !== historyAnchor.current) { historyAnchor.current = null; setHistoryImageId(null); }
+  }, [previewImage?.image.id]);
   useEffect(() => () => cancelPreviewClose(), []);
 
   const [drawerTab, setDrawerTab] = useState<"shots" | "images" | "videos" | "assets" | "music" | "text">(videoActions ? "shots" : "images");
@@ -658,9 +665,12 @@ export default function MaterialWarehousePanel({
     );
   }, [currentShot, currentStableShotId, materialState]);
 
+  const framesByImage = useMemo(() => keyframesByImage(materialState?.storyId === activeStoryId ? materialState?.keyframeFamilies : []), [activeStoryId, materialState]);
   const imageItems = useMemo(() => {
     const rows = new Map<number, WarehouseImageItem>();
+    if (materialState && materialState.storyId !== activeStoryId) return [];
     const addRow = (row: WarehouseImageItem) => {
+      if (!row.image.imageUrl || row.image.availability === "missing" || (row.image.storyId != null && row.image.storyId !== activeStoryId)) return;
       const previous = rows.get(row.image.id);
       if (!previous) {
         rows.set(row.image.id, row);
@@ -679,7 +689,8 @@ export default function MaterialWarehousePanel({
         isCurrent: previous.isCurrent || row.isCurrent,
       });
     };
-    for (const image of materialState?.warehouseImages ?? materialState?.unassignedImages ?? []) {
+    for (const image of [...(materialState?.warehouseImages ?? materialState?.unassignedImages ?? []), ...(materialState?.visualAssets?.images ?? [])]) {
+      if (!image.imageUrl || image.availability === "missing" || (image.storyId != null && image.storyId !== activeStoryId)) continue;
       const associations = image.libraryShotIds ?? [];
       const owner = image.shotIdentity || (associations.length === 1 ? associations[0] : null);
       const shot = owner ? shots.find(row => (row.stableShotId ?? row.shotIdentity) === owner) : undefined;
@@ -731,30 +742,52 @@ export default function MaterialWarehousePanel({
         isCurrent: true,
       });
     }
+    for (const item of rows.values()) {
+      const frame = framesByImage.get(item.image.id);
+      const shot = frame && shots.find(s => (s.stableShotId ?? s.shotIdentity) === frame.stableShotId);
+      if (frame && shot) rows.set(item.image.id, { ...item, stableShotId: frame.stableShotId, shotNo: shot.shotNo, cueCode: shot.cueCode ?? null });
+    }
     return Array.from(rows.values()).sort((a, b) => warehouseCreatedOrder(a.image, b.image));
-  }, [activeStoryId, materialState, shots]);
+  }, [activeStoryId, materialState, shots, framesByImage]);
+  // The shot shelf groups revisions; the Images tab includes every saved output.
+  const visibleImages = useMemo(() => {
+    const groups = new Map<number, WarehouseImageItem[]>();
+    for (const item of imageItems) {
+      const frame = framesByImage.get(item.image.id);
+      if (drawerTab !== "images" && frame && frame.latestImageId !== item.image.id) continue;
+      const key = frame?.rootId ?? item.image.id;
+      const versions = groups.get(key);
+      if (versions) versions.push(item);
+      else groups.set(key, [item]);
+    }
+    return Array.from(groups.values()).flat();
+  }, [drawerTab, imageItems, framesByImage]);
 
   const videoItems = useMemo(() => {
     const rows = buildMaterialWarehouseVideoItems(materialState);
     return variant === "drawer" ? rows.sort((a, b) => warehouseCreatedOrder(a.take, b.take)) : rows;
   }, [materialState, variant]);
+  const imageNames = useMemo(() => new Map(imageItems.map(item => {
+    const frame = framesByImage.get(item.image.id);
+    return [item.image.id, frame ? frameVersionName(frame, item.image.id) : warehouseImageRefLabel(item)];
+  })), [imageItems, framesByImage]);
   const visualAssetImages = useMemo(
     () => {
       const rows = imageItems.map(item => ({
         id: item.image.id,
         imageUrl: item.image.imageUrl,
-        label: `${item.shotNo ? shotLabel(item) : "未绑定"} · 图片 #${item.image.id}`,
+        label: imageNames.get(item.image.id)!,
       }));
       for (const image of materialState?.visualAssets?.images ?? []) {
         rows.push({
           id: image.id,
           imageUrl: image.imageUrl,
-          label: `资产标准视图 · 图片 #${image.id}`,
+          label: imageNames.get(image.id) ?? "资产标准视图",
         });
       }
       return Array.from(new Map(rows.map(row => [row.id, row])).values());
     },
-    [imageItems, materialState?.visualAssets?.images]
+    [imageItems, imageNames, materialState?.visualAssets?.images]
   );
   const hasArtSystem = useStorySpine(state => state.activeStoryId === activeStoryId && Boolean(state.artDirection.recipe?.system));
   const visualAssetCount = (materialState?.visualAssets?.assets.length ?? 0) + (hasArtSystem ? 1 : 0);
@@ -783,7 +816,7 @@ export default function MaterialWarehousePanel({
     if (!videoActions) {
       const basket = chatImageRefsStore.getState();
       if (basket.storyId === activeStoryId && basket.refs.some(ref => ref.imageId === item.image.id)) return;
-      const rejected = basket.toggle(activeStoryId, { imageId: item.image.id, imageUrl: item.image.imageUrl, label: warehouseImageRefLabel(item) });
+      const rejected = basket.toggle(activeStoryId, { imageId: item.image.id, imageUrl: item.image.imageUrl, label: imageNames.get(item.image.id) ?? warehouseImageRefLabel(item) });
       if (rejected) toast.error(rejected);
       else toast.success("图片已加入左侧对话");
       return;
@@ -1156,6 +1189,10 @@ export default function MaterialWarehousePanel({
                       return <WarehouseImageSelection key={image.id} image={image} order={selectedImages.findIndex(i=>i.id===image.id)+1} onToggle={()=>toggleSelectedImage(image)} />;
                     }
 
+                    const frame = framesByImage.get(item.image.id);
+                    const hasHistory = Boolean(frame && frame.versions.length > 1 && drawerTab !== "images");
+                    const preview = hasHistory && frame && historyAnchor.current === item.image.id && historyImageId && frame.versions.includes(historyImageId)
+                      ? imageItems.find(row => row.image.id === historyImageId) ?? item : item;
                     const busy = busyKey === `image:${item.image.id}`;
                     const belongsToCurrent =
                       imageItemRelatesToShot(item, currentStableShotId);
@@ -1169,31 +1206,33 @@ export default function MaterialWarehousePanel({
                           onPointerEnter={event => { if(event.pointerType === 'mouse' && !previewLocked.current) {cancelPreviewClose(); setPreviewImage(item);} }}
                           onPointerLeave={closePreviewSoon}
                           onFocus={() => {cancelPreviewClose(); setPreviewImage(item);}}
-                          onClick={event => { if (videoActions) { event.preventDefault(); selectImageMaterial(item); } else setPreviewImage(item); }}
-                          aria-label={_ui(videoActions ? "编辑图片 / Edit image {0}" : "预览图片 {0}", [item.image.id])}
+                          onClick={event => { if (hasHistory) {
+                            event.preventDefault(); cancelPreviewClose(); historyAnchor.current = item.image.id; setHistoryImageId(item.image.id); setPreviewImage(item);
+                          } else if (videoActions) { event.preventDefault(); selectImageMaterial(item); } else setPreviewImage(item); }}
+                          aria-label={_ui(videoActions ? "编辑图片 / Edit image {0}" : "预览图片 {0}", [frame ? frameVersionName(frame, item.image.id) : item.image.id])}
                           className="h-[84px] w-full shrink-0 overflow-hidden bg-muted/30 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
                         >
                           <img
                             src={item.image.imageUrl}
-                            alt={item.image.prompt?.slice(0,120) || _ui("图片 {0}", [item.image.id])}
+                            alt={caption ?? imageNames.get(item.image.id) ?? _ui("图片")}
                             draggable
                             onDragStart={event =>
                               writeStoryImageDragPayload(event.dataTransfer, {
                                 imageId: item.image.id,
                                 imageUrl: item.image.imageUrl,
-                                label: warehouseImageRefLabel(item),
+                                label: imageNames.get(item.image.id) ?? warehouseImageRefLabel(item),
                               })
                             }
                             className="h-full w-full cursor-grab object-contain active:cursor-grabbing"
                             loading="lazy"
                           />
                         </button></PopoverTrigger>
-                        {caption && <p className="line-clamp-2 py-1 text-[10px] leading-4" title={caption}>{caption}</p>}
+                        {caption && <p className="line-clamp-2 py-1 text-[10px] leading-4" title={caption}>{caption}{hasHistory && <span className="block text-muted-foreground">{_ui("版本")} · {frame!.versions.length}</span>}</p>}
                         <div className="absolute top-14 right-0 flex items-center bg-background/90 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100">
                           <span className="sr-only">
-                            {item.image.prompt?.trim() || (item.shotNo ? shotLabel(item) : _ui("图片 {0}", [item.image.id]))}
+                            {displayImageMentions(item.image.prompt?.trim() || caption || _ui("图片"), imageNames)}
                           </span>
-                          {!videoActions && <button type="button" aria-label={_ui("使用图片 {0}", [item.image.id])} onClick={() => selectImageMaterial(item)} className="shrink-0 rounded px-2 py-1 text-xs text-primary hover:bg-primary/10">{_ui("使用")}</button>}
+                          {!videoActions && <button type="button" aria-label={_ui("使用图片 {0}", [frame ? frameVersionName(frame, item.image.id) : item.image.id])} onClick={() => selectImageMaterial(item)} className="shrink-0 rounded px-2 py-1 text-xs text-primary hover:bg-primary/10">{_ui("使用")}</button>}
                           {videoActions && <button
                             type="button"
                             onClick={() => void bindImage(item.image)}
@@ -1217,20 +1256,24 @@ export default function MaterialWarehousePanel({
                         onCloseAutoFocus={event => event.preventDefault()}
                         onInteractOutside={event => {if(previewLocked.current) event.preventDefault();}}
                         className="w-[300px] max-w-[calc(100vw-24px)] max-h-[calc(100dvh-24px)] overflow-y-auto p-2 space-y-2" aria-label={_ui("仓库图片预览")}>
-              <img src={item.image.imageUrl} alt={item.image.prompt || _ui("所选图片")}
+              {frame && <div className="flex items-center gap-2 text-xs"><span className="min-w-0 flex-1">{frame.code} {frame.label}</span>
+                {hasHistory && <select aria-label={frame.code + " 图片版本"} value={preview.image.id} onChange={event => {
+                  historyAnchor.current = item.image.id; setHistoryImageId(Number(event.target.value));
+                }} className="max-w-40 rounded border bg-background px-1 py-1">{[...frame.versions].reverse().map(id => <option key={id} value={id} disabled={!imageItems.some(i => i.image.id === id)}>{frameVersionName(frame,id)}{id === frame.latestImageId ? "（最新）" : ""}</option>)}</select>}</div>}
+              <img src={preview.image.imageUrl} alt={imageNames.get(preview.image.id) ?? _ui("所选图片")}
                 className="mx-auto block w-full max-h-[min(42vh,300px)] rounded object-contain" draggable
-                onDragStart={event => writeStoryImageDragPayload(event.dataTransfer,{imageId:item.image.id,imageUrl:item.image.imageUrl,label:warehouseImageRefLabel(item)})}/>
+                onDragStart={event => writeStoryImageDragPayload(event.dataTransfer,{imageId:preview.image.id,imageUrl:preview.image.imageUrl,label:imageNames.get(preview.image.id) ?? warehouseImageRefLabel(preview)})}/>
               <div className="grid grid-cols-2 items-center gap-1.5">
                 <details className="col-span-2 min-w-0 text-xs text-muted-foreground">
                   <summary className="cursor-pointer py-2">{_ui("图片说明")}</summary>
-                  <p className="max-h-24 overflow-y-auto whitespace-pre-wrap break-words py-2">{item.image.prompt || _ui("这张图片没有附带文字说明。")}</p>
+                  <p className="max-h-24 overflow-y-auto whitespace-pre-wrap break-words py-2">{displayImageMentions(preview.image.prompt || _ui("这张图片没有附带文字说明。"), imageNames)}</p>
                 </details>
-                {!videoActions && activeStoryId != null && <WarehouseImageActions key={item.image.id} storyId={activeStoryId} imageId={item.image.id} imageUrl={item.image.imageUrl} onDialogOpenChange={value => { previewLocked.current=value; cancelPreviewClose(); }}/>}
-                {(insertIntoLayout || videoActions) && <ImageRefToggleButton storyId={activeStoryId} imageId={item.image.id} imageUrl={item.image.imageUrl} label={warehouseImageRefLabel(item)}/>}
-                {!insertIntoLayout && <button type="button" onClick={() => selectImageMaterial(item)} className="shrink-0 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground">
-                  {videoActions ? _ui("选中图片") : _ui("加入对话")}
+                {!videoActions && activeStoryId != null && <WarehouseImageActions key={preview.image.id} storyId={activeStoryId} imageId={preview.image.id} imageUrl={preview.image.imageUrl} onDialogOpenChange={value => { previewLocked.current=value; cancelPreviewClose(); }}/>}
+                {(insertIntoLayout || videoActions) && <ImageRefToggleButton storyId={activeStoryId} imageId={preview.image.id} imageUrl={preview.image.imageUrl} label={imageNames.get(preview.image.id) ?? warehouseImageRefLabel(preview)}/>}
+                {(!insertIntoLayout || hasHistory) && <button type="button" onClick={() => selectImageMaterial(preview)} className="shrink-0 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground">
+                  {insertIntoLayout ? _ui("使用") : videoActions ? _ui("选中图片") : _ui("加入对话")}
                 </button>}
-                {videoActions && <button type="button" disabled={!currentStableShotId || busyKey===`image:${item.image.id}`} onClick={() => void bindImage(item.image)} className="rounded-md border px-3 py-2 text-sm disabled:opacity-50">{_ui("设为首帧")}</button>}
+                {videoActions && <button type="button" disabled={!currentStableShotId || busyKey===`image:${preview.image.id}`} onClick={() => void bindImage(preview.image)} className="rounded-md border px-3 py-2 text-sm disabled:opacity-50">{_ui("设为首帧")}</button>}
               </div>
                       </PopoverContent>
                       </Popover>
@@ -1250,12 +1293,15 @@ export default function MaterialWarehousePanel({
       shotNo: shot?.shotNo ?? null, cueCode: shot?.cueCode ?? null, stableShotId: shot ? group.id : null,
       relatedStableShotIds: [], isCurrent: false,
     };
-    return renderDrawerImage(shot ? { ...item, stableShotId: group.id, shotNo: shot.shotNo, cueCode: shot.cueCode ?? null } : item, name);
+    const frame = framesByImage.get(media.id);
+    return renderDrawerImage(shot ? { ...item, stableShotId: group.id, shotNo: shot.shotNo, cueCode: shot.cueCode ?? null } : item, frame ? frameVersionName(frame,media.id) : name);
   };
   const imageCaption = (id: number) => {
+    const frame = framesByImage.get(id);
+    if (frame) return frameVersionName(frame,id);
     const group = grouped.groups.find(g => g.items.some(item => item.key === `image:${id}`));
     const media = group?.items.find(item => item.key === `image:${id}`);
-    return group && media ? warehouseMediaName(group, media, _ui) : _ui("图片 {0}", [id]);
+    return group && media ? warehouseMediaName(group, media, _ui) : _ui("未归类");
   };
 
   if (variant === "drawer") {
@@ -1428,7 +1474,7 @@ export default function MaterialWarehousePanel({
             <div className="flex flex-nowrap gap-1.5 overflow-x-auto overflow-y-hidden pb-1 custom-scrollbar">
               {renderCards}
               {drawerTab === "images"
-                ? imageItems.map(item => renderDrawerImage(item, imageCaption(item.image.id)))
+                ? visibleImages.map(item => renderDrawerImage(item, imageCaption(item.image.id)))
                 : videoItems.map(item => {
                     const busy = busyKey === `video:${item.take.id}`;
                     const playable =
@@ -1677,7 +1723,8 @@ export default function MaterialWarehousePanel({
                     {_ui("暂无图片素材")}</div>
                 ) : (
                   <div className="grid grid-cols-2 gap-3">
-                    {imageItems.map(item => {
+                    {visibleImages.map(item => {
+                      if (framesByImage.has(item.image.id)) return renderDrawerImage(item, imageCaption(item.image.id));
                       const { image, shotNo, isCurrent } = item;
                       const belongsToCurrent =
                         imageItemRelatesToShot(item, currentStableShotId);

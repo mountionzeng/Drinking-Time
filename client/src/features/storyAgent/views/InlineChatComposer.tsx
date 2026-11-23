@@ -19,7 +19,7 @@ function atom(imageId: number, image?: ComposerImage, note?: string, en = false)
   }
   const label = document.createElement('span');
   label.className = 'inline-block max-w-[16ch] truncate align-middle';
-  label.textContent = note ? pictureRegionLabel(note, en) : `#${imageId}${image ? '' : '（待加载）'}`;
+  label.textContent = note ? pictureRegionLabel(note, en) : image?.label ?? `#${imageId}（待加载）`;
   span.append(label);
   if (note) {
     span.dataset.regionNote = note;

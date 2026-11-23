@@ -8,6 +8,7 @@ import { prepareKeyframeScan, scannedEditPlan } from "../keyframeRegionScan";
 import { ChatImageRegionHover } from "./ChatImageRegionHover";
 import { chatPictureParts, pictureRegionLabel, pictureRegionNote, withoutPictureRegionNotes, type PictureRegion } from "@shared/chatPictureRegion";
 import { InlineChatComposer, type InlineChatComposerHandle } from "./InlineChatComposer";
+import { resolveShotImageMentions } from "./shotImageNames";
 import { composerImages } from "./imageGenerationDraft";
 import { ChatImageReferenceChip } from "./ChatImageReferenceChip";
 import { ChatPhotoPreview } from "./ChatPhotoPreview";
@@ -695,7 +696,7 @@ export default function StoryAgentChat({
   useEffect(() => { scanInFlight.current = null; setScanStatus(""); }, [accountId, activeStoryId, scopeEpoch]);
   const pictureReader = trpc.useUtils().storyAgent.visualUnderstanding.pictureRegion;
   const inlineInputRef = useRef<InlineChatComposerHandle>(null);
-  const inlineImages = useMemo(() => creationEditor?.materialState ? composerImages(creationEditor.materialState, language).filter(image => image.imageId) : [], [creationEditor?.materialState, language]);
+  const inlineImages = useMemo(() => creationEditor?.materialState && creationEditor.materialState.storyId === activeStoryId ? composerImages(creationEditor.materialState, language).filter(image => image.imageId) : [], [creationEditor?.materialState, activeStoryId, language]);
   const localFeedback = useLocalVideoFeedback(activeStoryId, accountId, messages);
   const [openedCue,setOpenedCue]=useState<{id:string;latest:string;openedAt:number}|null>(null);
   const latestCue = useMemo(() => workspaceContext === "video" && activeStoryId ? currentCueTurn(messages, activeStoryId) : undefined, [workspaceContext, activeStoryId, messages]);
@@ -1184,6 +1185,8 @@ export default function StoryAgentChat({
     draftEpoch.current++;
     const submittedInput = input;
     let entered = creationFlow.resolveVersionReply?.(input.trim()) ?? input.trim();
+    try { if (workspaceContext === "video") entered = resolveShotImageMentions(entered, new Map(inlineImages.map(im => [im.imageId!, im.label]))); }
+    catch (error) { toast.info(error instanceof Error ? error.message : "请从仓库重新选图"); return; }
     if (canLocateFeedback && !readWarehouseChatSelection(activeStoryId)?.imageIds.length && entered && !voice.isBusy && !isImportingMedia && !hasInlineChatImages(entered)) {
       const clock = feedbackClock.begin();
       const result = clock && locateTimelineFeedback(entered, clock, previousFeedback);
@@ -1365,7 +1368,7 @@ export default function StoryAgentChat({
               { id: crypto.randomUUID(), role: 'assistant', content: needsRemovalDetails
                 ? '已记录删除要求，旧粉色范围不用于这次改图。请在下方明确删哪个、留哪个（位置、大小或颜色），核对张数和预计费用后点击“确认并生成”。结果保留为候选。'
                 : '请核对每张图的用途、输出张数、修改和保留要求。缩略图可放大查看；预计费用在下方，点击“确认并生成”后开始改图。', timestamp: Date.now() + 1,
-                imageEditPlan: createChatImageEditPlan(draft.refs, draft.instruction), selectionQuote },
+                imageEditPlan: draft.plan ?? createChatImageEditPlan(draft.refs, draft.instruction), selectionQuote },
             ]);
             setInput('');
             resizeAndFocusInput(); return;

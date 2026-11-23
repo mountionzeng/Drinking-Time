@@ -294,6 +294,7 @@ export type StoryMaterialState = {
   shots: ShotMaterialState[];
   /** Complete story image archive, independent of shot assignment/adoption. */
   warehouseImages?: ImageAsset[];
+  keyframeFamilies?: import("./storyKeyframes").ShotKeyframe[];
   unassignedImages: ImageAsset[];
   unassignedVideoTakes: VideoTakeAsset[];
   reusableVideoTakes: VideoTakeAsset[];

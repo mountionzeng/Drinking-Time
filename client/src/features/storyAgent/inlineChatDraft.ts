@@ -1,3 +1,5 @@
+import { createChatImageEditPlan, resolveIndividualDirections } from '@shared/chatImageEditPlan';
+import { groupedImageDirection, temperatureComparisonDraft, explicitlyEditAll } from './imageReferenceRoles';
 import { withoutPictureRegionNotes } from "@shared/chatPictureRegion";
 import { hasInlineChatImages, inlineImageToken, inlineChatImageIds, inlineChatInstruction, inlineChatParts } from '@shared/inlineChatImages';
 import type { ChatImageRef } from './chatImageRefs';
@@ -16,7 +18,7 @@ export function compileInlineChatDraft(text: string, images: Array<{ imageId?: n
   const instruction = inlineChatInstruction(userText);
   // Comparison/advice is conversation, not authorization to generate an edited image.
   const question = /[？?]|哪个好|哪张好|如何|怎么|建议|是否|能否|可以吗|该不该|what|which|how|should|could/i.test(instruction);
-  const negated = /不(?:要|用|需).{0,12}(?:改|调整|生成|重画|综合|融合|混合|合成)|(?<!分)别.{0,8}(?:改|生成|综合|融合|混合|合成)|don't|do not/i.test(instruction);
+  const negated = /暂不生成|先不生成|先别生成|不(?:要|用|需).{0,12}(?:改|调整|生成|重画|综合|融合|混合|合成)|(?<!分)别.{0,8}(?:改|生成|综合|融合|混合|合成)|don't|do not/i.test(instruction);
   // Object-size feedback can be an edit without the word “修改”. Still leave
   // questions, comparisons, completed changes and refusals in conversation.
   const sizeFeedback = /放大|缩小|[调变][大小]|[大小](?:一?点(?:点|儿)?|一些)/.test(instruction)
@@ -26,7 +28,21 @@ export function compileInlineChatDraft(text: string, images: Array<{ imageId?: n
   const visualTextRemoval = /^(?:请|我希望|我想|这里|这张图(?:里|上)?)?\s*(?:不要(?:有|出现|显示)|不显示|去掉|删掉|移除|擦掉)(?:[这那]种|[这那]些|[这那]段|[这那]里的|具体的|多余的|画面上的|选中的|所有|任何|的|\s)*(?:文字|字样|字母|字|文案|标识)[。！!\s]*$/u.test(words);
   const removeSelection = userText !== text && /^(?:请)?(?:去掉|删掉|移除|擦掉)(?:这(?:个|里|块|部分)|选中(?:的)?(?:部分|区域)?|框选的(?:部分|区域)?)[。！!\s]*$/.test(words);
   const edit = isImageObjectRemoval(instruction) || !question && !negated && (visualTextRemoval || removeSelection || sizeFeedback || /改|调(?:整|一下|亮|暗|淡|深|暖|冷)|重画|重绘|生成|画一|出图|提高|降低|增加|减少|综合|融合|混合|合成|更(?:白|嫩|绿|亮|暗|淡|深|暖|冷)|edit|change|generate|redraw|blend|combine/i.test(instruction));
-  return { refs, instruction: inlineChatInstruction(text), edit };
+  const grouped = groupedImageDirection(userText, refs);
+  const plan = !question && !negated && userText === text && refs.length > 1 && !/视频|音轨|字幕|先看看|只看|讨论|如果|假如/.test(words) ? (() => {
+    if (grouped) {
+      const comparison = temperatureComparisonDraft(grouped, refs);
+      if (comparison) return comparison;
+      if (explicitlyEditAll(grouped, refs.length) && !/合成|拼贴|参考/.test(grouped)) {
+        return { ...createChatImageEditPlan(refs, grouped), individualDirections: true as const,
+          changes: '按各图旁的要求分别修改。', preserve: '保留原图中未要求改变的内容。',
+          images: refs.map(ref => ({ ...ref, role: 'target' as const, copies: 1, purpose: grouped })) };
+      }
+    }
+    const individual = resolveIndividualDirections(createChatImageEditPlan(refs, instruction));
+    if (individual.individualDirections) return individual;
+  })() : undefined;
+  return { refs, instruction: inlineChatInstruction(text), edit: edit || Boolean(plan), plan };
 }
 
 export function referenceWarehouseSelection(text: string, imageIds: readonly number[]) {

@@ -1,4 +1,5 @@
 import { libraryImageShots } from "./libraryImageShots";
+import { storyKeyframes } from "./storyKeyframes";
 import type { Story } from "../../drizzle/schema";
 import { activeArtSystemRecipe } from "../../shared/artSystem";
 import { normalizePublishingAlbumTypographyLayout } from "../../shared/publishingAlbum";
@@ -51,6 +52,7 @@ export async function getOwnedStoryBody(
 
 type StoryShotFact = {
   stableShotId: string;
+  generationParams?: unknown;
   publishingReferenceImageId?: number | null;
   publishingContinuityImageId?: number | null;
   publishingReferenceImageIds?: number[];
@@ -311,6 +313,7 @@ function storyShots(story: Story): StoryShotFact[] {
     return [
       {
         stableShotId,
+        generationParams: shot.generationParams,
         publishingReferenceImageIds: (() => {
           const provenance = shot.publishingVideo as Record<string, unknown> | undefined;
           if (!Array.isArray(provenance?.referenceImageIds)) return undefined;
@@ -862,6 +865,8 @@ export async function getStoryMaterialState(
     return seen;
   };
 
+  const archive = images.filter(image => image.kind !== "visual_asset").map(withLibraryShots);
+  const keyframeFamilies = storyKeyframes(storyId, facts, archive, storyBody.messages);
   const shots = facts.map(fact => {
     const timelineItem = timelineByShot.get(fact.stableShotId) ?? null;
     const referencedImage =
@@ -974,7 +979,11 @@ export async function getStoryMaterialState(
       )
     );
     const directImageIds = new Set(imageVersions.map(image => image.id));
-    const relatedImages = Array.from(imageLineageIds(relatedSeedIds, referenceOnlyIds))
+    const relatedIds = imageLineageIds(relatedSeedIds, referenceOnlyIds);
+    for (const frame of keyframeFamilies) {
+      if (frame.sourceShotId && frame.stableShotId === fact.stableShotId) for (const id of frame.versions) relatedIds.add(id);
+    }
+    const relatedImages = Array.from(relatedIds)
       .filter(imageId => !directImageIds.has(imageId))
       .flatMap(imageId => {
         const image = imageById.get(imageId);
@@ -1076,9 +1085,8 @@ export async function getStoryMaterialState(
     // Covers (including illustration/texture candidates), style references and
     // old/rejected candidates remain discoverable without becoming shot inputs.
     // Standard asset views keep their existing separate warehouse category.
-    warehouseImages: images.filter(
-      image => image.kind !== "visual_asset" && image.availability !== "missing"
-    ).map(withLibraryShots),
+    warehouseImages: archive.filter(image => image.availability !== "missing"),
+    keyframeFamilies,
     unassignedImages: images.filter(
       image =>
         image.assignment === "unassigned" &&
