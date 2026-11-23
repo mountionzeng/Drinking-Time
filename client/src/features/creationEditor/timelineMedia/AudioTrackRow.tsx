@@ -1,11 +1,13 @@
-import { TimelinePositionView } from "../useTimelinePlaybackClock";
+import { TimelinePositionContext, TimelinePositionView, timelinePlaybackFrame } from "../useTimelinePlaybackClock";
+import { TimelineClipMenu } from "../views/TimelineClipMenu";
+import { formatStoryboardTimestamp } from "@/features/storyAgent/storyboardTiming";
 import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 /**
  * Formal U6 audio lanes. They share the Storyboard viewport and interaction
  * shell, but every mutation remains a narrow intent handled by timelineMedia.
  * This component never constructs the next Timeline document or owns assets.
  */
-import { useCallback, useState } from "react";
+import { startTransition, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { FolderOpen, Layers, Music2 } from "lucide-react";
 import { VideoMediaVersionSelect, type VideoMediaVersionBinding } from "./VideoMediaVersionSelect";
 import {
@@ -50,6 +52,8 @@ type AudioDragState = {
 };
 
 export type AudioTrackRowCallbacks = {
+  onSplit?: (input: { clipId: string; atFrame: number }) => Promise<void> | void;
+  onPause?: () => void;
   onSelectClip: (clipId: string | null) => void;
   onMove: (input: {
     clipId: string;
@@ -175,6 +179,46 @@ function waveformClip(
   };
 }
 
+type AudioMenuTarget = { clip: AudioClip; frame: number; x: number; y: number };
+
+function AudioClipMenu({ target, clip, label, pending, onClose, onSplit, onTrim, onDelete }: {
+  target: AudioMenuTarget;
+  clip: AudioClip;
+  label: string;
+  pending: boolean;
+  onClose: () => void;
+} & Pick<AudioTrackRowCallbacks, "onSplit" | "onTrim" | "onDelete">) {
+  const ui = useDesktopUiText();
+  const fromStart = target.frame - clip.timelineStartFrame;
+  const fromEnd = target.frame - audioClipEndFrame(clip);
+  const inside = fromStart > 0 && fromEnd < 0;
+  const actions = [
+    {
+      label: ui("在这里切一刀"), enabled: inside && !!onSplit && !clip.speechBindingId,
+      hint: clip.speechBindingId ? ui("请先解除旁白与字幕的绑定再切割") : undefined,
+      run: () => onSplit?.({ clipId: clip.id, atFrame: target.frame }),
+    },
+    { label: ui("剪掉此点之前"), enabled: inside, run: () => onTrim({ clipId: clip.id, edge: "start", deltaFrames: fromStart }) },
+    { label: ui("剪掉此点之后"), enabled: inside, run: () => onTrim({ clipId: clip.id, edge: "end", deltaFrames: fromEnd }) },
+    { label: ui("删除此声音片段"), enabled: true, run: () => onDelete(clip.id) },
+  ];
+  return (
+    <TimelineClipMenu x={target.x} y={target.y} onClose={onClose}
+      label={ui("{0}剪辑菜单", [label])} testId="storyboard-audio-menu">
+      <div className="border-b border-border/60 px-3 pb-1 text-[9px] text-muted-foreground">
+        {label} · {formatStoryboardTimestamp(timelineFramesToMs(target.frame))}
+      </div>
+      {actions.map(action => (
+        <button key={action.label} type="button" role="menuitem" disabled={pending || !action.enabled} title={action.hint}
+          className="block w-full px-3 py-1 text-left text-[11px] enabled:hover:bg-muted disabled:opacity-40"
+          onClick={() => { onClose(); void action.run(); }}>
+          {action.label}
+        </button>
+      ))}
+    </TimelineClipMenu>
+  );
+}
+
 export function AudioTrackRow({
   storyId,
   track,
@@ -187,6 +231,8 @@ export function AudioTrackRow({
   onSelectClip,
   onMove,
   onTrim,
+  onSplit,
+  onPause,
   onDelete,
 }: {
   storyId: number;
@@ -201,6 +247,26 @@ export function AudioTrackRow({
   const _ui = useDesktopUiText();
   const [drag, setDrag] = useState<AudioDragState | null>(null);
   const profile = timelineMediaKindProfile(track.kind);
+  const position = useContext(TimelinePositionContext);
+  const [menu, setMenu] = useState<AudioMenuTarget | null>(null);
+  const triggerRef = useRef<HTMLElement | null>(null);
+  const closeMenu = useCallback(() => {
+    setMenu(null);
+    triggerRef.current?.focus({ preventScroll: true });
+  }, []);
+  const menuClip = menu && track.clips.find(c => c.id === menu.clip.id &&
+    c.timelineStartFrame === menu.clip.timelineStartFrame && c.sourceInFrame === menu.clip.sourceInFrame &&
+    c.sourceOutFrame === menu.clip.sourceOutFrame);
+  useEffect(() => {
+    if (menu && !menuClip) setMenu(null);
+  }, [menu, menuClip]);
+  const openMenu = (clip: AudioClip, target: HTMLElement, frame: number, x: number, y: number) => {
+    triggerRef.current = target;
+    onPause?.();
+    setMenu({ clip, frame, x, y });
+    // Paint the local menu before rendering the workspace-wide audio inspector.
+    startTransition(() => onSelectClip(clip.id));
+  };
 
   const beginDrag = useCallback(
     (
@@ -365,13 +431,32 @@ export function AudioTrackRow({
             title={`${clipLabel} · ${(clip.durationFrames / 30).toFixed(1)}s`}
             aria-selected={selected}
             data-timeline-media-keyboard="true"
+            aria-haspopup="menu"
+            aria-keyshortcuts="Shift+F10 ContextMenu Delete Backspace"
             data-testid={`storyboard-audio-clip-${clip.id}`}
             data-selected={selected ? "true" : "false"}
             className={`absolute bottom-1 top-1 overflow-hidden rounded-[2px] border ${profile.tone} ${clip.muted || track.muted ? "opacity-45" : ""} ${activeDrag?.passedThreshold ? "opacity-70" : ""}`}
             style={{ left: placement.leftPx, width: placement.widthPx }}
             onPointerDown={event => beginDrag(event, clip, "move")}
             onClick={() => onSelectClip(clip.id)}
-            onKeyDown={event => onClipKeyDown(event, clip)}
+            onContextMenu={event => {
+              event.preventDefault();
+              event.stopPropagation();
+              const rect = event.currentTarget.getBoundingClientRect();
+              const frame = clip.timelineStartFrame + pxDeltaToFrame(viewport, event.clientX - rect.left);
+              openMenu(clip, event.currentTarget, frame, event.clientX, event.clientY);
+            }}
+            onKeyDown={event => {
+              if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
+                event.preventDefault();
+                event.stopPropagation();
+                const rect = event.currentTarget.getBoundingClientRect();
+                const frame = timelinePlaybackFrame(position?.getTimeMs() ?? playheadMs);
+                openMenu(clip, event.currentTarget, frame, rect.left + rect.width / 2, rect.bottom);
+                return;
+              }
+              onClipKeyDown(event, clip);
+            }}
           >
             <StoryboardAudioWaveformFill
               clip={waveformClip(storyId, track.kind, ghost)}
@@ -414,6 +499,10 @@ export function AudioTrackRow({
           </div>
         );
       })}
+      {menu && menuClip && (
+        <AudioClipMenu target={menu} clip={menuClip} label={_ui(profile.label)} pending={pending}
+          onClose={closeMenu} onSplit={onSplit} onTrim={onTrim} onDelete={onDelete} />
+      )}
       <TimelinePositionView fallbackMs={playheadMs}>{ms => {
         const playheadPx = storyboardEditPlayheadPx(ms, viewport);
         return playheadPx != null ? (
@@ -424,7 +513,8 @@ export function AudioTrackRow({
         />
       ) : null;
       }}</TimelinePositionView>
-      <span aria-live="polite" className="sr-only">
+      <span aria-live="polite" className={selectedClipId && track.clips.some(c => c.id === selectedClipId) && (pending || error)
+        ? "pointer-events-none sticky left-1 z-30 rounded-sm bg-background px-1 text-[10px]" : "sr-only"}>
         {pending ? _ui("{0}保存中", [_ui(profile.label)]) : (error ?? "")}
       </span>
     </div>
@@ -483,6 +573,8 @@ export function AudioTrackSection({
   onSelectClip,
   onMove,
   onTrim,
+  onSplit,
+  onPause,
   onDelete,
   onRequestAdd,
   addControl,
@@ -690,6 +782,8 @@ export function AudioTrackSection({
               onSelectClip={onSelectClip}
               onMove={onMove}
               onTrim={onTrim}
+              onSplit={onSplit}
+              onPause={onPause}
               onDelete={onDelete}
             />
           </div>

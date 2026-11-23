@@ -29,6 +29,7 @@ import {
   setAudioClipMuted,
   setAudioTrackGain,
   setAudioTrackMuted,
+  splitAudioClip,
   trimAudioClipEnd,
   trimAudioClipStart,
   type AudioPlannerResult,
@@ -657,6 +658,16 @@ export function trimAudioClipForStory(
       }
       return audioOnly(result, {});
     }
+  );
+}
+
+export function splitAudioClipForStory(
+  input: ClipCommandBase & { atFrame: number }
+): Promise<TimelineMediaCommandResult> {
+  const { storyId, userId, operation, clipId, atFrame } = input;
+  return runMediaCommand(
+    { storyId, userId, operation, commandPayload: { kind: "audio-split", clipId, atFrame } },
+    ({ audio }, ids) => audioOnly(splitAudioClip(audio, { clipId, atFrame, rightId: ids.next() }), {})
   );
 }
 

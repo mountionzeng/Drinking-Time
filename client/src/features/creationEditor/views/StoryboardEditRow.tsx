@@ -15,6 +15,7 @@ import {
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
 import { EditingConfirmationDialog } from "../EditingConfirmationDialog";
+import { TimelineClipMenu } from "./TimelineClipMenu";
 
 /** Shared by manuscript and editing grids, including viewport measurements. */
 export const STORYBOARD_TRACK_HEADER_WIDTH = 176;
@@ -288,31 +289,9 @@ function StoryboardEditContextMenu({
     anchors: anchorState,
     canDetachMagnet: magneticJoin != null,
   });
-
-  useEffect(() => {
-    const close = () => onClose();
-    window.addEventListener("pointerdown", close);
-    window.addEventListener("resize", close);
-    window.addEventListener("scroll", close, true);
-    return () => {
-      window.removeEventListener("pointerdown", close);
-      window.removeEventListener("resize", close);
-      window.removeEventListener("scroll", close, true);
-    };
-  }, [onClose]);
-
-  return createPortal(
-    <div
-      role="menu"
-      aria-label={_ui("{0} 剪辑菜单", [menu.shot.shotLabel])}
-      data-testid="storyboard-edit-menu"
-      className="fixed z-[100] min-w-[190px] rounded-md border border-border bg-[var(--background)] py-1 shadow-lg"
-      style={{
-        left: Math.min(menu.clientX, window.innerWidth - 210),
-        top: Math.min(menu.clientY, window.innerHeight - 320),
-      }}
-      onPointerDown={event => event.stopPropagation()}
-      onContextMenu={event => event.preventDefault()}
+  return (
+    <TimelineClipMenu x={menu.clientX} y={menu.clientY} onClose={onClose}
+      label={_ui("{0} 剪辑菜单", [menu.shot.shotLabel])} testId="storyboard-edit-menu"
     >
       <div className="border-b border-border/60 px-3 pb-1 text-[9px] text-muted-foreground">
         {menu.shot.shotLabel} · {formatStoryboardTimestamp(menu.atMs)}
@@ -347,8 +326,7 @@ function StoryboardEditContextMenu({
           </span>
         </button>
       ))}
-    </div>,
-    document.body,
+    </TimelineClipMenu>
   );
 }
 
@@ -558,7 +536,7 @@ function StoryboardEditTrack({
     gestureId: symbol
   ) => void;
   selectedVisualObject: VisualObjectRef | null;
-  onSelectVisualObject: (object: VisualObjectRef, target: HTMLElement) => void;
+  onSelectVisualObject: (object: VisualObjectRef, target: HTMLElement, followShot?: boolean) => void;
   onOpenObjectMenu: (menu: VisualObjectMenuState) => void;
   onOpenPasteMenu: (menu: VisualPasteMenuState) => void;
 }) {
@@ -1850,7 +1828,7 @@ function StoryboardEditTrack({
                     stableShotId: shot.stableShotId,
                     shotNo: shot.shotNo,
                   },
-                  event.currentTarget
+                  event.currentTarget, false
                 );
                 const rect = event.currentTarget.getBoundingClientRect();
                 onOpenMenu({
@@ -1864,7 +1842,6 @@ function StoryboardEditTrack({
               onContextMenu={event => {
                 event.preventDefault();
                 event.stopPropagation();
-                trackRef.current?.focus();
                 timeline.onTogglePlay(false);
                 onSelectVisualObject(
                   {
@@ -1872,7 +1849,7 @@ function StoryboardEditTrack({
                     stableShotId: shot.stableShotId,
                     shotNo: shot.shotNo,
                   },
-                  event.currentTarget
+                  event.currentTarget, false
                 );
                 const atMs = trackMsFromPointer(event.clientX);
                 const atFrame = Math.round((atMs * 30) / 1000);
@@ -2024,6 +2001,7 @@ function StoryboardEditTrack({
                         data-visual-clip-move-target="true"
                         onPointerDown={event => {
                           event.stopPropagation();
+                          if (event.button !== 0) return;
                           onSelectVisualObject(
                             {
                               type: "owned-video-clip",
@@ -2593,7 +2571,7 @@ export function StoryboardEditRow({
                 : null;
             })());
   const selectVisualObject = useCallback(
-    (object: VisualObjectRef | null, target: HTMLElement) => {
+    (object: VisualObjectRef | null, target: HTMLElement, followShot = true) => {
       if (batchLock.current) return;
       setBatchSelection(null);
       focusReturnRef.current = target;
@@ -2603,7 +2581,7 @@ export function StoryboardEditRow({
       onSelectVisualObject?.(object);
       // Preview/current-shot changes are not edit-target changes. In particular,
       // seeking an image must not project its owning V1 shot into this selection.
-      if (object?.type === "story-shot") onSelectShot(object.shotNo ?? null);
+      if (followShot && object?.type === "story-shot") onSelectShot(object.shotNo ?? null);
     },
     [controlledSelectedVisualObject, onSelectShot, onSelectVisualObject]
   );
@@ -3452,9 +3430,16 @@ export function StoryboardEditRow({
         closeMenu();
         timeline.onSelectRange(null);
         return;
-      case "action":
-        runAction(shortcut.action, activeShot, headRef.current);
+      case "action": {
+        const focusedShot = event.target instanceof HTMLElement
+          ? event.target.closest<HTMLElement>('[data-visual-object-type="story-shot"]')
+          : null;
+        const target = focusedShot
+          ? shots.find(shot => shot.stableShotId === focusedShot.dataset.visualObjectId) ?? null
+          : activeShot;
+        runAction(shortcut.action, target, headRef.current);
         return;
+      }
     }
   };
 
@@ -3648,6 +3633,7 @@ export function StoryboardEditRow({
       )) : null}
       {timeline.audio ? (
         <AudioTrackSection
+          key={timeline.storySessionKey ?? timeline.audio.storyId}
           versions={timeline.audio.versions}
           storyId={timeline.audio.storyId}
           audioState={timeline.audio.audioState}
@@ -3659,6 +3645,8 @@ export function StoryboardEditRow({
           onSelectClip={timeline.audio.onSelectClip}
           onMove={timeline.audio.onMove}
           onTrim={timeline.audio.onTrim}
+          onSplit={timeline.audio.onSplit}
+          onPause={() => timeline.onTogglePlay(false)}
           onDelete={timeline.audio.onDelete}
           onRequestAdd={() => undefined}
           addControl={

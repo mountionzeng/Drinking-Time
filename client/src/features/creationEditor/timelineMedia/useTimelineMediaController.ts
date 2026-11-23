@@ -183,6 +183,7 @@ export type TimelineMediaController = {
     deltaFrames: number;
   }) => Promise<void>;
   deleteAudioClip: (clipId: string) => Promise<void>;
+  splitAudioClip: (input: { clipId: string; atFrame: number }) => Promise<void>;
   reclassifyAudioClip: (input: {
     clipId: string;
     toKind: AudioTrackKindModel;
@@ -310,6 +311,7 @@ export function useTimelineMediaController(
   const audioImportMut = trpc.timelineMedia.importLocalAudio.useMutation();
   const audioMoveMut = trpc.timelineMedia.moveAudioClip.useMutation();
   const audioTrimMut = trpc.timelineMedia.trimAudioClip.useMutation();
+  const audioSplitMut = trpc.timelineMedia.splitAudioClip.useMutation();
   const audioDeleteMut = trpc.timelineMedia.deleteAudioClip.useMutation();
   const audioReclassifyMut =
     trpc.timelineMedia.reclassifyAudioClip.useMutation();
@@ -646,6 +648,10 @@ export function useTimelineMediaController(
           })
         ),
       [run, audioDeleteMut, storyId, operation]
+    ),
+    splitAudioClip: useCallback(
+      args => run(() => audioSplitMut.mutateAsync({ storyId: storyId as number, operation: operation(), ...args })),
+      [run, audioSplitMut, storyId, operation]
     ),
     reclassifyAudioClip: useCallback(
       inputArgs =>

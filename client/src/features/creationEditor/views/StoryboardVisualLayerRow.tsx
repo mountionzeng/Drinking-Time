@@ -775,7 +775,7 @@ export function StoryboardVisualLayerRow({
     gestureId: symbol
   ) => void;
   selectedVisualObject: VisualObjectRef | null;
-  onSelectVisualObject: (object: VisualObjectRef | null, target: HTMLElement) => void;
+  onSelectVisualObject: (object: VisualObjectRef | null, target: HTMLElement, followShot?: boolean) => void;
   onOpenMenu: (menu: MenuState) => void;
   onOpenObjectMenu: (menu: VisualObjectMenuState) => void;
   onOpenPasteMenu: (menu: VisualPasteMenuState) => void;
@@ -1474,6 +1474,7 @@ export function StoryboardVisualLayerRow({
                         : undefined,
                   }}
                   onPointerDown={event => {
+                    if (event.button !== 0) return;
                     onSelectVisualObject(
                       {
                         type: "story-shot",
@@ -1537,7 +1538,7 @@ export function StoryboardVisualLayerRow({
                         stableShotId: shot.stableShotId,
                         shotNo: shot.shotNo,
                       },
-                      event.currentTarget
+                      event.currentTarget, false
                     );
                     const rect = event.currentTarget.getBoundingClientRect();
                     onOpenMenu({
@@ -1558,7 +1559,7 @@ export function StoryboardVisualLayerRow({
                         stableShotId: shot.stableShotId,
                         shotNo: shot.shotNo,
                       },
-                      event.currentTarget
+                      event.currentTarget, false
                     );
                     const rect = event.currentTarget.getBoundingClientRect();
                     const progress =

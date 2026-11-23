@@ -1,4 +1,10 @@
 {
+  "在这里切一刀": {"en": "Split here", "fr": "Scinder ici"},
+  "剪掉此点之前": {"en": "Trim before this point", "fr": "Couper avant ce point"},
+  "剪掉此点之后": {"en": "Trim after this point", "fr": "Couper après ce point"},
+  "删除此声音片段": {"en": "Delete audio clip", "fr": "Supprimer le clip audio"},
+  "请先解除旁白与字幕的绑定再切割": {"en": "Unlink the narration from its subtitle before splitting", "fr": "Dissociez la narration de son sous-titre avant de la scinder"},
+  "{0}剪辑菜单": {"en": "{0} clip menu", "fr": "Menu du clip {0}"},
   "引用当前帧到聊天": {"en": "Quote current frame in chat", "fr": "Citer l’image actuelle dans la discussion"},
   "引用当前帧": {"en": "Quote frame", "fr": "Citer cette image"},
   "等画面显示后，再引用这一帧。": {"en": "Wait for the frame to appear, then select it.", "fr": "Attendez que l’image soit affichée avant de la citer."},

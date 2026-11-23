@@ -3313,6 +3313,7 @@
         "client/src/features/creationEditor/views/ShotPreview.tsx"
       ],
       "owners": [
+        "client/src/features/creationEditor/views/TimelineClipMenu.tsx",
         "client/src/features/creationEditor/useTimelinePlaybackClock.ts",
         "client/src/features/creationEditor/timelineMedia/embeddedAudio.ts",
         "server/services/videoWordTiming.ts",
@@ -3463,6 +3464,7 @@
         "2026-11-06三版66字同稿中文短试听已受管入库为资产10/11/12，合计0.06算力；用户已选定豆包女声温柔小雅与男声温暖阿虎；MiniMax候选未选用。豆包通用接口不披露底层模型版本，使用明确unversioned服务标识。Qwen3文档版本实际404/Model not exist，未重试，应用0扣费。"
       ],
       "history": [
+        {"date": "2026-11-23", "kind": "fix", "summary": "声音片段按指针帧切开、向两侧修剪、单段删除并支持撤销。键盘菜单使用播放头位置，绑定字幕的旁白需先解绑才能切割。"},
         {
           "date": "2026-11-23",
           "kind": "fix",
@@ -4160,6 +4162,7 @@
         "client/src/features/storyAgent/views/StoryboardReviewBoard.tsx"
       ],
       "owners": [
+        "client/src/features/creationEditor/views/TimelineClipMenu.tsx",
         "shared/timelineLayout.ts",
         "shared/timelineSource.ts",
         "shared/timelineEditing.ts",
@@ -4186,6 +4189,7 @@
         "client/src/features/storyAgent/views/useStoryboardViewportGestures.ts"
       ],
       "evidence": [
+        "client/src/features/creationEditor/views/StoryboardEditRow.selection.test.tsx",
         "shared/timelineLayout.test.ts",
         "shared/timelineSource.test.ts",
         "shared/timelineEditing.test.ts",
@@ -4243,6 +4247,7 @@
         "2026-11-14触控板捏合已覆盖wheel/Safari事件与React提交自动测试，3000真实横向/纵向滚动通过；浏览器工具无原生pinch接口，Mac物理双指手感仍待人工复验。手势仅用于完整Storyboard时间表，简读/书稿不接管。"
       ],
       "history": [
+        {"date": "2026-11-23", "kind": "fix", "summary": "视频右键菜单使用调用时的镜头和位置，预览滚动时持续可用。菜单关闭后焦点回到片段。"},
         {"date": "2026-11-23", "kind": "fix", "summary": "分镜稿独立测量时间标尺，共用完整视图的缩放与滚动手势。换层后按当前编辑区域恢复焦点，保留删除保护。"},
         {
           "date": "2026-09-15",

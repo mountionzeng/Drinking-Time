@@ -2245,6 +2245,7 @@ export default function EditingNleWorkspace({
               error: timelineMedia.lastError,
               onMove: timelineMedia.moveAudioClip,
               onTrim: timelineMedia.trimAudioClip,
+              onSplit: timelineMedia.splitAudioClip,
               onDelete: timelineMedia.deleteAudioClip,
               onSetGain: timelineMedia.setAudioClipGain,
               onSetMuted: timelineMedia.setAudioClipMuted,

@@ -45,6 +45,7 @@ import {
   setAudioTrackGainForStory,
   setAudioTrackMutedForStory,
   trimAudioClipForStory,
+  splitAudioClipForStory,
   unbindSpeechForStory,
 } from "../services/timelineAudioEditing";
 import {
@@ -391,6 +392,10 @@ export const timelineMediaRouter = router({
         deltaFrames: input.deltaFrames,
       })
     ),
+
+  splitAudioClip: protectedProcedure
+    .input(z.object({ storyId, operation: operationInput, clipId, atFrame: frame }))
+    .mutation(({ ctx, input }) => splitAudioClipForStory({ ...input, userId: ctx.user.id })),
 
   deleteAudioClip: protectedProcedure
     .input(z.object({ storyId, operation: operationInput, clipId }))

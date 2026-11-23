@@ -18,6 +18,7 @@ import {
   setAudioClipMuted,
   setAudioTrackGain,
   setAudioTrackMuted,
+  splitAudioClip,
   trimAudioClipEnd,
   trimAudioClipStart,
   type TimelineAudioState,
@@ -40,6 +41,21 @@ const musicClip = (state: TimelineAudioState) =>
   state.tracks.find(t => t.kind === "music")!.clips[0];
 
 describe("timelineAudioModel", () => {
+  it("splits at the absolute frame, preserving cropped source, outer fades and clip metadata", () => {
+    const state = withMusicClip();
+    Object.assign(musicClip(state), { sourceInFrame: 20, sourceOutFrame: 320, fadeInFrames: 3, fadeOutFrames: 8, gain: 0.4 });
+    const split = (atFrame: number) => splitAudioClip(state, { clipId: "clip-1", rightId: "right", atFrame });
+    const result = split(80);
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") throw new Error(result.message);
+    expect(result.state.tracks.find(t => t.kind === "music")!.clips).toEqual([
+      { ...musicClip(state), sourceOutFrame: 70, durationFrames: 50, fadeOutFrames: 0 },
+      { ...musicClip(state), id: "right", timelineStartFrame: 80, sourceInFrame: 70, durationFrames: 250, fadeInFrames: 0 },
+    ]);
+    for (const frame of [29, 30, 330, 30.5]) expect(split(frame).status).toBe("error");
+    musicClip(state).speechBindingId = "bound";
+    expect(split(80).status).toBe("error");
+  });
   it("adds dialogue before the five existing tracks without changing their relative order", () => {
     expect(emptyAudioState().tracks.map(t => t.kind)).toEqual([
       ...AUDIO_TRACK_KINDS,

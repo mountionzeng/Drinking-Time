@@ -417,6 +417,34 @@ export function trimAudioClipEnd(
   );
 }
 
+export function splitAudioClip(
+  state: TimelineAudioState,
+  input: { clipId: string; atFrame: number; rightId: string }
+): AudioPlannerResult {
+  const found = findClip(state, input.clipId);
+  if (!found) return err("音频片段不存在");
+  const { clip } = found;
+  const offset = input.atFrame - clip.timelineStartFrame;
+  if (!isInt(offset) || offset <= 0 || offset >= clip.durationFrames) {
+    return err("切点须在音频片段内部");
+  }
+  if (clip.speechBindingId) return err("请先解除旁白与字幕的绑定再切割");
+  if (findClip(state, input.rightId)) return err("音频片段 ID 已存在");
+  const sourceFrame = clip.sourceInFrame + offset;
+  const left: AudioClip = { ...clip, sourceOutFrame: sourceFrame, durationFrames: offset, fadeOutFrames: 0 };
+  const right: AudioClip = {
+    ...clip, id: input.rightId, timelineStartFrame: input.atFrame,
+    sourceInFrame: sourceFrame, durationFrames: clip.durationFrames - offset, fadeInFrames: 0,
+  };
+  return ok({
+    tracks: state.tracks.map(track => track !== found.track ? track : {
+      ...track,
+      clips: track.clips.flatMap(item => item === clip ? [left, right] : [item])
+        .sort((a, b) => a.timelineStartFrame - b.timelineStartFrame),
+    }),
+  }, true);
+}
+
 export function deleteAudioClip(
   state: TimelineAudioState,
   input: { clipId: string }

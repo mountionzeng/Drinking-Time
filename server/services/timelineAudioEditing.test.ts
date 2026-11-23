@@ -18,6 +18,7 @@ import {
   moveBoundSpeechForStory,
   reclassifyAudioClipForStory,
   setAudioClipGainForStory,
+  splitAudioClipForStory,
   trimAudioClipForStory,
   undoLatestTimelineMediaEditForStory,
   unbindSpeechForStory,
@@ -119,6 +120,22 @@ beforeEach(() => {
 });
 
 describe("timelineAudioEditing", () => {
+  it("writes both halves in one undoable, replay-safe operation", async () => {
+    const storyId = await seedStory();
+    const scope = { storyId, userId: USER_ID };
+    const assetId = await seedReadyAsset(storyId);
+    await insertAudioClipForStory({ ...scope, operation: nextOp(), kind: "sfx", assetId, timelineStartFrame: 10 });
+    const before = await audioState(storyId);
+    const [clip] = before!.tracks.find(t => t.kind === "sfx")!.clips as { id: string }[];
+    const v = await version(storyId);
+    const command = { ...scope, clipId: clip.id, atFrame: 61, operation: nextOp() };
+    expect(await splitAudioClipForStory(command)).toMatchObject({ status: "ok", timelineVersion: v + 1 });
+    await splitAudioClipForStory(command);
+    expect(await version(storyId)).toBe(v + 1);
+    expect((await audioState(storyId))!.tracks.find(t => t.kind === "sfx")!.clips).toHaveLength(2);
+    await undoLatestTimelineMediaEditForStory({ ...scope, operation: nextOp() });
+    expect(await audioState(storyId)).toEqual(before);
+  });
   it("insert requires a ready, owned asset and defaults the source range to the asset length", async () => {
     const storyId = await seedStory();
     const assetId = await seedReadyAsset(storyId, 300);

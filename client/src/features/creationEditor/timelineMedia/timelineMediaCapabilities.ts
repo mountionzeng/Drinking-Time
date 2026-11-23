@@ -48,6 +48,7 @@ export type TimelineMediaKindProfile = {
 
 const AUDIO_COMMON: readonly TimelineMediaCapability[] = [
   "move",
+  "split",
   "trim",
   "delete",
   "gain",

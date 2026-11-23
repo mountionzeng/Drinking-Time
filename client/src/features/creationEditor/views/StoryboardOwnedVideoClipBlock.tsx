@@ -83,6 +83,7 @@ export function StoryboardOwnedVideoClipBlock({
       onPointerDown={event => {
         // Keep native drag eligible; only stop the host shot gesture.
         event.stopPropagation();
+        if (event.button !== 0) return;
         onSelectVisualObject(object, event.currentTarget);
       }}
       onDragStart={event => {
