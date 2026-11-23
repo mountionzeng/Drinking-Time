@@ -32,8 +32,8 @@ export const PAUSED_FRAME_SHORTCUT_EVENT = "dt:paused-frame-reference";
 
 export type FrameReferenceEvent =
   | { kind: "clear"; storyId: number }
-  | { kind: "warehouse"; source: WarehouseVideoFrame; extraction: Promise<ChatFrameReference> }
-  | { kind: "capture"; snapshot: PausedFrameSnapshot; extraction?: Promise<ChatFrameReference> };
+  | { kind: "warehouse"; source: WarehouseVideoFrame; extraction?: Promise<ChatFrameReference>; editKeyframe?: true }
+  | { kind: "capture"; snapshot: PausedFrameSnapshot; extraction?: Promise<ChatFrameReference>; editKeyframe?: true };
 
 /** Both timeline entry points hand the already placed asset to chat. */
 export function referenceExtractedFrame(snapshot: PausedFrameSnapshot, extraction: Promise<ChatFrameReference>) {

@@ -31,7 +31,7 @@ export function cueTarget<T extends { shotNo: number; cueCode?: string | null; s
 
 export type CueMessage = { id: string; role: string; content: string; selectionQuote?: { storyId?: number | null; stableShotId?: string | null } };
 export const cueReplyId = (id: string) => "video-cues:" + id;
-export function currentCueTurn(messages: CueMessage[], storyId: number) {
+export function currentCueTurn<T extends CueMessage>(messages: T[], storyId: number) {
   for (let index = messages.length - 1; index > 0; index--) {
     const reply = messages[index], request = reply.id.startsWith("video-cues:")
       ? messages.find(row => cueReplyId(row.id) === reply.id) : messages[index - 1];

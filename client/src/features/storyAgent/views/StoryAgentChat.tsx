@@ -12,9 +12,11 @@ import { ChatPhotoPreview } from "./ChatPhotoPreview";
 import { ChatVideoCuePlan } from "./ChatVideoCuePlan";
 import { cueReplyId, cueReferences, cueTarget, currentCueTurn, requestsVideoCues, reviewTakeId, priorObjectOrigin, originLine } from "../videoCueDraft";
 import { NextShotDraftButton } from "./NextShotDraftButton";
+import { useLocalVideoFeedback } from "../useLocalVideoFeedback";
+import { localNotePrefix, localReplyPrefix, looksLikeVideoFeedback, sameVideoDirection, startingLocalFeedback } from "@shared/localVideoFeedback";
 import { VideoTakeChatReview } from "./VideoTakeChatReview";
 import { VideoFeedbackActivity } from "./VideoFeedbackActivity";
-import { isFeedbackActivityId } from "@shared/videoFeedbackActivity";
+import { feedbackActivityId, isFeedbackActivityId } from "@shared/videoFeedbackActivity";
 import { ChatImageEditBatch } from './ChatImageEditBatch';
 import { SourceReviewedPlanCard as ChatImageEditPlanCard } from './SourceReviewedPlanCard';
 import { imageEditPlanQuote, createChatImageEditPlan, localEraseReceiptId, imageEditPlanReply, imageEditPlanOutput, confirmedImageEditPlanId, adjustedImageEditPlanId } from '@shared/chatImageEditPlan';
@@ -687,7 +689,8 @@ export default function StoryAgentChat({
   const pictureReader = trpc.useUtils().storyAgent.visualUnderstanding.pictureRegion;
   const inlineInputRef = useRef<InlineChatComposerHandle>(null);
   const inlineImages = useMemo(() => creationEditor?.materialState ? composerImages(creationEditor.materialState, language).filter(image => image.imageId) : [], [creationEditor?.materialState, language]);
-  const [openedCue,setOpenedCue]=useState<{id:string;latest:string}|null>(null);
+  const localFeedback = useLocalVideoFeedback(activeStoryId, accountId, messages);
+  const [openedCue,setOpenedCue]=useState<{id:string;latest:string;openedAt:number}|null>(null);
   const latestCue = useMemo(() => workspaceContext === "video" && activeStoryId ? currentCueTurn(messages, activeStoryId) : undefined, [workspaceContext, activeStoryId, messages]);
   const cueTurn = useMemo(()=>{
     if(!activeStoryId || !latestCue || openedCue?.latest!==latestCue.reply.id)return latestCue;
@@ -1163,6 +1166,24 @@ export default function StoryAgentChat({
     draftEpoch.current++;
     const submittedInput = input;
     let entered = creationFlow.resolveVersionReply?.(input.trim()) ?? input.trim();
+    if (workspaceContext === "video" && activeStoryId && creationEditor?.activeStoryId === activeStoryId && !pendingMedia.length &&
+        !composition && !soundDirector.active && !pausedFrameChat.hasManualFrame && !readWarehouseChatSelection(activeStoryId)?.imageIds.length && !activeSelection?.selection &&
+        !activeSelection?.imageId && !hasInlineChatImages(entered) && !voice.isBusy && !isImportingMedia) {
+      const shot = hasConversationShotReference(entered) ? resolveConversationShot(entered,creationEditor.shots) :
+        selectedChatShot ?? cueShot ?? creationEditor.selectedShot;
+      const stable = shot?.stableShotId ?? shot?.shotIdentity;
+      const previous = messages.findLast(row=>row.id.startsWith(localReplyPrefix) && row.selectionQuote?.stableShotId === stable &&
+        row.selectionQuote?.storyId === activeStoryId && row.content.startsWith("已"));
+      const preview = stable && (cueShot?.stableShotId ?? cueShot?.shotIdentity) === stable && cueTurn ? reviewTakeId(cueTurn.request.content) : undefined;
+      const latestPreview = previous && (!preview || previous.timestamp > (openedCue?.id === cueTurn?.reply.id && openedCue ? openedCue.openedAt : cueTurn?.request.timestamp ?? 0)) ? previous.selectionQuote?.videoTakeId : preview;
+      const take = (activeSelection?.stableShotId === stable && activeSelection?.videoTakeId) || latestPreview || shot?.timelineItem?.primaryVideoEdit?.takeId;
+      const known = messages.some(row=>row.role==="user" && row.id.endsWith("-feedback") && row.selectionQuote?.stableShotId===stable &&
+        row.selectionQuote?.storyId===activeStoryId && sameVideoDirection(row.content,entered));
+      if (shot && take && (looksLikeVideoFeedback(entered) || known) && localFeedback.submit(shot,take,entered)) {
+        followCurrentConversation(shotConversationSelection(activeStoryId,shot));
+        setInput(current=>current===submittedInput ? "" : current); resizeAndFocusInput(); return;
+      }
+    }
     if (workspaceContext === "video" && activeStoryId && creationEditor?.materialState?.storyId === activeStoryId && !pendingMedia.length) {
       let scan;
       try { scan = prepareKeyframeScan(entered, messages, activeStoryId, activeSelection?.stableShotId); }
@@ -2393,7 +2414,7 @@ export default function StoryAgentChat({
                   <p className="mb-1 text-[10px] opacity-70">{_ui("旧对话中的镜号提及")}</p>
                 )}
                 {/* The opaque reply covers the character's lower body, never its text. */}
-                {m.selectionQuote && !isFeedbackActivityId(m.id) && !m.imageRevision && m.imageEditPlan?.status !== 'submitted' && m.id !== inlineQuoteMessage?.id && m.selectionQuote.selectedText !== m.content && (
+                {m.selectionQuote && !isFeedbackActivityId(m.id) && !m.id.startsWith(localNotePrefix) && !m.id.startsWith(localReplyPrefix) && !m.imageRevision && m.imageEditPlan?.status !== 'submitted' && m.id !== inlineQuoteMessage?.id && m.selectionQuote.selectedText !== m.content && (
                   <div className="mb-1.5">
                     <SelectionContextCard
                       selection={currentShotQuote(m.selectionQuote)}
@@ -2424,11 +2445,22 @@ export default function StoryAgentChat({
                 )}
                 {latestCue && m.id!==cueTurn?.reply.id && m.id.startsWith("video-cues:") && m.role==="assistant" && m.selectionQuote?.storyId===activeStoryId &&
                   <button type="button" className="mb-1 text-xs underline" aria-label={"继续此视频对话："+(messages.find(row=>cueReplyId(row.id)===m.id)?.content??"").slice(0,55)}
-                    onClick={()=>setOpenedCue({id:m.id,latest:latestCue.reply.id})}>继续此视频对话</button>}
-                {m.role === "assistant" && activeStoryId && isFeedbackActivityId(m.id) ? (
+                    onClick={()=>setOpenedCue({id:m.id,latest:latestCue.reply.id,openedAt:Date.now()})}>继续此视频对话</button>}
+                {m.role === "assistant" && m.id.startsWith(localReplyPrefix) && activeStoryId && accountId ? (() => {
+                  const note = messages.find(row=>row.id===localNotePrefix+m.id.slice(localReplyPrefix.length));
+                  const shot = creationEditor?.shots.find(s=>(s.stableShotId ?? s.shotIdentity) === m.selectionQuote?.stableShotId);
+                  const pending = m.selectionQuote?.objectVersion === "local-feedback-pending" || (note && m.content === startingLocalFeedback(note.content));
+                  return <div className="space-y-1">{pending && !localFeedback.errors[m.id]
+                    ? <VideoFeedbackActivity localEdit storyId={activeStoryId} id={feedbackActivityId(m.id.slice(localReplyPrefix.length))} text={"制作中\n"+m.content}/>
+                    : <p role="status">{pending && localFeedback.errors[m.id] || m.content}</p>}
+                    {pending && localFeedback.errors[m.id] && <button type="button" className="underline" onClick={()=>localFeedback.retry(m.id)}>重新连接</button>}
+                    {!pending && shot && m.selectionQuote?.videoTakeId && <VideoTakeChatReview key={m.selectionQuote.videoTakeId} takeId={m.selectionQuote.videoTakeId}
+                      accountId={accountId} storyId={activeStoryId} shot={shot} savedText="" images={[]} onFeedback={localFeedback.submit}/>}
+                  </div>;
+                })() : m.role === "assistant" && activeStoryId && isFeedbackActivityId(m.id) ? (
                   <VideoFeedbackActivity id={m.id} storyId={activeStoryId} text={m.content} />
                 ) : m.id === cueTurn?.reply.id && cueShot && activeStoryId && accountId ? (reviewTakeId(cueTurn.request.content)
-                  ? <VideoTakeChatReview key={`${accountId}:${activeStoryId}:${cueTurn.request.id}`} accountId={accountId} storyId={activeStoryId} shot={cueShot} request={cueTurn.request} savedText={m.content} images={inlineImages}/>
+                  ? <VideoTakeChatReview key={`${accountId}:${activeStoryId}:${cueTurn.request.id}`} accountId={accountId} storyId={activeStoryId} shot={cueShot} request={cueTurn.request} savedText={m.content} images={inlineImages} onFeedback={localFeedback.submit}/>
                   : <ChatVideoCuePlan key={`${accountId}:${activeStoryId}:${cueTurn.request.id}`} accountId={accountId} storyId={activeStoryId} shot={cueShot} request={cueTurn.request} savedText={m.content} images={inlineImages} />) : m.content.trim() && m.imageEditPlan?.status !== 'submitted' && !(m.id === inlineQuoteMessage?.id && ["generating", "pending", "done", "error"].includes(remix.status)) && (
                   <p
                     className="whitespace-pre-wrap"

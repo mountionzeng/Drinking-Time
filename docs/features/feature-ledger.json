@@ -193,10 +193,14 @@
         "server/services/chatFrameReferences.ts",
         "client/src/features/storyAgent/useFrameReferenceChat.ts",
         "client/src/features/storyAgent/views/ChatFrameReferences.tsx",
-        "client/src/features/storyAgent/types.ts"
+        "client/src/features/storyAgent/types.ts",
+        "server/services/localVideoFeedback.ts",
+        "client/src/features/storyAgent/useLocalVideoFeedback.ts"
       ],
       "evidence": [
         "shared/chatFrameReference.test.ts",
+        "server/services/localVideoFeedback.test.ts",
+        "client/src/features/storyAgent/views/ReviewFrameVideo.test.tsx",
         "server/services/chatFrameReferences.test.ts",
         "client/src/features/storyAgent/useFrameReferenceChat.test.ts",
         "client/src/features/storyAgent/views/ChatFrameReferences.test.tsx",
@@ -227,6 +231,11 @@
         "本轮未提交图片或视频生成，美术效果尚待生成验证。"
       ],
       "history": [
+        {
+          "date": "2026-11-23",
+          "summary": "视频回看卡和主聊天按当前镜头精修本机原片，保存零算力候选与可恢复回执。正式站登录态双入口仍待验收。",
+          "kind": "feature"
+        },
         {
           "date": "2026-11-10",
           "summary": "本地3000真实聊天提交、抽取三帧、点选与刷新验收；115项测试通过，未付费生成或改剪辑线。",

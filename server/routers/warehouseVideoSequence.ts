@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { getStoryById } from "../repositories/stories";
+import { localFeedbackInput, localFeedbackProgress, submitLocalVideoFeedback } from "../services/localVideoFeedback";
 import { activityReport, reportVideoFeedbackActivity } from "../services/videoFeedbackActivity";
 import { storedFeedbackActivity } from "../../shared/videoFeedbackActivity";
 import { protectedProcedure, router } from "../_core/trpc";
@@ -24,6 +25,7 @@ const reviewPlacementInput = z.object({
   });
 
 export const warehouseVideoSequenceRouter = router({
+  localFeedback: protectedProcedure.input(localFeedbackInput).mutation(({ctx,input}) => submitLocalVideoFeedback(ctx.user.id,input)),
   cutWordTiming: protectedProcedure.input(wordCutInput).mutation(async ({ctx,input}) => {
     const result = await withVisualEditServiceLock(input.storyId, ctx.user.id, () => cutVideoWord(input, ctx.user.id))
       .catch((error: unknown) => ({ takeId: null, reply: "剪辑未完成。" + (error instanceof Error ? error.message : "请查看当前时间线。") }));
@@ -35,6 +37,8 @@ export const warehouseVideoSequenceRouter = router({
   feedbackActivity: protectedProcedure
     .input(z.object({storyId:z.number().int().positive(), id:z.string().startsWith("video-feedback-activity:").max(160)}))
     .query(async ({ctx,input}) => {
+      const live = localFeedbackProgress(ctx.user.id, input.storyId, input.id);
+      if (live) return live;
       const story = await getStoryById(input.storyId, ctx.user.id);
       return storedFeedbackActivity(story?.body, input.id);
     }),

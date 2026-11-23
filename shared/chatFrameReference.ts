@@ -65,6 +65,7 @@ export function explicitReferenceShotNumber(text: string): number | null {
 }
 
 export const pausedFrameSnapshotSchema = z.object({
+  displayedVideo: warehouseVideoFrameSchema.pick({ takeId: true, sourceTimeSec: true }).optional(),
   storyId: z.number().int().positive(),
   timelineVersion: z.number().int().nonnegative(),
   timelineFrame: z.number().int().nonnegative(),

@@ -12,7 +12,7 @@ const english: Record<string,string> = {
 };
 const terminal = (phase?: string) => phase === "制作完成" || phase === "制作失败";
 
-export function VideoFeedbackActivity({ storyId, id, text }: { storyId: number; id: string; text: string }) {
+export function VideoFeedbackActivity({ storyId, id, text, localEdit }: { storyId: number; id: string; text: string; localEdit?: boolean }) {
   const {language} = useUiLanguage();
   const ref = useRef<HTMLDetailsElement>(null);
   const [visible, setVisible] = useState(false);
@@ -26,7 +26,7 @@ export function VideoFeedbackActivity({ storyId, id, text }: { storyId: number; 
   const saved = readFeedbackActivity(text);
   const query = trpc.warehouseVideoSequence.feedbackActivity.useQuery({storyId, id}, {
     enabled: visible && !terminal(saved?.phase),
-    refetchInterval: q => terminal(q.state.data?.phase) ? false : q.state.data?.phase === "制作中" ? 2000 : 8000,
+    refetchInterval: q => terminal(q.state.data?.phase) ? false : localEdit ? 750 : q.state.data?.phase === "制作中" ? 2000 : 8000,
     refetchIntervalInBackground: false,
   });
   const activity = terminal(saved?.phase) ? saved : query.data ?? saved;
