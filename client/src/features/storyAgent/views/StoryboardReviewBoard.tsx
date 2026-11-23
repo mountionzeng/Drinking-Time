@@ -3316,7 +3316,8 @@ export function StoryboardReviewBoard({
       ) : null}
 
       <VideoSubmitNotices storyId={storyId} shots={creationShots} notices={videoSubmitNotices} onDismiss={key => recordVideoSubmitNotice(key, null)} />
-      <StoryboardManuscriptSection visible={presentation === "manuscript"} timeline={boardTimeline} viewport={storyboardViewport}
+      <StoryboardManuscriptSection visible={presentation === "manuscript"} timeline={boardTimeline}
+        timelineDurationMs={storyboardTimelineDurationMs} timingGestureBlocked={Boolean(shotTimingPreview)}
         shots={storyboardEditShots} selectedShotNo={selectedShotNo} selectMatrixShot={selectMatrixShot}
         shotActions={storyboardEditShotActions} updateShotTimingPreview={updateShotTimingPreview}
         entries={matrixShotEntries.entries} timings={storyboardTimingRows} onSelectShot={onSelectShot}
@@ -3393,7 +3394,7 @@ export function StoryboardReviewBoard({
               }}
               className="min-h-0 flex-1 overflow-auto custom-scrollbar"
               style={{ scrollPaddingLeft: STORYBOARD_TRACK_HEADER_WIDTH, overscrollBehaviorX: "contain" }}
-              data-testid="storyboard-scroll-viewport"
+              data-storyboard-edit-surface data-testid="storyboard-scroll-viewport"
             >
               <div
                 role="table"

@@ -56,7 +56,7 @@ export function useStoryboardVisualClipNudge(
     (input: StoryboardVisualClipNudgeInput) => {
       if (!move) return;
       const node = document.activeElement?.closest<HTMLElement>('[data-visual-clip-move-target="true"]');
-      const board = node?.closest('[role="table"]');
+      const board = node?.closest('[data-storyboard-edit-surface]');
       if (node?.dataset.visualObjectId && node.dataset.visualObjectType && board) {
         const { visualObjectId, visualObjectType } = node.dataset;
         const selector = `[data-visual-object-type="${CSS.escape(visualObjectType)}"][data-visual-object-id="${CSS.escape(visualObjectId)}"]`;

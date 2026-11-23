@@ -150,6 +150,7 @@ import {
 import { useNayin } from "@/features/nayin/NayinContext";
 import EmotiveWuxingIcon from "@/features/nayin/views/EmotiveWuxingIcon";
 import { useVoiceInput } from "@/features/storyAgent/hooks/useVoiceInput";
+import { ChatVoiceOptions } from "./ChatVoiceOptions";
 import { ChatComposerTools } from "./ChatComposerTools";
 import { formatBytes, optimizeImageForUpload } from "@/lib/imageUpload";
 import PublishingPlatformPicker from "@/features/publishingDraft/PublishingPlatformPicker";
@@ -633,11 +634,10 @@ export default function StoryAgentChat({
     }
   }, [remix.result, activeStoryId]);
   const [voicePreview, setVoicePreview] = useState("");
-  const [voiceNotice, setVoiceNotice] = useState("");
-  const voiceFileInput = useRef<HTMLInputElement>(null);
+  const [voiceNotice, setVoiceNotice] = useState<{ message: string; recovery?: "keyboard" } | null>(null);
   useEffect(() => {
     setVoicePreview("");
-    setVoiceNotice("");
+    setVoiceNotice(null);
   }, [accountId, activeStoryId]);
   const [revisionProvider, setRevisionProvider] = useState<"midjourney" | "gpt-image">("gpt-image");
   const splitChat = useShotSplitChat({ storyId: activeStoryId, stableShotId: activeSelection?.stableShotId, editor: creationEditor });
@@ -933,8 +933,8 @@ export default function StoryAgentChat({
       window.removeEventListener("dt:open-creation-chat", applyCreationDraft);
   }, [clearSelection, resizeAndFocusInput, sendMessage]);
 
-  const handleVoiceError = useCallback((message: string) => {
-    setVoiceNotice(message);
+  const handleVoiceError = useCallback((message: string, recovery?: "keyboard") => {
+    setVoiceNotice({ message, recovery });
   }, []);
 
   const allowLocalTranscription = import.meta.env.DEV && typeof location !== "undefined" &&
@@ -3128,31 +3128,6 @@ export default function StoryAgentChat({
         ) : null}
 
 
-        {voiceNotice && !voice.isBusy && (
-          <p role="status" className="mt-1.5 text-xs text-muted-foreground">{voiceNotice}</p>
-        )}
-        {allowLocalTranscription && !voice.isBusy && (
-          <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
-            {voice.localRecovery
-              ? <span>{_ui("再点麦克风录音，停止后文字会出现在聊天输入框里（最多两分钟）。")}</span>
-              : <button type="button" className="underline" disabled={isImportingMedia}
-                  onClick={() => {
-                    setVoiceNotice("");
-                    pausedFrameChat.begin();
-                    void voice.startLocalRecording();
-                  }}>{_ui("本机录音")}</button>}
-            <button type="button" className="underline" disabled={isImportingMedia}
-              onClick={() => voiceFileInput.current?.click()}>{_ui("选择录音转文字")}</button>
-            <input type="file" ref={voiceFileInput} accept="audio/*,.m4a,.webm"
-              className="hidden" onChange={event => {
-                const file = event.currentTarget.files?.[0];
-                event.currentTarget.value = "";
-                if (!file || isImportingMedia) return;
-                setVoiceNotice("");
-                void voice.transcribeLocalFile(file);
-              }} />
-          </div>
-        )}
         {voice.isBusy && (
           <div
             className={`flex items-center gap-1.5 text-[10px] ${!activeSelection && pendingMedia.length === 0 ? "mt-2.5" : "mt-1.5"}`}
@@ -3176,8 +3151,17 @@ export default function StoryAgentChat({
             showAttachments={interactionMode === "story" || showCreationActions}
             isReplying={isReplying} isImportingMedia={isImportingMedia}
             soundDirectorActive={soundDirector.active} voice={voice}
+            voiceOptions={!voice.isBusy && <ChatVoiceOptions key={`${accountId}:${activeStoryId}`}
+              notice={voiceNotice?.message ?? ""} allowLocal={allowLocalTranscription} disabled={isImportingMedia}
+              onFocusDraft={voiceNotice?.recovery === "keyboard" ? resizeAndFocusInput : undefined}
+              onDismiss={() => setVoiceNotice(null)} onFile={file => void voice.transcribeLocalFile(file)}
+              onRecord={() => {
+                pausedFrameChat.begin();
+                if (allowLocalTranscription) void voice.startLocalRecording();
+                else voice.toggleRecording();
+              }} />}
             onFiles={stageMediaFiles} onVoice={() => {
-              setVoiceNotice("");
+              setVoiceNotice(null);
               if (voice.status === "idle") pausedFrameChat.begin();
               voice.toggleRecording();
             }} />

@@ -52,6 +52,12 @@ function deferred<T>() {
 beforeEach(() => {
   mock.effects = [];
   vi.clearAllMocks();
+  const preferences = new Map<string, string>();
+  vi.stubGlobal("localStorage", {
+    getItem: (key: string) => preferences.get(key) ?? null,
+    setItem: (key: string, value: string) => preferences.set(key, value),
+    removeItem: (key: string) => preferences.delete(key),
+  });
   vi.stubGlobal("navigator", {
     mediaDevices: { getUserMedia: vi.fn().mockResolvedValue(stream) },
   });
@@ -78,7 +84,7 @@ function setup(preferLive = false, allowLocalTranscription = false) {
     return null;
   }
   renderToStaticMarkup(<Harness />);
-  const cleanups = mock.effects.map(fn => fn());
+  const cleanups = mock.effects.splice(0).map(fn => fn());
   return {
     voice,
     onTranscribed,
@@ -204,6 +210,141 @@ it("does not silently fall back to a paid service when live speech is denied", (
   chat.cleanup();
 });
 
+it("distinguishes a blocked speech service from a microphone permission denial", () => {
+  const current = liveBrowser();
+  const chat = setup(true, true);
+  chat.voice.toggleRecording();
+  current().onerror?.({ error: "service-not-allowed" });
+  expect(chat.onError).toHaveBeenCalledWith(expect.stringContaining("未开放实时语音识别"));
+  expect(chat.onError).toHaveBeenCalledWith(expect.stringContaining("本机录音"));
+  expect(navigator.mediaDevices.getUserMedia).not.toHaveBeenCalled();
+  expect(mock.transcribe).not.toHaveBeenCalled();
+  chat.cleanup();
+});
+
+it("offers local recording on live permission denial without opening the microphone", () => {
+  const current = liveBrowser();
+  const chat = setup(true, true);
+  chat.voice.toggleRecording();
+  current().onerror?.({ error: "not-allowed" });
+  expect(chat.onError).toHaveBeenCalledWith(expect.stringContaining("本机录音"));
+  expect(navigator.mediaDevices.getUserMedia).not.toHaveBeenCalled();
+  chat.cleanup();
+});
+
+it("remembers working local dictation across chat mounts and still waits for an explicit tap", async () => {
+  const current = liveBrowser();
+  const first = setup(true, true);
+  mock.transcribeLocal.mockResolvedValueOnce({ text: "第一段" });
+  await first.voice.startLocalRecording();
+  recorder.ondataavailable?.({ data: new Blob(["test"]) });
+  first.voice.stopRecording();
+  await vi.waitFor(() => expect(first.onTranscribed).toHaveBeenCalledWith("第一段"));
+  first.cleanup();
+  const next = setup(true, true);
+  expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledTimes(1);
+  next.voice.toggleRecording();
+  await Promise.resolve();
+  expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledTimes(2);
+  expect(current()).toBeUndefined();
+  expect(recorder.state).toBe("recording");
+  next.cleanup();
+
+  const remote = setup(true, false);
+  remote.voice.toggleRecording();
+  expect(current().start).toHaveBeenCalledOnce();
+  expect(mock.transcribe).not.toHaveBeenCalled();
+  remote.cleanup();
+});
+
+it.each(["denied", "decoder unavailable"] as const)("keeps live dictation available when local recording fails (%s)", async failure => {
+  const current = liveBrowser();
+  const first = setup(true, true);
+  if (failure === "denied") {
+    vi.mocked(navigator.mediaDevices.getUserMedia).mockRejectedValueOnce(new DOMException("denied", "NotAllowedError"));
+  } else {
+    mock.transcribeLocal.mockResolvedValueOnce({ error: "本机语音模型尚未安装。" });
+  }
+  await first.voice.startLocalRecording();
+  if (failure !== "denied") {
+    recorder.ondataavailable?.({ data: new Blob(["test"]) });
+    first.voice.stopRecording();
+  }
+  await vi.waitFor(() => expect(first.onError).toHaveBeenCalledOnce());
+  first.cleanup();
+  const next = setup(true, true);
+  next.voice.toggleRecording();
+  expect(current().start).toHaveBeenCalledOnce();
+  expect(mock.transcribe).not.toHaveBeenCalled();
+  next.cleanup();
+});
+
+it("requests the device again on explicit retry after a permission change", async () => {
+  const device = vi.mocked(navigator.mediaDevices.getUserMedia);
+  device.mockRejectedValueOnce(new DOMException("denied", "NotAllowedError"));
+  const chat = setup(false, true);
+  await chat.voice.startLocalRecording();
+  expect(chat.onError).toHaveBeenCalledOnce();
+  expect(device).toHaveBeenCalledTimes(1);
+  await chat.voice.startLocalRecording();
+  expect(device).toHaveBeenCalledTimes(2);
+  expect(recorder.state).toBe("recording");
+  expect(mock.transcribe).not.toHaveBeenCalled();
+  chat.cleanup();
+});
+
+it("offers keyboard dictation after a Mac recording denial even when site permission cannot be queried", async () => {
+  const current = liveBrowser();
+  vi.stubGlobal("navigator", {
+    platform: "MacIntel",
+    mediaDevices: { getUserMedia: vi.fn().mockRejectedValue(new DOMException("denied", "NotAllowedError")) },
+  });
+  const chat = setup(true, true);
+  chat.voice.toggleRecording();
+  current().onerror?.({ error: "not-allowed" });
+  expect(chat.onError).toHaveBeenLastCalledWith(expect.stringContaining("本机录音"));
+  await chat.voice.startLocalRecording();
+  expect(chat.onError).toHaveBeenLastCalledWith(expect.stringContaining("听写键"), "keyboard");
+  expect(mock.transcribeLocal).not.toHaveBeenCalled();
+  chat.cleanup();
+});
+
+it("skips the unavailable local retry after live access fails and the browser reports the site denied", async () => {
+  const current = liveBrowser();
+  const device = vi.fn();
+  const permission = { state: "denied" };
+  vi.stubGlobal("navigator", {
+    platform: "MacIntel", mediaDevices: { getUserMedia: device },
+    permissions: { query: vi.fn().mockResolvedValue(permission) },
+  });
+  const chat = setup(true, true);
+  chat.voice.toggleRecording();
+  current().onerror?.({ error: "not-allowed" });
+  await vi.waitFor(() => expect(chat.onError).toHaveBeenLastCalledWith(expect.stringContaining("听写键"), "keyboard"));
+  expect(device).not.toHaveBeenCalled();
+  permission.state = "prompt";
+  chat.voice.toggleRecording();
+  current().onerror?.({ error: "service-not-allowed" });
+  await vi.waitFor(() => expect(chat.onError).toHaveBeenLastCalledWith(expect.stringContaining("本机录音")));
+  chat.cleanup();
+});
+
+it("drops a late permission diagnosis after leaving the story", async () => {
+  const current = liveBrowser();
+  const permission = deferred<{ state: string }>();
+  vi.stubGlobal("navigator", {
+    platform: "MacIntel", mediaDevices: { getUserMedia: vi.fn() },
+    permissions: { query: () => permission.promise },
+  });
+  const chat = setup(true, true);
+  chat.voice.toggleRecording();
+  current().onerror?.({ error: "not-allowed" });
+  chat.cleanup();
+  permission.resolve({ state: "denied" });
+  await permission.promise;
+  expect(chat.onError).not.toHaveBeenCalled();
+});
+
 it("keeps a short actionable error instead of leaking provider response JSON", async () => {
   mock.transcribe.mockRejectedValue(new Error('403 Forbidden {"header":{"code":45000030}}'));
   const chat = setup();
@@ -246,7 +387,8 @@ it("returns recognized words for confirmation and releases the microphone", asyn
 });
 
 it.each([
-  ["NotAllowedError", "麦克风权限被拒绝了"],
+  ["NotAllowedError", "网站设置中允许麦克风"],
+  ["NotReadableError", "麦克风暂时无法读取"],
   ["NotFoundError", "没有找到可用的麦克风"],
 ])("reports %s instead of silently ignoring a microphone tap", async (name, message) => {
   vi.mocked(navigator.mediaDevices.getUserMedia).mockRejectedValue(new DOMException("synthetic denial", name));

@@ -25,8 +25,12 @@ export function liveRecognitionConstructor():
   };
   return browser.SpeechRecognition ?? browser.webkitSpeechRecognition;
 }
-function speechError(code: string, hasDraftText: boolean) {
-  if (["not-allowed", "service-not-allowed", "NotAllowedError"].includes(code))
+function speechError(code: string, hasDraftText: boolean, canRecordLocally = false) {
+  if (canRecordLocally && ["service-not-allowed", "not-allowed", "NotAllowedError"].includes(code))
+    return "浏览器未开放实时语音识别。点「本机录音」，说完后点停止。";
+  if (code === "service-not-allowed")
+    return "浏览器未开放实时语音识别，请检查语音识别设置。";
+  if (["not-allowed", "NotAllowedError"].includes(code))
     return "请在浏览器设置中允许麦克风和语音识别，再点话筒。";
   if (code === "audio-capture")
     return "无法使用麦克风，请检查是否被其他应用占用。";
@@ -38,10 +42,12 @@ function speechError(code: string, hasDraftText: boolean) {
 export function startLiveDictation(
   recognition: LiveRecognition,
   callbacks: {
+    canRecordLocally?: boolean;
     onText: (text: string) => void;
     onPreview: (text: string) => void;
     onState: (state: DictationState) => void;
     onError: (message: string) => void;
+    onAccessDenied?: (message: string) => void;
   }
 ) {
   let active = true,
@@ -114,11 +120,15 @@ export function startLiveDictation(
       callbacks.onText(text);
     }
   };
+  const reportError = (code: string) => {
+    const report = ["service-not-allowed", "not-allowed", "NotAllowedError"].includes(code)
+      ? callbacks.onAccessDenied ?? callbacks.onError : callbacks.onError;
+    report(speechError(code, hasDraftText || Boolean(preview.trim()), callbacks.canRecordLocally));
+  };
   recognition.onerror = event => {
     if (!active) return;
-    const message = speechError(event.error, hasDraftText || Boolean(preview.trim()));
     finish();
-    callbacks.onError(message);
+    reportError(event.error);
   };
   recognition.onend = () => {
     if (!active) return;
@@ -135,7 +145,7 @@ export function startLiveDictation(
   try {
     recognition.start();
   } catch (error) {
-    callbacks.onError(speechError(error instanceof Error ? error.name : "", false));
+    reportError(error instanceof Error ? error.name : "");
     finish();
   }
   return {

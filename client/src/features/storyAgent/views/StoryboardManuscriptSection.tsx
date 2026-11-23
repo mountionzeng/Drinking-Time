@@ -1,8 +1,9 @@
-import type { ComponentProps } from "react";
+import { useLayoutEffect, useRef, useState, type ComponentProps } from "react";
 import { toast } from "sonner";
 import { useUiText } from "@/features/uiLanguage/UiLanguage";
 import { StoryboardEditRow, STORYBOARD_TRACK_HEADER_WIDTH } from "@/features/creationEditor/views/StoryboardEditRow";
-import { StoryboardTimelineRulerRow } from "./StoryboardTimelineRuler";
+import { useStoryboardViewportGestures } from "./useStoryboardViewportGestures";
+import { StoryboardTimelineRulerRow, useStoryboardTimelineViewport } from "./StoryboardTimelineRuler";
 import type { CreationEditorShot } from "@/features/creationEditor/types";
 import { latestVideoTakeFailure } from "@/features/creationEditor/videoAssetViewModel";
 import type { StoryShotEditableField } from "@shared/shotDirector";
@@ -19,7 +20,8 @@ type EditRowProps = ComponentProps<typeof StoryboardEditRow>;
 type Props = {
   visible: boolean;
   timeline: EditRowProps["timeline"] | undefined;
-  viewport: NonNullable<EditRowProps["viewport"]>;
+  timelineDurationMs: number;
+  timingGestureBlocked: boolean;
   shots: EditRowProps["shots"];
   selectedShotNo: number | null;
   selectMatrixShot: EditRowProps["onSelectShot"];
@@ -43,9 +45,38 @@ type Props = {
 /** Both presentations share the same timeline and shot data; this only renders the manuscript view. */
 export function StoryboardManuscriptSection(props: Props) {
   const t = useUiText();
-  const { visible, timeline, viewport, entries, timings } = props;
+  const { visible, timeline, entries, timings } = props;
+  const scroller = useRef<HTMLDivElement>(null);
+  const enabled = visible && Boolean(timeline);
+  const [availableWidth, setAvailableWidth] = useState(720);
+  useLayoutEffect(() => {
+    const element = scroller.current;
+    if (!enabled || !element) return;
+    const measure = () => {
+      if (element.clientWidth > 0) {
+        setAvailableWidth(Math.max(1, element.clientWidth - STORYBOARD_TRACK_HEADER_WIDTH));
+      }
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [enabled]);
+  const { viewport, setScale } = useStoryboardTimelineViewport(props.timelineDurationMs, availableWidth);
+  useStoryboardViewportGestures({
+    scroller,
+    enabled,
+    scope: props.storyId,
+    blocked: props.timingGestureBlocked,
+    viewport,
+    availableWidth,
+    headerWidth: STORYBOARD_TRACK_HEADER_WIDTH,
+    onZoom: setScale,
+  });
   return <div hidden={!visible} className="min-h-0 flex-1 overflow-auto custom-scrollbar">
-    {visible && timeline && <div className="overflow-x-auto border-b" aria-label={t("分镜稿剪辑栏")}>
+    {visible && timeline && <div ref={scroller} className="overflow-x-auto border-b" data-storyboard-edit-surface
+      style={{ overscrollBehaviorX: "contain", scrollPaddingLeft: STORYBOARD_TRACK_HEADER_WIDTH }}
+      aria-label={t("分镜稿剪辑栏")}>
       <div className="grid" style={{ gridTemplateColumns: `${STORYBOARD_TRACK_HEADER_WIDTH}px ${viewport.contentWidth}px` }}>
         <StoryboardTimelineRulerRow viewport={viewport} columnSpan={1} />
         <StoryboardEditRow timeline={timeline} viewport={viewport} shots={props.shots} selectedShotNo={props.selectedShotNo}

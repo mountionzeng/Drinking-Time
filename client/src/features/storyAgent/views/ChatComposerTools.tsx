@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useRef, type ReactNode } from "react";
 import { Mic, Paperclip, X } from "lucide-react";
 import { useUiText } from "@/features/uiLanguage/UiLanguage";
 import { RecordingGlyph, TranscribingGlyph } from "./VoiceInputGlyph";
@@ -13,11 +13,12 @@ type Props = {
   voice: Pick<ReturnType<typeof useVoiceInput>, "status">;
   onFiles: (files: File[]) => void;
   onVoice: () => void;
+  voiceOptions?: ReactNode;
 };
 
 /** These controls prepare a draft; sending it remains the composer's responsibility. */
 export function ChatComposerTools({ horizontal, showAttachments, isReplying,
-  isImportingMedia, soundDirectorActive, voice, onFiles, onVoice }: Props) {
+  isImportingMedia, soundDirectorActive, voice, onFiles, onVoice, voiceOptions }: Props) {
   const ui = useUiText();
   const fileInput = useRef<HTMLInputElement>(null);
   const { status } = voice;
@@ -57,6 +58,7 @@ export function ChatComposerTools({ horizontal, showAttachments, isReplying,
         {status === "recording" && <RecordingGlyph />}
         {status === "transcribing" && <TranscribingGlyph />}
       </button>
+      {voiceOptions}
     </div>
   </div>;
 }

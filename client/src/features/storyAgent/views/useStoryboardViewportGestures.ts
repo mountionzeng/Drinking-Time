@@ -13,7 +13,7 @@ export function useStoryboardViewportGestures(input: {
   availableWidth: number;
   headerWidth: number;
   onZoom: (zoom: number) => void;
-  onInteraction: () => void;
+  onInteraction?: () => void;
 }) {
   const live = useRef(input);
   live.current = input;
@@ -31,7 +31,7 @@ export function useStoryboardViewportGestures(input: {
     const dispose = bindStoryboardViewportGestures(element, {
       headerWidth: input.headerWidth,
       blocked: () => live.current.blocked,
-      onInteraction: () => live.current.onInteraction(),
+      onInteraction: () => live.current.onInteraction?.(),
       read: () => ({ ...live.current.viewport, availableWidth: live.current.availableWidth,
         scrollLeft: element.scrollLeft, ...pending.current }),
       change: target => {
