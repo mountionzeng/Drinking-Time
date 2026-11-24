@@ -28,6 +28,8 @@ import { artPreviewGenerationInput } from "../services/artPreview";
 import { pendingStoryboardImageTasks, recoverStoryboardImageTask, runStoryboardImageTask, type StoryboardImageRender } from "../services/storyboardImageTask";
 import { SourceFrameReadError } from "../services/sourceFrameReading";
 import { readImageDimensions } from '../services/imageEditDimensions';
+import { warehouseImageAttempts } from "../services/reviewedImageRetry";
+import { checkReviewedImageBalance } from "../services/providerImageBalance";
 import { readChatImageEditBatch } from "../services/chatImageEditBatch";
 import { legnextRetexturePrompt } from "../services/legnextImage";
 import { submitRender } from "../services/render/submitRender";
@@ -1868,6 +1870,10 @@ export const storyAgentRouter = router({
     .input(z.object({ storyId: z.number().int().positive(), quoteMessageId: z.string().min(1).max(100) }))
     .mutation(({ ctx, input }) => recoverChatImageRemix({ ...input, userId: ctx.user.id })),
 
+  warehouseImageAttempts: protectedProcedure
+    .input(z.object({ storyId: z.number().int().positive() }))
+    .query(({ ctx, input }) => warehouseImageAttempts(input.storyId, ctx.user.id)),
+
   chatImageEditBatch: protectedProcedure
     .input(z.object({ storyId: z.number().int().positive(), planMessageId: z.string().min(1).max(500) }))
     .query(({ ctx, input }) => readChatImageEditBatch({ ...input, userId: ctx.user.id })),
@@ -1879,6 +1885,7 @@ export const storyAgentRouter = router({
         warehouseTextureSourceId: z.number().int().positive().optional(),
         shotImageRequestId: z.string().uuid().optional(),
         chatImageRemixQuoteId: z.string().min(1).max(500).optional(),
+        retryFailedImageRequestId: z.string().uuid().optional(),
         imageEditPlanOutput: z.object({ planMessageId: z.string().min(1).max(500), imageId: z.number().int().positive(), copy: z.number().int().min(1).max(4) }).optional(),
         conversationShotId: z.string().min(1).max(96).optional(),
         previewBatchId: z.string().uuid().optional(),
@@ -1943,6 +1950,8 @@ export const storyAgentRouter = router({
     // Every metered AI call made while preparing the prompt is recorded so that a
     // definite image failure can refund them (each one exactly once).
     .mutation(({ ctx, input }) => collectInferenceBilling(async () => {
+      if (input.retryFailedImageRequestId && (!input.imageEditPlanOutput || input.chatImageRemixQuoteId))
+        throw new TRPCError({ code: "BAD_REQUEST", message: "请选择原任务中的失败图片。" });
       if (input.chatImageRemixQuoteId) {
         const quote = await readChatImageRemixQuote({ storyId: input.storyId, userId: ctx.user.id, quoteMessageId: input.chatImageRemixQuoteId });
         if (!quote) throw new TRPCError({ code: "CONFLICT", message: "原要求或原图不可用，请重新核对；没有提交生成。" });
@@ -1964,13 +1973,17 @@ export const storyAgentRouter = router({
         const output = batch.items.find(item => item.imageId === input.imageEditPlanOutput!.imageId && item.copy === input.imageEditPlanOutput!.copy);
         if (!output) throw new TRPCError({ code: "BAD_REQUEST", message: "这张图不在已确认的修改计划中" });
         if (output.result) return { status: "ok" as const, ...output.result, candidates: output.candidates ?? [output.result] };
-        if (output.status !== "ready") return { status: "error" as const, error: output.error ?? "原任务尚未完成，请恢复原任务；没有重复购买。" };
+        const retry = input.retryFailedImageRequestId ? output.retry : undefined;
+        if (input.retryFailedImageRequestId && (!retry || retry.failedId !== input.retryFailedImageRequestId ||
+            retry.nextId !== input.shotImageRequestId || batch.stableShotId !== input.conversationShotId))
+          return { status: "error" as const, error: "任务状态已变化，请查看这张图的最新进度。" };
+        if (!retry && output.status !== "ready") return { status: "error" as const, error: output.error ?? "原任务尚未完成，请恢复原任务；没有重复购买。" };
         if (!input.costConfirmation?.accepted || Math.abs(input.costConfirmation.estimatedCny - batch.unitEstimatedCny) > 0.001)
           return { status: "error" as const, error: `请先确认本批剩余图片的报价，每${batch.renderRoute === "storyboard" ? "组四张" : "张"} ${formatComputeQuote(batch.unitEstimatedCny)}` };
         // Resolve every reference and the immutable output identity on the server.
         // Caller-supplied URLs, shot, provider and autoSelect cannot change this plan.
         input = { storyId: input.storyId, imageEditPlanOutput: input.imageEditPlanOutput,
-          ...output.request, shotImageRequestId: output.requestId, shotNo: batch.shotNo,
+          ...output.request, shotImageRequestId: retry?.nextId ?? output.requestId, shotNo: batch.shotNo,
           conversationShotId: batch.stableShotId, draftImageId: output.imageId,
           remixEdit: true, imageProvider: batch.renderRoute === "storyboard" ? "midjourney" : "gpt-image", mode: "final", autoSelect: false,
           costConfirmation: { accepted: true, estimatedCny: batch.unitEstimatedCny } };
@@ -3041,7 +3054,11 @@ export const storyAgentRouter = router({
         if (!story) throw new TRPCError({ code: "NOT_FOUND", message: "故事不存在" });
         const identity = shotIdentityForStoryShot(story, input.shotNo);
         if (!identity) throw new TRPCError({ code: "BAD_REQUEST", message: "镜头已变化，请重新打开分镜表" });
-        return runStoryboardImageTask({ continueAfterUnknownRequestId: input.costConfirmation?.accepted ? input.costConfirmation.continueAfterUnknownRequestId : undefined, requireNewIntent: input.conversationRevision || Boolean(input.imageEditPlanOutput || input.chatImageRemixQuoteId), storyId: input.storyId, userId: ctx.user.id, shotIdentity: input.previewBatchId ? `preview:${input.previewBatchId}:${identity}` : identity, requestId: input.shotImageRequestId }, async render => {
+        if (input.imageEditPlanOutput && identity !== input.conversationShotId)
+          throw new TRPCError({ code: "CONFLICT", message: "镜头顺序已变化，请查看原图的最新报价。" });
+        return runStoryboardImageTask({ reviewedOutput: input.imageEditPlanOutput, continueAfterUnknownRequestId: input.costConfirmation?.accepted ? input.costConfirmation.continueAfterUnknownRequestId : undefined, requireNewIntent: input.conversationRevision || Boolean(input.imageEditPlanOutput || input.chatImageRemixQuoteId), storyId: input.storyId, userId: ctx.user.id, shotIdentity: input.previewBatchId ? `preview:${input.previewBatchId}:${identity}` : identity, requestId: input.shotImageRequestId }, async render => {
+          if (input.imageEditPlanOutput && input.imageProvider === "gpt-image" && await checkReviewedImageBalance() === "insufficient")
+            return { status: "error" as const, error: "图片服务商 302 可用余额不足以覆盖本次预估费用，尚未提交渲染。补足后可在这里重新渲染。" };
           const result = await execute(undefined, render);
           return result.status === "ok" ? { ...result, candidates: "candidates" in result ? result.candidates : [{ imageId: result.imageId, imageUrl: result.imageUrl }] } : result;
         });

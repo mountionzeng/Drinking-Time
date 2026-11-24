@@ -5492,6 +5492,8 @@
         "client/src/features/storyAgent/views/StoryAgentChat.tsx"
       ],
       "owners": [
+        "server/services/reviewedImageRetry.ts",
+        "client/src/features/storyAgent/views/RetryImageButton.tsx",
         "client/src/features/storyAgent/imageReferenceRoles.ts",
         "client/src/features/storyAgent/views/shotImageNames.ts",
         "client/src/features/storyAgent/chatMediaAttachments.ts",
@@ -5527,6 +5529,7 @@
         "server/services/localRegionErase.ts"
       ],
       "evidence": [
+        "server/services/providerImageBalance.test.ts",
         "client/src/features/storyAgent/imageDirections.test.ts",
         "client/src/features/storyAgent/chatMediaAttachments.test.ts",
         "client/src/features/storyAgent/chatImageRefs.test.ts",
@@ -5591,6 +5594,11 @@
         "2026-11-17确认并生成已在主3000显示，真实付费按钮尚未代用户点击；#2127拟删下方偏左飞机/尾迹的要求待用户核对与2.86算力新授权。刷新保留全部字段，但聊天滚动停留较早记录，本轮只手动定位回表单。"
       ],
       "history": [
+        {
+          "date": "2026-11-24",
+          "kind": "feature",
+          "summary": "仓库与原聊天可从确定失败的图片回执重新核对单次费用，沿用原图与要求。重复点击复用同一请求，结果待确认时只恢复原任务。"
+        },
         {
           "date": "2026-11-24",
           "kind": "feature",

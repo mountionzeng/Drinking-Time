@@ -22,8 +22,9 @@ export { SHOT_LOCK_LEASE_MS, UNKNOWN_TASK_STALE_MS, staleShotLockReason } from "
 const KEY = "storyboardImageTasks";
 type Result = { status: "ok"; imageId: number; imageUrl: string; candidates: ChatImageRevision["candidates"]; providerResultUrl?: string; providerTaskId?: string; submissionUncertain?: boolean } | { status: "error"; error: string; providerResultUrl?: string; providerTaskId?: string; submissionUncertain?: boolean; recoveryPending?: boolean; providerError?: ProviderErrorDetail; staleReleased?: boolean };
 type Meta = { maskedEdit?: {sourceImageUrl:string;maskImageUrl:string;featherPixels:number}; renderProfile?: RenderProfileSnapshot; paletteAnalysis?: unknown; localPalette?: unknown; paletteReferenceImageId?: number; paletteReading?: unknown; sourceDimensions?: ImageDimensions; editMode?: "retexture"; referenceOnly?: boolean; provider?: "gpt-image" | "302-mj-edit" | "flux-kontext-pro" | "flux-kontext-dev" | "local-palette"; parentImageId?: number; conversationRevision?: boolean; instruction?: string; prompt: string; shotNo: string; promptCompilationId?: number | null; generationType: "initial" | "inpaint"; detached?: boolean };
-export type Task = { analysisStartedAt?: number; continuedBy?: { requestId: string; userId: number; at: number }; createdAt?: number; decision?: { kind: "kept" | "replaced"; referenceOnly?: boolean; imageId?: number; at: number; userId: number }; leaseOwner?: string; leaseUntil?: number; meta?: Meta; id: string; requestId: string; shotIdentity: string; status: "preparing" | "unknown" | "accepted" | "failed" | "succeeded"; providerResultUrl?: string; providerTaskId?: string; result?: Result };
-type Scope = { continueAfterUnknownRequestId?: string; requireNewIntent?: boolean; storyId: number; userId: number; shotIdentity: string; requestId: string };
+type ReviewedOutput = { planMessageId: string; imageId: number; copy: number };
+export type Task = { reviewedOutput?: ReviewedOutput; analysisStartedAt?: number; continuedBy?: { requestId: string; userId: number; at: number }; createdAt?: number; decision?: { kind: "kept" | "replaced"; referenceOnly?: boolean; imageId?: number; at: number; userId: number }; leaseOwner?: string; leaseUntil?: number; meta?: Meta; id: string; requestId: string; shotIdentity: string; status: "preparing" | "unknown" | "accepted" | "failed" | "succeeded"; providerResultUrl?: string; providerTaskId?: string; result?: Result };
+type Scope = { reviewedOutput?: ReviewedOutput; continueAfterUnknownRequestId?: string; requireNewIntent?: boolean; storyId: number; userId: number; shotIdentity: string; requestId: string };
 async function change<T>(scope: Scope, mutate: (tasks: Task[]) => T): Promise<T> {
   for (let n = 0; n < 12; n++) {
     const story = await getStoryById(scope.storyId, scope.userId);
@@ -65,7 +66,7 @@ export async function runStoryboardImageTask(scope: Scope, execute: (render: Sto
         pending.continuedBy = { requestId:scope.requestId,userId:scope.userId,at:Date.now() };
       } else return pending;
     }
-    const next: Task = { id, createdAt: now, requestId: scope.requestId, shotIdentity: scope.shotIdentity, status: "preparing", leaseOwner: id, leaseUntil: now + SHOT_LOCK_LEASE_MS };
+    const next: Task = { reviewedOutput: scope.reviewedOutput, id, createdAt: now, requestId: scope.requestId, shotIdentity: scope.shotIdentity, status: "preparing", leaseOwner: id, leaseUntil: now + SHOT_LOCK_LEASE_MS };
     tasks.push(next); return next;
   });
   if (scope.requireNewIntent && task.requestId !== scope.requestId)

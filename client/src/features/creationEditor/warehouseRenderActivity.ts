@@ -1,4 +1,5 @@
 import type { Mutation, QueryClient } from "@tanstack/react-query";
+import type { ImageRetryOffer, warehouseImageAttempts } from "../../../../server/services/reviewedImageRetry";
 
 export type WarehouseRenderJob = {
   id: string;
@@ -15,7 +16,25 @@ export type WarehouseRenderJob = {
   sequence?: boolean;
   assetId?: number;
   url?: string;
+  retry?: ImageRetryOffer;
+  error?: string;
 };
+
+/** Replace the entire local attempt chain with its latest persisted receipt. */
+export function mergeImageAttempts(jobs: readonly WarehouseRenderJob[], attempts: Awaited<ReturnType<typeof warehouseImageAttempts>>) {
+  // Pending or rejected client submissions have no authoritative child receipt yet.
+  // Keep the same failure card mounted so it can report submission progress or errors.
+  const replaced = new Set(attempts.flatMap(attempt =>
+    (attempt.offer ? [...attempt.requestIds, attempt.offer.nextId] : attempt.requestIds).map(id => attempt.storyId + ":" + id)));
+  const merged = jobs.filter(job => !(job.kind === "image" && job.requestId && replaced.has(job.storyId + ":" + job.requestId)));
+  for (const attempt of attempts) {
+    if (attempt.status === "succeeded") continue;
+    const state = attempt.status === "failed" ? "failed" : attempt.status === "unknown" ? "unknown" : "rendering";
+    merged.push({ id: attempt.requestId, requestId: attempt.requestId, startedAt: attempt.startedAt, storyId: attempt.storyId,
+      shotId: attempt.shotId, kind: "image", state, error: attempt.error, retry: attempt.offer });
+  }
+  return merged.sort((a, b) => b.startedAt - a.startedAt);
+}
 
 // Only production mutations. Quotes, chat, imports, adoption and polling are not renders.
 const producers: Record<string, WarehouseRenderJob["kind"]> = {

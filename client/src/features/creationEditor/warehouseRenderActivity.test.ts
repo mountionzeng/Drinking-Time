@@ -1,10 +1,25 @@
 import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
-import { renderJobResult, restoreRenderJobs, watchWarehouseRenders, type WarehouseRenderJob } from "./warehouseRenderActivity";
+import { mergeImageAttempts, renderJobResult, restoreRenderJobs, watchWarehouseRenders, type WarehouseRenderJob } from "./warehouseRenderActivity";
 
 const job: WarehouseRenderJob = { id: "r1", storyId: 7, shotId: "shot-a", kind: "image", state: "rendering", startedAt: 1000 };
 
 describe("warehouse render receipts", () => {
+  it("restores a confirmed failure after refresh and replaces the old card throughout a retry", () => {
+    const offer = {storyId:7,stableShotId:"shot-a",planMessageId:"plan",imageId:12,copy:1,failedId:"old",nextId:"new",unitCny:1.43};
+    const failed = {storyId:7,shotId:"shot-a",requestId:"old",requestIds:["old"],status:"failed" as const,
+      startedAt:1000,error:"余额不足",offer};
+    const local = {...job,state:"failed" as const,requestId:"old"};
+    expect(mergeImageAttempts([], [failed])).toMatchObject([{state:"failed",retry:offer,error:"余额不足"}]);
+    expect(mergeImageAttempts([local], [failed])).toHaveLength(1);
+    const rendering = {...job,id:"submitting",requestId:"new"};
+    expect(mergeImageAttempts([local,rendering], [failed])).toMatchObject([{requestId:"old",retry:offer}]);
+    const accepted = {...failed,requestId:"new",requestIds:["old","new"],status:"accepted" as const,offer:undefined,error:undefined};
+    expect(mergeImageAttempts([local,rendering], [accepted])).toMatchObject([{state:"rendering",requestId:"new"}]);
+    const other = {...local,storyId:8};
+    expect(mergeImageAttempts([local,rendering,other], [{...accepted,status:"succeeded"}])).toEqual([other]);
+  });
+
   it.each([
     ["storyAgent.generateForMobile", "image"],
     ["creationAgent.frameReview.generateCloud", "image"],

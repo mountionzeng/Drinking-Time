@@ -1,3 +1,4 @@
+import { RetryImageButton } from "@/features/storyAgent/views/RetryImageButton";
 import { Check, CircleAlert, Image, Loader2, Music2, Video } from "lucide-react";
 import { useUiText } from "@/features/uiLanguage/UiLanguage";
 import type { WarehouseRenderJob } from "../warehouseRenderActivity";
@@ -26,6 +27,7 @@ export function WarehouseRenderCards({ jobs, shots, inline = false, onReference 
           {job.state === "ready" && job.url ? job.kind === "image" ? (id && onReference ? <button type="button" aria-label={ui("编辑图片 / Edit image {0}", [id])} className="h-full w-full" onClick={() => onReference(id, job.shotId)}>{photo}</button> : photo)
             : job.kind === "video" ? <video src={job.url} aria-label={name} controls preload="metadata" className="h-full w-full" />
               : <audio src={job.url} aria-label={name} controls preload="none" className="h-8 w-full" />
+            : job.state === "failed" && job.error ? <p className="line-clamp-5 px-2 text-[11px] leading-tight text-muted-foreground" title={job.error}>{job.error}</p>
             : <><Icon className="size-6 opacity-60" aria-hidden="true" />
               {job.state === "rendering" ? <Loader2 className="absolute right-2 top-2 size-3.5 animate-spin motion-reduce:animate-none" aria-hidden="true" />
                 : job.state === "ready" ? <Check className="absolute right-2 top-2 size-3.5" aria-hidden="true" />
@@ -33,6 +35,9 @@ export function WarehouseRenderCards({ jobs, shots, inline = false, onReference 
         </div>
         <p className="truncate px-1.5 text-[10px] leading-4" title={name}>{name}</p>
         <p role="status" className="px-1.5 pb-1 text-[10px] leading-4 text-muted-foreground">{status}</p>
+        {job.state === "failed" && job.retry && <div className="px-1.5 pb-1.5">
+          <RetryImageButton offer={job.retry} />
+        </div>}
       </article>;
     })}
   </div>;

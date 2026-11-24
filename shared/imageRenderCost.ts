@@ -87,16 +87,21 @@ export function estimatePublishingCoverFallbackCost(): PublishingCoverFallbackCo
  * PTC→CNY conversion used by storyboard image estimates. Actual billing is
  * token based, so the confirmation UI presents this as an estimate.
  */
-export function estimateStoryboardMaskedEditCost(): StoryboardMaskedEditCostEstimate {
+export function estimatedMaskedEditPtc(): number {
   const inputImageTokens = 10_917;
   const outputImageTokens = 4_160;
   const inputPtcPerMillionTokens = 8;
   const outputPtcPerMillionTokens = 30;
-  const ptcToCny = REFERENCE_CNY / REFERENCE_PTC;
-  const estimatedPtc =
+  return (
     (inputImageTokens * inputPtcPerMillionTokens +
       outputImageTokens * outputPtcPerMillionTokens) /
-    1_000_000;
+    1_000_000
+  );
+}
+
+export function estimateStoryboardMaskedEditCost(): StoryboardMaskedEditCostEstimate {
+  const estimatedPtc = estimatedMaskedEditPtc();
+  const ptcToCny = REFERENCE_CNY / REFERENCE_PTC;
   return {
     currency: "CNY",
     estimatedCny: Math.ceil(estimatedPtc * ptcToCny * 100) / 100,

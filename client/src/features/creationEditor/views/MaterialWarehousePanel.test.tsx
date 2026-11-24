@@ -1,7 +1,7 @@
 vi.mock('@/lib/trpc', () => ({ trpc: {
   useUtils: () => ({}),
   creationAgent: { chatFrameReferences: { useMutation: () => ({ mutateAsync: vi.fn() }) } },
-  storyAgent: { chatImageRevisions: { useQuery: () => ({ data: [] }) } },
+  storyAgent: { chatImageRevisions: { useQuery: () => ({ data: [] }) }, warehouseImageAttempts: { useQuery: () => ({ data: [] }) } },
   timelineMedia: { audioAssetLibrary: { useQuery: () => ({ data: [] }) } },
 } }));
 import React from 'react';

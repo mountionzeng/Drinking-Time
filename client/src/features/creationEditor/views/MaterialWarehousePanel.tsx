@@ -7,7 +7,7 @@ import { WAREHOUSE_CONVERSATION_FOCUS, type WarehouseConversationFocus, resolveW
 import { SHOT_CHAT_FOCUS_EVENT } from "@/features/storyAgent/shotChatFocus";
 import { PAUSED_FRAME_SHORTCUT_EVENT } from "../frameNavigation";
 import { WarehouseRenderCards } from "./WarehouseRenderCards";
-import type { WarehouseRenderJob } from "../warehouseRenderActivity";
+import { mergeImageAttempts, type WarehouseRenderJob } from "../warehouseRenderActivity";
 import { WarehouseShotGroups, WarehouseShotMenu, useWarehouseShotGroups, warehouseMediaName } from "./WarehouseShotGroups";
 import { OPEN_SHOT_WAREHOUSE, UNASSIGNED_MEDIA, type WarehouseMedia, type WarehouseShotGroup } from "../warehouseShotMedia";
 import { useStorySpine, storySpineStore } from "@/features/storyAgent/spine/storySpine";
@@ -592,6 +592,14 @@ export default function MaterialWarehousePanel({
   const libraryUtils = trpc.useUtils();
   const [conversationFocus, setConversationFocus] = useState<WarehouseConversationFocus | null>(null);
   const [warehouseOpenRevision, setWarehouseOpenRevision] = useState(0);
+  const attempts = trpc.storyAgent.warehouseImageAttempts.useQuery({ storyId: activeStoryId ?? 0 }, {
+    enabled: Boolean(activeStoryId) && variant === "drawer",
+    refetchInterval: query => query.state.data?.some(row => row.status === "accepted" || row.status === "preparing") ? 4000 : false,
+  });
+  const lastImageChange = renderJobs.filter(job => job.kind === "image" && job.storyId === activeStoryId).map(job => job.id + job.state).join(",");
+  useEffect(() => {
+    if (activeStoryId && variant === "drawer") void libraryUtils.storyAgent.warehouseImageAttempts.invalidate({ storyId: activeStoryId });
+  }, [activeStoryId, variant, warehouseOpenRevision, lastImageChange, libraryUtils]);
   useEffect(() => {
     if (!videoActions || variant !== "drawer") return;
     const follow = (event: Event) => {
@@ -1305,7 +1313,7 @@ export default function MaterialWarehousePanel({
   };
 
   if (variant === "drawer") {
-    const visibleJobs = renderJobs.filter(job => job.storyId === activeStoryId &&
+    const visibleJobs = mergeImageAttempts(renderJobs, attempts.data ?? []).filter(job => job.storyId === activeStoryId &&
       (drawerTab === "shots" ? (job.shotId ?? UNASSIGNED_MEDIA) === (groupId ?? currentStableShotId)
         : job.kind === (drawerTab === "music" ? "audio" : drawerTab === "videos" ? "video" : "image")) &&
       // Archived results use their ordinary, chronologically sorted tiles.

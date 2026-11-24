@@ -1,4 +1,5 @@
-import { createHash } from 'node:crypto';
+import { canRetryImage, imageAttemptHistory, imageEditBatchRequestId, imageFailureReason, retryRequestId, type ImageRetryOffer } from './reviewedImageRetry';
+export { imageEditBatchRequestId } from './reviewedImageRetry';
 import { TRPCError } from '@trpc/server';
 import { imageEditPlanQuote, chatImageEditPlanSchema, imageEditPlanOutput, adjustedImageEditPlanId, localEraseReceiptId, keyframeBoardImageIds } from '../../shared/chatImageEditPlan';
 import { buildChatImageRemixRequest } from '../../shared/chatImageRefs';
@@ -16,6 +17,7 @@ export type ImageEditBatchItem = {
   candidates?: Array<{ imageId: number; imageUrl: string }>;
   error?: string;
   recoverable?: boolean;
+  retry?: ImageRetryOffer;
   request: Exclude<ReturnType<typeof buildChatImageRemixRequest>, { error: string }>;
 };
 export type ImageEditBatch = {
@@ -23,12 +25,6 @@ export type ImageEditBatch = {
   renderRoute?: 'precision' | 'storyboard';
   unitEstimatedCny: number; remainingEstimatedCny: number; items: ImageEditBatchItem[];
 };
-
-/** One identity per committed plan/output. Refreshes and concurrent tabs cannot repurchase it. */
-export function imageEditBatchRequestId(storyId: number, planMessageId: string, imageId: number, copy: number) {
-  const hex = createHash('sha256').update(JSON.stringify(['chat-image-edit', storyId, planMessageId, imageId, copy])).digest('hex');
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
-}
 
 /** Reads intent and receipts only. A quote or refresh never starts generation. */
 export async function readChatImageEditBatch(input: { storyId: number; userId: number; planMessageId: string }): Promise<ImageEditBatch> {
@@ -41,6 +37,7 @@ export async function readChatImageEditBatch(input: { storyId: number; userId: n
   if (!parsed.success || parsed.data.status !== 'submitted') throw new TRPCError({ code: 'BAD_REQUEST', message: '修改要求尚未保存，请先确认要求。' });
   if (messages.some(message => message.id === adjustedImageEditPlanId(input.planMessageId))) throw new TRPCError({ code: 'CONFLICT', message: '修改要求已调整，请使用最新确认。' });
   const originalId = input.planMessageId.replace(/^image-edit-confirmed:/, '');
+  if (messages.some(row => row.id === 'image-edit-withdrawn:' + originalId)) throw new TRPCError({ code: 'CONFLICT', message: '修改要求已撤回。' });
   if (messages.some(row => row.id === localEraseReceiptId(originalId))) throw new TRPCError({ code: "CONFLICT", message: "本次选区已完成本地擦除，请从最新一组继续。" });
   if (originalId !== input.planMessageId && messages.some(row => row.id === adjustedImageEditPlanId(originalId)))
     throw new TRPCError({ code: 'CONFLICT', message: '这份报价已被新的修改范围取代，请查看最新报价。' });
@@ -64,6 +61,8 @@ export async function readChatImageEditBatch(input: { storyId: number; userId: n
     return { ...ref, imageUrl: image.imageUrl };
   }) };
   const tasks = (Array.isArray(body.storyboardImageTasks) ? body.storyboardImageTasks : []) as Task[];
+  const byId = new Map(tasks.map(task=>[task.requestId,task]));
+  const { unitCny:unitEstimatedCny } = imageEditPlanQuote(plan);
   const items: ImageEditBatchItem[] = [];
   const economy = plan.renderRoute === 'storyboard';
   for (const target of plan.images.filter(image => image.role === 'target')) for (let copy = 1; copy <= (economy ? 1 : target.copies); copy++) {
@@ -71,8 +70,9 @@ export async function readChatImageEditBatch(input: { storyId: number; userId: n
     if (output.instruction.length > 2000) throw new TRPCError({ code: 'BAD_REQUEST', message: '合并后的单图要求超过2000字，请精简要求后确认。' });
     const request = buildChatImageRemixRequest(output);
     if ('error' in request) throw new TRPCError({ code: 'BAD_REQUEST', message: request.error });
-    const requestId = imageEditBatchRequestId(input.storyId, input.planMessageId, target.imageId, copy);
-    const task = tasks.find(task => task.requestId === requestId);
+    const root = imageEditBatchRequestId(input.storyId, input.planMessageId, target.imageId, copy);
+    const task = imageAttemptHistory(byId,root).at(-1);
+    const requestId = task?.requestId ?? root;
     const item: ImageEditBatchItem = { imageId: target.imageId, imageUrl: target.imageUrl, copy, requestId, request, status: 'ready' };
     if (task) {
       if (task.shotIdentity !== selection.stableShotId) throw new TRPCError({ code: 'CONFLICT', message: '图片任务的镜头归属不一致，已停止。' });
@@ -89,7 +89,9 @@ export async function readChatImageEditBatch(input: { storyId: number; userId: n
       } else {
         item.status = task.status === 'failed' ? 'failed' : task.status === 'unknown' ? 'unknown' : 'pending';
         item.recoverable = Boolean(task.providerTaskId || task.providerResultUrl);
-        item.error = task.result?.status === 'error' ? task.result.error : undefined;
+        item.error = task.result?.status === 'error' ? imageFailureReason(task.result.error) : undefined;
+        if (canRetryImage(task)) item.retry = {storyId: input.storyId, stableShotId: selection.stableShotId,
+          planMessageId: input.planMessageId, imageId: target.imageId, copy, failedId: requestId, nextId: retryRequestId(requestId), unitCny: unitEstimatedCny};
       }
     } else if (!economy && !plan.keyframeBoardId) {
       // Bridge the existing single-output quotes. Exact instruction + ordered IDs +
@@ -119,7 +121,6 @@ export async function readChatImageEditBatch(input: { storyId: number; userId: n
     }
     items.push(item);
   }
-  const unitEstimatedCny = imageEditPlanQuote(plan).unitCny;
   return { renderRoute: plan.renderRoute ?? 'precision', storyId: input.storyId, planMessageId: input.planMessageId, stableShotId: selection.stableShotId,
     shotNo: Number(shots[index].shotNo) || index + 1, unitEstimatedCny,
     remainingEstimatedCny: items.filter(item => item.status === 'ready').length * unitEstimatedCny, items };

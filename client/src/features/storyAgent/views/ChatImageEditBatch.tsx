@@ -6,6 +6,7 @@ import { formatComputeQuote } from '@shared/computeMoney';
 import { trpc } from '@/lib/trpc';
 import { runChatImageEditBatch } from '../runChatImageEditBatch';
 import { ChatImageReferenceChip } from './ChatImageReferenceChip';
+import { RetryImageButton } from './RetryImageButton';
 import { imageEditPurchaseError, type ImageEditPurchase } from '../imageEditPurchase';
 
 type Props = { storyId: number; planMessageId: string; disabled?: boolean;
@@ -41,6 +42,7 @@ export function ChatImageEditBatchView({ batch, busy, disabled, error, onConfirm
       {item.candidates?.filter(candidate => candidate.imageId !== item.result?.imageId).map(candidate =>
         <div key={candidate.imageId}><ChatImageReferenceChip {...candidate} onReference={() => reference(candidate)} />
           <button type="button" className="underline" onClick={() => onSelect({ storyId: batch.storyId, stableShotId: batch.stableShotId, shotNo: batch.shotNo, ...candidate })}>继续修改 #{candidate.imageId}</button></div>)}
+      {item.retry && <RetryImageButton offer={item.retry} disabled={busy || disabled} />}
       {item.error && <p className="max-w-60 text-muted-foreground">{item.error}</p>}
     </div>)}</div>
     {ready.length > 0 && <p>剩余 {ready.length} {unit}，预计合计 {formatComputeQuote(batch.remainingEstimatedCny)}。{done.length > 0 ? '已完成图片直接复用。' : '一次确认，分别修改。'}</p>}
