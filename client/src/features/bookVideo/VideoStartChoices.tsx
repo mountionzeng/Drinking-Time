@@ -21,6 +21,7 @@ type Props = {
 export function VideoStartChoices({ storyId, material, cues, candidates, shotLabels, musicCount, pending, error, generateSubtitles, adoptImage, openMusic, openBook }: Props) {
   const [choice, setChoice] = useState<"images" | "subtitles" | null>(null);
   const [adjustment, setAdjustment] = useState("");
+  const [approvedCoverId, setApprovedCoverId] = useState<number | null>(null);
   const basis = trpc.artSystems.previewArtBasis.useQuery({ storyId }, { enabled: choice === "images" });
   const cover = basis.data?.coverImageId && material.warehouseImages?.find(image => image.id === basis.data?.coverImageId);
   const [target, setTarget] = useState("");
@@ -49,7 +50,9 @@ export function VideoStartChoices({ storyId, material, cues, candidates, shotLab
     setMessage("");
     try {
       const numbers = samples.map(s => s.shotNo).join("、");
-      const result = await preview(storyId, `为第 ${numbers} 镜各生成四张基调示意图`, samples.map(s => s.stableShotId), adjustment.trim() || undefined);
+      const copyId = basis.data?.needsCoverCopy && cover && approvedCoverId === cover.id ? cover.id : undefined;
+      setApprovedCoverId(null);
+      const result = await preview(storyId, `为第 ${numbers} 镜各生成四张基调示意图`, samples.map(s => s.stableShotId), adjustment.trim() || undefined, copyId);
       setMessage(result?.reply ?? "未能开始试图，请重新选择镜头。");
     } catch (cause) {
       setMessage(cause instanceof Error ? cause.message : "图片制作未完成。");
@@ -92,7 +95,13 @@ export function VideoStartChoices({ storyId, material, cues, candidates, shotLab
         })}</fieldset>
         <label className="block">这一轮想调整什么？<input value={adjustment} maxLength={600} disabled={working} onChange={e => setAdjustment(e.target.value)}
           className="mt-1 w-full rounded border border-border bg-background px-2 py-1" placeholder="可留空，沿用当前要求" /></label>
-        <button className={button} disabled={working || !samples.length || !basis.data} onClick={() => void sample()}>{working ? "正在处理…" : samples.length ? `查看 ${samples.length} 镜 · ${samples.length * 4} 张试图报价` : "先选试图镜头"}</button>
+        {basis.data?.needsCoverCopy && cover && <label className="flex items-start gap-2">
+          <input type="checkbox" className="mt-1" disabled={working} checked={approvedCoverId === cover.id}
+            onChange={e => setApprovedCoverId(e.target.checked ? cover.id : null)} />
+          <span>允许本轮发送封面 #{cover.id} 的缩图到 302，供 MJ 取图。查看报价时发送，原图留在本机。</span>
+        </label>}
+        <button className={button} disabled={working || !samples.length || !basis.data ||
+          (basis.data.needsCoverCopy && (!cover || approvedCoverId !== cover.id))} onClick={() => void sample()}>{working ? "正在处理…" : samples.length ? `查看 ${samples.length} 镜 · ${samples.length * 4} 张试图报价` : "先选试图镜头"}</button>
         <div>查看本镜素材</div>
         <select aria-label="查看素材的镜头" value={shot.stableShotId} disabled={working} onChange={e => { setTarget(e.target.value); setMessage(""); }}>
           {material.shots.map(s => <option key={s.stableShotId} value={s.stableShotId}>第 {s.shotNo} 镜{s.cueCode ? ` · ${s.cueCode}` : ""}</option>)}

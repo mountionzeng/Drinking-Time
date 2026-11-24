@@ -2,6 +2,7 @@ import { recoverChatImageRemix, readChatImageRemixQuote } from "../services/chat
 import { hasInlineChatImages, inlineChatInstruction } from "../../shared/inlineChatImages";
 import { inlineChatImageContent } from "../services/inlineChatImageContent";
 import { isWechatImportImage, wechatProviderReference } from "../services/wechatVideoImage";
+import { openPreviewCoverCopy } from "../services/previewCoverCopy";
 import { resolveFilmStyleReference } from "../services/filmStyleReference";
 import { studioUiContextSchema, studioContextDescription } from "../../shared/studioAssistant";
 import { generate302FluxEdit, generate302FluxDevEdit } from "../services/fluxKontextEdit";
@@ -1989,6 +1990,7 @@ export const storyAgentRouter = router({
           costConfirmation: { accepted: true, estimatedCny: batch.unitEstimatedCny } };
       }
       let usesPreviewArtBasis = false;
+      let coverCopy: { source: string; url: string } | undefined;
       if (input.previewBatchId) {
         const { batch, shot, prompt, renderReferences, requiresNewStyleQuote, priorFrameChanged } = await artPreviewGenerationInput(input.storyId, ctx.user.id, input.previewBatchId, input.shotNo ?? 0);
         if (priorFrameChanged) return { status: "error" as const, error: "本镜采用的画面已更换，请重新查看试图报价。" };
@@ -1998,6 +2000,8 @@ export const storyAgentRouter = router({
         if (!input.costConfirmation?.accepted || Math.abs(input.costConfirmation.estimatedCny - estimate.estimatedCny) > 0.001) {
           return { status: "error" as const, error: `请先确认本批示意图算力；每镜 ${formatComputeQuote(estimate.estimatedCny)}` };
         }
+        if (batch.coverCopy) coverCopy = await openPreviewCoverCopy(batch.coverCopy.receipt, {
+          storyId: input.storyId, userId: ctx.user.id, imageId: batch.coverCopy.imageId, roundId: batch.id });
         input = { storyId: input.storyId, previewBatchId: batch.id, shotNo: shot.shotNo,
           shotImageRequestId: shot.requestId, prompt, explicitInstruction: prompt,
           renderReferences,
@@ -2448,7 +2452,7 @@ export const storyAgentRouter = router({
         const filmStyleReference = shotIdentity && (input.imageProvider ?? "midjourney") === "midjourney" &&
           input.mode !== "draft" && !input.referenceRevision && !input.exactFrameEdit && !input.remixEdit && !input.editMaskImageUrl && !input.draftImageId
           ? await resolveFilmStyleReference({ body: storyBody, storyId: input.storyId, userId: ctx.user.id,
-              references: input.renderReferences, hasExplicitStyle: Boolean(lockedAssets?.dimensions.style) })
+              references: input.renderReferences, hasExplicitStyle: Boolean(lockedAssets?.dimensions.style), coverCopy })
           : undefined;
 
         // 出图统一经美术网关。资产镜头不再读取旧故事参考池或旧人物锚点。
@@ -2499,6 +2503,7 @@ export const storyAgentRouter = router({
             referenceImageInput = await materializeImageInput(referenceImage, ctx.user.id);
             const cache = new Map<string, Promise<string>>();
             const providerReference = (url: string) => {
+              if (coverCopy?.source === url) return Promise.resolve(coverCopy.url);
               if (!cache.has(url)) cache.set(url, wechatProviderReference(url, ctx.user.id));
               return cache.get(url)!;
             };

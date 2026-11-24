@@ -8,6 +8,7 @@ import { wechatProviderReference } from "./wechatVideoImage";
 export async function resolveFilmStyleReference(input: {
   body: Record<string, unknown>; storyId: number; userId: number;
   references?: ShotRenderReferences; hasExplicitStyle: boolean;
+  coverCopy?: { source: string; url: string };
 }) {
   if (input.hasExplicitStyle) return undefined;
   const recipe = activeArtSystemRecipe(input.body);
@@ -19,6 +20,7 @@ export async function resolveFilmStyleReference(input: {
   const image = await getGeneratedImageById(imageId);
   if (!image || image.storyId !== input.storyId || image.userId !== input.userId || !image.imageUrl)
     throw new Error("全片画风参考图片已失效，请在对话中更换或停用；本次未提交生成");
+  if (input.coverCopy?.source === image.imageUrl) return input.coverCopy.url;
   // Unlike optional legacy references, an unavailable explicitly chosen style must not be silently lost.
   try {
     await materializeImageInput(image.imageUrl, input.userId);

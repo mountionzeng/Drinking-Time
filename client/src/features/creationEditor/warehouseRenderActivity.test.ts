@@ -122,6 +122,7 @@ describe("warehouse render receipts", () => {
     expect(renderJobResult(job, { status: "error", submissionUncertain: true }).state).toBe("unknown");
     expect(renderJobResult({ ...job, kind: "audio" }, { status: "error", error: "配音结果待确认，算力暂时预占" }).state).toBe("unknown");
     expect(renderJobResult(job, { status: "error" }).state).toBe("failed");
+    expect(renderJobResult(job, { status: "error", error: "参考图无法读取" })).toMatchObject({shotId: "shot-a", state: "failed", error: "参考图无法读取"});
   });
 
   it("does not call an accepted video or async audio result complete", () => {

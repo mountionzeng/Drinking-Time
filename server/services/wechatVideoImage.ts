@@ -50,6 +50,15 @@ export async function indexWechatStoryboardImages(input: {
 }
 export const isWechatImportImage = (url: string) => wechatPath.test(url);
 
+export function privateReferenceOrigin() {
+  try {
+    const url = new URL(ENV.appOrigin);
+    if (url.protocol === "https:" && !url.username && !url.password && url.pathname === "/" && !url.search && !url.hash &&
+      !/^(?:localhost|.*\.localhost|127\..*|\[::1\])$/i.test(url.hostname)) return url.origin;
+  } catch { /* Local workstations may have no public origin. */ }
+  return null;
+}
+
 /** A private original is shared with the image provider only by a short-lived signed URL. */
 export async function wechatProviderReference(
   url: string,
@@ -59,20 +68,7 @@ export async function wechatProviderReference(
   if (!match) return url;
   if (!(await readOwnedWechatImage(url, userId)))
     throw new Error("无权读取微信导入的图片或图片已失效");
-  let origin: URL;
-  try {
-    origin = new URL(ENV.appOrigin);
-  } catch {
-    throw new Error("图片服务地址未配置");
-  }
-  if (
-    origin.protocol !== "https:" ||
-    origin.username ||
-    origin.password ||
-    origin.pathname !== "/" ||
-    origin.search ||
-    origin.hash
-  )
-    throw new Error("图片服务地址无效");
-  return `${origin.origin}${chapterMediaUrl(`chapters/${userId}/${match[1]}`)}`;
+  const origin = privateReferenceOrigin();
+  if (!origin) throw new Error("本机私有图片缺少供应商可读取的 HTTPS 地址");
+  return `${origin}${chapterMediaUrl(`chapters/${userId}/${match[1]}`)}`;
 }

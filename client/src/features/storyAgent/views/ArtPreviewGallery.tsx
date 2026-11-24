@@ -52,6 +52,7 @@ export function ArtPreviewGallery({ storyId, includePlans = false, onReference, 
       <h4 className="text-xs font-semibold">{ui("第 {0} 镜", [label])}</h4>
       {shot.previousChoice && <p className="text-xs">沿用 V{shot.previousChoice.version} 已采用的图片 #{shot.previousChoice.imageId} 的调整要求{shot.previousChoice.adjustments.length ? `：${shot.previousChoice.adjustments.join("；")}` : "。"}</p>}
       <p className="text-xs text-muted-foreground">{shot.adaptation}</p>
+      {shot.status === "failed" && shot.error && <p className="text-xs" role="status">{shot.error}</p>}
       {shot.candidates.length ? <div className="grid grid-cols-2 gap-2">{shot.candidates.map((image, index) => {
         const thumbnail = <img src={image.imageUrl} alt={ui("第 {0} 镜 · 第 {1} 张", [label, index + 1])} loading="lazy" className="aspect-video w-full rounded-lg object-contain bg-muted" />;
         return <figure key={image.imageId}>

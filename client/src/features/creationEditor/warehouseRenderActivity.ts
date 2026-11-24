@@ -97,7 +97,7 @@ export function renderJobResult(job: WarehouseRenderJob, value: unknown): Wareho
     return { ...next, state: next.imageTaskId || next.requestId || next.compositionId ? "rendering" : "unknown" };
   }
   if (result.submissionUncertain === true || (typeof result.error === "string" && result.error.startsWith("配音结果待确认"))) return { ...next, state: "unknown" };
-  if (["error", "failed", "timeout"].includes(String(state))) return { ...next, state: "failed" };
+  if (["error", "failed", "timeout"].includes(String(state))) return { ...next, state: "failed", error: string(result.error) ?? job.error };
   if (["submission-unknown", "submission_unknown", "unknown", "missing", "unfollowable"].includes(String(state))) return { ...next, state: "unknown" };
   if (["submitted", "submitting", "processing", "pending", "accepted", "preparing"].includes(String(state))) return { ...next, state: "rendering" };
   if (next.takeId && result.videoUrl) return { ...next, state: "ready" };

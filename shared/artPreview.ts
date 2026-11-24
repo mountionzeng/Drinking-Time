@@ -21,6 +21,7 @@ export const artPreviewBatchSchema = z.object({
   sampleShotIds: sampleShotIdsSchema.optional(),
   filmStyle: z.object({ version: z.number().int().positive(), imageId: z.number().int().positive() }).nullable().optional(),
   artBasis: previewArtBasisSchema.optional(), artBasisHash: z.string().optional(), adjustment: z.string().max(600).optional(),
+  coverCopy: z.object({ imageId: z.number().int().positive(), receipt: z.string() }).optional(),
   musicContext: z.string(), estimatedCny: z.number(), shots: z.array(artPreviewShotSchema).min(1).max(12),
 });
 export type ArtPreviewBatch = z.infer<typeof artPreviewBatchSchema>;
