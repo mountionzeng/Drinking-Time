@@ -216,8 +216,10 @@ export function buildWarehouseShotGroups(input: {
           );
         usedImages.add(image.imageId);
       }
+    const timelineItem = state?.timeline?.items.find(item => item.stableShotId === id);
+    const timelineTakeIds = new Set([timelineItem?.primaryVideoEdit?.takeId, ...(timelineItem?.visualClips ?? []).map(clip => clip.takeId)]);
     for (const take of allTakes.values())
-      if (take.stableShotId === id) {
+      if (take.stableShotId === id || timelineTakeIds.has(take.id)) {
         items.set(`video:${take.id}`, asVideo(take));
         usedTakes.add(take.id);
       }

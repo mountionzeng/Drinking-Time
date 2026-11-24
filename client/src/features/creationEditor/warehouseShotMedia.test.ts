@@ -54,6 +54,11 @@ const state = {
   reusableVideoTakes: [],
 } as unknown as StoryMaterialState;
 describe("shot archive projection", () => {
+  it("includes explicitly reused timeline video in each referencing shot while leaving other shots alone", () => {
+    const material = { ...state, timeline: { items: [{ stableShotId: "b", primaryVideoEdit: { takeId: 10 } }] } } as StoryMaterialState;
+    const groups = buildWarehouseShotGroups({ storyId: 7, shots, materialState: material });
+    expect(groups.filter(group => group.items.some(item => item.key === "video:10")).map(group => group.id)).toEqual(["a", "b"]);
+  });
   it("keeps undated media after dated generations without changing stored assets", () => {
     const material = { ...state, warehouseImages: [
       image(3, "a", { createdAt: null }), image(2, "a"), image(1, "a"),

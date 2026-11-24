@@ -1,9 +1,26 @@
 import path from "node:path";
 import mysql from "mysql2/promise";
+import { drizzle } from "drizzle-orm/mysql2";
+import { imageGenerationTasks } from "../../drizzle/schema";
+import { createMysqlImageTaskStore } from "../repositories/imageGenerationTasks";
 import { describe, expect, it } from "vitest";
 import { withMysqlTestDatabase, spawnMysqlTestWorker } from "./mysqlTestHarness";
 const suite = process.env.TEST_MYSQL_DATABASE_URL ? describe : describe.skip;
 suite("module image receipt/candidate transaction", () => {
+  it("returns only completed book candidates belonging to this user and story", async () => {
+    await withMysqlTestDatabase(async ({ databaseUrl }) => {
+      const db = drizzle(databaseUrl);
+      try {
+        const base = { userId: 1, storyId: 10, chapterId: 3, moduleId: "page", scope: "book_module", provider: "synthetic",
+          status: "succeeded", candidates: [{ imageId: 20, imageUrl: "/synthetic/20" }], createdAt: new Date(), updatedAt: new Date() };
+        await db.insert(imageGenerationTasks).values([{}, { userId: 2 }, { storyId: 11 }, { status: "failed" }, { scope: "mobile" }]
+          .map((fields, index) => ({ ...base, ...fields, id: String(index), requestId: String(index) })));
+        expect(await createMysqlImageTaskStore(db).listBookResults(1, 10)).toEqual([
+          { chapterId: 3, moduleId: "page", candidates: base.candidates },
+        ]);
+      } finally { await db.$client.promise().end(); }
+    });
+  });
   it("rolls back partial results and serializes two recovery processes", async () => {
     await withMysqlTestDatabase(async ({ databaseUrl }) => {
       const connection = await mysql.createConnection(databaseUrl);

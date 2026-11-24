@@ -33,6 +33,7 @@ export interface ImageTaskStore {
    * Returns null when the task is failed/unknown (never attach images there).
    */
   succeedWithImages(id: string, images: ImageTaskImage[], now: Date): Promise<{ row: ImageGenerationTaskRow; inserted: boolean } | null>;
+  listBookResults(userId: number, storyId: number): Promise<Pick<ImageGenerationTaskRow, "chapterId" | "moduleId" | "candidates">[]>;
   /** Newest-last tasks for one book module. */
   listForModule(userId: number, storyId: number, chapterId: number, moduleId: string): Promise<ImageGenerationTaskRow[]>;
 }
@@ -58,6 +59,10 @@ export function createMemoryImageTaskStore(rows: ImageGenerationTaskRow[] = [], 
       });
       locks.set(id, run.catch(() => undefined));
       return run;
+    },
+    async listBookResults(userId, storyId) {
+      return clone(rows.filter(row => row.userId === userId && row.storyId === storyId && row.scope === "book_module" && row.status === "succeeded")
+        .map(({ chapterId, moduleId, candidates }) => ({ chapterId, moduleId, candidates })));
     },
     async listForModule(userId, storyId, chapterId, moduleId) {
       return clone(rows.filter(r => r.userId === userId && r.storyId === storyId && r.chapterId === chapterId && r.moduleId === moduleId)
@@ -122,6 +127,10 @@ export function createMysqlImageTaskStore(db: NonNullable<Awaited<ReturnType<typ
         await tx.update(t).set({ status: "succeeded", candidates: stored, error: null, completedAt: now, version: r.version + 1, updatedAt: now }).where(eq(t.id, id));
         return { row: { ...r, status: "succeeded", candidates: stored, error: null, completedAt: now, version: r.version + 1, updatedAt: now }, inserted: true };
       });
+    },
+    async listBookResults(userId, storyId) {
+      return db.select({ chapterId: t.chapterId, moduleId: t.moduleId, candidates: t.candidates }).from(t)
+        .where(and(eq(t.userId, userId), eq(t.storyId, storyId), eq(t.scope, "book_module"), eq(t.status, "succeeded")));
     },
     async listForModule(userId, storyId, chapterId, moduleId) {
       return db.select().from(t).where(and(eq(t.userId, userId), eq(t.storyId, storyId), eq(t.chapterId, chapterId), eq(t.moduleId, moduleId)))

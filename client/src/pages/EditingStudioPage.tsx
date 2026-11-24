@@ -171,15 +171,24 @@ function EditingStudioBody({
     setConfirmedIntent,
   } = useStoryAgentActions();
   const [chatCollapsed, setChatCollapsed] = useState(false);
-  const [warehouseShotId, setWarehouseShotId] = useState<string | null>(null);
-  useEffect(() => { setWarehouseShotId(null); }, [activeStoryId]);
+  type WarehouseFocus = { storyId: number; groupId: string | null; tab?: "images" | "videos" | "music" };
+  const [previewFocus, setPreviewFocus] = useState<WarehouseFocus>();
+  const [requestedFocus, setRequestedFocus] = useState<WarehouseFocus>();
+  const followPreview = useCallback((storyId: number, groupId: string | null) => {
+    setPreviewFocus({ storyId, groupId });
+    setRequestedFocus(undefined);
+  }, []);
+  useEffect(() => {
+    if (!materialVisible) setRequestedFocus(undefined);
+  }, [materialVisible]);
+  const warehouseFocus = requestedFocus?.storyId === activeStoryId ? requestedFocus : previewFocus;
   useEffect(() => {
     const open = (event: Event) => {
       const detail = (event as CustomEvent<{ storyId: number; stableShotId?: string; groupId?: string }>).detail;
       if (workspace !== "editing" || detail?.storyId !== activeStoryId) return;
       const id = detail.groupId ?? detail.stableShotId;
       if (!id) return;
-      setWarehouseShotId(id);
+      setRequestedFocus({ storyId: detail.storyId, groupId: id });
       onMaterialVisibleChange(true);
     };
     window.addEventListener(SHOT_CHAT_FOCUS_EVENT, open);
@@ -200,7 +209,8 @@ function EditingStudioBody({
   const { user: creationUser } = useAuth();
   const renderJobs = useWarehouseRenderActivity(creationUser?.id, activeStoryId, job => {
     if (job.storyId !== activeStoryId) return;
-    setWarehouseShotId(job.shotId ?? null);
+    setRequestedFocus({ storyId: job.storyId, groupId: job.shotId ?? null,
+      tab: job.shotId ? undefined : job.kind === "audio" ? "music" : job.kind === "video" ? "videos" : "images" });
     onMaterialVisibleChange(true);
   });
   const handoffId = useRef(new URLSearchParams(window.location.search).get("createRequest"));
@@ -539,6 +549,7 @@ function EditingStudioBody({
             editor={(presentation, suspended) => <EditingNleWorkspace
               presentation={presentation}
               suspended={suspended}
+              onPreviewShotChange={followPreview}
               videoStartHost={workspace === "editing" ? videoStartHost : null}
               onOpenBook={() => onWorkspaceChange("publishing")}
               musicRequest={createRequest?.kind === "music" ? createRequest : null}
@@ -579,7 +590,7 @@ function EditingStudioBody({
           {materialVisible && pendingStoryRequestId === null && (
             activeStoryId !== null ? <MaterialWarehousePanel key={activeStoryId}
               variant="drawer" videoActions={workspace === "editing"} insertIntoLayout={workspace === "images"}
-              focusedShotId={workspace === "editing" ? warehouseShotId : null}
+              focus={workspace === "editing" && warehouseFocus?.storyId === activeStoryId ? warehouseFocus : undefined}
               renderJobs={renderJobs}
               onClose={() => onMaterialVisibleChange(false)} />
             : <section id="editing-material-warehouse" aria-label={_ui("素材仓库抽屉")} className="flex min-h-32 items-center justify-between gap-3 border-t p-4 text-sm text-muted-foreground">

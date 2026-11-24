@@ -18,6 +18,7 @@ import {
   openShotWarehouse,
   warehouseMediaOrder,
   WHOLE_STORY_MEDIA,
+  UNASSIGNED_MEDIA,
   type WarehouseMedia,
   type WarehouseShotGroup,
 } from "../warehouseShotMedia";
@@ -87,16 +88,18 @@ export function WarehouseShotMenu({
   onGroupChange: (id: string) => void;
 }) {
   const ui = useUiText();
-  const group = groups.find(g => g.id === groupId) ?? groups[0];
+  const choices = groups.filter(g => g.id !== UNASSIGNED_MEDIA);
+  const group = choices.find(g => g.id === groupId);
+  const unassignedCount = groups.find(g => g.id === UNASSIGNED_MEDIA)?.items.length ?? 0;
   const label = (g: WarehouseShotGroup) =>
     `${warehouseGroupName(g, ui)}${g.subject ? ` · ${g.subject}` : ""} · ${g.items.length}`;
   return (
-    <Select
+    <><Select
       value={active ? group?.id ?? "" : ""}
       onValueChange={onGroupChange}
     >
       <SelectTrigger
-        disabled={!group}
+        disabled={choices.length === 0}
         aria-label={ui("镜头素材组 / Shot group")}
         title={active && group ? label(group) : ui("按镜头归类 / By shot")}
         className={`data-[size=default]:h-7 min-w-24 max-w-[220px] shrink rounded-full border-0 px-2 py-0 text-xs font-medium shadow-none ${active ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted"}`}
@@ -106,13 +109,16 @@ export function WarehouseShotMenu({
         </span>
       </SelectTrigger>
       <SelectContent align="start" className="max-w-[calc(100vw-24px)]">
-        {groups.map(g => (
+        {choices.map(g => (
           <SelectItem key={g.id} value={g.id}>
             {label(g)}
           </SelectItem>
         ))}
       </SelectContent>
     </Select>
+    <button type="button" aria-pressed={active && groupId === UNASSIGNED_MEDIA}
+      className="h-7 rounded-md px-2 text-xs text-muted-foreground hover:bg-muted aria-pressed:bg-primary/10 aria-pressed:text-primary"
+      onClick={() => onGroupChange(UNASSIGNED_MEDIA)}>{ui("未归类")} {unassignedCount}</button></>
   );
 }
 
@@ -142,7 +148,7 @@ export function WarehouseShotGroups({
   focusedKeys?: readonly string[];
 }) {
   const ui = useUiText();
-  const group = groups.find(g => g.id === groupId) ?? groups[0];
+  const group = groups.find(g => g.id === groupId);
   const strip = useRef<HTMLDivElement>(null);
   const { language } = useUiLanguage();
   const focusSignature = focusedKeys.join("|");
@@ -156,6 +162,8 @@ export function WarehouseShotGroups({
   }, [group?.id, focusSignature]);
   return (
     <section aria-label={ui("按镜头归类 / By shot")}>
+      {groupId === UNASSIGNED_MEDIA && Boolean(group?.items.length) &&
+        <p className="mb-1 text-xs text-muted-foreground">{ui("这些素材还没有关联到当前版本的镜头。")}</p>}
       {error ? (
         <p role="status" className="mb-2 text-xs text-muted-foreground">
           {ui("部分素材暂未读到，正在重试。")}
@@ -168,7 +176,7 @@ export function WarehouseShotGroups({
         key={group?.id}
       >
         {leading}
-        {[...(group?.items ?? [])].sort(warehouseMediaOrder).map(item => {
+        {group && [...group.items].sort(warehouseMediaOrder).map(item => {
           const name = warehouseMediaName(group, item, ui);
           return (
             <article
@@ -218,6 +226,8 @@ export function WarehouseShotGroups({
             {ui(
               loading
                 ? "正在读取素材…"
+                : groupId === UNASSIGNED_MEDIA ? "没有未归类的素材。"
+                : !group ? "播放位置没有对应镜头。"
                 : "这个镜头还没有素材。生成后会自动保存在这里。"
             )}
           </p>

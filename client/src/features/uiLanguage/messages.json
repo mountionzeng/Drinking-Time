@@ -13825,6 +13825,26 @@
     "en": "Shot group",
     "fr": "Groupe de plans"
   },
+  "播放位置没有对应镜头。": {
+    "en": "No shot at the playhead.",
+    "fr": "Aucun plan à la position de lecture."
+  },
+  "没有未归类的素材。": {
+    "en": "No unassigned media.",
+    "fr": "Aucun média non classé."
+  },
+  "这些素材还没有关联到当前版本的镜头。": {
+    "en": "These items are not linked to a shot in this version.",
+    "fr": "Ces médias ne sont associés à aucun plan de cette version."
+  },
+  "全部图片": {
+    "en": "All images",
+    "fr": "Toutes les images"
+  },
+  "全部视频": {
+    "en": "All videos",
+    "fr": "Toutes les vidéos"
+  },
   "按生成顺序": {
     "en": "Creation order",
     "fr": "Ordre de création"

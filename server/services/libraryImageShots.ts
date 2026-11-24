@@ -3,7 +3,8 @@ import { inlineChatParts } from "../../shared/inlineChatImages";
 import { jsonRecord } from "../repositories/storyValues";
 
 /** Archive associations for display. Keep generation metadata and timeline ownership intact. */
-export function libraryImageShots(storyId: number, body: Record<string, unknown>, shots: readonly { stableShotId: string }[]) {
+export function libraryImageShots(storyId: number, body: Record<string, unknown>, shots: readonly { stableShotId: string }[],
+  storedBookResults: readonly { chapterId: number | null; moduleId: string | null; candidates: unknown }[] = []) {
   const live = new Set(shots.map(shot => shot.stableShotId));
   const byImage = new Map<number, Set<string>>();
   function add(shotId: unknown, imageId: unknown) {
@@ -17,13 +18,45 @@ export function libraryImageShots(storyId: number, body: Record<string, unknown>
     const record = jsonRecord(row);
     if (Array.isArray(record.imageIds)) for (const id of record.imageIds) add(record.stableShotId, id);
   }
+  function addCandidates(shotId: unknown, candidates: unknown) {
+    if (Array.isArray(candidates)) for (const candidate of candidates) add(shotId, jsonRecord(candidate).imageId);
+  }
+  const completedTasks = (Array.isArray(body.storyboardImageTasks) ? body.storyboardImageTasks : [])
+    .map(jsonRecord).filter(task => task.status === "succeeded" && typeof task.requestId === "string");
+  for (const task of completedTasks) addCandidates(task.shotIdentity, jsonRecord(task.result).candidates);
+  const previewTasks = new Map(completedTasks.map(task => [task.requestId, task]));
   for (const batch of Array.isArray(body.artPreviewBatches) ? body.artPreviewBatches : []) {
-    const rows = jsonRecord(batch).shots;
+    const { id, shots: rows } = jsonRecord(batch);
     if (!Array.isArray(rows)) continue;
     for (const row of rows) {
       const shot = jsonRecord(row);
-      if (Array.isArray(shot.candidates)) for (const candidate of shot.candidates) add(shot.stableShotId, jsonRecord(candidate).imageId);
+      addCandidates(shot.stableShotId, shot.candidates);
+      const task = previewTasks.get(shot.requestId);
+      if (task && typeof id === "string" && task.shotIdentity === `preview:${id}:${shot.stableShotId}`)
+        addCandidates(shot.stableShotId, jsonRecord(task.result).candidates);
     }
+  }
+  // A single book module may explicitly feed several shots. A matching module name
+  // in another chapter (or a neighbouring shot number) does not establish a link.
+  const moduleShots = new Map<string, Set<string>>();
+  for (const row of Array.isArray(body.shots) ? body.shots : []) {
+    const shot = jsonRecord(row);
+    const shotId = shot.stableShotId ?? shot.shotIdentity ?? shot.shotKey;
+    const refs = jsonRecord(shot.publishingVideo).sourceModuleIds;
+    if (typeof shotId !== "string" || !live.has(shotId) || !Array.isArray(refs)) continue;
+    for (const ref of refs) {
+      if (typeof ref !== "string") continue;
+      const owners = moduleShots.get(ref) ?? new Set<string>();
+      owners.add(shotId);
+      moduleShots.set(ref, owners);
+    }
+  }
+  const legacyResults = (Array.isArray(body.bookModuleImageTasks) ? body.bookModuleImageTasks : [])
+    .map(jsonRecord).filter(task => task.status === "succeeded");
+  for (const task of [...legacyResults, ...storedBookResults]) {
+    if (typeof task.chapterId !== "number" || typeof task.moduleId !== "string") continue;
+    for (const shotId of moduleShots.get(`${task.chapterId}:${task.moduleId}`) ?? [])
+      addCandidates(shotId, task.candidates);
   }
   for (const row of Array.isArray(body.messages) ? body.messages : []) {
     const message = jsonRecord(row);

@@ -945,6 +945,7 @@ export default function EditingNleWorkspace({
   videoEditorHandoffTarget = null,
   onVideoEditorHandoffHandled,
   videoStartHost, onOpenBook,
+  onPreviewShotChange,
   musicRequest,
   onMusicRequestHandled,
 }: {
@@ -954,6 +955,7 @@ export default function EditingNleWorkspace({
   onVideoEditorHandoffHandled?: () => void;
   videoStartHost?: HTMLElement | null;
   onOpenBook?: () => void;
+  onPreviewShotChange?: (storyId: number, shotId: string | null) => void;
   musicRequest?: import("@/features/publishingDraft/StudioCreateMenu").StudioCreateRequest | null;
   onMusicRequestHandled?: () => void;
 }) {
@@ -1418,6 +1420,9 @@ export default function EditingNleWorkspace({
         : activeTimelineVisualFrame.kind === "overlay"
           ? activeTimelineVisualFrame.overlay.sourceStableShotId
           : null;
+  useEffect(() => {
+    if (activeStoryId && !suspended) onPreviewShotChange?.(activeStoryId, previewStableShotId ?? null);
+  }, [activeStoryId, previewStableShotId, suspended, playbackClock.isPlaying, onPreviewShotChange]);
   const previewShot =
     previewStableShotId == null
       ? null

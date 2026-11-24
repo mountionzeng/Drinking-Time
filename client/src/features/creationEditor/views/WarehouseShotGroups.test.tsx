@@ -58,6 +58,13 @@ const group: WarehouseShotGroup = {
     },
   ],
 };
+it.each([null, "removed"])("keeps the warehouse empty at an unmapped playhead (%s)", groupId => {
+  const html = renderToStaticMarkup(<WarehouseShotGroups groups={[group]} groupId={groupId} loading={false}
+    error={null} onSelectVideo={vi.fn()} renderImage={() => null} />);
+  expect(html).toContain("播放位置没有对应镜头。");
+  expect(html).not.toContain("data-warehouse-media-key");
+});
+
 it("opens the exact video from its thumbnail without requiring the caption", () => {
   const select=vi.fn(); let click: ((atSec: number) => void) | undefined;
   const create=React.createElement;

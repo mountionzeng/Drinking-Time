@@ -1,4 +1,5 @@
 import { libraryImageShots } from "./libraryImageShots";
+import { getImageTaskStore } from "../repositories/imageGenerationTasks";
 import { storyKeyframes } from "./storyKeyframes";
 import type { Story } from "../../drizzle/schema";
 import { activeArtSystemRecipe } from "../../shared/artSystem";
@@ -808,7 +809,6 @@ export async function getStoryMaterialState(
     story.body && typeof story.body === "object" && !Array.isArray(story.body)
       ? (story.body as Record<string, unknown>)
       : {};
-  const withLibraryShots = libraryImageShots(storyId, storyBody, facts);
   const visualAssetAggregate = normalizeStoryVisualAssets(
     storyBody.visualAssets,
     { legacyArtDirection: storyBody.artDirection ?? {} }
@@ -819,13 +819,16 @@ export async function getStoryMaterialState(
       binding,
     ])
   );
-  const [images, videos, timelineRow, promptCompilationHeads] =
+  const [images, videos, timelineRow, promptCompilationHeads, bookResults] =
     await Promise.all([
       getStoryImageAssets(storyId, userId),
       getStoryVideoAssets(storyId, userId),
       getStoryTimeline(storyId, userId),
       getStoryPromptCompilationHeads({ storyId, userId }),
+      Array.isArray(storyBody.shots) && storyBody.shots.some(shot => Array.isArray(shot?.publishingVideo?.sourceModuleIds) && shot.publishingVideo.sourceModuleIds.length)
+        ? getImageTaskStore().then(store => store.listBookResults(userId, storyId)) : [],
     ]);
+  const withLibraryShots = libraryImageShots(storyId, storyBody, facts, bookResults);
   // 统一投影保留新视觉图层字段；提示词读取则沿用 main 的按 Story 窄查询，
   // 避免刷新时复制整份 prompt lineage 仓库。
   const timeline = projectStoryTimelineDocument(story, timelineRow);

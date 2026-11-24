@@ -25,6 +25,15 @@ const base = { userId: 7, requestId: "req-1", scope: "book_module" as const, pro
 const ok: ImageGenResult = { status: "ok", imageUrl: "/api/images/a.png", candidates: [{ imageUrl: "/api/images/a.png" }, { imageUrl: "/api/images/b.png" }] };
 
 describe("pure rules", () => {
+  it("reads only successful book results for the owning user and story", async () => {
+    const { store } = setup();
+    const { row } = await registerImageTask(store, base);
+    const result = { chapterId: 3, moduleId: "m1", candidates: [{ imageId: 1, imageUrl: "/image/1" }] };
+    for (const [index, fields] of [{}, { userId: 2 }, { storyId: 5 }, { status: "accepted" as const }, { scope: "mobile" }].entries()) {
+      await store.insert({ ...row, ...result, status: "succeeded", ...fields, id: `test-${index}`, requestId: `receipt-${index}` });
+    }
+    expect(await store.listBookResults(base.userId, base.storyId)).toEqual([result]);
+  });
   it("allows only forward transitions", () => {
     expect(canTransition("submitting", "accepted")).toBe(true);
     expect(canTransition("accepted", "submitting")).toBe(false);

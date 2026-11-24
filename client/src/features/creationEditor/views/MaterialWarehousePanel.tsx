@@ -525,14 +525,14 @@ export default function MaterialWarehousePanel({
   onClose,
   videoActions = true,
   insertIntoLayout = false,
-  focusedShotId,
+  focus,
   renderJobs = [],
 }: {
   variant?: "page" | "drawer";
   videoActions?: boolean;
   insertIntoLayout?: boolean;
   onClose?: () => void;
-  focusedShotId?: string | null;
+  focus?: { groupId: string | null; tab?: "images" | "videos" | "music" };
   renderJobs?: readonly WarehouseRenderJob[];
 } = {}) {
   const _ui = useDesktopUiText();
@@ -587,7 +587,7 @@ export default function MaterialWarehousePanel({
   useEffect(() => () => cancelPreviewClose(), []);
 
   const [drawerTab, setDrawerTab] = useState<"shots" | "images" | "videos" | "assets" | "music" | "text">(videoActions ? "shots" : "images");
-  const [groupId, setGroupId] = useState<string | null>(focusedShotId ?? null);
+  const [groupId, setGroupId] = useState<string | null | undefined>(focus?.groupId);
   const grouped = useWarehouseShotGroups(activeStoryId, shots, materialState);
   const libraryUtils = trpc.useUtils();
   const [conversationFocus, setConversationFocus] = useState<WarehouseConversationFocus | null>(null);
@@ -624,8 +624,12 @@ export default function MaterialWarehousePanel({
     if (latestRender.shotId) setGroupId(latestRender.shotId);
   }, [latestRender?.id, activeStoryId, videoActions]);
   useEffect(() => {
-    if (focusedShotId) { setGroupId(focusedShotId); setDrawerTab("shots"); setPreviewImage(null); }
-  }, [focusedShotId]);
+    if (!focus) return;
+    setGroupId(focus.groupId);
+    setConversationFocus(null);
+    setDrawerTab(focus.tab ?? "shots");
+    setPreviewImage(null);
+  }, [focus]);
   useEffect(() => {
     const open = (event: Event) => {
       const detail = (event as CustomEvent<{ storyId: number; groupId?: string; stableShotId?: string }>).detail;
@@ -640,11 +644,14 @@ export default function MaterialWarehousePanel({
   // 导入暂存区：拖入的文件先在这里交代目标镜头 + 运动/场景/道具说明，再入库。
   const [pendingImports, setPendingImports] = useState<PendingImportItem[]>([]);
 
-  const currentShot = selectedShot ?? shots[0] ?? null;
+  const selected = selectedShot ?? shots[0] ?? null;
+  const activeGroupId = groupId === undefined ? selected?.stableShotId ?? selected?.shotIdentity ?? UNASSIGNED_MEDIA : groupId;
+  const groupShot = shots.find(shot => (shot.stableShotId ?? shot.shotIdentity) === activeGroupId);
+  const currentShot = drawerTab === "shots" && groupShot ? groupShot : selected;
   const currentStableShotId =
     currentShot?.stableShotId ?? currentShot?.shotIdentity ?? null;
-  const sequenceShot = drawerTab === "shots" ? shots.find(shot => (shot.stableShotId ?? shot.shotIdentity) === (groupId ?? currentStableShotId)) : currentShot;
-  const selectionScope = `${activeStoryId}:${drawerTab}:${drawerTab === "shots" ? groupId ?? currentStableShotId : currentStableShotId}`;
+  const sequenceShot = drawerTab === "shots" ? groupShot : currentShot;
+  const selectionScope = `${activeStoryId}:${drawerTab}:${drawerTab === "shots" ? activeGroupId : currentStableShotId}`;
   const selectedImages = imageSelection.scope === selectionScope ? imageSelection.images : [];
   const setSelectedImages = (value: WarehouseSelectedImage[] | ((rows:WarehouseSelectedImage[])=>WarehouseSelectedImage[])) => setImageSelection(previous=>({scope:selectionScope,images:typeof value === "function" ? value(previous.scope===selectionScope?previous.images:[]) : value}));
   useEffect(() => {
@@ -1314,7 +1321,7 @@ export default function MaterialWarehousePanel({
 
   if (variant === "drawer") {
     const visibleJobs = mergeImageAttempts(renderJobs, attempts.data ?? []).filter(job => job.storyId === activeStoryId &&
-      (drawerTab === "shots" ? (job.shotId ?? UNASSIGNED_MEDIA) === (groupId ?? currentStableShotId)
+      (drawerTab === "shots" ? (job.shotId ?? UNASSIGNED_MEDIA) === activeGroupId
         : job.kind === (drawerTab === "music" ? "audio" : drawerTab === "videos" ? "video" : "image")) &&
       // Archived results use their ordinary, chronologically sorted tiles.
       !(job.kind === "image" && job.state === "ready" && imageItems.some(item => item.image.id === job.assetId)) &&
@@ -1327,7 +1334,7 @@ export default function MaterialWarehousePanel({
         <div data-warehouse-handle role="toolbar" tabIndex={0} aria-label={_ui("仓库工具栏 / Warehouse toolbar")}
           title={_ui("拖动位置")} className="flex shrink-0 flex-nowrap items-center gap-1 border-b border-border p-1.5 cursor-grab active:cursor-grabbing">
           <div className="flex min-w-0 items-center gap-0.5 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&>button]:shrink-0 [&>button]:whitespace-nowrap">
-              {videoActions && <WarehouseShotMenu groups={grouped.groups} groupId={groupId ?? currentStableShotId} active={drawerTab === "shots"}
+              {videoActions && <WarehouseShotMenu groups={grouped.groups} groupId={activeGroupId} active={drawerTab === "shots"}
                 onGroupChange={id => {setConversationFocus(null); setGroupId(id); setDrawerTab("shots"); setPreviewImage(null);}} />}
               <button
                 type="button"
@@ -1335,7 +1342,7 @@ export default function MaterialWarehousePanel({
                 aria-pressed={drawerTab === "images"}
                 className={`inline-flex h-7 items-center gap-1 rounded-md px-1.5 text-xs font-medium transition ${drawerTab === "images" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
               >
-                <ImageIcon className="h-3.5 w-3.5" /> {_ui("图片")}{" "}{imageItems.length}
+                <ImageIcon className="h-3.5 w-3.5" /> {_ui(videoActions ? "全部图片" : "图片")}{" "}{imageItems.length}
               </button>
               <button
                 type="button"
@@ -1343,7 +1350,7 @@ export default function MaterialWarehousePanel({
                 aria-pressed={drawerTab === "videos"}
                 className={`inline-flex h-7 items-center gap-1 rounded-md px-1.5 text-xs font-medium transition ${drawerTab === "videos" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
               >
-                <Video className="h-3.5 w-3.5" /> {_ui("视频")}{" "}{videoItems.length}
+                <Video className="h-3.5 w-3.5" /> {_ui(videoActions ? "全部视频" : "视频")}{" "}{videoItems.length}
               </button>
               <button
                 type="button"
@@ -1449,7 +1456,7 @@ export default function MaterialWarehousePanel({
           {pendingImports.length > 0 ? importQueue : drawerTab === "shots" ? <WarehouseShotGroups
             key={`${activeStoryId}:${warehouseOpenRevision}`}
             leading={renderCards} storyId={activeStoryId ?? 0} focusedKeys={conversationFocus?.mediaKeys}
-            {...grouped} error={null} groupId={groupId ?? currentStableShotId}
+            {...grouped} error={grouped.error} groupId={activeGroupId}
             renderImage={renderGroupedImage} onSelectVideo={(id, time) => {const item = videoItems.find(v => v.take.id === id); if (item) selectVideoMaterial(item, time);}} /> : (drawerTab === "music" || drawerTab === "text") && activeStoryId ? <WarehouseBookMedia key={`${activeStoryId}:${drawerTab}`} storyId={activeStoryId} kind={drawerTab} leading={drawerTab === "music" ? renderCards : undefined}/> : drawerTab === "assets" ? (
             <>
             <ArtSystemLibrary storyId={activeStoryId ?? null} images={visualAssetImages} />
