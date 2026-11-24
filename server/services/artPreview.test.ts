@@ -140,7 +140,7 @@ it("inherits only adjustments from the adopted candidate, using it for the shot 
   await planArtPreviews({ ...input, operationToken: crypto.randomUUID(), sampleShotId: "s1", adjustment: "unselected experiment" });
   await patch(input.storyId, { storyboardImageTasks: [{ requestId: first.shots[0].requestId, status: "succeeded", result: { candidates: [{ imageId: 71, imageUrl: "/candidate.png" }] } }] });
   mocks.material.mockResolvedValue({ shots: [{ stableShotId: "s1", currentImage: { id: 71 }, imageVersions: [] }], timeline: { extensions: {} } });
-  const next = await planArtPreviews({ ...input, operationToken: crypto.randomUUID(), sampleShotId: "s1", adjustment: "warm light" });
+  const next = await planArtPreviews({ ...input, imageId: undefined, operationToken: crypto.randomUUID(), sampleShotId: "s1", adjustment: "warm light" });
   const result = await artPreviewGenerationInput(input.storyId, 1, next.id, 1);
   expect(result.shot.previousChoice).toMatchObject({ imageId: 71, version: first.version });
   expect(result.renderReferences).toEqual({ imageIds: [71], assets: {}, filmStyleVersion: 4 });
@@ -150,7 +150,7 @@ it("inherits only adjustments from the adopted candidate, using it for the shot 
 it("requires a fresh quote after the first frame is adopted, then uses the selected frame and the film style", async () => {
   const input = await fixture();
   await patch(input.storyId, { artDirection: direction(4, input.imageId) });
-  const request = { ...input, sampleShotId: "s1" };
+  const request = { ...input, imageId: undefined, sampleShotId: "s1" };
   const first = await planArtPreviews(request);
   mocks.material.mockResolvedValue({ shots: [{ stableShotId: "s1", currentImage: { id: 71, selectionSource: "explicit" }, imageVersions: [] }], timeline: { extensions: {} } });
   expect((await artPreviewGenerationInput(input.storyId, 1, first.id, 1)).priorFrameChanged).toBe(true);

@@ -64,7 +64,7 @@ export async function readPreviewArtBasis(storyId: number, userId: number) {
   const cover = current.material.warehouseImages?.find(i => i.id === current.artBasis.coverImageId);
   const defaultReferenceId = current.material.artSystemReference?.image.id ?? cover?.id;
   return { ...current.artBasis, filmStyleImageId: current.filmStyle?.imageId ?? null,
-    needsCoverCopy: !!cover?.imageUrl && (defaultReferenceId === cover.id || current.filmStyle?.imageId === cover.id) &&
+    needsCoverCopy: !!cover?.imageUrl && (current.filmStyle ? current.filmStyle.imageId === cover.id : defaultReferenceId === cover.id) &&
       isWechatImportImage(cover.imageUrl) && !privateReferenceOrigin() };
 }
 export async function planArtPreviews(input: { storyId: number; userId: number; editorName: string; instruction: string; operationToken: string; imageId?: number; sampleShotId?: string; sampleShotIds?: string[]; adjustment?: string; coverCopyImageId?: number }) {
@@ -122,8 +122,11 @@ export async function planArtPreviews(input: { storyId: number; userId: number; 
     instruction: input.instruction, sourceHash: current.sourceHash, baselineImageId: baselineImageId ?? null, sampleShotId: input.sampleShotId,
     sampleShotIds: input.sampleShotIds,
     filmStyle: current.filmStyle,
-    coverRole: samples && !input.imageId && baselineImageId && baselineImageId === current.artBasis.coverImageId &&
-      (!current.filmStyle || current.filmStyle.imageId === baselineImageId) ? "style" : undefined,
+    explicitBaseline: input.imageId ? true : undefined,
+    coverRole: !input.imageId && baselineImageId && (baselineImageId === current.artBasis.coverImageId ||
+      baselineImageId === current.filmStyle?.imageId) ? (
+      current.filmStyle && current.filmStyle.imageId !== baselineImageId ? "source-only" : "style"
+    ) : undefined,
     artBasis: current.artBasis, artBasisHash: current.artBasisHash, adjustment: input.adjustment,
     musicContext: current.music.length ? `参考当前配乐：${current.music.map(m => m.name).join("、")}；按已有说明与镜头时长设计，尚未做音频节拍检测。` : "参考分镜中的声音说明；当前没有可识别的已选配乐，不假定节拍。",
     estimatedCny: Math.round(estimateStoryboardImageCost().estimatedCny * planned.length * 100) / 100,
@@ -184,10 +187,11 @@ function previewRenderReferences(batch: ArtPreviewBatch, shot: ArtPreviewBatch["
   const currentImageId = materialShot?.currentImage?.id ?? null;
   const adoptedFrame = shot.previousChoice?.imageId ?? (materialShot?.currentImage?.selectionSource === "explicit" ||
     materialShot?.timelineItem?.referencedImageId === currentImageId ? shot.currentFrameId : null);
-  const priorFrame = !batch.baselineImageId || batch.baselineImageId === style?.imageId ? adoptedFrame : null;
-  return batch.baselineImageId || style || priorFrame ? {
-    imageIds: priorFrame ? [priorFrame] : batch.baselineImageId ? [batch.baselineImageId] : [],
-    ...(batch.baselineImageId && !priorFrame ? { imagePurpose: "scene-style" as const } : {}), assets: {}, filmStyleVersion: style?.version ?? 0,
+  const baseline = batch.coverRole === "source-only" ? null : batch.baselineImageId;
+  const priorFrame = !batch.explicitBaseline && (!baseline || baseline === style?.imageId) ? adoptedFrame : null;
+  return baseline || style || priorFrame ? {
+    imageIds: priorFrame ? [priorFrame] : baseline ? [baseline] : [],
+    ...(baseline && !priorFrame ? { imagePurpose: "scene-style" as const } : {}), assets: {}, filmStyleVersion: style?.version ?? 0,
   } : undefined;
 }
 

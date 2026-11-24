@@ -33,10 +33,12 @@ export function useArtPreviewChat() {
         await utils.artSystems.previewRead.invalidate({ storyId });
         if (!current()) return "示意方案已保存到原故事，尚未提交图片。";
         const accepted = await askMediaChatConfirmation({ storyId, kind: "cost",
-          text: [`${batch.baselineImageId ? `参考图片 #${batch.baselineImageId}` : "按镜头文字试画面"}，为 ${batch.shots.length} 个镜头各生成 4 张示意候选，共 ${batch.shots.length * 4} 张，预计 ${formatComputeQuote(batch.estimatedCny)}。`,
+          text: [`${batch.coverRole === "source-only" && batch.filmStyle ? `全片画风参考 #${batch.filmStyle.imageId}` :
+            batch.baselineImageId ? `参考图片 #${batch.baselineImageId}` : "按镜头文字试画面"}，为 ${batch.shots.length} 个镜头各生成 4 张示意候选，共 ${batch.shots.length * 4} 张，预计 ${formatComputeQuote(batch.estimatedCny)}。`,
             batch.artBasis && [batch.artBasis.source, batch.artBasis.coverNote, batch.artBasis.styleName].filter(Boolean).join(" · "),
             batch.coverCopy && `封面 #${batch.coverCopy.imageId} 的缩图已上传并读回，本轮可在一小时内确认。`,
-            batch.coverRole === "style" && "封面提供画风参考，镜头主体与构图沿用当前分镜。",
+            batch.coverRole === "style" && "画风参考提供笔触、色彩与材质，镜头主体与构图沿用当前分镜。",
+            batch.coverRole === "source-only" && "书稿封面保留为创作来源，本镜沿用当前选定的画面与分镜。",
             batch.shots.every(s => Number.isInteger(s.shotNo)) && `本轮镜头：${batch.shots.map(s => s.shotNo).join("、")}`,
             batch.artBasis?.rules, batch.adjustment && `本轮调整：${batch.adjustment}`, batch.musicContext,
             "各镜头按自己的台词和意图变化，图片先在对话里供你选择，尚不放入正式镜头。"].filter(Boolean).join("\n") });

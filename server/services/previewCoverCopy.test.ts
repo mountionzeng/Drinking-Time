@@ -6,9 +6,11 @@ import { createContext } from "../_core/context";
 import { ENV } from "../_core/env";
 import { sdk } from "../_core/sdk";
 import { putChapterMedia } from "../chapterMediaStore";
-import { upsertUser, createStory, createGeneratedImage, updateStory } from "../db";
+import { upsertUser, createStory, createGeneratedImage, getStoryById, updateStory } from "../db";
+import { assignStoryImageToShot } from "../repositories/images";
 import { insertChapter } from "../repositories/chapters";
 import { artSystemsRouter } from "../routers/artSystems";
+import { appRouter } from "../routers";
 import { openPreviewCoverCopy } from "./previewCoverCopy";
 
 const upload = vi.hoisted(() => vi.fn());
@@ -81,7 +83,6 @@ it("uses separate signed-in authors' books and prepares only the explicitly auth
   const generator = await import("./legnextImage");
   const render = vi.spyOn(generator, "generateLegnextImage").mockResolvedValue({ status: "error", message: "simulated supplier refusal" });
   try {
-    const { appRouter } = await import("../routers");
     await appRouter.createCaller(a.ctx).storyAgent.generateForMobile({ storyId: alice.id, previewBatchId: batch.id,
       shotNo: 1, costConfirmation: { accepted: true, estimatedCny: 0.68 } });
     expect(render).toHaveBeenCalledTimes(1);
@@ -90,5 +91,29 @@ it("uses separate signed-in authors' books and prepares only the explicitly auth
     expect(options?.styleRef).toContain("synth.jpg");
     expect(render.mock.calls[0][0]).toMatch(/--no [^\n]*, color/);
     expect(JSON.stringify(options)).not.toMatch(/wechat-import|data:image/);
+    // A different confirmed film style supersedes the book cover. Keep composition free for the adopted shot.
+    const style = await createGeneratedImage({ storyId: alice.id, userId: a.id, imageUrl: "https://example.invalid/film-style.jpg", isCurrent: false });
+    const current = await getStoryById(alice.id, a.id);
+    await updateStory(alice.id, a.id, { body: { ...(current!.body as object),
+      artDirection: { recipe: { version: 2, system: { name: "Film", confirmedAt: 1, filmStyleImageId: style.id } } } } });
+    expect(await a.caller.previewArtBasis({ storyId: alice.id })).toMatchObject({ coverImageId: image.id, filmStyleImageId: style.id, needsCoverCopy: false });
+    async function checkRequest(composition?: string, explicitId?: number) {
+      const before = render.mock.calls.length;
+      const next = await a.caller.previewPlan({ ...plan, imageId: explicitId, operationToken: randomUUID() });
+      expect(next.coverRole).toBe(explicitId ? undefined : "source-only");
+      await appRouter.createCaller(a.ctx).storyAgent.generateForMobile({ storyId: alice.id, previewBatchId: next.id,
+        shotNo: 1, costConfirmation: { accepted: true, estimatedCny: 0.68 } });
+      expect(render).toHaveBeenCalledTimes(before + 1);
+      const args = render.mock.lastCall![2];
+      expect(args?.referenceImageUrl).toBe(composition);
+      expect(args?.styleRef).toBe(style.imageUrl);
+      expect(JSON.stringify(args)).not.toMatch(/wechat-import|synth.jpg/);
+    }
+    await checkRequest();
+    const frame = await createGeneratedImage({ storyId: alice.id, userId: a.id, imageUrl: "https://example.invalid/adopted.jpg", isCurrent: false });
+    await assignStoryImageToShot({ storyId: alice.id, userId: a.id, imageId: frame.id, shotNo: "SH01", shotIdentity: shot.stableShotId });
+    await checkRequest(frame.imageUrl);
+    await checkRequest(style.imageUrl, style.id);
+    expect(upload).toHaveBeenCalledTimes(1);
   } finally { render.mockRestore(); }
 });

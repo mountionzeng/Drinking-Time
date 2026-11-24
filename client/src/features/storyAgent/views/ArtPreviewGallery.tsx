@@ -38,7 +38,8 @@ export function ArtPreviewGallery({ storyId, includePlans = false, onReference, 
       <select aria-label={ui("示意图版本")} value={version} onChange={e => setVersion(Number(e.target.value))} className="rounded border border-border bg-background text-xs p-1">
         <option value={0}>{ui("最新版本")}</option>{batches.map(b => <option key={b.id} value={b.version}>V{b.version} · {new Date(b.createdAt).toLocaleString()} · {b.editorName}</option>)}
       </select></div>
-    <p className="text-xs text-muted-foreground">V{batch.version} · {batch.baselineImageId ? `${ui("参考图片")} #${batch.baselineImageId}` : ui("按分镜文字试图")} · {ui("回复“第 2 镜用第 3 张”即可选择；历史方案请带上 V 版本号。")}</p>
+    <p className="text-xs text-muted-foreground">V{batch.version} · {batch.coverRole === "source-only" && batch.filmStyle ? `全片画风参考 #${batch.filmStyle.imageId}` :
+      batch.baselineImageId ? `${ui("参考图片")} #${batch.baselineImageId}` : ui("按分镜文字试图")} · {ui("回复“第 2 镜用第 3 张”即可选择；历史方案请带上 V 版本号。")}</p>
     <p className="text-xs text-muted-foreground">{batch.instruction}</p>
     {batch.artBasis && <details className="text-xs text-muted-foreground"><summary>查看这一轮的创作依据</summary>
       <p>{[batch.artBasis.source, batch.artBasis.coverNote, batch.artBasis.styleName].filter(Boolean).join(" · ")}</p>
