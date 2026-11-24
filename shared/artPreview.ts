@@ -1,9 +1,11 @@
 import { z } from "zod";
+import { sceneAllowanceSchema } from "./shotSceneDirection";
 
 export const sampleShotIdsSchema = z.array(z.string().min(1).max(128)).min(1).max(3)
   .refine(ids => new Set(ids).size === ids.length, "请为每个镜头只勾选一次");
 
 export const artPreviewShotSchema = z.object({
+  sceneAllowance: sceneAllowanceSchema.optional(),
   stableShotId: z.string().min(1), shotNo: z.number().int().positive(), label: z.string(),
   brief: z.string().min(1).max(1700), adaptation: z.string().min(1).max(400), requestId: z.string().uuid(),
   frameNotes: z.string().optional(),

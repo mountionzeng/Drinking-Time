@@ -1,5 +1,6 @@
 import { trpc } from "@/lib/trpc";
 import { parseArtPreviewChat } from "@shared/artPreview";
+import { sceneRenderTotal, type SceneAllowance } from "@shared/shotSceneDirection";
 import { estimateStoryboardImageCost } from "@shared/imageRenderCost";
 import { formatComputeQuote } from "@shared/computeMoney";
 import { storySpineStore } from "./spine/storySpine";
@@ -10,7 +11,7 @@ export function useArtPreviewChat() {
   const choose = trpc.artSystems.previewChoose.useMutation();
   const generate = trpc.storyAgent.generateForMobile.useMutation();
   const utils = trpc.useUtils();
-  return async (storyId: number, instruction: string, sampleShotIds?: string[], adjustment?: string, coverCopyImageId?: number) => {
+  return async (storyId: number, instruction: string, sampleShotIds?: string[], adjustment?: string, coverCopyImageId?: number, sceneAllowances?: SceneAllowance[]) => {
     const command = parseArtPreviewChat(instruction);
     if (!command) return null;
     try {
@@ -29,13 +30,15 @@ export function useArtPreviewChat() {
           const state = storySpineStore.getState();
           return state.activeStoryId === storyId && state.storyScopeEpoch === scope.storyScopeEpoch && state.storyLoadEpoch === scope.storyLoadEpoch;
         };
-        const batch = await plan.mutateAsync({ storyId, instruction, sampleShotIds, adjustment, coverCopyImageId, imageId: command.imageId, operationToken: crypto.randomUUID() });
+        const batch = await plan.mutateAsync({ storyId, instruction, sampleShotIds, adjustment, coverCopyImageId, sceneAllowances, imageId: command.imageId, operationToken: crypto.randomUUID() });
         await utils.artSystems.previewRead.invalidate({ storyId });
         if (!current()) return "示意方案已保存到原故事，尚未提交图片。";
         const accepted = await askMediaChatConfirmation({ storyId, kind: "cost",
           text: [`${batch.coverRole === "source-only" && batch.filmStyle ? `全片画风参考 #${batch.filmStyle.imageId}` :
             batch.baselineImageId ? `参考图片 #${batch.baselineImageId}` : "按镜头文字试画面"}，为 ${batch.shots.length} 个镜头各生成 4 张示意候选，共 ${batch.shots.length * 4} 张，预计 ${formatComputeQuote(batch.estimatedCny)}。`,
             batch.artBasis && [batch.artBasis.source, batch.artBasis.coverNote, batch.artBasis.styleName].filter(Boolean).join(" · "),
+            batch.shots.some(s => s.sceneAllowance) && `分析最多 ${formatComputeQuote(batch.shots.reduce((sum, s) => sceneRenderTotal(sum, s.sceneAllowance?.estimatedCny), 0))}，生图 ${formatComputeQuote(sceneRenderTotal(estimateStoryboardImageCost().estimatedCny * batch.shots.length))}。已分析的同图免费复用。`,
+            batch.shots.some(s => s.sceneAllowance?.imageId) && "所选构图会在需要首次识别时发给识图服务。",
             batch.coverCopy && `封面 #${batch.coverCopy.imageId} 的缩图已上传并读回，本轮可在一小时内确认。`,
             batch.coverRole === "style" && "画风参考提供笔触、色彩与材质，镜头主体与构图沿用当前分镜。",
             batch.coverRole === "source-only" && "书稿封面保留为创作来源，本镜沿用当前选定的画面与分镜。",
@@ -51,7 +54,7 @@ export function useArtPreviewChat() {
             try {
               const result = await generate.mutateAsync({ storyId, shotNo: shot.shotNo, previewBatchId: batch.id,
                 conversationShotId: shot.stableShotId, shotImageRequestId: shot.requestId,
-                costConfirmation: { accepted: true, estimatedCny: estimateStoryboardImageCost().estimatedCny } });
+                costConfirmation: { accepted: true, estimatedCny: sceneRenderTotal(estimateStoryboardImageCost().estimatedCny, shot.sceneAllowance?.estimatedCny) } });
               await utils.artSystems.previewRead.invalidate({ storyId });
               if (result.status === "ok") completed++;
               else if ("providerTaskId" in result && result.providerTaskId) {
@@ -60,6 +63,7 @@ export function useArtPreviewChat() {
                 acceptedJobs++;
               } else failures.push(`${shot.label}：${result.error}`);
             } catch (error) { failures.push(`${shot.label}：${error instanceof Error ? error.message : "任务尚未完成"}`); }
+            if (shot.sceneAllowance) await utils.artSystems.sceneQuote.invalidate({ storyId, stableShotId: shot.stableShotId });
             await utils.artSystems.previewRead.invalidate({ storyId });
           }
         };

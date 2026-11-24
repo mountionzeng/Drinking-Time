@@ -312,6 +312,61 @@ describe("storyAgent tRPC router", () => {
       expect(options).not.toHaveProperty("referenceImageUrl");
     }
   });
+  it("accepts one combined book quote, stops before MJ on authentication failure, and reuses the result on replay", async () => {
+    const { createStory, updateStory } = await import("./repositories/stories");
+    const { insertChapter } = await import("./repositories/chapters");
+    const { ENV } = await import("./_core/env");
+    const inference = await import("./_core/inferenceOrchestrator");
+    const assets = await import("./services/imageAssets");
+    const key = ENV.openaiNextApiKey, model = ENV.openaiNextVisionModel;
+    const pixels = await sourceImageFixture("book-quote");
+    const read = vi.spyOn(inference, "runInference");
+    const materialize = vi.spyOn(assets, "materializeImageInput").mockResolvedValue(pixels);
+    try {
+      ENV.openaiNextApiKey = "synthetic"; ENV.openaiNextVisionModel = "qwen3-vl-plus";
+      vi.stubEnv("TEXT_PRICE_OPENAI_NEXT_QWEN3_VL_PLUS_PER_1K_YUAN", "0.02");
+      const userId = 49603, stableShotId = "book-duet";
+      const caller = appRouter.createCaller(createAuthContext(userId));
+      const story = await createStory({ userId, title: "Stage", body: {} });
+      const chapter = await insertChapter({ userId, storyId: story.id, content: { title: "Duet", layout: null,
+        blocks: { body: "A duet", writingStyle: [{ id: "verse", format: "text", lineCount: 1 }], blockIds: ["verse"],
+          containsAiText: false, settings: null, coverKey: null, bodyTextureKey: null, images: {}, illustrations: [] } } });
+      await updateStory(story.id, userId, { body: { shots: [{ shotNo: 1, stableShotId, publishingVideo: { sourceModuleIds: [chapter.id + ":verse"] } }] } });
+      const source = await createGeneratedImage({ userId, storyId: story.id, shotNo: "SH01", shotIdentity: stableShotId, imageUrl: "https://storage.example/stage.png", isCurrent: false });
+      const scope = { storyId: story.id, stableShotId, imageId: source.id };
+      const module = { storyId: story.id, chapterId: chapter.id, moduleId: "verse" };
+      const basis = await caller.storyAgent.bookModuleVisualBasis(module);
+      const request = async () => {
+        const q = await caller.artSystems.sceneQuote(scope);
+        return { storyId: story.id, mode: "final" as const, prompt: "Duet", imageProvider: "midjourney" as const,
+          moduleTarget: { ...module, expectedText: "A duet", requestId: crypto.randomUUID(), basisHash: basis!.fingerprint,
+            sceneAllowance: { stableShotId, imageId: source.id, key: q.key, estimatedCny: q.estimatedCny } },
+          costConfirmation: { accepted: true as const, estimatedCny: Number((0.68 + q.estimatedCny).toFixed(6)) } };
+      };
+      legnextMocks.generateLegnextImage.mockClear();
+      const first = await request();
+      expect(first.costConfirmation.estimatedCny).toBeGreaterThan(.68);
+      expect(await caller.storyAgent.generateForMobile({ ...first, costConfirmation: { accepted: true, estimatedCny: .68 } })).toMatchObject({ status: "error" });
+      expect(read).not.toHaveBeenCalled();
+      read.mockRejectedValueOnce(Object.assign(new Error("test"), { attempts: [{ status: 401, category: "auth" }] }));
+      expect(await caller.storyAgent.generateForMobile(await request())).toMatchObject({ status: "error", error: expect.stringContaining("鉴权") });
+      expect(legnextMocks.generateLegnextImage).not.toHaveBeenCalled();
+      const layout = { observed: "Five on stage", people: [{ role: "solo cellist", count: "one", position: "above", clothing: "linen", action: "wave", target: "conductor", gaze: "down" }], objects: [], omit: ["extras"], uncertain: [] };
+      read.mockResolvedValueOnce({ result: { choices: [{ message: { content: JSON.stringify(layout) } }] } } as never);
+      legnextMocks.generateLegnextImage.mockResolvedValueOnce({ status: "ok", imageUrl: "https://storage.example/duet.png" });
+      const accepted = await request();
+      expect(await caller.storyAgent.generateForMobile(accepted)).toMatchObject({ status: "ok" });
+      expect(JSON.stringify(read.mock.calls.at(-1)![0].messages)).toContain(pixels);
+      expect(legnextMocks.generateLegnextImage.mock.calls[0][0]).toContain("solo cellist");
+      expect(legnextMocks.generateLegnextImage.mock.calls[0][0]).not.toContain("Five on stage");
+      expect((await caller.artSystems.sceneQuote(scope)).estimatedCny).toBe(0);
+      await caller.storyAgent.generateForMobile(accepted);
+      expect(read).toHaveBeenCalledTimes(2); expect(legnextMocks.generateLegnextImage).toHaveBeenCalledTimes(1);
+    } finally {
+      read.mockRestore(); materialize.mockRestore(); vi.unstubAllEnvs();
+      ENV.openaiNextApiKey = key; ENV.openaiNextVisionModel = model;
+    }
+  });
   it("persists module image results and replays through the recovery API without another generation", async () => {
     const { createStory } = await import("./repositories/stories");
     const { insertChapter } = await import("./repositories/chapters");

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { confirmedShotScene, shotSceneFacts } from "../../shared/shotSceneDirection";
+import { confirmedShotScene, shotSceneFacts, sceneRenderTotal, type SceneAllowance } from "../../shared/shotSceneDirection";
 import { z } from "zod";
 import { artPreviewBatchSchema, readArtPreviewBatches, type ArtPreviewBatch } from "../../shared/artPreview";
 import type { StoryMaterialState } from "../../shared/storyMaterial";
@@ -76,11 +76,19 @@ export async function retryPreviewPlan(input: { storyId: number; userId: number;
   const { body } = await ownedCreationStory(input);
   const source = failedPreviewSource(body, input.failedId);
   if (!source) throw new Error("原任务状态或镜头已变化，请刷新仓库查看最新结果。");
+  let sceneAllowances: SceneAllowance[] | undefined;
+  if (source.shot.sceneAllowance) {
+    const { quoteSceneReading } = await import("./shotSceneReading");
+    const { stableShotId, imageId } = source.shot.sceneAllowance;
+    const quote = await quoteSceneReading({ ...input, stableShotId, imageId, adjustment: source.batch.adjustment });
+    if (!quote.cached || quote.pending) throw new Error("这次重试需要重新分析。请回到试图对话查看分析与生图的合计报价。");
+    sceneAllowances = [{ stableShotId, imageId, key: quote.key, estimatedCny: 0 }];
+  }
   return planArtPreviews({ ...input, retryOf: input.failedId, operationToken: previewRetryToken(input.failedId, input.basisKey),
-    instruction: source.batch.instruction, sampleShotIds: [source.shot.stableShotId], adjustment: source.batch.adjustment,
+    instruction: source.batch.instruction, sampleShotIds: [source.shot.stableShotId], adjustment: source.batch.adjustment, sceneAllowances,
     imageId: source.batch.explicitBaseline ? source.batch.baselineImageId ?? undefined : undefined });
 }
-export async function planArtPreviews(input: { storyId: number; userId: number; editorName: string; instruction: string; operationToken: string; imageId?: number; sampleShotId?: string; sampleShotIds?: string[]; adjustment?: string; coverCopyImageId?: number; retryOf?: string; basisKey?: string }) {
+export async function planArtPreviews(input: { storyId: number; userId: number; editorName: string; instruction: string; operationToken: string; imageId?: number; sampleShotId?: string; sampleShotIds?: string[]; sceneAllowances?: SceneAllowance[]; adjustment?: string; coverCopyImageId?: number; retryOf?: string; basisKey?: string }) {
   if (input.sampleShotId && input.sampleShotIds) throw new Error("请选择一种试图镜头范围");
   const samples = input.sampleShotIds ?? (input.sampleShotId ? [input.sampleShotId] : undefined);
   const current = await source(input.storyId, input.userId);
@@ -89,6 +97,10 @@ export async function planArtPreviews(input: { storyId: number; userId: number; 
   const batches = readArtPreviewBatches(current.body);
   const replay = batches.find(b => b.id === input.operationToken);
   if (replay) {
+    const saved = replay.shots.flatMap(s => s.sceneAllowance ?? []);
+    const requested = input.sceneAllowances ?? [];
+    if (saved.length !== requested.length || saved.some(a => !requested.some(b => b.stableShotId === a.stableShotId && b.imageId === a.imageId && b.key === a.key && b.estimatedCny === a.estimatedCny)))
+      throw new Error("操作标识已用于另一份分析报价");
     if (JSON.stringify(replay.sampleShotIds) !== JSON.stringify(input.sampleShotIds) || replay.sampleShotId !== input.sampleShotId || replay.instruction !== input.instruction || replay.adjustment !== input.adjustment || replay.coverCopy?.imageId !== input.coverCopyImageId || input.imageId != null && replay.baselineImageId !== input.imageId)
       throw new Error("操作标识已用于另一项示意要求");
     return replay;
@@ -105,6 +117,17 @@ export async function planArtPreviews(input: { storyId: number; userId: number; 
     if (!image.imageUrl || projected?.availability === "missing" || projected?.status === "rejected") throw new Error("这张效果图已缺失或被弃用，请选择可用的参考图片");
   }
   const targets = samples ? current.shots.filter(s => samples.includes(s.stableShotId)) : current.shots;
+  const allowances = input.sceneAllowances ?? [];
+  if (allowances.length && (!samples || allowances.some(a => !samples.includes(a.stableShotId)) ||
+      new Set(allowances.map(a => a.stableShotId)).size !== allowances.length))
+    throw new Error("分析报价与所选镜头不一致。");
+  if (allowances.length) {
+    const { quoteSceneReading } = await import("./shotSceneReading");
+    for (const a of allowances) {
+      const quote = await quoteSceneReading({ ...input, stableShotId: a.stableShotId, imageId: a.imageId });
+      if (quote.key !== a.key || quote.estimatedCny !== a.estimatedCny || quote.pending) throw new Error("本镜分析报价已变化，请重新查看。");
+    }
+  }
   if (samples && (samples.length > 3 || targets.length !== samples.length)) throw new Error("试图镜头已变化，请重新勾选一至三镜");
   if (!targets.length || targets.length > 12) throw new Error("请选择当前分镜中的一个镜头试图，或选择不超过十二镜的方案");
   const schema = z.object({ shots: z.array(z.object({ stableShotId: z.string(), brief: z.string().min(1).max(1400), adaptation: z.string().min(1).max(400) })).min(1).max(12) });
@@ -144,13 +167,14 @@ export async function planArtPreviews(input: { storyId: number; userId: number; 
     ) : undefined,
     artBasis: current.artBasis, artBasisHash: current.artBasisHash, adjustment: input.adjustment,
     musicContext: current.music.length ? `参考当前配乐：${current.music.map(m => m.name).join("、")}；按已有说明与镜头时长设计，尚未做音频节拍检测。` : "参考分镜中的声音说明；当前没有可识别的已选配乐，不假定节拍。",
-    estimatedCny: Math.round(estimateStoryboardImageCost().estimatedCny * planned.length * 100) / 100,
+    estimatedCny: sceneRenderTotal(estimateStoryboardImageCost().estimatedCny * planned.length, allowances.reduce((total, a) => total + a.estimatedCny, 0)),
     shots: planned.map((s, i) => {
       const previous = previousChoice(s.stableShotId);
       // Apply the exclusion only to an explicit full-frame direction. A B&W object in a colour scene is valid.
       const monochrome = samples && !input.adjustment && !previous?.adjustments.length &&
         /(?:^|[。；;\n])\s*(?:画面|本镜|全片)(?:为|采用|使用|呈现|保持)(?:全黑白|纯黑白|黑白(?:画面|影像|照片|色调|插画)|[^，。；\n]{1,28}的黑白(?:照片|复原镜头))/u.test(s.brief);
       return { ...s, shotNo: targets[i].shotNo, label: targets[i].label, requestId: randomUUID(),
+        sceneAllowance: allowances.find(a => a.stableShotId === s.stableShotId),
         frameNotes: samples ? current.frameNotes[current.shots.indexOf(targets[i])] : undefined,
         currentFrameId: current.material.shots.find(shot => shot.stableShotId === s.stableShotId)?.currentImage?.id ?? null,
         monochrome: monochrome ? true : undefined, previousChoice: previous };
@@ -227,9 +251,9 @@ export async function artPreviewGenerationInput(storyId: number, userId: number,
   const sceneFacts = current.sceneFacts[current.shots.findIndex(s => s.stableShotId === shot.stableShotId)];
   if (sceneFacts && !batch.artBasisHash) throw new Error("本镜新增了画面调度，请重新查看试图报价。");
   const confirmed = confirmedShotScene(current.body, shot);
-  const prompt = basis ? [batch.adjustment && `本轮调整（与旧要求冲突时以本轮为准）：${batch.adjustment}`, sceneFacts, !confirmed && (stillVisualDescription(shot.brief) || shot.brief),
+  const prompt = basis ? [batch.adjustment && `本轮调整（与旧要求冲突时以本轮为准）：${batch.adjustment}`, !shot.sceneAllowance && sceneFacts, !shot.sceneAllowance && !confirmed && (stillVisualDescription(shot.brief) || shot.brief),
     shot.monochrome && "Black and white throughout the frame. Black ink and gray values on neutral paper.",
-    basis.direction, shot.frameNotes, !batch.sampleShotId && !batch.sampleShotIds && shot.adaptation,
+    basis.direction, !shot.sceneAllowance && shot.frameNotes, !batch.sampleShotId && !batch.sampleShotIds && shot.adaptation,
     shot.previousChoice?.adjustments.length && `本镜此前已采用的调整：${shot.previousChoice.adjustments.join("；")}`,
     basis.filmBrief && `影片创作要求：${basis.filmBrief}`,
     "画面中的人物、场景和构图以本镜为准。镜头明确要求黑白时沿用全片的线条和材质，只调整色彩；字幕由文字轨叠加。",

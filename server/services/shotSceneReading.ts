@@ -7,13 +7,15 @@ import type { Message } from "../_core/llm";
 import { parseJsonLoose } from "../_core/llmJson";
 import { resolveComputeCandidates } from "../_core/textComputeProvider";
 import { toYuan } from "../../shared/computeMoney";
-import { sceneLayoutSchema, sceneRecords, shotSceneFacts, type ShotSceneRecord } from "../../shared/shotSceneDirection";
+import { sceneLayoutSchema, sceneLayoutText, sceneRecords, shotSceneFacts, type SceneAllowance, type ShotSceneRecord } from "../../shared/shotSceneDirection";
 import { creationFingerprint, creationRecord, ownedCreationStory } from "../repositories/textSourceLineage";
 import { updateStoryBodyIfRevision } from "../repositories/stories";
 import { getStoryMaterialState } from "./storyMaterials";
 import { materializeImageInput } from "./imageAssets";
 import { stillVisualDescription } from "./confirmedStoryboardImagePrompt";
-import { readModuleImageTask } from "./bookModuleImageRecovery";
+import { moduleImageTasks } from "../repositories/bookModuleImageTasks";
+import { getImageTaskStore } from "../repositories/imageGenerationTasks";
+import { imageTaskAsyncSubmitEnabled } from "./imageGenerationTaskWorker";
 import { readPreviewResults } from "./artPreview";
 import { getChapter } from "../repositories/chapters";
 import { writingModuleTexts } from "../../shared/bookWritingStyle";
@@ -32,7 +34,7 @@ function shotSource(input: Scope, body: Record<string, unknown>) {
   const facts = shotSceneFacts(body, shot);
   return { shot, source, facts, basisKey: creationFingerprint([input.storyId, input.userId, input.stableShotId, source, facts]) };
 }
-export async function sceneReadingBasis(input: Scope) {
+async function readingContext(input: Scope) {
   const { body } = await ownedCreationStory(input);
   const { shot, source: shotText, facts, basisKey: shotKey } = shotSource(input, body);
   const material = await getStoryMaterialState(input.storyId, input.userId);
@@ -49,23 +51,29 @@ export async function sceneReadingBasis(input: Scope) {
     const index = chapter.blocks.writingStyle?.findIndex(b => b.id === moduleId) ?? -1;
     if (index < 0) return;
     const raw = writingModuleTexts(chapter.blocks.body, chapter.blocks.writingStyle)[index] ?? "";
-    return { text: readBookImage(raw) ? "" : stillVisualDescription(raw), task: await readModuleImageTask({ ...input, chapterId, moduleId }) };
+    const legacy = moduleImageTasks(body).filter(t => t.chapterId === chapterId && t.moduleId === moduleId);
+    const stored = imageTaskAsyncSubmitEnabled() ? await (await getImageTaskStore()).listForModule(input.userId, input.storyId, chapterId, moduleId) : [];
+    const candidates = [...legacy, ...stored].flatMap(t => t.status === "succeeded" && Array.isArray(t.candidates) ? t.candidates : []);
+    return { text: readBookImage(raw) ? "" : stillVisualDescription(raw), candidates };
   }));
   const ids = new Set([...target.imageVersions, ...(target.imageGenerationReferences ?? [])].map(i => i.id));
-  for (const m of modules) for (const c of m?.task?.candidates ?? []) ids.add(c.imageId);
+  for (const m of modules) for (const c of m?.candidates ?? []) ids.add(c.imageId);
   for (const batch of readPreviewResults(body)) {
     const result = batch.shots.find(s => s.stableShotId === input.stableShotId && s.status === "succeeded");
     for (const c of result?.candidates ?? []) ids.add(c.imageId);
   }
   const images = (material.warehouseImages ?? []).filter(i => (ids.has(i.id) || i.shotIdentity === input.stableShotId || i.libraryShotIds?.includes(input.stableShotId)) && i.userId === input.userId && i.storyId === input.storyId &&
     i.status !== "rejected" && i.availability !== "missing" && i.imageUrl)
-    .map(i => ({ id: i.id, url: i.imageUrl })).sort((a,b) => b.id-a.id);
+    .map(i => ({ id: i.id, url: i.imageUrl, version: i.imageKey ?? i.imageUrl })).sort((a,b) => b.id-a.id);
   const current = sceneRecords(body).find(row => row.stableShotId === input.stableShotId);
   const bookText = modules.flatMap(m => m?.text ? [m.text] : []).join("\n");
   const source = bookText || shotText;
   const basisKey = creationFingerprint([shotKey, bookText]);
-  return { basisKey, shotKey, source, shotText, facts, confirmed: current?.confirmed ?? "", reading: current?.reading, images,
-    defaultImageId: target.currentImage?.selectionSource === "explicit" && images.some(i => i.id === target.currentImage?.id) ? target.currentImage.id : null };
+  return { sources: current?.sources, basis: { basisKey, shotKey, source, shotText, facts, confirmed: current?.confirmed ?? "", reading: current?.reading, images,
+    defaultImageId: target.currentImage?.selectionSource === "explicit" && images.some(i => i.id === target.currentImage?.id) ? target.currentImage.id : null } };
+}
+export async function sceneReadingBasis(input: Scope) {
+  return (await readingContext(input)).basis;
 }
 
 async function replaceRecord(input: Scope, update: (row: ShotSceneRecord) => ShotSceneRecord, expectedBasis?: string) {
@@ -91,10 +99,12 @@ const prompt = [
 ].join("\n");
 
 async function readingRequest(input: Input) {
-  const basis = await sceneReadingBasis(input);
+  const { basis, sources } = await readingContext(input);
   const image = input.imageId ? basis.images.find(i => i.id === input.imageId) : undefined;
   if (input.imageId && !image) throw new Error("这张图不属于本镜或已失效。");
   const key = creationFingerprint(["scene-layout-v1", basis.basisKey, image ?? null, input.adjustment ?? ""]);
+  const sourceKey = creationFingerprint(["scene-source-v1", input.userId, input.storyId, input.stableShotId,
+    image ? [image.id, image.version, image.url] : [basis.source, basis.shotText]]);
   const text = JSON.stringify({ scene: basis.source, shotContext: basis.shotText !== basis.source ? basis.shotText : undefined,
     established: basis.facts, correction: input.adjustment ?? "" });
   if (text.length > 14000) throw new Error("本镜文字过长，请先缩短分镜要求。");
@@ -107,24 +117,28 @@ async function readingRequest(input: Input) {
   const useCase = textCandidates.length ? "text" as const : "vision" as const;
   const options = useCase === "text" ? textOptions : { fallback302Model: ENV.vision302Model };
   const candidates = textCandidates.length ? textCandidates : visualReadingCandidates({ ...input, imageId: image?.id ?? 0 }).filter(priced);
-  const cached = basis.reading?.key === key && basis.reading.status === "ready" ? basis.reading.layout : undefined;
+  const saved = sources?.find(s => s.sourceKey === sourceKey);
+  const cached = saved?.layout ?? (basis.reading?.key === key && basis.reading.status === "ready" ? basis.reading.layout : undefined);
+  const sameRequest = !saved || saved.requestKey === key;
   const prices = candidates.map(c => ({ provider: c.id, model: c.model, ...resolveTextPrice({ provider: c.id, model: c.model }) }));
   if (!cached && !prices.length)
     throw new Error("当前分析模型无法报价，可手动确认本镜调度。");
   const estimatedCny = cached ? 0 : toYuan(estimateInferenceMaxCostMinor({ useCase, candidates: options, messages: messages(image && "data:,"), maxTokens }, candidates));
-  const pending = basis.reading?.status === "reading" && Date.now() - basis.reading.startedAt < 120_000;
-  const unfinished = !!basis.reading && basis.reading.status !== "ready" && !pending;
-  const quoteKey = creationFingerprint([key, prices, basis.reading?.attempt, basis.reading?.status, pending]);
-  return { basis, image, key, quoteKey, messages, useCase, options, candidates, cached, estimatedCny, pending, unfinished };
+  const pending = !cached && basis.reading?.status === "reading" && Date.now() - basis.reading.startedAt < 120_000;
+  const unfinished = !cached && basis.reading?.key === key && basis.reading.status !== "ready" && !pending;
+  const quoteKey = cached ? creationFingerprint([key, "cached"]) : creationFingerprint([key, prices, estimatedCny, basis.reading?.attempt, basis.reading?.status, pending]);
+  const paidQuoteKey = sameRequest && saved?.quoteKey;
+  return { basis, image, key, sourceKey, quoteKey, paidQuoteKey, messages, useCase, options, candidates, cached, sameRequest, estimatedCny, pending, unfinished };
 }
 export async function quoteSceneReading(input: Input) {
   const r = await readingRequest(input);
-  return { key: r.quoteKey, estimatedCny: r.estimatedCny, cached: Boolean(r.cached), layout: r.cached, pending: r.pending, unfinished: r.unfinished };
+  return { key: r.quoteKey, estimatedCny: r.estimatedCny, cached: Boolean(r.cached), layout: r.sameRequest ? r.cached : undefined,
+    observed: r.cached?.observed, pending: r.pending, unfinished: r.unfinished, authFailed: r.unfinished && r.basis.reading?.authFailed === true };
 }
 export async function analyzeShotScene(input: Input & { key: string; estimatedCny: number }) {
   const r = await readingRequest(input);
-  if (r.quoteKey !== input.key || r.estimatedCny > input.estimatedCny + 0.000001) throw new Error("读图依据或报价已变化，请重新确认。");
-  if (r.cached) return r.cached;
+  if ((r.quoteKey !== input.key && r.paidQuoteKey !== input.key) || r.estimatedCny > input.estimatedCny) throw new Error("读图依据或报价已变化，请重新确认。");
+  if (r.cached) return r.sameRequest ? r.cached : { observed: r.cached.observed, people: [], objects: [], omit: [], uncertain: [] };
   const url = r.image && await materializeImageInput(r.image.url, input.userId);
   const attempt = randomUUID();
   await replaceRecord(input, row => {
@@ -140,12 +154,35 @@ export async function analyzeShotScene(input: Input & { key: string; estimatedCn
     const layout = sceneLayoutSchema.parse(parseJsonLoose(typeof content === "string" ? content : ""));
     if (!url) layout.observed = "";
     if (!layout.people.length && !layout.objects.length) throw new Error("分析未返回可用的本镜画面要素。");
-    await replaceRecord(input, row => row.reading?.attempt === attempt ? { ...row, reading: { ...row.reading, status: "ready", layout } } : row);
+    await replaceRecord(input, row => row.reading?.attempt === attempt ? { ...row,
+      sources: [...(row.sources ?? []).filter(s => s.sourceKey !== r.sourceKey), { sourceKey: r.sourceKey, requestKey: r.key, quoteKey: r.quoteKey, layout }],
+      reading: { ...row.reading, status: "ready", layout } } : row);
     return layout;
   } catch (e) {
-    await replaceRecord(input, row => row.reading?.attempt === attempt ? { ...row, reading: { ...row.reading, status: "failed" } } : row);
+    const attempts = creationRecord(e).attempts;
+    const authFailed = Array.isArray(attempts) && attempts.some(a => creationRecord(a).status === 401 || creationRecord(a).category === "auth");
+    await replaceRecord(input, row => row.reading?.attempt === attempt ? { ...row, reading: { ...row.reading, status: "failed", authFailed } } : row);
+    if (authFailed)
+      throw new Error("识图服务账号鉴权失败，请联系管理员更新供应商配置。未提交图片生成。", { cause: e });
     throw new Error("本次分析未完成，请核对原图或手动填写调度。图片尚未提交生成。", { cause: e });
   }
+}
+/** Execute inside the idempotent image task, after both the media price and source quote were checked. */
+export async function readSceneForRender(scope: Scope, allowance: SceneAllowance, adjustment?: string) {
+  if (scope.stableShotId !== allowance.stableShotId) throw new Error("分析与生成的镜头不一致，请重新报价。");
+  const input = { ...scope, imageId: allowance.imageId, adjustment };
+  const r = await readingRequest(input);
+  if ((r.quoteKey !== allowance.key && r.paidQuoteKey !== allowance.key) || r.estimatedCny > allowance.estimatedCny) throw new Error("首次分析或出图依据已变化，请重新查看合计报价。");
+  const layout = r.cached ?? await analyzeShotScene({ ...input, key: allowance.key, estimatedCny: allowance.estimatedCny });
+  if (!r.cached) {
+    const latest = await readingRequest(input);
+    if (latest.key !== r.key || !latest.cached) throw new Error("分析期间镜头或参考图已变化，请重新报价。");
+  }
+  // A different instruction can reuse pixel observations, never the previous target arrangement.
+  const target = r.sameRequest ? sceneLayoutText(layout) : "";
+  return [!target && layout.observed && `原图观察，仅保留与本轮要求一致的细节：${layout.observed}`,
+    !target && (r.basis.confirmed || r.basis.source), !target && r.basis.facts,
+    target, adjustment && `本轮调整优先：${adjustment}`].filter(Boolean).join("\n");
 }
 export async function confirmShotScene(input: Scope & { basisKey: string; text: string }) {
   const basis = await sceneReadingBasis(input);

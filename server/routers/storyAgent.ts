@@ -1,4 +1,6 @@
 import { bookModuleVisualBasis, bookModuleRenderStyle } from "../services/bookModuleVisualBasis";
+import { sceneAllowanceSchema, sceneRenderTotal, type SceneAllowance } from "../../shared/shotSceneDirection";
+import { readSceneForRender } from "../services/shotSceneReading";
 import { recoverChatImageRemix, readChatImageRemixQuote } from "../services/chatImageRemixRecovery";
 import { hasInlineChatImages, inlineChatInstruction } from "../../shared/inlineChatImages";
 import { inlineChatImageContent } from "../services/inlineChatImageContent";
@@ -1894,7 +1896,7 @@ export const storyAgentRouter = router({
         imageEditPlanOutput: z.object({ planMessageId: z.string().min(1).max(500), imageId: z.number().int().positive(), copy: z.number().int().min(1).max(4) }).optional(),
         conversationShotId: z.string().min(1).max(96).optional(),
         previewBatchId: z.string().uuid().optional(),
-        moduleTarget: z.object({ chapterId: z.number().int().positive(), moduleId: z.string().min(1).max(240), expectedText: z.string().max(200_000), requestId: z.string().uuid(), followReceipt: z.literal(true).optional(), basisHash: z.string().length(64).optional(), adjustment: z.string().trim().max(800).optional(), copyImageId: z.number().int().positive().optional(), previousTaskId: z.string().uuid().optional() }).optional(),
+        moduleTarget: z.object({ chapterId: z.number().int().positive(), moduleId: z.string().min(1).max(240), expectedText: z.string().max(200_000), requestId: z.string().uuid(), sceneAllowance: sceneAllowanceSchema.optional(), followReceipt: z.literal(true).optional(), basisHash: z.string().length(64).optional(), adjustment: z.string().trim().max(800).optional(), copyImageId: z.number().int().positive().optional(), previousTaskId: z.string().uuid().optional() }).optional(),
         renderReferences: shotRenderReferencesSchema.optional(),
         referenceRevision: z.boolean().optional(),
         conversationRevision: z.boolean().optional(),
@@ -1994,6 +1996,8 @@ export const storyAgentRouter = router({
           costConfirmation: { accepted: true, estimatedCny: batch.unitEstimatedCny } };
       }
       let usesPreviewArtBasis = false;
+      let previewReading: SceneAllowance | undefined;
+      let previewAdjustment: string | undefined;
       let coverStyleOnly = false;
       let monochromePreview = false;
       let coverCopy: { source: string; url: string } | undefined;
@@ -2002,11 +2006,14 @@ export const storyAgentRouter = router({
         if (priorFrameChanged) return { status: "error" as const, error: "本镜采用的画面已更换，请重新查看试图报价。" };
         if (requiresNewStyleQuote) return { status: "error" as const, error: "这份历史报价未记录当前画风，请重新查看试图报价。" };
         usesPreviewArtBasis = !!batch.artBasis;
+        previewReading = shot.sceneAllowance;
+        previewAdjustment = batch.adjustment;
         coverStyleOnly = batch.coverRole === "style" && renderReferences?.imagePurpose === "scene-style";
         monochromePreview = shot.monochrome === true;
         const estimate = estimateStoryboardImageCost();
-        if (!input.costConfirmation?.accepted || Math.abs(input.costConfirmation.estimatedCny - estimate.estimatedCny) > 0.001) {
-          return { status: "error" as const, error: `请先确认本批示意图算力；每镜 ${formatComputeQuote(estimate.estimatedCny)}` };
+        const shotTotal = sceneRenderTotal(estimate.estimatedCny, previewReading?.estimatedCny);
+        if (!input.costConfirmation?.accepted || input.costConfirmation.estimatedCny !== shotTotal) {
+          return { status: "error" as const, error: `请先确认示意图算力，本镜合计最多 ${formatComputeQuote(shotTotal)}` };
         }
         if (batch.coverCopy) coverCopy = await openPreviewCoverCopy(batch.coverCopy.receipt, {
           storyId: input.storyId, userId: ctx.user.id, imageId: batch.coverCopy.imageId, roundId: batch.id });
@@ -2124,7 +2131,9 @@ export const storyAgentRouter = router({
         if (input.gptImageModel && (input.imageProvider !== "gpt-image" || input.mode === "draft")) {
           throw new Error("GPT备用图片需要选择GPT正式生成");
         }
-        if (input.explicitInstruction || input.editMaskImageUrl || input.gptImageModel || input.moduleTarget?.basisHash) {
+        const reading = input.moduleTarget?.sceneAllowance ?? previewReading;
+        if (input.moduleTarget?.sceneAllowance && !input.moduleTarget.basisHash) throw new Error("请先核对本镜和合计报价。");
+        if (reading || input.explicitInstruction || input.editMaskImageUrl || input.gptImageModel || input.moduleTarget?.basisHash) {
           const estimate =
             fluxEdit ? estimateFluxKontextEditCost(fluxKontextEditModel(input.explicitInstruction)!) : input.editMaskImageUrl || input.imageProvider === "gpt-image"
               ? estimateStoryboardMaskedEditCost()
@@ -2137,8 +2146,8 @@ export const storyAgentRouter = router({
           }
           if (
             Math.abs(
-              input.costConfirmation.estimatedCny - estimate.estimatedCny
-            ) > 0.001
+              input.costConfirmation.estimatedCny - sceneRenderTotal(estimate.estimatedCny, reading?.estimatedCny)
+            ) > (reading ? 0 : .001)
           ) {
             return {
               status: "error" as const,
@@ -2375,12 +2384,15 @@ export const storyAgentRouter = router({
           : null;
 
         const bookFrame = moduleStyle ?? gptBookBasis;
+        const staging = reading ? await readSceneForRender({ storyId: input.storyId, userId: ctx.user.id,
+          stableShotId: input.moduleTarget ? bookFrame?.stableShotId || "" : previewReading!.stableShotId },
+          reading, input.moduleTarget?.adjustment ?? previewAdjustment) : "";
         const confirmedFramePrompt = bookFrame && input.moduleTarget ? [
-          input.moduleTarget.adjustment, bookFrame.sceneFacts,
-          !bookFrame.confirmedScene && (stillVisualDescription(input.moduleTarget.expectedText) || input.moduleTarget.expectedText),
+          input.moduleTarget.adjustment, staging || bookFrame.sceneFacts,
+          !staging && !bookFrame.confirmedScene && (stillVisualDescription(input.moduleTarget.expectedText) || input.moduleTarget.expectedText),
           bookFrame.direction,
         ].filter(Boolean).join("\n")
-          : composedFrame ? composedStoryboardImagePrompt(storyBody, input.explicitInstruction!) : input.previewBatchId ? input.prompt : !input.referenceRevision && !input.exactFrameEdit && !input.remixEdit
+          : composedFrame ? composedStoryboardImagePrompt(storyBody, input.explicitInstruction!) : input.previewBatchId ? [staging, input.prompt].filter(Boolean).join("\n") : !input.referenceRevision && !input.exactFrameEdit && !input.remixEdit
           ? confirmedStoryboardImagePrompt({ body: storyBody, shot: storyShot,
               title: story.title, instruction: input.explicitInstruction })
           : null;

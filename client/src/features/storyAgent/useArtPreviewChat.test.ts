@@ -3,7 +3,7 @@ const m = vi.hoisted(() => ({ plan: vi.fn(), choose: vi.fn(), generate: vi.fn(),
 vi.mock("@/lib/trpc", () => ({ trpc: {
   artSystems: { previewPlan: { useMutation: () => ({ mutateAsync: m.plan }) }, previewChoose: { useMutation: () => ({ mutateAsync: m.choose }) } },
   storyAgent: { generateForMobile: { useMutation: () => ({ mutateAsync: m.generate }) }, recoverStoryboardImage: { useMutation: () => ({ mutateAsync: m.recover }) } },
-  useUtils: () => ({ artSystems: { previewRead: { invalidate: m.invalidate } }, storyAgent: { storyMaterialState: { invalidate: m.invalidate }, storyImages: { invalidate: m.invalidate } } })
+  useUtils: () => ({ artSystems: { sceneQuote: { invalidate: m.invalidate }, previewRead: { invalidate: m.invalidate } }, storyAgent: { storyMaterialState: { invalidate: m.invalidate }, storyImages: { invalidate: m.invalidate } } })
 } }));
 vi.mock("./mediaChatSession", () => ({ askMediaChatConfirmation: m.confirm, withMediaChatSession: (_id: number, work: () => unknown) => work() }));
 vi.mock("./spine/storySpine", () => ({ storySpineStore: { getState: () => ({ ...m.state }), subscribe: () => () => {} } }));
@@ -28,6 +28,19 @@ it("submits only the two selected samples after one batch confirmation", async (
   expect(m.confirm.mock.calls[0][0].text).toContain("共 8 张，预计 2.72 算力");
   expect(m.generate.mock.calls.map(([input]) => input.shotNo)).toEqual([2,9]);
   expect(m.generate.mock.calls.map(([input]) => [input.conversationShotId, input.shotImageRequestId])).toEqual([["s2","request-2"],["s9","request-9"]]);
+});
+it("shows both prices in one confirmation and submits only each selected shot's approved amount", async () => {
+  const readings = [0, .032].map((estimatedCny, n) => ({ stableShotId: "s" + n, key: "a".repeat(64), imageId: n + 1, estimatedCny }));
+  m.plan.mockResolvedValue({ id: "bundle", version: 1, estimatedCny: 1.392, shots: readings.map((a, n) =>
+    ({ shotNo: n + 1, stableShotId: a.stableShotId, label: String(n + 1), sceneAllowance: a })) });
+  const preview = () => useArtPreviewChat()(1, "生成基调示意图", ["s0", "s1"], undefined, undefined, readings);
+  await preview();
+  expect(m.generate).not.toHaveBeenCalled(); expect(m.confirm).toHaveBeenCalledTimes(1);
+  expect(m.confirm.mock.calls[0][0].text).toContain("分析最多 0.064 算力，生图 2.72 算力");
+  m.confirm.mockResolvedValue(true);
+  await preview();
+  expect(m.confirm).toHaveBeenCalledTimes(2);
+  expect(m.generate.mock.calls.map(([r]) => r.costConfirmation.estimatedCny)).toEqual([.68, .712]);
 });
 it("runs at most two jobs concurrently and does not retry a failed purchase", async () => {
   m.confirm.mockResolvedValue(true);

@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import { ShotScenePreparation } from "./ShotScenePreparation";
+import type { SceneAllowance } from "@shared/shotSceneDirection";
 import type { StoryMaterialState } from "@shared/storyMaterial";
 import { useArtPreviewChat } from "@/features/storyAgent/useArtPreviewChat";
 import { trpc } from "@/lib/trpc";
@@ -30,7 +31,11 @@ export function VideoStartChoices({ storyId, material, cues, candidates, shotLab
   const [working, setWorking] = useState(false);
   const [message, setMessage] = useState("");
   const [readyShots, setReadyShots] = useState<Record<string, boolean>>({});
-  const markReady = useCallback((id: string, ready: boolean) => setReadyShots(old => old[id] === ready ? old : { ...old, [id]: ready }), []);
+  const [readings, setReadings] = useState<Record<string, SceneAllowance | undefined>>({});
+  const markReady = useCallback((id: string, ready: boolean, allowance?: SceneAllowance) => {
+    setReadyShots(old => old[id] === ready ? old : { ...old, [id]: ready });
+    setReadings(old => old[id]?.key === allowance?.key ? old : { ...old, [id]: allowance });
+  }, []);
   const lock = useRef(false);
   const preview = useArtPreviewChat();
   const sourceImages = material.shots.flatMap(s => s.imageGenerationReferences ?? []);
@@ -55,7 +60,8 @@ export function VideoStartChoices({ storyId, material, cues, candidates, shotLab
       const numbers = samples.map(s => s.shotNo).join("、");
       const copyId = basis.data?.needsCoverCopy && cover && approvedCoverId === cover.id ? cover.id : undefined;
       setApprovedCoverId(null);
-      const result = await preview(storyId, `为第 ${numbers} 镜各生成四张基调示意图`, samples.map(s => s.stableShotId), adjustment.trim() || undefined, copyId);
+      const allowances = samples.flatMap(s => readings[s.stableShotId] ?? []);
+      const result = await preview(storyId, `为第 ${numbers} 镜各生成四张基调示意图`, samples.map(s => s.stableShotId), adjustment.trim() || undefined, copyId, allowances);
       setMessage(result?.reply ?? "未能开始试图，请重新选择镜头。");
     } catch (cause) {
       setMessage(cause instanceof Error ? cause.message : "图片制作未完成。");

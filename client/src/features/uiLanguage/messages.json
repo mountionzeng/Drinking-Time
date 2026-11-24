@@ -1,4 +1,12 @@
 {
+  "仅识别所选图": {"en":"Analyze image only","fr":"Analyser seulement l’image"},
+  "仅分析分镜": {"en":"Analyze description only","fr":"Analyser seulement le texte du plan"},
+  "将复用首次分析，识图费用为零。": {"en":"The first analysis will be reused at no additional cost.","fr":"La première analyse sera réutilisée sans frais."},
+  "首次分镜分析已计入下方总报价。": {"en":"The total below includes the first shot analysis.","fr":"Le total inclut la première analyse du plan."},
+  "生成时会将所选图交给识图服务，分析已计入下方总报价。": {"en":"Generating sends the selected image for analysis. The total below includes this cost.","fr":"La génération envoie l’image choisie au service d’analyse. Le total inclut ce coût."},
+  "上次识图服务鉴权失败。可手动确认本镜调度，或在服务恢复后再生成。": {"en":"The image analysis service rejected the last sign-in. Set the staging manually or generate once service resumes.","fr":"Le service d’analyse a refusé l’authentification. Précisez la mise en scène ou attendez son rétablissement."},
+  "分析最多 {0}，生图 {1}。": {"en":"Analysis up to {0}, image generation {1}.","fr":"Analyse jusqu’à {0}, génération d’images {1}."},
+  "确认生成 {0} 张 · 合计最多 {1}": {"en":"Generate {0} · Total up to {1}","fr":"Générer {0} · Total maximal {1}"},
   "正在读取本镜画面要素…": {"en":"Loading shot elements…","fr":"Lecture des éléments du plan…"},
   "正在分析…": {"en":"Analyzing…","fr":"Analyse en cours…"},
   "查看本镜原文": {"en":"View shot description","fr":"Voir le texte du plan"},

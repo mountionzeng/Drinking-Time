@@ -62,6 +62,29 @@ it("re-quotes one failed preview, reuses its request across windows and follows 
   expect(mocks.agent).not.toHaveBeenCalled();
 });
 
+it("freezes the combined sample ceiling and only retries an already analyzed source at the warehouse price", async () => {
+  const input = await fixture();
+  const reading = await import("./shotSceneReading");
+  const quote = vi.spyOn(reading, "quoteSceneReading");
+  const allowance = { stableShotId: "s2", key: "a".repeat(64), estimatedCny: .032, imageId: 11 };
+  quote.mockResolvedValue({ ...allowance, cached: false, pending: false, unfinished: false, authFailed: false, observed: undefined, layout: undefined });
+  try {
+    const request = { ...input, sampleShotIds: ["s1", "s2"], sceneAllowances: [allowance] };
+    const batch = await planArtPreviews(request);
+    expect(batch.estimatedCny).toBe(1.392);
+    expect(batch.shots.map(s => s.sceneAllowance)).toEqual([undefined, allowance]);
+    await expect(planArtPreviews({ ...request, sceneAllowances: [] })).rejects.toThrow("另一份分析报价");
+    const target = batch.shots[1];
+    await patch(input.storyId, { storyboardImageTasks: [{ requestId: target.requestId, shotIdentity: `preview:${batch.id}:s2`, status: "failed", result: { status: "error", error: "test" } }] });
+    const basis = await readPreviewArtBasis(input.storyId, 1);
+    const retry = { ...input, failedId: target.requestId, basisKey: basis.basisKey };
+    await expect(retryPreviewPlan(retry)).rejects.toThrow("合计报价");
+    const free = { ...allowance, key: "b".repeat(64), estimatedCny: 0 };
+    quote.mockResolvedValue({ ...free, cached: true, pending: false, unfinished: false, authFailed: false, observed: "blue boat", layout: undefined });
+    expect(await retryPreviewPlan(retry)).toMatchObject({ estimatedCny: .68, shots: [{ sceneAllowance: free }] });
+    expect(mocks.agent).not.toHaveBeenCalled();
+  } finally { quote.mockRestore(); }
+});
 it("versions the plan with intent, authorship and one quote; replay does not infer again", async () => {
   const input = await fixture(); const batch = await planArtPreviews(input);
   expect(batch).toMatchObject({ version: 1, editorId: 1, editorName: "作者", instruction: input.instruction, baselineImageId: input.imageId, estimatedCny: 1.36 });

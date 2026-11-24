@@ -1,7 +1,7 @@
 import { beforeEach, expect, it, vi } from "vitest";
 import { createStory, resetMemoryStateForTesting } from "../db";
 import { ENV } from "../_core/env";
-import { analyzeShotScene, confirmShotScene, quoteSceneReading, sceneReadingBasis } from "./shotSceneReading";
+import { analyzeShotScene, confirmShotScene, quoteSceneReading, sceneReadingBasis, readSceneForRender } from "./shotSceneReading";
 import { prepareStoryBody } from "./storySync";
 import { sceneLayoutText } from "../../shared/shotSceneDirection";
 
@@ -85,4 +85,30 @@ it("allows only one inference for a quote used by two tabs", async () => {
   const results = await Promise.allSettled([analyzeShotScene({ ...scope, ...quote }), analyzeShotScene({ ...scope, ...quote })]);
   expect(results.filter(r => r.status === "fulfilled")).toHaveLength(1);
   expect(mocks.infer).toHaveBeenCalledTimes(1);
+});
+it("uses each source version once, including a re-opened image after a new direction or another source", async () => {
+  const scope = await fixture();
+  const source = { ...scope, imageId: 11 };
+  const first = { ...source, ...await quoteSceneReading(source) };
+  await expect(readSceneForRender(scope, first)).resolves.toContain("dancer");
+  await expect(readSceneForRender(scope, first)).resolves.toContain("dancer");
+  const revised = { ...source, adjustment: "one seated violinist" };
+  const free = { ...revised, ...await quoteSceneReading(revised) };
+  expect(free).toMatchObject({ estimatedCny: 0, cached: true, observed: layout.observed, layout: undefined });
+  const prompt = await readSceneForRender(scope, free, revised.adjustment);
+  expect(prompt).toContain("one seated violinist"); expect(prompt).toContain(layout.observed); expect(prompt).not.toContain("dancer");
+  expect(await analyzeShotScene(free)).toMatchObject({ observed: layout.observed, people: [], uncertain: [] });
+  const text = { ...scope, ...await quoteSceneReading(scope) };
+  await readSceneForRender(scope, text);
+  expect((await quoteSceneReading(source)).estimatedCny).toBe(0);
+  expect(mocks.infer).toHaveBeenCalledTimes(2); expect(mocks.pixels).toHaveBeenCalledTimes(1);
+  await expect(readSceneForRender({ ...scope, stableShotId: "other" }, first)).rejects.toThrow("镜头");
+  const material = await mocks.material();
+  material.warehouseImages[0].imageKey = "updated-pixels";
+  await expect(readSceneForRender(scope, first)).rejects.toThrow("报价");
+  const fresh = await quoteSceneReading(source);
+  expect(fresh.estimatedCny).toBeGreaterThan(0);
+  mocks.price.mockReturnValue({ priced: true, yuanPer1kTokens: .04 });
+  await expect(readSceneForRender(scope, { ...source, ...fresh })).rejects.toThrow("报价");
+  expect(mocks.infer).toHaveBeenCalledTimes(2);
 });

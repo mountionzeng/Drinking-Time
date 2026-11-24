@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { fromYuan, toYuan } from "./computeMoney";
 import { findVisualAssetVersion, normalizeStoryVisualAssets } from "./visualAssets";
 
 const detail = z.string().trim().max(220);
@@ -13,6 +14,12 @@ export const sceneLayoutSchema = z.object({
   uncertain: z.array(detail).max(12),
 });
 export type SceneLayout = z.infer<typeof sceneLayoutSchema>;
+export const sceneAllowanceSchema = z.object({
+  stableShotId: z.string().min(1).max(128), imageId: z.number().int().positive().optional(),
+  key: z.string().length(64), estimatedCny: z.number().finite().nonnegative(),
+});
+export type SceneAllowance = z.infer<typeof sceneAllowanceSchema>;
+export const sceneRenderTotal = (imageCny: number, readingCny = 0) => toYuan(fromYuan(imageCny) + fromYuan(readingCny));
 
 /** Only the intended arrangement is rendered. Observations may describe a mistake in the source. */
 export function sceneLayoutText(layout: SceneLayout) {
@@ -27,7 +34,8 @@ export function sceneLayoutText(layout: SceneLayout) {
 export type ShotSceneRecord = {
   stableShotId: string;
   confirmed?: string;
-  reading?: { key: string; attempt: string; startedAt: number; status: "reading" | "ready" | "failed"; layout?: SceneLayout };
+  sources?: Array<{ sourceKey: string; requestKey: string; quoteKey: string; layout: SceneLayout }>;
+  reading?: { key: string; attempt: string; startedAt: number; status: "reading" | "ready" | "failed"; layout?: SceneLayout; authFailed?: boolean };
 };
 export function sceneRecords(body: Record<string, unknown>): ShotSceneRecord[] {
   return Array.isArray(body.shotSceneDirections) ? body.shotSceneDirections : [];

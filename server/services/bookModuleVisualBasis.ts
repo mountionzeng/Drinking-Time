@@ -71,5 +71,5 @@ export async function bookModuleRenderStyle(scope: Scope, options: { requestId: 
       styleRef = copy.url;
     } else styleRef = await wechatProviderReference(image.imageUrl, scope.userId);
   }
-  return { aspectRatio: basis.aspectRatio, direction: basis.direction, styleRef, sceneFacts: basis.sceneFacts, confirmedScene: basis.confirmedScene };
+  return { aspectRatio: basis.aspectRatio, direction: basis.direction, styleRef, sceneFacts: basis.sceneFacts, confirmedScene: basis.confirmedScene, stableShotId: basis.stableShotId };
 }
