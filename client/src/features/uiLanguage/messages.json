@@ -1,4 +1,8 @@
 {
+  "识图服务商额度不足。可手动填写本镜调度，或在服务额度恢复后再生成。": {"en":"The image analysis provider is out of quota. Enter the staging manually or generate after quota is restored.","fr":"Le quota du service d’analyse est insuffisant. Saisissez la mise en scène ou réessayez une fois le quota rétabli."},
+  "上次识图请求被供应商拒绝。请联系站点管理员检查供应商令牌权限和额度。": {"en":"The provider declined the previous analysis. Ask the site administrator to check the provider token permissions and quota.","fr":"Le fournisseur a refusé la dernière analyse. Demandez à l’administrateur du site de vérifier les droits et le quota du jeton."},
+  "识图服务商可用额度不足。请联系站点管理员查看供应商账户余额和令牌额度，恢复后可重新生成。尚未提交生图。": {"en":"The image analysis provider has insufficient quota. Ask the site administrator to check the account balance and token quota before retrying. Image generation has not been submitted.","fr":"Le quota du fournisseur d’analyse est insuffisant. Demandez à l’administrateur de vérifier le solde du compte et le quota du jeton avant de réessayer. Aucune génération d’image n’a été soumise."},
+  "识图服务鉴权失败，请联系站点管理员检查供应商令牌及模型权限。尚未提交生图。": {"en":"Image analysis authorization failed. Ask the site administrator to check the provider token and model permissions. Image generation has not been submitted.","fr":"L’autorisation d’analyse a échoué. Demandez à l’administrateur de vérifier le jeton et les droits du modèle. Aucune génération d’image n’a été soumise."},
   "仅识别所选图": {"en":"Analyze image only","fr":"Analyser seulement l’image"},
   "仅分析分镜": {"en":"Analyze description only","fr":"Analyser seulement le texte du plan"},
   "将复用首次分析，识图费用为零。": {"en":"The first analysis will be reused at no additional cost.","fr":"La première analyse sera réutilisée sans frais."},

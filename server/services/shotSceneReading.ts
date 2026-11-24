@@ -133,7 +133,8 @@ async function readingRequest(input: Input) {
 export async function quoteSceneReading(input: Input) {
   const r = await readingRequest(input);
   return { key: r.quoteKey, estimatedCny: r.estimatedCny, cached: Boolean(r.cached), layout: r.sameRequest ? r.cached : undefined,
-    observed: r.cached?.observed, pending: r.pending, unfinished: r.unfinished, authFailed: r.unfinished && r.basis.reading?.authFailed === true };
+    observed: r.cached?.observed, pending: r.pending, unfinished: r.unfinished, authFailed: r.unfinished && r.basis.reading?.authFailed === true,
+    ...(r.unfinished && r.basis.reading?.providerError ? { providerError: r.basis.reading.providerError } : {}) };
 }
 export async function analyzeShotScene(input: Input & { key: string; estimatedCny: number }) {
   const r = await readingRequest(input);
@@ -160,10 +161,13 @@ export async function analyzeShotScene(input: Input & { key: string; estimatedCn
     return layout;
   } catch (e) {
     const attempts = creationRecord(e).attempts;
-    const authFailed = Array.isArray(attempts) && attempts.some(a => creationRecord(a).status === 401 || creationRecord(a).category === "auth");
-    await replaceRecord(input, row => row.reading?.attempt === attempt ? { ...row, reading: { ...row.reading, status: "failed", authFailed } } : row);
+    const last = creationRecord(Array.isArray(attempts) ? attempts.at(-1) : undefined);
+    const providerError = last.errorCode === "insufficient_quota" ? "insufficient_quota" as const : undefined;
+    const authFailed = !providerError && (last.status === 401 || last.category === "auth");
+    await replaceRecord(input, row => row.reading?.attempt === attempt ? { ...row, reading: { ...row.reading, status: "failed", authFailed, providerError } } : row);
+    if (providerError) throw new Error("识图服务商可用额度不足。请联系站点管理员查看供应商账户余额和令牌额度，恢复后可重新生成。尚未提交生图。", { cause: e });
     if (authFailed)
-      throw new Error("识图服务账号鉴权失败，请联系管理员更新供应商配置。未提交图片生成。", { cause: e });
+      throw new Error("识图服务鉴权失败，请联系站点管理员检查供应商令牌及模型权限。尚未提交生图。", { cause: e });
     throw new Error("本次分析未完成，请核对原图或手动填写调度。图片尚未提交生成。", { cause: e });
   }
 }

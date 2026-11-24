@@ -47,7 +47,10 @@ export function ShotScenePreparation({ storyId, stableShotId, shotNo, adjustment
       {current.images.map(i => <option key={i.id} value={i.id}>{ui("本镜图片 #{0}", [i.id])}</option>)}
     </select></label>
     {imageId > 0 && <img className="max-h-24 rounded object-contain" src={current.images.find(i => i.id === imageId)?.url} alt={`待读取的本镜图片 #${imageId}`} />}
-    {quote.data?.unfinished && <p role="status">{ui(quote.data.authFailed ? "上次识图服务鉴权失败。可手动确认本镜调度，或在服务恢复后再生成。" : "上次分析未取得结果，可能已产生费用。重新分析会按本次报价计费。")}</p>}
+    {quote.data?.unfinished && <p role="status">{ui(quote.data.providerError === "insufficient_quota"
+      ? "识图服务商额度不足。可手动填写本镜调度，或在服务额度恢复后再生成。"
+      : quote.data.authFailed ? "上次识图请求被供应商拒绝。请联系站点管理员检查供应商令牌权限和额度。"
+      : "上次分析未取得结果，可能已产生费用。重新分析会按本次报价计费。")}</p>}
     <button type="button" className="rounded border px-2 py-1" disabled={!quote.data || quote.isFetching || quote.data.pending} onClick={async () => {
       if (lock.current || !quote.data) return;
       lock.current = true;

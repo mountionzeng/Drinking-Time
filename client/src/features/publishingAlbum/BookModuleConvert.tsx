@@ -276,7 +276,9 @@ export function BookModuleConvert({
           {savedTask.status === "unknown" && <p>{_ui("已有图片任务，恢复只查询同一个任务，不会重新购买生成。")}</p>}
           <button onClick={() => void checkReceipt(true)}>{_ui("恢复上次生成")}</button>
         </div>}
-        {savedTask?.status === "failed" && savedTask.error && !error && <p role="alert">{savedTask.error}</p>}
+        {savedTask?.status === "failed" && savedTask.error && !error && <p role="alert">{_ui(
+          savedTask.error === "识图服务账号鉴权失败，请联系管理员更新供应商配置。未提交图片生成。"
+            ? "上次识图请求被供应商拒绝。请联系站点管理员检查供应商令牌权限和额度。" : savedTask.error)}</p>}
         {sceneAllowance && !result && !images.length && !submitted && !blockNewImage && <p className="text-sm">
           {_ui("分析最多 {0}，生图 {1}。", [formatComputeQuote(sceneAllowance.estimatedCny), formatComputeQuote(cost)])}</p>}
         {!result && !images.length && !submitted && !blockNewImage && (
@@ -478,7 +480,7 @@ export function BookModuleConvert({
         {busy && <p role="status">{protectedTask ? _ui("正在查询已有图片任务，请稍候…") : _ui("正在生成，请稍候…")}</p>}
         {error && (
           <p role="alert" className="text-sm text-destructive">
-            {error}
+            {_ui(error)}
             {submitted ? _ui(" 请先查看仓库或核实任务状态，暂勿重复提交。") : ""}
           </p>
         )}

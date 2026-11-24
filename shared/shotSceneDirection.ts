@@ -35,7 +35,7 @@ export type ShotSceneRecord = {
   stableShotId: string;
   confirmed?: string;
   sources?: Array<{ sourceKey: string; requestKey: string; quoteKey: string; layout: SceneLayout }>;
-  reading?: { key: string; attempt: string; startedAt: number; status: "reading" | "ready" | "failed"; layout?: SceneLayout; authFailed?: boolean };
+  reading?: { key: string; attempt: string; startedAt: number; status: "reading" | "ready" | "failed"; layout?: SceneLayout; authFailed?: boolean; providerError?: "insufficient_quota" };
 };
 export function sceneRecords(body: Record<string, unknown>): ShotSceneRecord[] {
   return Array.isArray(body.shotSceneDirections) ? body.shotSceneDirections : [];

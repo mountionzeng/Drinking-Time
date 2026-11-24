@@ -350,6 +350,10 @@ describe("storyAgent tRPC router", () => {
       expect(read).not.toHaveBeenCalled();
       read.mockRejectedValueOnce(Object.assign(new Error("test"), { attempts: [{ status: 401, category: "auth" }] }));
       expect(await caller.storyAgent.generateForMobile(await request())).toMatchObject({ status: "error", error: expect.stringContaining("鉴权") });
+      expect(await caller.artSystems.sceneQuote(scope)).toMatchObject({ unfinished: true, authFailed: true });
+      read.mockRejectedValueOnce(Object.assign(new Error("test"), { attempts: [{ status: 403, category: "auth", errorCode: "insufficient_quota" }] }));
+      expect(await caller.storyAgent.generateForMobile(await request())).toMatchObject({ status: "error", error: expect.stringContaining("供应商账户余额和令牌额度") });
+      expect(await caller.artSystems.sceneQuote(scope)).toMatchObject({ unfinished: true, authFailed: false, providerError: "insufficient_quota" });
       expect(legnextMocks.generateLegnextImage).not.toHaveBeenCalled();
       const layout = { observed: "Five on stage", people: [{ role: "solo cellist", count: "one", position: "above", clothing: "linen", action: "wave", target: "conductor", gaze: "down" }], objects: [], omit: ["extras"], uncertain: [] };
       read.mockResolvedValueOnce({ result: { choices: [{ message: { content: JSON.stringify(layout) } }] } } as never);
@@ -361,7 +365,7 @@ describe("storyAgent tRPC router", () => {
       expect(legnextMocks.generateLegnextImage.mock.calls[0][0]).not.toContain("Five on stage");
       expect((await caller.artSystems.sceneQuote(scope)).estimatedCny).toBe(0);
       await caller.storyAgent.generateForMobile(accepted);
-      expect(read).toHaveBeenCalledTimes(2); expect(legnextMocks.generateLegnextImage).toHaveBeenCalledTimes(1);
+      expect(read).toHaveBeenCalledTimes(3); expect(legnextMocks.generateLegnextImage).toHaveBeenCalledTimes(1);
     } finally {
       read.mockRestore(); materialize.mockRestore(); vi.unstubAllEnvs();
       ENV.openaiNextApiKey = key; ENV.openaiNextVisionModel = model;
