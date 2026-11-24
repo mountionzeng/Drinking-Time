@@ -55,14 +55,16 @@ export function VideoStartChoices({ storyId, material, cues, candidates, shotLab
     }
   }
   const visibleCues = [...(cues.length ? cues : candidates)].sort((a, b) => a.startFrame - b.startFrame);
-  return <section aria-label="视频制作起点" className="mb-2 max-h-[32vh] space-y-2 overflow-auto rounded-lg border border-border bg-background p-3 text-xs">
-    <p className="font-medium">{shot ? "这条视频，你想先做哪一部分？" : "先把故事拆成镜头"}</p>
+  const shortcut = "text-xs text-primary underline underline-offset-2 hover:text-foreground";
+  return <div className="mt-1 space-y-1.5 text-xs">
     {shot ? <>
-      <p>{material.shots.filter(s => s.currentImage || s.currentVideo).length}/{material.shots.length} 镜已采用画面{referenceCount > 0 && ` · 分镜参考图 ${referenceCount} 张`} · 字幕 {cues.length} 条 · 音乐轨 {musicCount} 段</p>
-      <div className="flex flex-wrap gap-2">
-        <button className={button} aria-expanded={choice === "images"} onClick={() => setChoice(choice === "images" ? null : "images")}>选几镜试图定基调</button>
-        <button className={button} aria-expanded={choice === "subtitles"} onClick={() => setChoice(choice === "subtitles" ? null : "subtitles")}>{cues.length ? "查看已有字幕" : "从台词做字幕"}</button>
-        <button className={button} onClick={openMusic}>制作全片配乐</button>
+      <details className="text-muted-foreground"><summary className="cursor-pointer">已有素材</summary>
+        <p>{material.shots.filter(s => s.currentImage || s.currentVideo).length}/{material.shots.length} 镜已采用画面{referenceCount > 0 && ` · 分镜参考图 ${referenceCount} 张`} · 字幕 {cues.length} 条 · 音乐轨 {musicCount} 段</p>
+      </details>
+      <div className="flex flex-wrap gap-x-3 gap-y-1">
+        <button className={shortcut} aria-expanded={choice === "images"} onClick={() => setChoice(choice === "images" ? null : "images")}>选几镜试图定基调</button>
+        <button className={shortcut} aria-expanded={choice === "subtitles"} onClick={() => setChoice(choice === "subtitles" ? null : "subtitles")}>{cues.length ? "查看已有字幕" : "从台词做字幕"}</button>
+        <button className={shortcut} onClick={openMusic}>制作全片配乐</button>
       </div>
       {choice === "images" && <div className="space-y-2">
         <p>从故事前后挑镜头对照画风。每镜出四张候选，可勾选一至三镜。</p>
@@ -102,5 +104,5 @@ export function VideoStartChoices({ storyId, material, cues, candidates, shotLab
         {error && <p role="alert">{error}</p>}
       </div>}
     </> : <><p>书稿提供故事和台词，分镜决定画面顺序和时长。有了分镜，就可以试图、做字幕或按全片时长配乐。</p><button className={button} onClick={openBook}>打开书稿</button></>}
-  </section>;
+  </div>;
 }

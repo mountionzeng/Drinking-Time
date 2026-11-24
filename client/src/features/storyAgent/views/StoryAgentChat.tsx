@@ -58,6 +58,7 @@ import { chatRevisionSlots } from "../chatRevisionOrder";
 import { parseArtSystemChat } from "@shared/artSystemChat";
 import { parseArtPreviewChat } from "@shared/artPreview";
 import { ArtPreviewGallery } from "./ArtPreviewGallery";
+import { useVideoStartMessage } from "@/features/bookVideo/useVideoStartMessage";
 import { storySpineStore } from "../spine/storySpine";
 import { useBookVideoWorkspace } from "@/features/bookVideo/BookVideoWorkspace";
 import { parseSoundChat } from "@shared/soundChat";
@@ -783,8 +784,10 @@ export default function StoryAgentChat({
       : undefined;
   const shotHistoryKey = selectedChatShot ? `${activeStoryId}:${selectedChatShot.stableShotId ?? selectedChatShot.shotIdentity}` : null;
   const showingShotHistory = Boolean(shotHistoryKey && closedShotHistory !== shotHistoryKey);
+  const startMessage = useVideoStartMessage(videoStartHost && accountId && activeStoryId &&
+    creationEditor?.materialState?.storyId === activeStoryId ? `dt:video-start:${accountId}:${activeStoryId}` : null, messages);
   const conversationMessages = showingShotHistory && selectedChatShot && activeStoryId
-    ? shotConversationMessages(messages, activeStoryId, selectedChatShot.stableShotId ?? selectedChatShot.shotIdentity ?? "", selectedChatShot) : messages;
+    ? shotConversationMessages(messages, activeStoryId, selectedChatShot.stableShotId ?? selectedChatShot.shotIdentity ?? "", selectedChatShot) : startMessage.history;
   const revisionSlots = chatRevisionSlots(conversationMessages, workspaceContext === "video" ?
     (frameImageRevisions.data ?? []).filter(revision => !showingShotHistory ||
       (revision.stableShotId === activeSelection?.stableShotId && !revision.decision && !revision.requestId.startsWith("image:"))) : []);
@@ -2488,7 +2491,13 @@ export default function StoryAgentChat({
                 {latestCue && m.id!==cueTurn?.reply.id && m.id.startsWith("video-cues:") && m.role==="assistant" && m.selectionQuote?.storyId===activeStoryId &&
                   <button type="button" className="mb-1 text-xs underline" aria-label={"继续此视频对话："+(messages.find(row=>cueReplyId(row.id)===m.id)?.content??"").slice(0,55)}
                     onClick={()=>setOpenedCue({id:m.id,latest:latestCue.reply.id,openedAt:Date.now()})}>继续此视频对话</button>}
-                {m.role === "assistant" && m.id.startsWith(localReplyPrefix) && activeStoryId && accountId ? (() => {
+                {m.id === startMessage.messageId ? <section aria-label={_ui("视频制作起点")}>
+                  {startMessage.expanded ? <>
+                    <p data-chat-message-text>{_ui(m.content)}</p>
+                    <div ref={videoStartHost} hidden={Boolean(mediaQuestion)} />
+                    <button type="button" className="mt-1 text-xs text-muted-foreground underline" onClick={() => { startMessage.setExpanded(false); focusInput(); }}>{_ui("先跳过")}</button>
+                  </> : <button type="button" className="text-xs underline" onClick={() => startMessage.setExpanded(true)}>{_ui("查看视频制作建议")}</button>}
+                </section> : m.role === "assistant" && m.id.startsWith(localReplyPrefix) && activeStoryId && accountId ? (() => {
                   const note = messages.find(row=>row.id===localNotePrefix+m.id.slice(localReplyPrefix.length));
                   const shot = creationEditor?.shots.find(s=>(s.stableShotId ?? s.shotIdentity) === m.selectionQuote?.stableShotId);
                   const pending = m.selectionQuote?.objectVersion === "local-feedback-pending" || (note && m.content === startingLocalFeedback(note.content));
@@ -3218,7 +3227,6 @@ export default function StoryAgentChat({
             {writingSnapshot?.layoutMemory && <LayoutMemoryDetails memory={writingSnapshot.layoutMemory} accountId={accountId} />}
           </section>
         </div>}
-          {videoStartHost && <div ref={videoStartHost} hidden={Boolean(mediaQuestion)} />}
           {mediaQuestion && <article className="mb-3 max-h-56 overflow-y-auto rounded-lg border border-border bg-background p-3 text-xs leading-relaxed" aria-label={_ui("制作确认")}>
             <p className="whitespace-pre-wrap">{mediaQuestion.text}</p>
             {mediaQuestion.bookReview && <BookImportMaterials review={mediaQuestion.bookReview} />}
