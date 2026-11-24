@@ -1894,7 +1894,7 @@ export const storyAgentRouter = router({
         imageEditPlanOutput: z.object({ planMessageId: z.string().min(1).max(500), imageId: z.number().int().positive(), copy: z.number().int().min(1).max(4) }).optional(),
         conversationShotId: z.string().min(1).max(96).optional(),
         previewBatchId: z.string().uuid().optional(),
-        moduleTarget: z.object({ chapterId: z.number().int().positive(), moduleId: z.string().min(1).max(240), expectedText: z.string().max(200_000), requestId: z.string().uuid(), basisHash: z.string().length(64).optional(), adjustment: z.string().trim().max(800).optional(), copyImageId: z.number().int().positive().optional(), previousTaskId: z.string().uuid().optional() }).optional(),
+        moduleTarget: z.object({ chapterId: z.number().int().positive(), moduleId: z.string().min(1).max(240), expectedText: z.string().max(200_000), requestId: z.string().uuid(), followReceipt: z.literal(true).optional(), basisHash: z.string().length(64).optional(), adjustment: z.string().trim().max(800).optional(), copyImageId: z.number().int().positive().optional(), previousTaskId: z.string().uuid().optional() }).optional(),
         renderReferences: shotRenderReferencesSchema.optional(),
         referenceRevision: z.boolean().optional(),
         conversationRevision: z.boolean().optional(),
@@ -2881,7 +2881,7 @@ export const storyAgentRouter = router({
                 renderProfile: buildRenderSnapshot("image.legnext-v7-fast", { params: legnextOptions, promptChars: renderedFinalPrompt.length }) });
           }
           if (moduleImage && (input.imageProvider ?? "midjourney") === "midjourney") {
-            return submitRender("image.legnext-v7-fast", { prompt: renderedFinalPrompt, onAccepted: moduleImage.onMidjourneyTaskAccepted, options: { inlinePoll: !moduleImage.asyncSubmit, ...(moduleStyle ? { aspectRatio: moduleStyle.aspectRatio, styleRef: moduleStyle.styleRef } : {}) } });
+            return submitRender("image.legnext-v7-fast", { prompt: renderedFinalPrompt, onAccepted: moduleImage.onMidjourneyTaskAccepted, options: { inlinePoll: !moduleImage.asyncSubmit && !input.moduleTarget?.followReceipt, ...(moduleStyle ? { aspectRatio: moduleStyle.aspectRatio, styleRef: moduleStyle.styleRef } : {}) } });
           }
           return referenceImage
             ? editMobileImage(providerReferenceImage!, renderedFinalPrompt, {

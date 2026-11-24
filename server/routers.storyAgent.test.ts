@@ -292,7 +292,7 @@ describe("storyAgent tRPC router", () => {
       await expect(appRouter.createCaller(createAuthContext(userId+100)).storyAgent.bookModuleVisualBasis(scope)).rejects.toThrow();
       const input = { storyId: story.id, mode: "final" as const, imageProvider: "midjourney" as const,
         costConfirmation: { accepted: true as const, estimatedCny: estimateStoryboardImageCost().estimatedCny },
-        prompt: "paper boat", moduleTarget: { ...scope, expectedText: "画面：纸船。旁白：「合成测试对白。」", adjustment: "Fine hatching.", requestId: crypto.randomUUID(), basisHash: "0".repeat(64) } };
+        prompt: "paper boat", moduleTarget: { ...scope, expectedText: "画面：纸船。旁白：「合成测试对白。」", adjustment: "Fine hatching.", followReceipt: true as const, requestId: crypto.randomUUID(), basisHash: "0".repeat(64) } };
       legnextMocks.generateLegnextImage.mockClear();
       expect(await caller.storyAgent.generateForMobile(input)).toMatchObject({ status: "error", error: expect.stringContaining("画幅或画风已变化") });
       expect(legnextMocks.generateLegnextImage).not.toHaveBeenCalled();
@@ -302,7 +302,7 @@ describe("storyAgent tRPC router", () => {
       const [prompt, , options] = legnextMocks.generateLegnextImage.mock.calls[0];
       expect(prompt).toContain("纸船"); expect(prompt).not.toContain("合成测试对白");
       expect(prompt).toContain("Fine hatching."); expect(prompt).toContain("--no text, lettering, typography, captions, borders, frames");
-      expect(prompt).toContain("Ochre paper"); expect(options).toMatchObject({ aspectRatio: ratio, styleRef: imageUrl });
+      expect(prompt).toContain("Ochre paper"); expect(options).toMatchObject({ aspectRatio: ratio, styleRef: imageUrl, inlinePoll: false });
       expect(options).not.toHaveProperty("referenceImageUrl");
     }
   });

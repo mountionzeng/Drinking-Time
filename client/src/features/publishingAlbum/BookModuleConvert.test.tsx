@@ -2,7 +2,7 @@ import React from 'react';
 import {beforeEach,expect,it,vi} from 'vitest';
 const m=vi.hoisted(()=>({translate:vi.fn(),describe:vi.fn(),image:vi.fn(),recover:vi.fn(),refetch:vi.fn(),task:null as any,taskLoading:false,taskError:null as unknown,music:vi.fn(),price:vi.fn(),invalidate:vi.fn(),states:[] as any[],index:0,refs:[] as any[],ref:0,basis:null as any,updatedAt:1,queryOptions:null as any}));
 vi.mock('react',async()=>({...await vi.importActual<typeof import('react')>('react'),useEffect:(fn:any)=>fn(),useRef:(v:any)=>m.refs[m.ref++]??(m.refs[m.ref-1]={current:v}),useState:(v:any)=>{const i=m.index++;if(!(i in m.states))m.states[i]=v;return [m.states[i],(n:any)=>m.states[i]=n];}}));
-vi.mock('@/lib/trpc',()=>({trpc:{bookMedia:{translate:{useMutation:()=>({mutateAsync:m.translate})},quoteNarration:{useMutation:()=>({mutateAsync:m.price})},describe:{useMutation:()=>({mutateAsync:m.describe})}},storyAgent:{generateForMobile:{useMutation:()=>({mutateAsync:m.image})},bookModuleVisualBasis:{useQuery:()=>({data:m.basis})},bookModuleImageTask:{useQuery:(_i:any,o:any)=>(m.queryOptions=o,{data:m.task,isFetchedAfterMount:true,dataUpdatedAt:m.updatedAt,isLoading:m.taskLoading,isFetching:false,error:m.taskError,refetch:m.refetch})},recoverBookModuleImage:{useMutation:()=>({mutateAsync:m.recover})}},timelineMedia:{generateNarrationCandidate:{useMutation:()=>({mutateAsync:m.music})},quoteSceneAudio:{useMutation:()=>({mutateAsync:m.price})},generateSceneAudio:{useMutation:()=>({mutateAsync:m.music})}},useUtils:()=>({memoryWarehouse:{forStory:{invalidate:m.invalidate}},storyAgent:{storyMaterialState:{invalidate:m.invalidate}},timelineMedia:{audioAssetLibrary:{invalidate:m.invalidate}}})}}));
+vi.mock('@/lib/trpc',()=>({trpc:{bookMedia:{translate:{useMutation:()=>({mutateAsync:m.translate})},quoteNarration:{useMutation:()=>({mutateAsync:m.price})},describe:{useMutation:()=>({mutateAsync:m.describe})}},storyAgent:{generateForMobile:{useMutation:()=>({mutateAsync:m.image})},bookModuleVisualBasis:{useQuery:()=>({data:m.basis})},bookModuleImageTask:{useQuery:(_i:any,o:any)=>(m.queryOptions=o,{data:m.task,isFetchedAfterMount:!m.taskLoading,dataUpdatedAt:m.updatedAt,isLoading:m.taskLoading,isFetching:false,error:m.taskError,refetch:m.refetch})},recoverBookModuleImage:{useMutation:()=>({mutateAsync:m.recover})}},timelineMedia:{generateNarrationCandidate:{useMutation:()=>({mutateAsync:m.music})},quoteSceneAudio:{useMutation:()=>({mutateAsync:m.price})},generateSceneAudio:{useMutation:()=>({mutateAsync:m.music})}},useUtils:()=>({memoryWarehouse:{forStory:{invalidate:m.invalidate}},storyAgent:{storyMaterialState:{invalidate:m.invalidate}},timelineMedia:{audioAssetLibrary:{invalidate:m.invalidate}}})}}));
 import {BookModuleConvert} from './BookModuleConvert';
 function nodes(n:any):any[]{return !n||typeof n!=='object'?[]:Array.isArray(n)?n.flatMap(nodes):[n,...nodes(n.props?.children)];}
 beforeEach(()=>{vi.clearAllMocks();m.states=[];m.refs=[];m.index=0;m.ref=0;m.task=null;m.basis=null;m.updatedAt=1;m.recover.mockReset().mockResolvedValue({status:"error",pending:true});m.taskLoading=false;m.taskError=null;vi.stubGlobal('React',React);m.invalidate.mockResolvedValue(undefined);m.refetch.mockResolvedValue(undefined);});
@@ -221,7 +221,9 @@ it('polls a running task every few seconds and stops after ~10 minutes or when f
  expect(every({state:{data:{status:'accepted'}}})).toBe(6000);
  vi.setSystemTime(11*60_000);
  expect(every({state:{data:{status:'accepted'}}})).toBe(false);
- expect(every({state:{data:{status:'succeeded'}}})).toBe(false);
+ expect(every({state:{data:{status:'succeeded'}}})).toBe(30_000);
+ expect(every({state:{data:null}})).toBe(30_000);
+ expect(m.queryOptions.refetchOnWindowFocus).toBe('always');expect(m.queryOptions.refetchIntervalInBackground).toBe(false);
  vi.useRealTimers();
 });
 it('shows and inserts the image once when a polled task finishes, without a new purchase',()=>{
@@ -272,6 +274,25 @@ it('requires consent for the current style thumbnail and leaves linked shot cand
  m.index=m.ref=0;tree=nodes(BookModuleConvert(props));expect(draw(tree).props.disabled).toBe(false);
  m.image.mockResolvedValue({status:'ok',candidates:[{imageUrl:'/api/images/new.png'}]});
  draw(tree).props.onClick();await settle();
- expect(m.image).toHaveBeenCalledWith(expect.objectContaining({ moduleTarget:expect.objectContaining({basisHash:'owned',copyImageId:19,previousTaskId:'old'}) }));
+ expect(m.image).toHaveBeenCalledWith(expect.objectContaining({ moduleTarget:expect.objectContaining({followReceipt:true,basisHash:'owned',copyImageId:19,previousTaskId:'old'}) }));
  expect(props.onInsert).not.toHaveBeenCalled();
+});
+
+it('shows fresh durable results ahead of old video trials when a second window finishes',()=>{
+ const props=imgProps();m.states=[false,'','', '',['/old-book.png']];
+ m.basis={fingerprint:'owned',shotNumbers:[3],aspectRatio:'16:9',previewVersion:5,previewImages:[{imageUrl:'/old-video.png',imageId:7}]};
+ m.task={id:'latest',status:'succeeded',sourceChanged:false,inserted:false,candidates:[{imageUrl:'/new-book.png'}]};
+ const tree=nodes(BookModuleConvert(props));
+ expect(tree.filter(n=>n.type==='img').map(n=>n.props.src)).toEqual(['/new-book.png','/old-video.png']);
+ expect(m.image).not.toHaveBeenCalled();expect(m.recover).not.toHaveBeenCalled();
+});
+
+it('discovers a round submitted elsewhere without inserting into the watching manuscript',async()=>{
+ const props=imgProps();BookModuleConvert(props);
+ m.task={id:'elsewhere',requestId:'external',status:'accepted',providerTaskId:'receipt',candidates:[]};
+ m.index=m.ref=0;m.updatedAt++;BookModuleConvert(props);await settle();
+ m.task={...m.task,status:'succeeded',candidates:[{imageUrl:'/remote-result.png'}]};
+ m.index=m.ref=0;const tree=nodes(BookModuleConvert(props));
+ expect(tree.some(n=>n.type==='img'&&n.props.src==='/remote-result.png')).toBe(true);
+ expect(props.onInsert).not.toHaveBeenCalled();expect(m.image).not.toHaveBeenCalled();
 });
