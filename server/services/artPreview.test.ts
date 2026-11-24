@@ -19,6 +19,18 @@ async function fixture(userId = 1) {
   const image = await createGeneratedImage({ storyId: story.id, userId, imageUrl: "/baseline.png", prompt: "baseline", isCurrent: false });
   return { storyId: story.id, userId, imageId: image.id, editorName: "作者", instruction: "迁移这一效果生成示意图", operationToken: crypto.randomUUID() };
 }
+it("includes only this shot's confirmed staging and rejects a quote after its staging changes", async () => {
+  const input = await fixture();
+  const direction = { stableShotId: "s1", confirmed: "One sailor above waves. The cyclist below looks up." };
+  await patch(input.storyId, { shotSceneDirections: [direction, { stableShotId: "s2", confirmed: "Lone skater." }] });
+  const batch = await planArtPreviews({ ...input, sampleShotIds: ["s1", "s2"] });
+  const first = await artPreviewGenerationInput(input.storyId, 1, batch.id, 1);
+  expect(first.prompt).toContain(direction.confirmed);
+  expect(first.prompt).not.toMatch(/Lone skater|frame 1/);
+  expect((await artPreviewGenerationInput(input.storyId, 1, batch.id, 2)).prompt).toContain("Lone skater.");
+  await patch(input.storyId, { shotSceneDirections: [{ ...direction, confirmed: "Two sailors." }] });
+  await expect(artPreviewGenerationInput(input.storyId, 1, batch.id, 1)).rejects.toThrow("重新查看");
+});
 async function patch(storyId: number, body: Record<string, unknown>) {
   const story = (await getStoryById(storyId, 1))!;
   await updateStory(storyId, 1, { body: { ...story.body as Record<string, unknown>, ...body } });

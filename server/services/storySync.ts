@@ -89,6 +89,7 @@ const SERVER_OWNED_BODY_FIELDS = [
   "storyboardImageTasks",
   "shotConversationMedia",
   "visualEditBriefs",
+  "shotSceneDirections",
   "frameRegionReviews",
   "storyboardFieldVersions",
   "artPreviewBatches",
@@ -485,7 +486,7 @@ export function prepareStoryBody(
   for (const field of SERVER_OWNED_BODY_FIELDS) {
     if (hasOwn(existing, field)) {
       prepared[field] = existing[field];
-    } else if (["frameRegionReviews", "visualEditBriefs", "warehouseFiles", "creationEmotion", "bookWorkflow", "videoWorkflow", "shotConversationMedia", "storyboardImageTasks", "storyboardFieldVersions", "artPreviewBatches", "artSystemReceipts", "bookModuleImageTasks", "bookVideoRecords", "textDraftHistory", "materialCapture", "textSourceLineage", "storyboardTextSource", "creationFlowReceipts", "creationFlowCommandReceipts"].includes(field)) {
+    } else if (["frameRegionReviews", "visualEditBriefs", "shotSceneDirections", "warehouseFiles", "creationEmotion", "bookWorkflow", "videoWorkflow", "shotConversationMedia", "storyboardImageTasks", "storyboardFieldVersions", "artPreviewBatches", "artSystemReceipts", "bookModuleImageTasks", "bookVideoRecords", "textDraftHistory", "materialCapture", "textSourceLineage", "storyboardTextSource", "creationFlowReceipts", "creationFlowCommandReceipts"].includes(field)) {
       // Generic saves cannot fabricate model results or adopted learning evidence.
       delete prepared[field];
     }

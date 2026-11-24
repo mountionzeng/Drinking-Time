@@ -289,6 +289,12 @@ describe("storyAgent tRPC router", () => {
       }
       const basis = await caller.storyAgent.bookModuleVisualBasis(scope);
       expect(basis).toMatchObject({ shotNumbers: [3], aspectRatio: ratio, styleImageId: style.id });
+      const layoutScope = { storyId: story.id, stableShotId: "paper-boat" };
+      const scene = await caller.artSystems.sceneBasis(layoutScope);
+      const layout = `只画一艘纸船。甲板上的旅客向下挥手，岸边穿围裙的人抬头看旅客。标记 ${userId}`;
+      await caller.artSystems.sceneConfirm({ ...layoutScope, basisKey: scene.basisKey, text: layout });
+      const staged = await caller.storyAgent.bookModuleVisualBasis(scope);
+      expect(staged?.fingerprint).not.toEqual(basis?.fingerprint);
       await expect(appRouter.createCaller(createAuthContext(userId+100)).storyAgent.bookModuleVisualBasis(scope)).rejects.toThrow();
       const input = { storyId: story.id, mode: "final" as const, imageProvider: "midjourney" as const,
         costConfirmation: { accepted: true as const, estimatedCny: estimateStoryboardImageCost().estimatedCny },
@@ -297,10 +303,10 @@ describe("storyAgent tRPC router", () => {
       expect(await caller.storyAgent.generateForMobile(input)).toMatchObject({ status: "error", error: expect.stringContaining("画幅或画风已变化") });
       expect(legnextMocks.generateLegnextImage).not.toHaveBeenCalled();
       legnextMocks.generateLegnextImage.mockResolvedValueOnce({ status: "ok", imageUrl: "https://storage.example/ready.png" });
-      const result = await caller.storyAgent.generateForMobile({ ...input, moduleTarget: { ...input.moduleTarget, requestId: crypto.randomUUID(), basisHash: basis!.fingerprint } });
+      const result = await caller.storyAgent.generateForMobile({ ...input, moduleTarget: { ...input.moduleTarget, requestId: crypto.randomUUID(), basisHash: staged!.fingerprint } });
       expect(result.status).toBe("ok");
       const [prompt, , options] = legnextMocks.generateLegnextImage.mock.calls[0];
-      expect(prompt).toContain("纸船"); expect(prompt).not.toContain("合成测试对白");
+      expect(prompt).toContain(layout); expect(prompt).not.toContain("合成测试对白");
       expect(prompt).toContain("Fine hatching."); expect(prompt).toContain("--no text, lettering, typography, captions, borders, frames");
       expect(prompt).toContain("Ochre paper"); expect(options).toMatchObject({ aspectRatio: ratio, styleRef: imageUrl, inlinePoll: false });
       expect(options).not.toHaveProperty("referenceImageUrl");

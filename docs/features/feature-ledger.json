@@ -11823,6 +11823,9 @@
         "server/services/bookModuleTranslation.ts",
         "server/services/legnextImage.ts",
         "server/services/bookModuleVisualBasis.ts",
+        "server/services/shotSceneReading.ts",
+        "shared/shotSceneDirection.ts",
+        "client/src/features/bookVideo/ShotScenePreparation.tsx",
         "server/services/bookModuleImageRecovery.ts",
         "server/repositories/bookModuleImageTasks.ts",
         "shared/bookModuleImageTask.ts",
@@ -11836,6 +11839,7 @@
       ],
       "evidence": [
         "server/services/bookModuleSource.test.ts",
+        "server/services/shotSceneReading.test.ts",
         "server/services/storyAudioGeneration.test.ts",
         "client/src/features/publishingAlbum/BookWritingContext.test.tsx",
         "docs/qa/2026-10-31-book-module-conversion.md",
@@ -11912,6 +11916,11 @@
           "date": "2026-11-24",
           "kind": "fix",
           "summary": "书页打开已受理的图片任务时按原回执取图。已完成的候选重开可见，原文变化时只展示，等待和手动恢复共享查询。"
+        },
+        {
+          "date": "2026-11-24",
+          "kind": "enhancement",
+          "summary": "书页与多镜试图可在出图前按分镜文字或选定本镜图片逐人逐物分析。图像观察、修订、存疑项分开，按账号及稳定镜头保存确认的调度，后续渲染继承。读图单独报价，确认调度、沿用原文和取消均不购买图片。"
         },
         {
           "date": "2026-11-24",

@@ -1,4 +1,5 @@
 import { readPreviewResults } from "./artPreview";
+import { confirmedShotScene, shotSceneFacts } from "../../shared/shotSceneDirection";
 import { activeArtSystemRecipe } from "../../shared/artSystem";
 import { creationFingerprint, creationRecord, ownedCreationStory } from "../repositories/textSourceLineage";
 import { getChapter } from "../repositories/chapters";
@@ -38,7 +39,11 @@ export async function bookModuleVisualBasis(scope: Scope) {
     direction: [art.direction, art.rules, notes].filter(Boolean).join("\n"),
     needsCopy: Boolean(ref && isWechatImportImage(ref.imageUrl) && !privateReferenceOrigin()),
   };
-  const fingerprint = creationFingerprint({ storyId: scope.storyId, userId: scope.userId, chapterId: scope.chapterId, moduleId: scope.moduleId, basis, shotIds: shots.map(s => s.stableShotId), styleUrl: ref?.imageUrl ?? null });
+  const one = shots.length === 1 ? shots[0] : null;
+  const sceneFacts = one ? shotSceneFacts(body, one) : "";
+  const confirmedScene = !!one && Boolean(confirmedShotScene(body, one));
+  const fingerprint = creationFingerprint({ storyId: scope.storyId, userId: scope.userId, chapterId: scope.chapterId, moduleId: scope.moduleId,
+    basis, ...(sceneFacts ? { sceneFacts, confirmedScene } : {}), shotIds: shots.map(s => s.stableShotId), styleUrl: ref?.imageUrl ?? null });
   const latest = shots.length === 1 ? readPreviewResults(body).reverse().flatMap(batch =>
     batch.shots.filter(s => s.stableShotId === shots[0].stableShotId && s.status === "succeeded" && s.candidates.length)
       .map(s => ({ version: batch.version, candidates: s.candidates }))).at(0) : undefined;
@@ -47,7 +52,7 @@ export async function bookModuleVisualBasis(scope: Scope) {
     const image = ownedImages.find(i => i.id === c.imageId && i.availability !== "missing" && i.status !== "rejected");
     return image ? [{ imageId: image.id, imageUrl: image.imageUrl }] : [];
   }) ?? [];
-  return { ...basis, fingerprint, previewVersion: latest?.version, previewImages };
+  return { ...basis, stableShotId: one ? String(one.stableShotId || "") : "", sceneFacts, confirmedScene, fingerprint, previewVersion: latest?.version, previewImages };
 }
 
 export async function bookModuleRenderStyle(scope: Scope, options: { requestId: string; basisHash?: string; copyImageId?: number }) {
@@ -66,5 +71,5 @@ export async function bookModuleRenderStyle(scope: Scope, options: { requestId: 
       styleRef = copy.url;
     } else styleRef = await wechatProviderReference(image.imageUrl, scope.userId);
   }
-  return { aspectRatio: basis.aspectRatio, direction: basis.direction, styleRef };
+  return { aspectRatio: basis.aspectRatio, direction: basis.direction, styleRef, sceneFacts: basis.sceneFacts, confirmedScene: basis.confirmedScene };
 }

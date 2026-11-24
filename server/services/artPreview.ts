@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { confirmedShotScene, shotSceneFacts } from "../../shared/shotSceneDirection";
 import { z } from "zod";
 import { artPreviewBatchSchema, readArtPreviewBatches, type ArtPreviewBatch } from "../../shared/artPreview";
 import type { StoryMaterialState } from "../../shared/storyMaterial";
@@ -51,12 +52,13 @@ async function source(storyId: number, userId: number) {
   const recipe = activeArtSystemRecipe(owned.body);
   const filmStyle = recipe?.system?.filmStyleImageId ? { version: recipe.version, imageId: recipe.system.filmStyleImageId } : null;
   const artBasis = previewArtBasis(owned.body, material, owned.story.title);
-  const frameNotes = rawShots.map(s => [...new Set([s.subject, s.location, s.timeLight, s.lighting, s.colorPalette,
+  const frameNotes = rawShots.map(s => [...new Set([!confirmedShotScene(owned.body, s) && s.subject, s.location, s.timeLight, s.lighting, s.colorPalette,
     s.materialTexture, s.cameraAngle, s.lens, s.mood, s.characterReference, s.wardrobeReference, s.sceneReference,
     s.textureReference, s.negativePrompt && `避免：${s.negativePrompt}`,
     compileCreationEmotion(storyEmotion(owned.body, { shotId: text(s.stableShotId) }), "art")].map(text).filter(Boolean))].join("；"));
   const { source: _displayLabel, ...renderBasis } = artBasis;
-  return { ...owned, material, shots, music, filmStyle, artBasis, frameNotes, artBasisHash: creationFingerprint({ renderBasis, frameNotes }),
+  const sceneFacts = rawShots.map(s => shotSceneFacts(owned.body, s));
+  return { ...owned, material, shots, music, filmStyle, artBasis, frameNotes, sceneFacts, artBasisHash: creationFingerprint({ renderBasis, frameNotes, ...(sceneFacts.some(Boolean) ? { sceneFacts } : {}) }),
     sourceHash: creationFingerprint({ shots, audio, music,
     art: artSystemPrompt(owned.body), subtitles: record(material.timeline.extensions).subtitleTracks }) };
 }
@@ -222,11 +224,13 @@ export async function artPreviewGenerationInput(storyId: number, userId: number,
   const currentImageId = current.material.shots.find(s => s.stableShotId === shot.stableShotId)?.currentImage?.id ?? null;
   const basis = batch.artBasis;
   const legacyPrompt = !batch.baselineImageId ? `镜头基调试图：${shot.brief}` : `跨镜头美术示意图：只迁移参考图的视觉效果，按本镜内容重新安排构图，不复制上一镜的事件。\n${shot.brief}\n迁移意图：${shot.adaptation}`;
-  const prompt = basis ? [stillVisualDescription(shot.brief) || shot.brief,
+  const sceneFacts = current.sceneFacts[current.shots.findIndex(s => s.stableShotId === shot.stableShotId)];
+  if (sceneFacts && !batch.artBasisHash) throw new Error("本镜新增了画面调度，请重新查看试图报价。");
+  const confirmed = confirmedShotScene(current.body, shot);
+  const prompt = basis ? [batch.adjustment && `本轮调整（与旧要求冲突时以本轮为准）：${batch.adjustment}`, sceneFacts, !confirmed && (stillVisualDescription(shot.brief) || shot.brief),
     shot.monochrome && "Black and white throughout the frame. Black ink and gray values on neutral paper.",
     basis.direction, shot.frameNotes, !batch.sampleShotId && !batch.sampleShotIds && shot.adaptation,
     shot.previousChoice?.adjustments.length && `本镜此前已采用的调整：${shot.previousChoice.adjustments.join("；")}`,
-    batch.adjustment && `本轮调整（与旧要求冲突时以本轮为准）：${batch.adjustment}`,
     basis.filmBrief && `影片创作要求：${basis.filmBrief}`,
     "画面中的人物、场景和构图以本镜为准。镜头明确要求黑白时沿用全片的线条和材质，只调整色彩；字幕由文字轨叠加。",
   ].filter(Boolean).join("\n") : legacyPrompt;

@@ -2162,6 +2162,10 @@ export const storyAgentRouter = router({
         const moduleStyle = moduleImage && input.moduleTarget && plannedProvider === "midjourney"
           ? await bookModuleRenderStyle({ storyId: input.storyId, userId: ctx.user.id, ...input.moduleTarget }, input.moduleTarget)
           : null;
+        const gptBookBasis = moduleImage && input.moduleTarget?.basisHash && plannedProvider === "gpt-image"
+          ? await bookModuleVisualBasis({ storyId: input.storyId, userId: ctx.user.id, ...input.moduleTarget }) : null;
+        if (plannedProvider === "gpt-image" && input.moduleTarget?.basisHash && gptBookBasis?.fingerprint !== input.moduleTarget.basisHash)
+          throw new Error("本镜画面依据已变化，请重新打开窗口确认。");
         const storyBody =
           story.body && typeof story.body === "object"
             ? (story.body as Record<string, unknown>)
@@ -2370,9 +2374,11 @@ export const storyAgentRouter = router({
             }
           : null;
 
-        const confirmedFramePrompt = moduleStyle && input.moduleTarget ? [
-          stillVisualDescription(input.moduleTarget.expectedText) || input.moduleTarget.expectedText,
-          moduleStyle.direction, input.moduleTarget.adjustment,
+        const bookFrame = moduleStyle ?? gptBookBasis;
+        const confirmedFramePrompt = bookFrame && input.moduleTarget ? [
+          input.moduleTarget.adjustment, bookFrame.sceneFacts,
+          !bookFrame.confirmedScene && (stillVisualDescription(input.moduleTarget.expectedText) || input.moduleTarget.expectedText),
+          bookFrame.direction,
         ].filter(Boolean).join("\n")
           : composedFrame ? composedStoryboardImagePrompt(storyBody, input.explicitInstruction!) : input.previewBatchId ? input.prompt : !input.referenceRevision && !input.exactFrameEdit && !input.remixEdit
           ? confirmedStoryboardImagePrompt({ body: storyBody, shot: storyShot,
@@ -2682,7 +2688,7 @@ export const storyAgentRouter = router({
           shotNo: input.shotNo != null ? String(input.shotNo) : undefined,
           projectId: input.referenceRevision ? undefined : story.projectId ?? undefined,
           storyId: story.id,
-          preservePrompt: Boolean(moduleStyle) || usesPreviewArtBasis || Boolean(composedFrame || unreferencedFramePrompt) || (!confirmedFramePrompt && Boolean(coverArtDirection)),
+          preservePrompt: Boolean(bookFrame) || usesPreviewArtBasis || Boolean(composedFrame || unreferencedFramePrompt) || (!confirmedFramePrompt && Boolean(coverArtDirection)),
           outputPurpose: "story-frame" as const,
           // 首次正式出图的候选不该只是同一居中画面的换色。已有画面、用户精确指令
           // 和锁定资产都由各自的连续性约束接管，不能在这里强行分叉。
