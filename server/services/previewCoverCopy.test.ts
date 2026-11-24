@@ -92,7 +92,8 @@ it("uses separate signed-in authors' books and prepares only the explicitly auth
     expect(render.mock.calls[0][0]).toMatch(/--no [^\n]*, color/);
     expect(JSON.stringify(options)).not.toMatch(/wechat-import|data:image/);
     // A different confirmed film style supersedes the book cover. Keep composition free for the adopted shot.
-    const style = await createGeneratedImage({ storyId: alice.id, userId: a.id, imageUrl: "https://example.invalid/film-style.jpg", isCurrent: false });
+    const styleUrl = "data:image/jpeg;base64," + copy.toString("base64");
+    const style = await createGeneratedImage({ storyId: alice.id, userId: a.id, imageUrl: styleUrl, isCurrent: false });
     const current = await getStoryById(alice.id, a.id);
     await updateStory(alice.id, a.id, { body: { ...(current!.body as object),
       artDirection: { recipe: { version: 2, system: { name: "Film", confirmedAt: 1, filmStyleImageId: style.id } } } } });
@@ -110,7 +111,8 @@ it("uses separate signed-in authors' books and prepares only the explicitly auth
       expect(JSON.stringify(args)).not.toMatch(/wechat-import|synth.jpg/);
     }
     await checkRequest();
-    const frame = await createGeneratedImage({ storyId: alice.id, userId: a.id, imageUrl: "https://example.invalid/adopted.jpg", isCurrent: false });
+    const frameUrl = "data:image/jpeg;base64," + original.toString("base64");
+    const frame = await createGeneratedImage({ storyId: alice.id, userId: a.id, imageUrl: frameUrl, isCurrent: false });
     await assignStoryImageToShot({ storyId: alice.id, userId: a.id, imageId: frame.id, shotNo: "SH01", shotIdentity: shot.stableShotId });
     await checkRequest(frame.imageUrl);
     await checkRequest(style.imageUrl, style.id);

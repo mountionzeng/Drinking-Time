@@ -108,18 +108,19 @@ const direction = (version: number, imageId: number) => ({
   recipe: { version, system: { name: "Ink", confirmedAt: 1, filmStyleImageId: imageId } },
 });
 
-it("quotes the adopted manuscript's cover and carries its written art rules and this round's change to the render", async () => {
+it.each(["storage key", "warehouse URL"])("quotes the adopted manuscript's cover by %s and carries the art rules to the render", async source => {
   const input = await fixture();
-  const key = `chapters/1/${"a".repeat(64)}.jpg`;
+  const key = source === "storage key" ? `chapters/1/${"a".repeat(64)}.jpg` : "generated/paper.png";
+  const url = "/api/images/paper.png";
   const groupId = "publishing-group-v1-current";
-  const manuscript = { id: "source", kind: "storyboard", number: 3, chapters: [{ blocks: { coverKey: key } }] };
+  const manuscript = { id: "source", kind: "storyboard", number: 3, chapters: [{ blocks: { coverKey: source === "storage key" ? key : url } }] };
   const workflow = { schemaVersion: 1, revision: 3, current: { storyboard: "other" }, conversions: [], versions: [manuscript] };
   const shot = { stableShotId: "s1", shotNo: 1, promptDraft: "a monochrome brick wall", materialTexture: "rag paper", publishingVideo: { groupId } };
   await patch(input.storyId, {
     shots: [shot], bookWorkflow: workflow, artDirection: { recipe: { version: 4, style: ["charcoal"], palette: ["ochre"], system: { name: "Ink", confirmedAt: 1, filmStyleImageId: input.imageId } } },
     bookVideoRecords: [{ status: "adopted", versionId: "v1", videoVersion: 5, preview: { previewId: "current" }, manuscriptSource: { id: "source" }, brief: { tone: "quiet" } }],
   });
-  mocks.material.mockResolvedValue({ shots: [], warehouseImages: [{ id: input.imageId, imageKey: key }], timeline: { extensions: {} } });
+  mocks.material.mockResolvedValue({ shots: [], warehouseImages: [{ id: input.imageId, imageKey: key, imageUrl: url }], timeline: { extensions: {} } });
   const request = { ...input, imageId: undefined, sampleShotId: "s1", adjustment: "soften the ink shadow" };
   const batch = await planArtPreviews(request);
   expect(batch.artBasis).toMatchObject({ source: "test · 分镜稿 V3 · 视频 V5", coverImageId: input.imageId, styleName: "Ink V4" });

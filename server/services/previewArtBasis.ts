@@ -21,7 +21,7 @@ export function previewArtBasis(body: Record<string, unknown>, material: StoryMa
   const keys = [...new Set(manuscript?.chapters.map(chapter => chapter.blocks.coverKey).filter((key): key is string => !!key))];
   const publishing = resolvePublishingStoryboardCoverSource(normalizePublishingDraftState(body.publishing));
   const available = (material.warehouseImages ?? []).filter(i => i.availability !== "missing" && i.status !== "rejected");
-  const manuscriptCover = keys.length === 1 && available.find(i => i.imageKey === keys[0] || (
+  const manuscriptCover = keys.length === 1 && available.find(i => i.imageKey === keys[0] || i.imageUrl === keys[0] || (
     /^chapters\/\d+\/[a-f0-9]{64}\.(?:jpg|png|webp)$/.test(keys[0]) &&
     i.imageUrl === `/api/wechat-import/media/${keys[0].split("/").at(-1)}`));
   const cover = manuscriptCover || available.find(i => i.id === publishing.cover?.assetId);
