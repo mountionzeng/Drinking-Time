@@ -273,7 +273,7 @@ describe("storyAgent tRPC router", () => {
       const caller = appRouter.createCaller(createAuthContext(userId));
       const story = await createStory({ userId, title: "合成书稿", body: {} });
       const chapter = await insertChapter({ storyId: story.id, userId, content: { title: "纸船", layout: null,
-        blocks: { body: "纸船", writingStyle: [{ id: "module-1", format: "text", lineCount: 1 }], blockIds: ["module-1"],
+        blocks: { body: "画面：纸船。旁白：「合成测试对白。」", writingStyle: [{ id: "module-1", format: "text", lineCount: 1 }], blockIds: ["module-1"],
           containsAiText: false, settings: null, coverKey: null, bodyTextureKey: null, images: {}, illustrations: [] } } });
       const scope = { storyId: story.id, chapterId: chapter.id, moduleId: "module-1" };
       const imageUrl = `https://storage.example/style-${userId}.jpg`;
@@ -292,7 +292,7 @@ describe("storyAgent tRPC router", () => {
       await expect(appRouter.createCaller(createAuthContext(userId+100)).storyAgent.bookModuleVisualBasis(scope)).rejects.toThrow();
       const input = { storyId: story.id, mode: "final" as const, imageProvider: "midjourney" as const,
         costConfirmation: { accepted: true as const, estimatedCny: estimateStoryboardImageCost().estimatedCny },
-        prompt: "paper boat", moduleTarget: { ...scope, expectedText: "纸船", requestId: crypto.randomUUID(), basisHash: "0".repeat(64) } };
+        prompt: "paper boat", moduleTarget: { ...scope, expectedText: "画面：纸船。旁白：「合成测试对白。」", adjustment: "Fine hatching.", requestId: crypto.randomUUID(), basisHash: "0".repeat(64) } };
       legnextMocks.generateLegnextImage.mockClear();
       expect(await caller.storyAgent.generateForMobile(input)).toMatchObject({ status: "error", error: expect.stringContaining("画幅或画风已变化") });
       expect(legnextMocks.generateLegnextImage).not.toHaveBeenCalled();
@@ -300,6 +300,8 @@ describe("storyAgent tRPC router", () => {
       const result = await caller.storyAgent.generateForMobile({ ...input, moduleTarget: { ...input.moduleTarget, requestId: crypto.randomUUID(), basisHash: basis!.fingerprint } });
       expect(result.status).toBe("ok");
       const [prompt, , options] = legnextMocks.generateLegnextImage.mock.calls[0];
+      expect(prompt).toContain("纸船"); expect(prompt).not.toContain("合成测试对白");
+      expect(prompt).toContain("Fine hatching."); expect(prompt).toContain("--no text, lettering, typography, captions, borders, frames");
       expect(prompt).toContain("Ochre paper"); expect(options).toMatchObject({ aspectRatio: ratio, styleRef: imageUrl });
       expect(options).not.toHaveProperty("referenceImageUrl");
     }

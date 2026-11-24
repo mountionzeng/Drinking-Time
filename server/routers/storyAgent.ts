@@ -122,7 +122,7 @@ import {
   deriveStoryboardReferenceInjection,
 } from "../services/imageInjection";
 import { synthesizeShotPrompt } from "../services/synthesizeShotPrompt";
-import { composedStoryboardImagePrompt, confirmedStoryboardImagePrompt, unreferencedArtFramePrompt } from "../services/confirmedStoryboardImagePrompt";
+import { composedStoryboardImagePrompt, confirmedStoryboardImagePrompt, stillVisualDescription, unreferencedArtFramePrompt } from "../services/confirmedStoryboardImagePrompt";
 import { directImagePrompt } from "../services/imagePromptDirector";
 import { planImageGenerationReferences } from "../services/imageGenerationReference";
 import { readModuleImageTask, recoverModuleImageTask, runModuleImageTask, type ModuleImageHooks } from "../services/bookModuleImageRecovery";
@@ -1894,7 +1894,7 @@ export const storyAgentRouter = router({
         imageEditPlanOutput: z.object({ planMessageId: z.string().min(1).max(500), imageId: z.number().int().positive(), copy: z.number().int().min(1).max(4) }).optional(),
         conversationShotId: z.string().min(1).max(96).optional(),
         previewBatchId: z.string().uuid().optional(),
-        moduleTarget: z.object({ chapterId: z.number().int().positive(), moduleId: z.string().min(1).max(240), expectedText: z.string().max(200_000), requestId: z.string().uuid(), basisHash: z.string().length(64).optional(), copyImageId: z.number().int().positive().optional(), previousTaskId: z.string().uuid().optional() }).optional(),
+        moduleTarget: z.object({ chapterId: z.number().int().positive(), moduleId: z.string().min(1).max(240), expectedText: z.string().max(200_000), requestId: z.string().uuid(), basisHash: z.string().length(64).optional(), adjustment: z.string().trim().max(800).optional(), copyImageId: z.number().int().positive().optional(), previousTaskId: z.string().uuid().optional() }).optional(),
         renderReferences: shotRenderReferencesSchema.optional(),
         referenceRevision: z.boolean().optional(),
         conversationRevision: z.boolean().optional(),
@@ -2370,7 +2370,10 @@ export const storyAgentRouter = router({
             }
           : null;
 
-        const confirmedFramePrompt = moduleStyle ? [input.prompt, moduleStyle.direction].filter(Boolean).join("\n")
+        const confirmedFramePrompt = moduleStyle && input.moduleTarget ? [
+          stillVisualDescription(input.moduleTarget.expectedText) || input.moduleTarget.expectedText,
+          moduleStyle.direction, input.moduleTarget.adjustment,
+        ].filter(Boolean).join("\n")
           : composedFrame ? composedStoryboardImagePrompt(storyBody, input.explicitInstruction!) : input.previewBatchId ? input.prompt : !input.referenceRevision && !input.exactFrameEdit && !input.remixEdit
           ? confirmedStoryboardImagePrompt({ body: storyBody, shot: storyShot,
               title: story.title, instruction: input.explicitInstruction })
@@ -2856,6 +2859,11 @@ export const storyAgentRouter = router({
               generationType: "inpaint", provider: "gpt-image", parentImageId: input.draftImageId,
               conversationRevision: true, instruction: input.explicitInstruction });
           }
+          // Captions live on the text track. Keep them out of the rendered film frame at both entries.
+          if (moduleStyle || storyboardImage && (usesPreviewArtBasis || unreferencedFramePrompt || composedFrame)) {
+            renderedFinalPrompt += " --no text, lettering, typography, captions, borders, frames";
+            if (monochromePreview) renderedFinalPrompt += ", color";
+          }
           if (storyboardImage) {
             const chatBase = input.imageEditPlanOutput ? await readImageDimensions(input.referenceImageUrl!) : undefined;
             const legnextOptions = {
@@ -2868,10 +2876,6 @@ export const storyAgentRouter = router({
               ])).filter(url => url !== providerReferenceImage).slice(0, 3),
               imageWeight, aspectRatio: chatBase ? `${chatBase.width}:${chatBase.height}` : "16:9", inlinePoll: false,
             };
-            // Use MJ's exclusion parameter, not prose about lettering/layouts,
-            // for confirmed standalone frames whose text lives on subtitle tracks.
-            if (usesPreviewArtBasis || unreferencedFramePrompt || composedFrame) renderedFinalPrompt += " --no text, lettering, typography, captions, borders, frames";
-            if (monochromePreview) renderedFinalPrompt += ", color";
             return storyboardImage(accepted => submitRender("image.legnext-v7-fast", { prompt: renderedFinalPrompt, onAccepted: accepted, options: legnextOptions }),
               { prompt: renderedFinalPrompt, shotNo: canonicalizeShotNo(input.shotNo)!, promptCompilationId, generationType: referencePlan.usesStoryboardFrames ? "inpaint" : "initial", ...(input.previewBatchId ? { detached: true } : {}), ...(chatBase ? { conversationRevision: true, sourceDimensions: chatBase, parentImageId: input.draftImageId, instruction: input.explicitInstruction } : {}), ...(input.conversationRevision ? { conversationRevision: true, parentImageId: input.renderReferences!.imageIds[0], instruction: input.explicitInstruction } : {}),
                 renderProfile: buildRenderSnapshot("image.legnext-v7-fast", { params: legnextOptions, promptChars: renderedFinalPrompt.length }) });
