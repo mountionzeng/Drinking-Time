@@ -11824,6 +11824,8 @@
         "server/services/legnextImage.ts",
         "server/services/bookModuleVisualBasis.ts",
         "server/services/shotSceneReading.ts",
+        "server/services/localFrameRegions.ts",
+        "shared/shotObjectTargets.ts",
         "shared/shotSceneDirection.ts",
         "client/src/features/bookVideo/ShotScenePreparation.tsx",
         "server/services/bookModuleImageRecovery.ts",
@@ -11840,6 +11842,8 @@
       "evidence": [
         "server/services/bookModuleSource.test.ts",
         "server/services/shotSceneReading.test.ts",
+        "scripts/frame-regions/test_worker.py",
+        "scripts/frame-regions/README.md",
         "server/services/storyAudioGeneration.test.ts",
         "client/src/features/publishingAlbum/BookWritingContext.test.tsx",
         "docs/qa/2026-10-31-book-module-conversion.md",
@@ -11926,6 +11930,11 @@
           "date": "2026-11-25",
           "kind": "enhancement",
           "summary": "首次分析与生成候选展示合计上限，一次确认后依次执行。同一作品同一镜头的相同来源版本可复用分析；修改本轮要求时沿用原图观察和最新要求。仓库重试只接受可免费复用的分析；需要新的分析时回到试图报价。"
+        },
+        {
+          "date": "2026-11-25",
+          "kind": "enhancement",
+          "summary": "各作品书页和视频试图选择本镜图片后，CLIPSeg 按可编辑的物体短语离线定位。显示候选框及漏检，免费观察随已有调度进入生图。作品和账号间隔离，同图同目标复用。需部署 CPU、现有 Python 依赖与 CLIPSeg 权重。区域可能合并多个人，人物身份、动作和视线依靠已确认调度。"
         },
         {
           "date": "2026-11-24",

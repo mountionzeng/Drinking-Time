@@ -146,6 +146,28 @@ class RecolorPixels(unittest.TestCase):
             np.testing.assert_array_equal(output[10:70,45:80],rgb[10:70,45:80])
 
 class CacheAndProposals(unittest.TestCase):
+    def test_open_vocabulary_bounds_absence_and_private_cache(self):
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+        from unittest.mock import Mock, patch
+        from PIL import Image
+        from worker import locate_objects
+        scores = np.zeros((2, 40, 80), dtype=np.float32)
+        scores[0, 20:32, 8:24] = .8
+        scores[1, 1:3, 1:3] = .95
+        predict = Mock(return_value=scores)
+        with TemporaryDirectory() as folder, patch('worker.model_fingerprint', return_value='weights'), patch('worker.image_predictor', return_value=predict):
+            p = Path(folder)
+            source = p / 'frame.png'
+            Image.new('RGB', (80, 40)).save(source)
+            request = dict(source=str(source), cachePath=str(p / 'cache'), scope='project-a', modelPath=folder, prompts=['violin', 'boat'])
+            expected = [[[.1, .5, .3, .8]], []]
+            self.assertEqual(locate_objects(request), expected)
+            self.assertEqual(locate_objects(request), expected)
+            self.assertEqual(predict.call_count, 1)
+            self.assertEqual(locate_objects(dict(request, scope='project-b')), expected)
+            self.assertEqual(predict.call_count, 2)
+
     def test_tiny_detection_is_unresolved(self):
         maps=np.zeros((7,100,100),np.float32)
         maps[1,10:14,10:18]=.8

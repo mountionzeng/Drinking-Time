@@ -95,16 +95,9 @@ def cached_maps(cache, key, shape, compute):
     return maps
 
 
-def inspect(request):
-    model_path = Path(request['modelPath'])
-    if not (model_path / 'model.safetensors').is_file():
-        raise ValueError('Local recognition model is not installed; no paid fallback was submitted')
-    cache = Path(request['cachePath'])
-    cache.mkdir(parents=True, exist_ok=True, mode=0o700)
-    fingerprint = model_fingerprint(model_path)
+def image_predictor(model_path):
     model = processor = None
     conditionals = {}
-    maps_by_id, images_by_id, keys_by_id = {}, {}, {}
     def predict(image, prompts=PROMPTS):
         nonlocal model, processor
         import torch
@@ -122,6 +115,54 @@ def inspect(request):
             pixels = processor(images=image, return_tensors='pt')['pixel_values']
             logits = shared_vision_logits(model, pixels, conditional)
             return torch.nn.functional.interpolate(logits[:, None], size=(image.height, image.width), mode='bilinear', align_corners=False).sigmoid()[:, 0].numpy()
+    return predict
+
+
+def locate_objects(request):
+    from scipy.ndimage import find_objects
+    from PIL import ImageOps
+    prompts = request['prompts']
+    if not 1 <= len(prompts) <= 8 or any(not isinstance(p, str) or not 1 <= len(p) <= 64 for p in prompts):
+        raise ValueError('Invalid recognition targets')
+    model_path = Path(request['modelPath'])
+    source = Path(request['source'])
+    cache = Path(request['cachePath'])
+    cache.mkdir(parents=True, exist_ok=True, mode=0o700)
+    key = hashlib.sha256(json.dumps(['objects-v1', request['scope'], model_fingerprint(model_path),
+                                    hashlib.sha256(source.read_bytes()).hexdigest(), prompts]).encode()).hexdigest()
+    with Image.open(source) as original:
+        if original.width * original.height > 32_000_000:
+            raise ValueError('Image exceeds local recognition size limit')
+        image = ImageOps.exif_transpose(original).convert('RGB')
+    image.thumbnail((512, 512))
+    width, height = image.size
+    maps = cached_maps(cache, key, (len(prompts), height, width), lambda: image_predictor(model_path)(image, prompts))
+    results = []
+    for score in maps:
+        labels, _ = label(score >= .45)
+        boxes = []
+        for index, bounds in enumerate(find_objects(labels), start=1):
+            if bounds is None:
+                continue
+            region = labels[bounds] == index
+            area = int(region.sum())
+            if area < max(16, score.size * .001) or score[bounds][region].max() < .55:
+                continue
+            y, x = bounds
+            boxes.append((area, [x.start / width, y.start / height, x.stop / width, y.stop / height]))
+        results.append([box for _, box in sorted(boxes, reverse=True)[:3]])
+    return results
+
+
+def inspect(request):
+    model_path = Path(request['modelPath'])
+    if not (model_path / 'model.safetensors').is_file():
+        raise ValueError('Local recognition model is not installed; no paid fallback was submitted')
+    cache = Path(request['cachePath'])
+    cache.mkdir(parents=True, exist_ok=True, mode=0o700)
+    fingerprint = model_fingerprint(model_path)
+    predict = image_predictor(model_path)
+    maps_by_id, images_by_id, keys_by_id = {}, {}, {}
     for frame in request['frames']:
         image = Image.open(frame['path']).convert('RGB')
         key = hashlib.sha256((fingerprint + hashlib.sha256(Path(frame['path']).read_bytes()).hexdigest()).encode()).hexdigest()
@@ -262,7 +303,7 @@ def recolor(request):
 if __name__ == '__main__':
     try:
         request = json.loads(sys.stdin.read())
-        result = inspect(request) if request['operation'] == 'inspect' else recolor(request)
+        result = {'inspect': inspect, 'locate': locate_objects, 'recolor': recolor}[request['operation']](request)
         print(json.dumps({'result': result}))
     except Exception as error:
         print(json.dumps({'error': str(error)}))

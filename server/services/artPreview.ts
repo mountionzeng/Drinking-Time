@@ -79,10 +79,10 @@ export async function retryPreviewPlan(input: { storyId: number; userId: number;
   let sceneAllowances: SceneAllowance[] | undefined;
   if (source.shot.sceneAllowance) {
     const { quoteSceneReading } = await import("./shotSceneReading");
-    const { stableShotId, imageId } = source.shot.sceneAllowance;
-    const quote = await quoteSceneReading({ ...input, stableShotId, imageId, adjustment: source.batch.adjustment });
+    const { stableShotId, imageId, localTargets } = source.shot.sceneAllowance;
+    const quote = await quoteSceneReading({ ...input, stableShotId, imageId, localTargets, adjustment: source.batch.adjustment });
     if (!quote.cached || quote.pending) throw new Error("这次重试需要重新分析。请回到试图对话查看分析与生图的合计报价。");
-    sceneAllowances = [{ stableShotId, imageId, key: quote.key, estimatedCny: 0 }];
+    sceneAllowances = [{ stableShotId, imageId, localTargets, key: quote.key, estimatedCny: 0 }];
   }
   return planArtPreviews({ ...input, retryOf: input.failedId, operationToken: previewRetryToken(input.failedId, input.basisKey),
     instruction: source.batch.instruction, sampleShotIds: [source.shot.stableShotId], adjustment: source.batch.adjustment, sceneAllowances,
@@ -124,7 +124,7 @@ export async function planArtPreviews(input: { storyId: number; userId: number; 
   if (allowances.length) {
     const { quoteSceneReading } = await import("./shotSceneReading");
     for (const a of allowances) {
-      const quote = await quoteSceneReading({ ...input, stableShotId: a.stableShotId, imageId: a.imageId });
+      const quote = await quoteSceneReading({ ...input, stableShotId: a.stableShotId, imageId: a.imageId, localTargets: a.localTargets });
       if (quote.key !== a.key || quote.estimatedCny !== a.estimatedCny || quote.pending) throw new Error("本镜分析报价已变化，请重新查看。");
     }
   }

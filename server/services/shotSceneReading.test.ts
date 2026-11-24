@@ -5,7 +5,9 @@ import { analyzeShotScene, confirmShotScene, quoteSceneReading, sceneReadingBasi
 import { prepareStoryBody } from "./storySync";
 import { sceneLayoutText } from "../../shared/shotSceneDirection";
 
-const mocks = vi.hoisted(() => ({ infer: vi.fn(), material: vi.fn(), pixels: vi.fn(), price: vi.fn() }));
+const mocks = vi.hoisted(() => ({ infer: vi.fn(), material: vi.fn(), pixels: vi.fn(), price: vi.fn(), locate: vi.fn(), bytes: vi.fn() }));
+vi.mock("./localFrameRegions", () => ({ locateLocalObjects: mocks.locate, localObjectModelVersion: () => ["test-weights"] }));
+vi.mock("./editingTransitionWorkflow", () => ({ imageBytesForAsset: mocks.bytes }));
 vi.mock("../_core/inferenceOrchestrator", async old => ({ ...await old<object>(), runInference: mocks.infer }));
 vi.mock("./storyMaterials", () => ({ getStoryMaterialState: mocks.material }));
 vi.mock("./imageAssets", async old => ({ ...await old<object>(), materializeImageInput: mocks.pixels }));
@@ -21,14 +23,14 @@ beforeEach(() => { ENV.databaseUrl = ""; resetMemoryStateForTesting(); vi.clearA
   mocks.pixels.mockResolvedValue("data:image/png;base64,synthetic");
   mocks.infer.mockResolvedValue({ result: { choices: [{ message: { content: JSON.stringify(layout) } }] } });
 });
-async function fixture() {
-  const story = await createStory({ userId: 5, title: "Stage", body: { shots: [
+async function fixture(userId = 5) {
+  const story = await createStory({ userId, title: "Stage", body: { shots: [
     { stableShotId: "stage", shotNo: 1, action: "Look up", wardrobeReference: "striped coat" },
     { stableShotId: "other", shotNo: 2, action: "a dog at the lake" }] } });
-  const image = { id: 11, userId: 5, storyId: story.id, imageUrl: "/source.png", status: "pending" };
+  const image = { id: 11, userId, storyId: story.id, imageUrl: "/source.png", status: "pending" };
   mocks.material.mockResolvedValue({ shots: [{ stableShotId: "stage", imageVersions: [image] }, { stableShotId: "other", imageVersions: [] }],
     warehouseImages: [image, { ...image, id: 12 }] });
-  return { storyId: story.id, stableShotId: "stage", userId: 5 };
+  return { storyId: story.id, stableShotId: "stage", userId };
 }
 it("reads only selected pixels, separates observation and uncertainty, and renders only after confirmation", async () => {
   const scope = await fixture();
@@ -61,6 +63,48 @@ it("uses a text request when there is no source image and never calls it an obse
   expect(result.observed).toBe(""); expect(mocks.pixels).not.toHaveBeenCalled();
   expect(mocks.infer.mock.calls[0][0].useCase).toBe("text");
   expect(JSON.stringify(mocks.infer.mock.calls[0][0].messages)).not.toContain("image_url");
+});
+it("locates arbitrary objects once per source and retains direction across free reuse without inferring identities", async () => {
+  const scope = await fixture();
+  const local = { ...scope, imageId: 11, localTargets: ["violin", "cat"] };
+  mocks.price.mockReturnValue({ priced: false });
+  mocks.bytes.mockResolvedValue({ bytes: Buffer.from("first") });
+  mocks.locate.mockResolvedValue([[[0, .7, .3, 1]], []]);
+  const quote = await quoteSceneReading(local);
+  expect(quote).toMatchObject({ cached: false, estimatedCny: 0 });
+  await expect(quoteSceneReading({ ...local, userId: 999 })).rejects.toThrow();
+  await expect(quoteSceneReading({ ...local, stableShotId: "other" })).rejects.toThrow();
+  const [layout] = await Promise.all([analyzeShotScene({ ...local, ...quote }), analyzeShotScene({ ...local, ...quote })]);
+  expect(layout).toMatchObject({ observed: "violin候选区域（左侧、下方）", people: [], uncertain: ["cat未能可靠定位"] });
+  expect((await sceneReadingBasis(scope)).confirmed).toBe("");
+  const changed = { ...local, adjustment: "raise the violin" };
+  expect(await quoteSceneReading({ ...local, localTargets: ["cat", "violin"] })).toMatchObject({ cached: true, key: quote.key });
+  const next = await quoteSceneReading(changed);
+  expect(next).toMatchObject({ cached: true, estimatedCny: 0 });
+  const prompt = await readSceneForRender(scope, { ...local, ...next }, changed.adjustment);
+  expect(prompt).toContain("violin候选区域"); expect(prompt).toContain("striped coat"); expect(prompt).toContain(changed.adjustment);
+  expect(prompt).not.toContain("cat"); expect(mocks.locate).toHaveBeenCalledTimes(1);
+  await expect(readSceneForRender(scope, { ...local, ...quote, localTargets: ["dog"] })).rejects.toThrow("变化");
+  mocks.bytes.mockResolvedValue({ bytes: Buffer.from("replaced in place") });
+  await expect(analyzeShotScene({ ...local, ...quote })).rejects.toThrow("变化");
+  mocks.locate.mockRejectedValueOnce(new Error("missing weights"));
+  await expect(analyzeShotScene({ ...local, ...await quoteSceneReading(local) })).rejects.toThrow("手动");
+  expect(mocks.infer).not.toHaveBeenCalled(); expect(mocks.price).not.toHaveBeenCalled();
+});
+it("gives different owners and projects independent zero-cost object readings even for identical bytes", async () => {
+  mocks.bytes.mockResolvedValue({ bytes: Buffer.from("same image") });
+  mocks.locate.mockResolvedValue([[]]);
+  const keys = new Set(), scopes = new Set();
+  for (const owner of [5, 5, 91]) {
+    const scope = { ...await fixture(owner), imageId: 11, localTargets: ["telescope"] };
+    const quote = await quoteSceneReading(scope);
+    expect(quote).toMatchObject({ cached: false, estimatedCny: 0 });
+    keys.add(quote.key);
+    await analyzeShotScene({ ...scope, ...quote });
+    scopes.add(mocks.locate.mock.lastCall?.[2]);
+    expect((await quoteSceneReading(scope)).cached).toBe(true);
+  }
+  expect(keys.size).toBe(3); expect(scopes.size).toBe(3); expect(mocks.infer).not.toHaveBeenCalled();
 });
 it("keeps failed or malformed readings out of render inputs and rejects replay of a spent quote", async () => {
   const scope = await fixture(); const quote = await quoteSceneReading(scope);

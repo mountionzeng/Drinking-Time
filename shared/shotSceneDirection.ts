@@ -1,10 +1,12 @@
 import { z } from "zod";
+import { objectRegionSchema, objectTargetsSchema } from "./shotObjectTargets";
 import { fromYuan, toYuan } from "./computeMoney";
 import { findVisualAssetVersion, normalizeStoryVisualAssets } from "./visualAssets";
 
 const detail = z.string().trim().max(220);
 export const sceneLayoutSchema = z.object({
   observed: z.string().max(600),
+  regions: z.array(objectRegionSchema).max(8).optional(),
   people: z.array(z.object({
     role: detail.min(1), count: detail, clothing: detail, position: detail,
     action: detail, target: detail, gaze: detail,
@@ -16,6 +18,7 @@ export const sceneLayoutSchema = z.object({
 export type SceneLayout = z.infer<typeof sceneLayoutSchema>;
 export const sceneAllowanceSchema = z.object({
   stableShotId: z.string().min(1).max(128), imageId: z.number().int().positive().optional(),
+  localTargets: objectTargetsSchema.optional(),
   key: z.string().length(64), estimatedCny: z.number().finite().nonnegative(),
 });
 export type SceneAllowance = z.infer<typeof sceneAllowanceSchema>;
@@ -34,6 +37,7 @@ export function sceneLayoutText(layout: SceneLayout) {
 export type ShotSceneRecord = {
   stableShotId: string;
   confirmed?: string;
+  localSources?: Array<{ sourceKey: string; layout: SceneLayout }>;
   sources?: Array<{ sourceKey: string; requestKey: string; quoteKey: string; layout: SceneLayout }>;
   reading?: { key: string; attempt: string; startedAt: number; status: "reading" | "ready" | "failed"; layout?: SceneLayout; authFailed?: boolean; providerError?: "insufficient_quota" };
 };

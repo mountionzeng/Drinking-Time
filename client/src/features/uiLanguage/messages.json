@@ -1,4 +1,9 @@
 {
+  "定位哪些物体": {"en":"Objects to locate","fr":"Objets à localiser"},
+  "用逗号分隔，可填写英文物体短语": {"en":"Separate objects with commas. English phrases are supported.","fr":"Séparez les objets par des virgules. Les expressions en anglais sont acceptées."},
+  "请填写 1 至 8 个物体，每个最多 64 字。": {"en":"Enter 1–8 objects, up to 64 characters each.","fr":"Indiquez 1 à 8 objets de 64 caractères maximum chacun."},
+  "免费定位所选物体": {"en":"Locate objects for free","fr":"Localiser les objets gratuitement"},
+  "生成时自动定位一次，识别为 0 算力。也可以先查看候选位置。": {"en":"Objects are located once when you generate, at zero recognition cost. You can preview their positions first.","fr":"Les objets sont localisés une fois à la génération, sans frais de reconnaissance. Vous pouvez d’abord vérifier les positions proposées."},
   "识图服务商额度不足。可手动填写本镜调度，或在服务额度恢复后再生成。": {"en":"The image analysis provider is out of quota. Enter the staging manually or generate after quota is restored.","fr":"Le quota du service d’analyse est insuffisant. Saisissez la mise en scène ou réessayez une fois le quota rétabli."},
   "上次识图请求被供应商拒绝。请联系站点管理员检查供应商令牌权限和额度。": {"en":"The provider declined the previous analysis. Ask the site administrator to check the provider token permissions and quota.","fr":"Le fournisseur a refusé la dernière analyse. Demandez à l’administrateur du site de vérifier les droits et le quota du jeton."},
   "识图服务商可用额度不足。请联系站点管理员查看供应商账户余额和令牌额度，恢复后可重新生成。尚未提交生图。": {"en":"The image analysis provider has insufficient quota. Ask the site administrator to check the account balance and token quota before retrying. Image generation has not been submitted.","fr":"Le quota du fournisseur d’analyse est insuffisant. Demandez à l’administrateur de vérifier le solde du compte et le quota du jeton avant de réessayer. Aucune génération d’image n’a été soumise."},

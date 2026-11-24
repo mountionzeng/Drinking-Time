@@ -8,7 +8,7 @@ import { normalizeStoryArtDirection } from "../../shared/artDirection";
 import { writeArtSystem } from "../services/artSystemChat";
 import { planArtPreviews, readArtPreviews, chooseArtPreview, readPreviewArtBasis, retryPreviewPlan } from "../services/artPreview";
 const sceneScope = z.object({ storyId: z.number().int().positive(), stableShotId: z.string().min(1).max(128) });
-const sceneRequest = sceneScope.extend({ imageId: z.number().int().positive().optional(), adjustment: z.string().trim().max(800).optional() });
+const sceneRequest = sceneScope.extend({ ...sceneAllowanceSchema.pick({ imageId: true, localTargets: true }).shape, adjustment: z.string().trim().max(800).optional() });
 export const artSystemsRouter = router({
   sceneBasis: protectedProcedure.input(sceneScope).query(({ ctx, input }) => sceneReadingBasis({ ...input, userId: ctx.user.id })),
   sceneQuote: protectedProcedure.input(sceneRequest).query(({ ctx, input }) => quoteSceneReading({ ...input, userId: ctx.user.id })),

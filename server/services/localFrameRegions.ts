@@ -1,9 +1,10 @@
 import { spawn } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { z } from "zod";
 import type { FrameRegionTask } from "../../shared/frameRegionReview";
+import { regionBoxSchema } from "../../shared/shotObjectTargets";
 
 export function frameRegionRuntime(env: NodeJS.ProcessEnv = process.env) {
   const production = env.NODE_ENV === "production";
@@ -44,6 +45,31 @@ async function invoke(request: Record<string, unknown>) {
     child.stdin.on("error", () => undefined);
     child.stdin.end(JSON.stringify(request));
   });
+}
+let objectJobs = 0;
+export async function localObjectModelVersion() {
+  const { modelPath } = frameRegionRuntime();
+  try {
+    const versions = await Promise.all(["model.safetensors", "config.json", "preprocessor_config.json",
+      "tokenizer_config.json", "special_tokens_map.json", "merges.txt", "vocab.json"].map(async file => {
+      const info = await stat(path.join(modelPath, file));
+      return [info.size, info.mtimeMs];
+    }));
+    return [modelPath, versions];
+  } catch (cause) {
+    throw new Error("本地识别模型尚未就绪。请手动确认本镜调度，或请管理员检查模型安装。", { cause });
+  }
+}
+export async function locateLocalObjects(bytes: Uint8Array, prompts: string[], scope: string) {
+  if (objectJobs >= 3) throw new Error("本地识别正在处理其他图片，请稍后重试。");
+  objectJobs++;
+  return workspace(async folder => {
+    const source = path.join(folder, "frame");
+    await writeFile(source, bytes);
+    const raw = await invoke({ operation: "locate", source, prompts, scope, modelPath: frameRegionRuntime().modelPath,
+      cachePath: path.resolve(".webdev/cache/frame-regions") });
+    return z.array(z.array(regionBoxSchema).max(3)).length(prompts.length).parse(raw);
+  }).finally(() => { objectJobs--; });
 }
 export async function inspectLocalFrameRegions(frames: { imageId: number; bytes: Uint8Array }[], tasks: (Pick<FrameRegionTask, "target" | "threshold" | "area" | "forestTone"> & { imageId?: number; allowedImageIds?: number[]; greenEdit?: boolean })[]) {
   return workspace(async folder => {

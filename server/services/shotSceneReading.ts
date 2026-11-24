@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { estimateInferenceMaxCostMinor } from "../_core/inferenceBilling";
 import { resolveTextPrice } from "../../shared/textComputePricing";
 import { runInference } from "../_core/inferenceOrchestrator";
@@ -7,7 +7,11 @@ import type { Message } from "../_core/llm";
 import { parseJsonLoose } from "../_core/llmJson";
 import { resolveComputeCandidates } from "../_core/textComputeProvider";
 import { toYuan } from "../../shared/computeMoney";
-import { sceneLayoutSchema, sceneLayoutText, sceneRecords, shotSceneFacts, type SceneAllowance, type ShotSceneRecord } from "../../shared/shotSceneDirection";
+import { sceneLayoutSchema, sceneLayoutText, sceneRecords, shotSceneFacts, type SceneAllowance, type SceneLayout, type ShotSceneRecord } from "../../shared/shotSceneDirection";
+import { objectPrompt, objectTargetsSchema, regionPosition } from "../../shared/shotObjectTargets";
+import { localObjectModelVersion, locateLocalObjects } from "./localFrameRegions";
+import { imageBytesForAsset } from "./editingTransitionWorkflow";
+import { isWechatImportImage } from "./wechatVideoImage";
 import { creationFingerprint, creationRecord, ownedCreationStory } from "../repositories/textSourceLineage";
 import { updateStoryBodyIfRevision } from "../repositories/stories";
 import { getStoryMaterialState } from "./storyMaterials";
@@ -23,7 +27,7 @@ import { readBookImage } from "../../shared/bookImageBlock";
 import { visualReadingCandidates } from "./visualEditUnderstanding";
 
 type Scope = { storyId: number; userId: number; stableShotId: string };
-type Input = Scope & { imageId?: number; adjustment?: string };
+type Input = Scope & { imageId?: number; adjustment?: string; localTargets?: string[] };
 const maxTokens = 2000;
 
 function shotSource(input: Scope, body: Record<string, unknown>) {
@@ -69,7 +73,8 @@ async function readingContext(input: Scope) {
   const bookText = modules.flatMap(m => m?.text ? [m.text] : []).join("\n");
   const source = bookText || shotText;
   const basisKey = creationFingerprint([shotKey, bookText]);
-  return { sources: current?.sources, basis: { basisKey, shotKey, source, shotText, facts, confirmed: current?.confirmed ?? "", reading: current?.reading, images,
+  return { sources: current?.sources, localSources: current?.localSources, basis: { basisKey, shotKey, source, shotText, facts,
+    subject: typeof shot.subject === "string" ? shot.subject : undefined, confirmed: current?.confirmed ?? "", reading: current?.reading, images,
     defaultImageId: target.currentImage?.selectionSource === "explicit" && images.some(i => i.id === target.currentImage?.id) ? target.currentImage.id : null } };
 }
 export async function sceneReadingBasis(input: Scope) {
@@ -130,13 +135,61 @@ async function readingRequest(input: Input) {
   const paidQuoteKey = sameRequest && saved?.quoteKey;
   return { basis, image, key, sourceKey, quoteKey, paidQuoteKey, messages, useCase, options, candidates, cached, sameRequest, estimatedCny, pending, unfinished };
 }
+async function localReadingRequest(input: Input) {
+  const targets = [...new Set(objectTargetsSchema.parse(input.localTargets))];
+  const { basis, localSources } = await readingContext(input);
+  const image = basis.images.find(i => i.id === input.imageId);
+  if (!image) throw new Error("请选择属于本镜且可读取的图片。");
+  const assetUrl = isWechatImportImage(image.url) ? await materializeImageInput(image.url, input.userId) : image.url;
+  const [modelVersion, { bytes }] = await Promise.all([localObjectModelVersion(), imageBytesForAsset(assetUrl)]);
+  const scope = creationFingerprint([input.userId, input.storyId]);
+  const sourceKey = creationFingerprint(["clipseg-objects-v1", modelVersion, scope, input.stableShotId, image.id, image.version,
+    createHash("sha256").update(bytes).digest("hex"), [...targets].sort().map(t => [t, objectPrompt(t)])]);
+  return { scope, basis, targets, bytes, sourceKey, key: creationFingerprint([sourceKey, basis.basisKey, input.adjustment ?? ""]),
+    cached: localSources?.find(s => s.sourceKey === sourceKey)?.layout };
+}
+
+const localReadings = new Map<string, Promise<SceneLayout>>();
+async function readLocalObjects(input: Input, request: Awaited<ReturnType<typeof localReadingRequest>>) {
+  if (request.cached) return request.cached;
+  const existing = localReadings.get(request.sourceKey);
+  if (existing) return existing;
+  const run = async (): Promise<SceneLayout> => {
+    let boxes;
+    try { boxes = await locateLocalObjects(request.bytes, request.targets.map(objectPrompt), request.scope); }
+    catch (cause) { throw new Error("本地识别未完成。可重试、换一张图片，或手动填写并确认本镜调度。", { cause }); }
+    const regions = request.targets.map((label, i) => ({ label, boxes: boxes[i] }));
+    const observed = regions.filter(r => r.boxes.length).map(r => r.label + "候选区域（" +
+      [...new Set(r.boxes.map(regionPosition))].join("；") + "）").join("。").slice(0, 600);
+    const layout: SceneLayout = { observed, regions, people: [], objects: [], omit: [],
+      uncertain: regions.filter(r => !r.boxes.length).map(r => r.label + "未能可靠定位") };
+    await replaceRecord(input, row => ({ ...row, localSources: [
+      ...(row.localSources ?? []).filter(s => s.sourceKey !== request.sourceKey).slice(-15), { sourceKey: request.sourceKey, layout },
+    ] }), request.basis.shotKey);
+    return layout;
+  };
+  const pending = run().finally(() => localReadings.delete(request.sourceKey));
+  localReadings.set(request.sourceKey, pending);
+  return pending;
+}
+
 export async function quoteSceneReading(input: Input) {
+  if (input.localTargets) {
+    const r = await localReadingRequest(input);
+    return { key: r.key, estimatedCny: 0, cached: !!r.cached, layout: r.cached, observed: r.cached?.observed,
+      pending: !r.cached && localReadings.has(r.sourceKey), unfinished: false, authFailed: false, providerError: undefined };
+  }
   const r = await readingRequest(input);
   return { key: r.quoteKey, estimatedCny: r.estimatedCny, cached: Boolean(r.cached), layout: r.sameRequest ? r.cached : undefined,
     observed: r.cached?.observed, pending: r.pending, unfinished: r.unfinished, authFailed: r.unfinished && r.basis.reading?.authFailed === true,
     ...(r.unfinished && r.basis.reading?.providerError ? { providerError: r.basis.reading.providerError } : {}) };
 }
 export async function analyzeShotScene(input: Input & { key: string; estimatedCny: number }) {
+  if (input.localTargets) {
+    const r = await localReadingRequest(input);
+    if (input.key !== r.key || input.estimatedCny !== 0) throw new Error("图片或定位目标已变化，请重新查看报价。");
+    return readLocalObjects(input, r);
+  }
   const r = await readingRequest(input);
   if ((r.quoteKey !== input.key && r.paidQuoteKey !== input.key) || r.estimatedCny > input.estimatedCny) throw new Error("读图依据或报价已变化，请重新确认。");
   if (r.cached) return r.sameRequest ? r.cached : { observed: r.cached.observed, people: [], objects: [], omit: [], uncertain: [] };
@@ -174,7 +227,14 @@ export async function analyzeShotScene(input: Input & { key: string; estimatedCn
 /** Execute inside the idempotent image task, after both the media price and source quote were checked. */
 export async function readSceneForRender(scope: Scope, allowance: SceneAllowance, adjustment?: string) {
   if (scope.stableShotId !== allowance.stableShotId) throw new Error("分析与生成的镜头不一致，请重新报价。");
-  const input = { ...scope, imageId: allowance.imageId, adjustment };
+  const input = { ...scope, imageId: allowance.imageId, adjustment, localTargets: allowance.localTargets };
+  if (input.localTargets) {
+    const layout = await analyzeShotScene({ ...input, key: allowance.key, estimatedCny: allowance.estimatedCny });
+    const current = await localReadingRequest(input);
+    if (current.key !== allowance.key) throw new Error("定位期间镜头或图片已变化，请重新报价。");
+    return [layout.observed && `原图候选位置，仅供构图参考：${layout.observed}`, current.basis.source, current.basis.facts,
+      adjustment && `本轮调整优先：${adjustment}`].filter(Boolean).join("\n");
+  }
   const r = await readingRequest(input);
   if ((r.quoteKey !== allowance.key && r.paidQuoteKey !== allowance.key) || r.estimatedCny > allowance.estimatedCny) throw new Error("首次分析或出图依据已变化，请重新查看合计报价。");
   const layout = r.cached ?? await analyzeShotScene({ ...input, key: allowance.key, estimatedCny: allowance.estimatedCny });
