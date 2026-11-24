@@ -55,36 +55,39 @@ vi.mock("@/lib/trpc", () => ({
       contacts: { useQuery: () => ({ data: [], refetch: vi.fn() }) },
       inbox: { useQuery: (_input: unknown, options: unknown) => {deliveryState.inboxOptions = options; return { data: deliveryState.inbox, refetch: vi.fn() };} },
       ...Object.fromEntries(
-        ["send", "createClaimLink", "return", "resolve"].map(name => [
+          ["send", "createClaimLink", "return", "resolve"].map(name => [
+            name,
+            { useMutation: () => ({ mutateAsync: vi.fn() }) },
+          ])
+        ),
+      },
+      chapters: {
+        list: { useQuery: () => ({ data: [] }) },
+        ...Object.fromEntries(
+        [
+          "create",
+          "save",
+          "remove",
+          "reorder",
+          "exportPackage",
+          "importPackage",
+          "restoreVersion",
+          "resolveCandidate",
+          "candidates",
+          "versions",
+          "sharingHistory",
+        ].map(name => [
           name,
-          { useMutation: () => ({ mutateAsync: vi.fn() }) },
+          {
+            useMutation: () => ({ mutateAsync: vi.fn() }),
+            useQuery: (_input: unknown, options: unknown) => {if(name === "candidates") deliveryState.candidateOptions = options; return ({
+              data: ["versions", "sharingHistory"].includes(name) ? [] : { candidates: deliveryState.candidates },
+              refetch: vi.fn(),
+            }); },
+          },
         ])
       ),
     },
-    chapters: Object.fromEntries(
-      [
-        "create",
-        "save",
-        "remove",
-        "reorder",
-        "exportPackage",
-        "importPackage",
-        "restoreVersion",
-        "resolveCandidate",
-        "candidates",
-        "versions",
-        "sharingHistory",
-      ].map(name => [
-        name,
-        {
-          useMutation: () => ({ mutateAsync: vi.fn() }),
-          useQuery: (_input: unknown, options: unknown) => {if(name === "candidates") deliveryState.candidateOptions = options; return ({
-            data: ["versions", "sharingHistory"].includes(name) ? [] : { candidates: deliveryState.candidates },
-            refetch: vi.fn(),
-          }); },
-        },
-      ])
-    ),
     useUtils: () => ({ chapters: { get: { fetch: vi.fn() } } }),
   },
 }));

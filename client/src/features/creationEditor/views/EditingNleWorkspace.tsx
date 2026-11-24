@@ -1,3 +1,4 @@
+import { readStoryboardMediaBase64 } from "@/features/storyAgent/storyboardLocalMedia";
 import { createPortal } from "react-dom";
 import { VideoStartChoices } from "@/features/bookVideo/VideoStartChoices";
 import { isFrameNavigationKey, isFrameNavigationTarget, PAUSED_FRAME_SHORTCUT_EVENT } from "../frameNavigation";
@@ -363,20 +364,6 @@ function chatCutClipIdFromShot(shot: CreationEditorShot | null): string | null {
   if (shot?.chatCutMapping?.itemId) return shot.chatCutMapping.itemId;
   if (!shot?.note) return null;
   return /^ChatCut XML\s+([^｜\s]+)/.exec(shot.note)?.[1] ?? null;
-}
-
-function fileBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(reader.error ?? new Error("读取文件失败"));
-    reader.onload = () => {
-      const value = typeof reader.result === "string" ? reader.result : "";
-      const separator = value.indexOf(",");
-      if (separator < 0) reject(new Error("文件编码失败"));
-      else resolve(value.slice(separator + 1));
-    };
-    reader.readAsDataURL(file);
-  });
 }
 
 function mediaMime(file: File): string {
@@ -1990,7 +1977,7 @@ export default function EditingNleWorkspace({
           const imported = await importStoryMaterial({
             fileName: file.name,
             mimeType: mediaMime(file),
-            fileBase64: await fileBase64(file),
+            fileBase64: await readStoryboardMediaBase64(file),
             targetStableShotId: inserted.stableShotId,
             note: `拖入时间线 · 第 ${visualLayer + 1} 层 · ${timelineFrame} 帧`,
           });
@@ -2062,7 +2049,7 @@ export default function EditingNleWorkspace({
       for (const match of matches) {
         let encoded = encodedFiles.get(match.file);
         if (!encoded) {
-          encoded = await fileBase64(match.file);
+          encoded = await readStoryboardMediaBase64(match.file);
           encodedFiles.set(match.file, encoded);
         }
         const result = await importStoryMaterial({
