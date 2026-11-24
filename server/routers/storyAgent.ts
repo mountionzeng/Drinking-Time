@@ -1990,12 +1990,16 @@ export const storyAgentRouter = router({
           costConfirmation: { accepted: true, estimatedCny: batch.unitEstimatedCny } };
       }
       let usesPreviewArtBasis = false;
+      let coverStyleOnly = false;
+      let monochromePreview = false;
       let coverCopy: { source: string; url: string } | undefined;
       if (input.previewBatchId) {
         const { batch, shot, prompt, renderReferences, requiresNewStyleQuote, priorFrameChanged } = await artPreviewGenerationInput(input.storyId, ctx.user.id, input.previewBatchId, input.shotNo ?? 0);
         if (priorFrameChanged) return { status: "error" as const, error: "本镜采用的画面已更换，请重新查看试图报价。" };
         if (requiresNewStyleQuote) return { status: "error" as const, error: "这份历史报价未记录当前画风，请重新查看试图报价。" };
         usesPreviewArtBasis = !!batch.artBasis;
+        coverStyleOnly = batch.coverRole === "style" && renderReferences?.imagePurpose === "scene-style";
+        monochromePreview = shot.monochrome === true;
         const estimate = estimateStoryboardImageCost();
         if (!input.costConfirmation?.accepted || Math.abs(input.costConfirmation.estimatedCny - estimate.estimatedCny) > 0.001) {
           return { status: "error" as const, error: `请先确认本批示意图算力；每镜 ${formatComputeQuote(estimate.estimatedCny)}` };
@@ -2489,7 +2493,7 @@ export const storyAgentRouter = router({
           (input.renderReferences ? Object.values(lockedAssets?.dimensions ?? {})[0]?.providerReferenceUrl : undefined);
         const strictReferenceFidelity = !usesPreviewArtBasis && !input.imageEditPlanOutput && !composedFrame && Boolean(referenceImage) &&
           (input.conversationRevision && input.referenceRevision || requestsStrictReferenceFidelity(input.explicitInstruction ?? ""));
-        if (confirmedFramePrompt && referenceImage && referencePlan.referencePurpose === "scene-style") {
+        if (!coverStyleOnly && confirmedFramePrompt && referenceImage && referencePlan.referencePurpose === "scene-style") {
           prompt += "\n【已确定画面的连续性】所附图片是本片已经确定的视觉依据：同一人物沿用可见的脸型、发型、服装与身份；沿用对应物体的造型、材质、线条与色调。本镜的内容、构图和动作仍按本镜要求；未在本镜出现的物体不搬过来，不把参考图直接当成本镜首帧。";
         }
         let referenceImageInput: string | undefined;
@@ -2847,7 +2851,7 @@ export const storyAgentRouter = router({
           if (storyboardImage) {
             const chatBase = input.imageEditPlanOutput ? await readImageDimensions(input.referenceImageUrl!) : undefined;
             const legnextOptions = {
-              ...(chatBase ? {} : injection), referenceImageUrl: providerReferenceImage,
+              ...(chatBase ? {} : injection), referenceImageUrl: coverStyleOnly ? undefined : providerReferenceImage,
               referenceContextImageUrls: chatBase ? providerContextReferences : Array.from(new Set([
                 ...providerContextReferences,
                 ...(input.renderReferences ? Object.values(lockedAssets?.dimensions ?? {}).map(d => d.providerReferenceUrl) : []),
@@ -2859,6 +2863,7 @@ export const storyAgentRouter = router({
             // Use MJ's exclusion parameter, not prose about lettering/layouts,
             // for confirmed standalone frames whose text lives on subtitle tracks.
             if (usesPreviewArtBasis || unreferencedFramePrompt || composedFrame) renderedFinalPrompt += " --no text, lettering, typography, captions, borders, frames";
+            if (monochromePreview) renderedFinalPrompt += ", color";
             return storyboardImage(accepted => submitRender("image.legnext-v7-fast", { prompt: renderedFinalPrompt, onAccepted: accepted, options: legnextOptions }),
               { prompt: renderedFinalPrompt, shotNo: canonicalizeShotNo(input.shotNo)!, promptCompilationId, generationType: referencePlan.usesStoryboardFrames ? "inpaint" : "initial", ...(input.previewBatchId ? { detached: true } : {}), ...(chatBase ? { conversationRevision: true, sourceDimensions: chatBase, parentImageId: input.draftImageId, instruction: input.explicitInstruction } : {}), ...(input.conversationRevision ? { conversationRevision: true, parentImageId: input.renderReferences!.imageIds[0], instruction: input.explicitInstruction } : {}),
                 renderProfile: buildRenderSnapshot("image.legnext-v7-fast", { params: legnextOptions, promptChars: renderedFinalPrompt.length }) });

@@ -30,7 +30,7 @@ it("uses separate signed-in authors' books and prepares only the explicitly auth
   Object.assign(ENV, { databaseUrl: "", appOrigin: "http://localhost:3000", cookieSecret: randomUUID() });
   const a = await account("author-a"), b = await account("author-b");
   expect(a.id).not.toBe(b.id);
-  const shot = { stableShotId: "scene", shotNo: 1, promptDraft: "clouds over the sea" };
+  const shot = { stableShotId: "scene", shotNo: 1, promptDraft: "海边的云。画面为海岸的黑白照片。" };
   const alice = await createStory({ userId: a.id, title: "Harbour", body: { shots: [shot] } });
   const bob = await createStory({ userId: b.id, title: "Meadow", body: { shots: [shot] } });
   const original = await sharp({ create: { width: 80, height: 60, channels: 3, background: "blue" } }).jpeg().withMetadata().toBuffer();
@@ -86,8 +86,9 @@ it("uses separate signed-in authors' books and prepares only the explicitly auth
       shotNo: 1, costConfirmation: { accepted: true, estimatedCny: 0.68 } });
     expect(render).toHaveBeenCalledTimes(1);
     const options = render.mock.calls[0][2];
-    expect(options?.referenceImageUrl).toContain("synth.jpg");
-    expect(options?.styleRef).toBe(options?.referenceImageUrl);
+    expect(options?.referenceImageUrl).toBeUndefined();
+    expect(options?.styleRef).toContain("synth.jpg");
+    expect(render.mock.calls[0][0]).toMatch(/--no [^\n]*, color/);
     expect(JSON.stringify(options)).not.toMatch(/wechat-import|data:image/);
   } finally { render.mockRestore(); }
 });

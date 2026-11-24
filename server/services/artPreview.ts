@@ -122,15 +122,21 @@ export async function planArtPreviews(input: { storyId: number; userId: number; 
     instruction: input.instruction, sourceHash: current.sourceHash, baselineImageId: baselineImageId ?? null, sampleShotId: input.sampleShotId,
     sampleShotIds: input.sampleShotIds,
     filmStyle: current.filmStyle,
+    coverRole: samples && !input.imageId && baselineImageId && baselineImageId === current.artBasis.coverImageId &&
+      (!current.filmStyle || current.filmStyle.imageId === baselineImageId) ? "style" : undefined,
     artBasis: current.artBasis, artBasisHash: current.artBasisHash, adjustment: input.adjustment,
     musicContext: current.music.length ? `参考当前配乐：${current.music.map(m => m.name).join("、")}；按已有说明与镜头时长设计，尚未做音频节拍检测。` : "参考分镜中的声音说明；当前没有可识别的已选配乐，不假定节拍。",
     estimatedCny: Math.round(estimateStoryboardImageCost().estimatedCny * planned.length * 100) / 100,
-    shots: planned.map((s, i) => ({
-      ...s, shotNo: targets[i].shotNo, label: targets[i].label, requestId: randomUUID(),
-      frameNotes: samples ? current.frameNotes[current.shots.indexOf(targets[i])] : undefined,
-      currentFrameId: current.material.shots.find(shot => shot.stableShotId === s.stableShotId)?.currentImage?.id ?? null,
-      previousChoice: previousChoice(s.stableShotId),
-    })),
+    shots: planned.map((s, i) => {
+      const previous = previousChoice(s.stableShotId);
+      // Apply the exclusion only to an explicit full-frame direction. A B&W object in a colour scene is valid.
+      const monochrome = samples && !input.adjustment && !previous?.adjustments.length &&
+        /(?:^|[。；;\n])\s*(?:画面|本镜|全片)(?:为|采用|使用|呈现|保持)(?:全黑白|纯黑白|黑白(?:画面|影像|照片|色调|插画)|[^，。；\n]{1,28}的黑白(?:照片|复原镜头))/u.test(s.brief);
+      return { ...s, shotNo: targets[i].shotNo, label: targets[i].label, requestId: randomUUID(),
+        frameNotes: samples ? current.frameNotes[current.shots.indexOf(targets[i])] : undefined,
+        currentFrameId: current.material.shots.find(shot => shot.stableShotId === s.stableShotId)?.currentImage?.id ?? null,
+        monochrome: monochrome ? true : undefined, previousChoice: previous };
+    }),
   });
   const latest = await source(input.storyId, input.userId);
   if (latest.sourceHash !== current.sourceHash || latest.artBasisHash !== current.artBasisHash) throw new Error("整理期间创作依据已变化，请重新整理示意方案");
@@ -200,6 +206,7 @@ export async function artPreviewGenerationInput(storyId: number, userId: number,
   const basis = batch.artBasis;
   const legacyPrompt = !batch.baselineImageId ? `镜头基调试图：${shot.brief}` : `跨镜头美术示意图：只迁移参考图的视觉效果，按本镜内容重新安排构图，不复制上一镜的事件。\n${shot.brief}\n迁移意图：${shot.adaptation}`;
   const prompt = basis ? [stillVisualDescription(shot.brief) || shot.brief,
+    shot.monochrome && "Black and white throughout the frame. Black ink and gray values on neutral paper.",
     basis.direction, shot.frameNotes, !batch.sampleShotId && !batch.sampleShotIds && shot.adaptation,
     shot.previousChoice?.adjustments.length && `本镜此前已采用的调整：${shot.previousChoice.adjustments.join("；")}`,
     batch.adjustment && `本轮调整（与旧要求冲突时以本轮为准）：${batch.adjustment}`,
