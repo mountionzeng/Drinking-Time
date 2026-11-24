@@ -13117,6 +13117,7 @@
       "userValue": "书稿修改后规划新视频，旧视频的镜头、剪辑、素材、字幕、音轨及导出记录可独立追溯。",
       "entryPoints": [
         "client/src/features/creationEditor/VideoWorkflowControls.tsx",
+        "client/src/features/creationEditor/ExportTimelineButton.tsx",
         "server/routers/videoWorkflow.ts",
         "client/src/features/bookVideo/BookVideoChat.tsx",
         "scripts/migrate-chatcut-project.ts",
@@ -13127,6 +13128,8 @@
         "server/services/videoWorkflow.ts",
         "server/services/bookVideoCreation.ts",
         "server/services/videoExport.ts",
+        "server/services/timelineExportJobs.ts",
+        "server/services/timelineMediaExport.ts",
         "server/services/directBookStoryboard.ts",
         "server/services/publishingVideoStoryboardPersistence.ts",
         "shared/bookVideoAudio.ts",
@@ -13155,6 +13158,8 @@
         "docs/qa/2026-11-09-video-media-versions.md",
         "server/services/chatCutProjectMigration.test.ts",
         "server/services/videoExport.test.ts",
+        "server/services/videoExport.integration.test.ts",
+        "client/src/features/creationEditor/ExportTimelineButton.test.tsx",
         "docs/qa/2026-11-10-chatcut-launch-migration.md",
         "server/services/chatCutRelink.test.ts",
         "server/services/chatCutXml.test.ts",
@@ -13175,6 +13180,7 @@
       ],
       "replaces": [],
       "knownGaps": [
+        "当前剪辑导出任务的阶段和失败状态存在服务进程内；服务重启会中断该任务，可在面板重新确认后再试。",
         "整版视频恢复到编辑器尚未提供；本轮支持快照查看和指定版本导出。",
         "媒体引用随版本保存，源媒体文件若被外部删除仍会明确导出失败；不复制媒体二进制。",
         "最多100个视频快照并共享4MiB故事容量；真实模型/生产MySQL/真机未验收。",
@@ -13183,6 +13189,20 @@
         "新 completeChatCutImport 关联入口支持已核对的30fps、两画面轨（原视频+透明文字图片）及五音轨包；不支持任意变速/变换/复杂曲线。文字PNG保留独立图层，不转换为逐字可编辑字幕。"
       ],
       "history": [
+        {
+          "date": "2026-11-24",
+          "kind": "fix",
+          "summary": "导出回执保持单行并按需展示缺素材等问题，静音来源的普通说明从新旧回执中过滤。无 libass 的导出按时间戳复用字幕图并分批共享字体，修订71同设置43.45→27.37秒，成片与35张字幕图完全一致。"
+        },
+        {
+          "date": "2026-11-24",
+          "kind": "feature",
+          "summary": "当前剪辑导出改为先确认修订、画幅、分辨率与字幕，开始后查看服务端阶段，失败重新确认、成功查看与下载。修复音画同图阻塞与跨镜字幕消失。主仓3000原页面故事1217修订71实点成功并保留68.6秒回执。旧快照导出接口继续使用服务端冻结来源。",
+          "evidence": [
+            "client/src/features/creationEditor/ExportTimelineButton.test.tsx",
+            "server/services/videoExport.integration.test.ts"
+          ]
+        },
         {
           "date": "2026-11-09",
           "kind": "feature",

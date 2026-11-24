@@ -134,28 +134,18 @@ function wrapSubtitleLines(
   });
 }
 
-/** SVG is rendered by sharp; XML escaping prevents text from becoming markup. */
-export function buildSubtitleOverlaySvg(
+function buildSubtitleOverlayMarkup(
   interval: Pick<SubtitleOverlayInterval, "lines" | "positioned">,
-  dimensions: { width: number; height: number },
-  fontDataBase64?: string | null
+  { width, height }: { width: number; height: number }
 ): string {
-  const width = Math.max(1, Math.round(dimensions.width));
-  const height = Math.max(1, Math.round(dimensions.height));
   const fontSize = Math.max(18, Math.round(height * 0.045));
-  const outline = Math.max(2, Math.round(fontSize * 0.08));
   const lineHeight = Math.round(fontSize * 1.32);
   const marginV = Math.max(24, Math.round(height * 0.08));
   const maxCharacters = Math.max(8, Math.floor((width * 0.84) / fontSize));
   const lines = wrapSubtitleLines(interval.lines, maxCharacters);
   const blockHeight = Math.max(lineHeight, lines.length * lineHeight);
   const firstBaseline = height - marginV - blockHeight + lineHeight * 0.8;
-  const fontFace = fontDataBase64
-    ? `@font-face{font-family:TimelineSubtitle;src:url(data:font/ttf;base64,${fontDataBase64}) format('truetype');}`
-    : "";
   return [
-    `<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">`,
-    `<style>${fontFace}text{font-family:TimelineSubtitle,'Noto Sans SC',sans-serif;font-size:${fontSize}px;font-weight:600;fill:white;stroke:#101010;stroke-width:${outline}px;paint-order:stroke fill;stroke-linejoin:round;}</style>`,
     `<text x="${width / 2}" y="${firstBaseline}" text-anchor="middle">`,
     ...lines.map(
       (line, index) =>
@@ -174,8 +164,38 @@ export function buildSubtitleOverlaySvg(
         )
         .join("")}</text>`;
     }),
+  ].join("");
+}
+
+/** A batch shares one font declaration while each subtitle retains its own canvas. */
+export function buildSubtitleOverlaySheet(
+  intervals: readonly Pick<SubtitleOverlayInterval, "lines" | "positioned">[],
+  dimensions: { width: number; height: number },
+  fontDataBase64?: string | null
+): string {
+  const width = Math.max(1, Math.round(dimensions.width));
+  const height = Math.max(1, Math.round(dimensions.height));
+  const fontSize = Math.max(18, Math.round(height * 0.045));
+  const outline = Math.max(2, Math.round(fontSize * 0.08));
+  const fontFace = fontDataBase64
+    ? `@font-face{font-family:TimelineSubtitle;src:url(data:font/ttf;base64,${fontDataBase64}) format('truetype');}`
+    : "";
+  return [
+    `<svg width="${width}" height="${height * intervals.length}" xmlns="http://www.w3.org/2000/svg">`,
+    `<style>${fontFace}text{font-family:TimelineSubtitle,'Noto Sans SC',sans-serif;font-size:${fontSize}px;font-weight:600;fill:white;stroke:#101010;stroke-width:${outline}px;paint-order:stroke fill;stroke-linejoin:round;}</style>`,
+    ...intervals.map((interval, index) =>
+      `<svg x="0" y="${index * height}" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" overflow="hidden">${buildSubtitleOverlayMarkup(interval, { width, height })}</svg>`
+    ),
     "</svg>",
   ].join("");
+}
+
+export function buildSubtitleOverlaySvg(
+  interval: Pick<SubtitleOverlayInterval, "lines" | "positioned">,
+  dimensions: { width: number; height: number },
+  fontDataBase64?: string | null
+): string {
+  return buildSubtitleOverlaySheet([interval], dimensions, fontDataBase64);
 }
 
 function atempoFilters(rate: number): string[] {
@@ -222,6 +242,31 @@ function audioInputFilters(input: AudioMixPlanInput): string[] {
   return filters.filter((filter): filter is string => Boolean(filter));
 }
 
+function resolveAudibleInputs(
+  plan: AudioMixPlan,
+  resolvedInputs: readonly ResolvedAudioMixInput[]
+): ResolvedAudioMixInput[] {
+  const byId = new Map(resolvedInputs.map(resolved => [resolved.input.id, resolved]));
+  return plan.inputs.flatMap(input => {
+    const resolved = byId.get(input.id);
+    return !input.muted && input.baseGain > 0 && resolved ? [{ ...resolved, input }] : [];
+  });
+}
+
+function buildAudioGraph(inputs: readonly ResolvedAudioMixInput[], totalSec: number, inputOffset: number): string[] {
+  const duration = totalSec.toFixed(6);
+  if (!inputs.length) {
+    return [`anullsrc=r=${EXPORT_SAMPLE_RATE}:cl=stereo,atrim=duration=${duration},asetpts=PTS-STARTPTS[mixout]`];
+  }
+  const labels = inputs.map((_, index) => `[audio${index}]`);
+  return [
+    ...inputs.map(({ input }, index) =>
+      `[${index + inputOffset}:a:0]${audioInputFilters(input).join(",")}${labels[index]}`
+    ),
+    `${labels.join("")}amix=inputs=${inputs.length}:duration=longest:dropout_transition=0:normalize=0,apad=whole_dur=${duration},atrim=duration=${duration},asetpts=PTS-STARTPTS[mixout]`,
+  ];
+}
+
 /** Build argv without executing FFmpeg. Useful for contract and injection tests. */
 export function buildTimelineMediaFfmpegPlan(input: {
   visualMasterPath: string;
@@ -236,14 +281,7 @@ export function buildTimelineMediaFfmpegPlan(input: {
 }): TimelineMediaFfmpegPlan {
   const totalFrames = Math.max(1, Math.round(input.totalFrames));
   const totalSec = frameSeconds(totalFrames);
-  const resolvedById = new Map(
-    input.resolvedAudioInputs.map(resolved => [resolved.input.id, resolved])
-  );
-  const audible = input.audioPlan.inputs.flatMap(planned => {
-    if (planned.muted || planned.baseGain <= 0) return [];
-    const resolved = resolvedById.get(planned.id);
-    return resolved ? [{ ...resolved, input: planned }] : [];
-  });
+  const audible = resolveAudibleInputs(input.audioPlan, input.resolvedAudioInputs);
   const subtitleOverlays = input.subtitleAssPath
     ? []
     : (input.subtitleOverlays ?? []);
@@ -279,24 +317,8 @@ export function buildTimelineMediaFfmpegPlan(input: {
     graph.push("[0:v:0]null[videoout]");
   }
 
-  const audioLabels: string[] = [];
-  audible.forEach((resolved, index) => {
-    const label = `audio${index}`;
-    audioLabels.push(`[${label}]`);
-    graph.push(
-      `[${index + 1}:a:0]${audioInputFilters(resolved.input).join(",")}[${label}]`
-    );
-  });
   const audioMap = "[mixout]";
-  if (audioLabels.length === 0) {
-    graph.push(
-      `anullsrc=r=${EXPORT_SAMPLE_RATE}:cl=stereo,atrim=duration=${totalSec.toFixed(6)},asetpts=PTS-STARTPTS[mixout]`
-    );
-  } else {
-    graph.push(
-      `${audioLabels.join("")}amix=inputs=${audioLabels.length}:duration=longest:dropout_transition=0:normalize=0,apad=whole_dur=${totalSec.toFixed(6)},atrim=duration=${totalSec.toFixed(6)},asetpts=PTS-STARTPTS[mixout]`
-    );
-  }
+  graph.push(...buildAudioGraph(audible, totalSec, 1));
   const filterComplex = graph.join(";");
   const args = [
     "-hide_banner",
@@ -479,21 +501,54 @@ async function renderSubtitleOverlaysBounded(input: {
   });
   const fontDataBase64 = await loadSubtitleFontBase64(input.fontDirectory);
   const overlays: ResolvedSubtitleOverlay[] = [];
-  for (const [index, interval] of input.intervals.entries()) {
-    const filePath = path.join(
-      input.workDir,
-      `timeline-subtitle-${String(index).padStart(4, "0")}.png`
-    );
-    await sharp(
-      Buffer.from(
-        buildSubtitleOverlaySvg(interval, input.dimensions, fontDataBase64)
-      )
-    )
-      .png()
-      .toFile(filePath);
-    overlays.push({ ...interval, filePath });
+  const { width, height } = input.dimensions;
+  // Bound the uncompressed sheet at roughly 32 MiB for 1080p exports.
+  const batchSize = Math.max(1, Math.floor(32 * 1024 * 1024 / (width * height * 4)));
+  for (let offset = 0; offset < input.intervals.length; offset += batchSize) {
+    const batch = input.intervals.slice(offset, offset + batchSize);
+    const { data, info } = await sharp(Buffer.from(
+      buildSubtitleOverlaySheet(batch, input.dimensions, fontDataBase64)
+    )).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+    const tileBytes = width * height * info.channels;
+    for (const [index, interval] of batch.entries()) {
+      const filePath = path.join(input.workDir, `timeline-subtitle-${String(offset + index).padStart(4, "0")}.png`);
+      await sharp(data.subarray(index * tileBytes, (index + 1) * tileBytes), {
+        raw: { width, height, channels: info.channels },
+      }).png({ compressionLevel: 1 }).toFile(filePath);
+      overlays.push({ ...interval, filePath });
+    }
   }
   return overlays;
+}
+
+async function writeSubtitleOverlayTimeline(
+  overlays: readonly ResolvedSubtitleOverlay[],
+  workDir: string,
+  dimensions: { width: number; height: number },
+  totalFrames: number
+): Promise<string> {
+  const blankPath = path.join(workDir, "subtitle-clear.png");
+  await sharp({ create: { ...dimensions, channels: 4, background: "#00000000" } })
+    .png().toFile(blankPath);
+  const lines = ["ffconcat version 1.0"];
+  const append = (file: string, start: number, end: number) => {
+    lines.push(`file '${path.basename(file)}'`, `option framerate ${STORY_TIMELINE_FPS}`);
+    const micros = Math.round(frameSeconds(end) * 1e6) - Math.round(frameSeconds(start) * 1e6);
+    lines.push(`duration ${(micros / 1e6).toFixed(6)}`);
+  };
+  let cursor = 0;
+  for (const overlay of overlays) {
+    if (overlay.startFrame >= totalFrames) break;
+    if (overlay.startFrame > cursor) append(blankPath, cursor, overlay.startFrame);
+    const end = Math.min(overlay.endFrame, totalFrames);
+    append(overlay.filePath, overlay.startFrame, end);
+    cursor = end;
+  }
+  if (cursor < totalFrames) append(blankPath, cursor, totalFrames);
+  lines.push(`file '${path.basename(blankPath)}'`, `option framerate ${STORY_TIMELINE_FPS}`, "");
+  const manifest = path.join(workDir, "subtitles.ffconcat");
+  await writeFile(manifest, lines.join("\n"), "utf8");
+  return manifest;
 }
 
 export function runFfmpegCommand(
@@ -535,13 +590,12 @@ export function runFfmpegCommand(
 /**
  * Visual media is allowed to have no embedded audio. Probe before adding it to
  * filter_complex because an optional `-map` cannot make a missing `[n:a:0]`
- * filter input optional. Probe failures are treated as "no usable audio";
- * the visual export remains valid and the other mix inputs continue.
+ * filter input optional. A failed probe cannot establish that a source is silent.
  */
-export function mediaFileHasAudioStream(
+export function probeMediaAudioStream(
   filePath: string,
   options: { ffprobePath?: string; timeoutMs?: number } = {}
-): Promise<boolean> {
+): Promise<"present" | "absent" | "unavailable"> {
   return new Promise(resolve => {
     const child = spawn(
       options.ffprobePath ?? process.env.FFPROBE_PATH ?? "ffprobe",
@@ -560,7 +614,7 @@ export function mediaFileHasAudioStream(
     );
     let stdout = "";
     let settled = false;
-    const finish = (result: boolean) => {
+    const finish = (result: "present" | "absent" | "unavailable") => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
@@ -568,13 +622,13 @@ export function mediaFileHasAudioStream(
     };
     const timer = setTimeout(() => {
       child.kill("SIGKILL");
-      finish(false);
+      finish("unavailable");
     }, options.timeoutMs ?? 15_000);
     child.stdout.on("data", chunk => {
       stdout = (stdout + String(chunk)).slice(-128);
     });
-    child.on("error", () => finish(false));
-    child.on("close", code => finish(code === 0 && stdout.trim().length > 0));
+    child.on("error", () => finish("unavailable"));
+    child.on("close", code => finish(code !== 0 ? "unavailable" : stdout.trim() ? "present" : "absent"));
   });
 }
 
@@ -588,6 +642,7 @@ export async function composeTimelineMedia(input: {
   subtitlePlan: SubtitleRenderPlan;
   audioPlan: AudioMixPlan;
   resolvedAudioInputs: readonly ResolvedAudioMixInput[];
+  onMux?: () => void;
   subtitleFontDirectory?: string | null;
   ffmpegPath?: string;
   timeoutMs?: number;
@@ -627,18 +682,49 @@ export async function composeTimelineMedia(input: {
           fontDirectory: subtitleFontDirectory,
         })
       : undefined;
-  const plan = buildTimelineMediaFfmpegPlan({
-    visualMasterPath: input.visualMasterPath,
-    outputPath: input.outputPath,
-    totalFrames: input.totalFrames,
-    audioPlan: input.audioPlan,
-    resolvedAudioInputs: input.resolvedAudioInputs,
-    subtitleAssPath,
-    subtitleFontDirectory,
-    subtitleOverlays,
-  });
-  await runFfmpegCommand(plan.args, {
+  const commandOptions = {
     ffmpegPath: input.ffmpegPath,
     timeoutMs: input.timeoutMs,
-  });
+  };
+  const common = ["-nostdin", "-hide_banner", "-loglevel", "error", "-y"];
+  const totalSec = frameSeconds(input.totalFrames);
+  const audible = resolveAudibleInputs(input.audioPlan, input.resolvedAudioInputs);
+  const audioPath = path.join(input.workDir, "mixed-audio.m4a");
+  // Mixing with the video in the same filter graph can block FFmpeg's
+  // scheduler when distant timeline clips need different input positions.
+  await runFfmpegCommand([
+    ...common, ...audible.flatMap(({ filePath }) => ["-i", filePath]),
+    "-filter_complex", buildAudioGraph(audible, totalSec, 0).join(";"),
+    "-map", "[mixout]", "-c:a", "aac", "-b:a", "192k", audioPath,
+  ], commandOptions);
+
+  let picturePath = input.visualMasterPath;
+  if (subtitleMode !== "none") {
+    picturePath = path.join(input.workDir, "subtitled-picture.mp4");
+    const inputs = ["-reinit_filter", "0", "-i", input.visualMasterPath];
+    let graph: string;
+    if (subtitleAssPath) {
+      const fontsDir = subtitleFontDirectory
+        ? `:fontsdir='${escapeFfmpegFilterPath(subtitleFontDirectory)}'` : "";
+      graph = `[0:v]ass=filename='${escapeFfmpegFilterPath(subtitleAssPath)}'${fontsDir}[picture]`;
+    } else {
+      const concat = await writeSubtitleOverlayTimeline(
+        subtitleOverlays ?? [], input.workDir, input.dimensions, input.totalFrames
+      );
+      inputs.push("-f", "concat", "-safe", "0", "-i", concat);
+      // The manifest is already on the timeline frame clock. Framesync holds
+      // each image to the next timestamp without expanding the subtitle input.
+      graph = "[1:v]format=rgba[subtitles];[0:v][subtitles]overlay=eof_action=repeat[picture]";
+    }
+    await runFfmpegCommand([
+      ...common, ...inputs, "-filter_complex_threads", "2", "-filter_complex", graph,
+      "-map", "[picture]", "-frames:v", String(input.totalFrames), "-an",
+      "-c:v", "libx264", "-preset", "veryfast", "-crf", "19", "-pix_fmt", "yuv420p", picturePath,
+    ], commandOptions);
+  }
+  input.onMux?.();
+  await runFfmpegCommand([
+    ...common, "-i", picturePath, "-i", audioPath, "-map", "0:v:0", "-map", "1:a:0",
+    "-c", "copy", "-t", totalSec.toFixed(6), "-movflags", "+faststart", input.outputPath,
+  ], commandOptions);
 }

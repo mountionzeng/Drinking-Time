@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { exportReceiptKey, readExportReceipt, saveExportReceipt } from "./exportReceipt";
+import { getExportWarnings, exportReceiptKey, readExportReceipt, saveExportReceipt } from "./exportReceipt";
 it("restores exports only for their account and story and rejects unsafe or corrupt links", () => {
   const values = new Map<string, string>();
   const store = { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => { values.set(key, value); } };
@@ -15,4 +15,11 @@ it("restores exports only for their account and story and rejects unsafe or corr
     expect(readExportReceipt(store, a, 1217)).toBeNull();
   }
   store.setItem(a, "broken"); expect(readExportReceipt(store, a, 1217)).toBeNull();
+});
+
+it("hides legacy notices about intentionally silent media and keeps actual export warnings", () => {
+  expect(getExportWarnings({ mediaDiagnostics: [
+    "视频 primary:review-take-1651:take-1651 本身没有音轨，已安全跳过原声",
+    "26.27–68.00s 无画面 / No picture; retained timeline gap",
+  ] })).toEqual(["26.27–68.00s 无画面 / No picture; retained timeline gap"]);
 });

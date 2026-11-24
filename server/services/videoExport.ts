@@ -52,7 +52,7 @@ import { resolveManagedAudioPath } from "./audioMedia";
 import { loadReadyStoryAudioAsset } from "./storyAudioAssets";
 import {
   composeTimelineMedia,
-  mediaFileHasAudioStream,
+  probeMediaAudioStream,
   type ResolvedAudioMixInput,
 } from "./timelineMediaExport";
 import { videoFileName } from "./videoConform";
@@ -131,6 +131,15 @@ export type ExportResult =
       mediaDiagnostics?: string[];
     }
   | { status: "error"; error: string };
+
+export type TimelineExportStage = "preparing" | "picture" | "media" | "file";
+
+const standardVideoFormat = [
+  "scale=out_color_matrix=bt709:out_range=tv",
+  "format=yuv420p",
+  "setsar=1",
+  "setparams=range=limited:color_primaries=bt709:color_trc=bt709:colorspace=bt709",
+].join(",");
 
 type ShotVideoLike = {
   id: number;
@@ -831,8 +840,7 @@ function videoFilters(
     // 源比区间短时冻在最后一帧补满，绝不允许把后面镜头的绝对时间压回去。
     `tpad=stop_mode=clone:stop_duration=${segment.durationSec.toFixed(3)}`,
     "fps=30",
-    "format=yuv420p",
-    "setsar=1",
+    standardVideoFormat,
   ]
     .filter(Boolean)
     .join(",");
@@ -853,6 +861,8 @@ function blackVideoArgs(input: {
     duration,
     "-i",
     `color=c=black:s=${input.dims.width}x${input.dims.height}:r=30`,
+    "-vf",
+    standardVideoFormat,
     "-c:v",
     "libx264",
     "-preset",
@@ -914,6 +924,7 @@ export async function resolveExportAudioInputs(input: {
     input.visualSources.map(source => [source.id, source] as const)
   );
   const resolved: ResolvedAudioMixInput[] = [];
+  const audioStreams = new Map<string, Awaited<ReturnType<typeof probeMediaAudioStream>>>();
 
   for (const planned of input.audioPlan.inputs) {
     if (planned.muted || planned.baseGain <= 0) continue;
@@ -958,8 +969,13 @@ export async function resolveExportAudioInputs(input: {
       input.diagnostics.push(`${diagnostic}，已保留时长并以静音替代`);
       continue;
     }
-    if (!(await mediaFileHasAudioStream(filePath))) {
-      input.diagnostics.push(`视频 ${source.id} 本身没有音轨，已安全跳过原声`);
+    const stream = audioStreams.get(filePath) ?? await probeMediaAudioStream(filePath);
+    audioStreams.set(filePath, stream);
+    if (stream === "absent") continue;
+    if (stream === "unavailable") {
+      const diagnostic = "无法读取一个视频素材的原声音轨";
+      if (input.missingSourceMode === "strict") throw new Error(diagnostic);
+      input.diagnostics.push(`${diagnostic}，已保留时长并以静音替代`);
       continue;
     }
     resolved.push({ input: planned, filePath });
@@ -1103,22 +1119,10 @@ export function resolveVideoExportAspectRatio(
   return top === "1:1" || top === "9:16" ? top : "16:9";
 }
 
-export async function exportStoryTimeline(params: {
-  storyId: number;
-  userId: number;
-  targetAspectRatio?: VideoTargetAspectRatio;
-  fallbackToLatestTake?: boolean;
-  /** strict 时缺素材直接失败；relaxed 补等长黑场并记录诊断。 */
-  missingSourceMode?: "strict" | "relaxed";
-  /** Server-owned version snapshot only; never exposed as client input. */
-  frozenMaterial?: StoryMaterialState;
-  frozenLegacyAudioSources?: LegacyExportAudioSource[];
-}): Promise<ExportResult> {
-  const material = params.frozenMaterial ?? await getStoryMaterialState(params.storyId, params.userId);
-  if (!material) return { status: "error", error: "故事不存在或无权访问" };
-
-  const storyBody = await getOwnedStoryBody(params.storyId, params.userId);
-  if (!storyBody) return { status: "error", error: "故事不存在或无权访问" };
+function resolveTimelineExportMedia(
+  material: StoryMaterialState,
+  storyBody: NonNullable<Awaited<ReturnType<typeof getOwnedStoryBody>>>
+) {
   const extensions = material.timeline.extensions;
   const hasFormalSubtitles = Object.prototype.hasOwnProperty.call(
     extensions ?? {},
@@ -1135,6 +1139,55 @@ export async function exportStoryTimeline(params: {
   const audioState = hasFormalAudio
     ? normalizeAudioState(extensions?.audioTracks)
     : legacyMedia.audioState;
+  return { subtitleState, audioState, hasFormalAudio, legacyMedia };
+}
+
+export async function getTimelineExportSettings(storyId: number, userId: number) {
+  const material = await getStoryMaterialState(storyId, userId);
+  if (!material) return null;
+  const storyBody = await getOwnedStoryBody(storyId, userId);
+  if (!storyBody) return null;
+  const { subtitleState, audioState } = resolveTimelineExportMedia(material, storyBody);
+  const plan = buildExportPlan(material, { fallbackToLatestTake: false, subtitleState, audioState });
+  return {
+    revision: material.timeline.version,
+    totalFrames: plan.totalFrames,
+    aspectRatio: resolveVideoExportAspectRatio(material),
+    subtitleTracks: subtitleState.tracks.filter(track => track.cues.length > 0)
+      .map(({ id, name }) => ({ id, name })),
+  };
+}
+
+export async function exportStoryTimeline(params: {
+  storyId: number;
+  userId: number;
+  targetAspectRatio?: VideoTargetAspectRatio;
+  resolution?: 720 | 1080;
+  subtitleTrackIds?: string[];
+  expectedRevision?: number;
+  onStage?: (stage: TimelineExportStage) => void;
+  fallbackToLatestTake?: boolean;
+  /** strict 时缺素材直接失败；relaxed 补等长黑场并记录诊断。 */
+  missingSourceMode?: "strict" | "relaxed";
+  /** Server-owned version snapshot only; never exposed as client input. */
+  frozenMaterial?: StoryMaterialState;
+  frozenLegacyAudioSources?: LegacyExportAudioSource[];
+}): Promise<ExportResult> {
+  const material = params.frozenMaterial ?? await getStoryMaterialState(params.storyId, params.userId);
+  if (!material) return { status: "error", error: "故事不存在或无权访问" };
+  if (params.expectedRevision !== undefined && material.timeline.version !== params.expectedRevision) {
+    return { status: "error", error: "剪辑已更新，请重新确认导出设置" };
+  }
+  const storyBody = await getOwnedStoryBody(params.storyId, params.userId);
+  if (!storyBody) return { status: "error", error: "故事不存在或无权访问" };
+  const { subtitleState, audioState, hasFormalAudio, legacyMedia } = resolveTimelineExportMedia(material, storyBody);
+  const subtitleTrackIds = params.subtitleTrackIds;
+  if (subtitleTrackIds?.some(id => !subtitleState.tracks.some(track => track.id === id))) {
+    return { status: "error", error: "字幕轨已更新，请重新确认导出设置" };
+  }
+  const selectedSubtitles = subtitleTrackIds === undefined ? subtitleState : {
+    tracks: subtitleState.tracks.filter(track => subtitleTrackIds.includes(track.id)),
+  };
 
   const missingSourceMode = params.missingSourceMode ?? "strict";
   const plan = buildExportPlan(material, {
@@ -1176,12 +1229,14 @@ export async function exportStoryTimeline(params: {
   }
 
   const ratio = resolveVideoExportAspectRatio(material, params.targetAspectRatio);
-  const dims = VIDEO_TARGET_DIMENSIONS[ratio];
+  const baseDimensions = VIDEO_TARGET_DIMENSIONS[ratio];
+  const scale = (params.resolution ?? 1080) / 1080;
+  const dims = { width: Math.round(baseDimensions.width * scale), height: Math.round(baseDimensions.height * scale) };
 
   const dir = localVideoDir();
   const stamp = Date.now();
-  const workDir = path.join(dir, `export-work-${params.storyId}-${stamp}`);
-  await fs.promises.mkdir(workDir, { recursive: true });
+  await fs.promises.mkdir(dir, { recursive: true });
+  const workDir = await fs.promises.mkdtemp(path.join(dir, `export-work-${params.storyId}-${stamp}-`));
   const key = `export-${params.storyId}-${stamp}.mp4`;
   const outputPath = path.join(dir, key);
   const visualMasterPath = path.join(workDir, "visual-master.mp4");
@@ -1190,6 +1245,7 @@ export async function exportStoryTimeline(params: {
     : []);
 
   try {
+    params.onStage?.("picture");
     const parts: string[] = [];
     for (let index = 0; index < plan.parts.length; index += 1) {
       const planned = plan.parts[index];
@@ -1218,6 +1274,8 @@ export async function exportStoryTimeline(params: {
             imagePath,
             "-t",
             planned.durationSec.toFixed(6),
+            "-vf",
+            standardVideoFormat,
             "-c:v",
             "libx264",
             "-preset",
@@ -1322,6 +1380,11 @@ export async function exportStoryTimeline(params: {
       120_000
     );
 
+    const compositedMasterPath = await compositeTimelineImages({
+      storyId: params.storyId, userId: params.userId, workDir, visualMasterPath,
+      images: plan.compositeImages ?? [], dimensions: dims, totalFrames: plan.totalFrames,
+    });
+    params.onStage?.("media");
     const visualSources = buildExportVisualAudioSources(material);
     const audioPlan = buildAudioMixPlan({ audioState, visualSources });
     const legacyAudioSources = params.frozenMaterial ? params.frozenLegacyAudioSources : hasFormalAudio ? undefined : legacyMedia.audioSources;
@@ -1343,19 +1406,16 @@ export async function exportStoryTimeline(params: {
       assetFilePaths: legacyAudioPaths,
       projectedAssetIds: legacyAudioSources ? new Set(legacyAudioSources.map(source => source.assetId)) : undefined,
     });
-    const compositedMasterPath = await compositeTimelineImages({
-      storyId: params.storyId, userId: params.userId, workDir, visualMasterPath,
-      images: plan.compositeImages ?? [], dimensions: dims, totalFrames: plan.totalFrames,
-    });
     await composeTimelineMedia({
       visualMasterPath: compositedMasterPath,
       outputPath,
       workDir,
       totalFrames: plan.totalFrames,
       dimensions: dims,
-      subtitlePlan: buildSubtitleRenderPlan(subtitleState),
+      subtitlePlan: buildSubtitleRenderPlan(selectedSubtitles),
       audioPlan,
       resolvedAudioInputs,
+      onMux: () => params.onStage?.("file"),
       timeoutMs: Math.min(30 * 60_000, Math.max(120_000, plan.totalSec * 5_000)),
     });
 

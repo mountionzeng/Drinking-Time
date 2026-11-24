@@ -23,7 +23,8 @@ import {
 } from "../../shared/timelineSubtitleModel";
 import {
   buildSubtitleOverlayIntervals,
-  buildSubtitleOverlaySvg,
+  buildSubtitleOverlaySheet,
+  probeMediaAudioStream,
   buildSubtitleAssDocument,
   buildTimelineMediaFfmpegPlan,
   MAX_SUBTITLE_PNG_FALLBACK_INTERVALS,
@@ -75,7 +76,7 @@ describe("timelineMediaExport", () => {
         lines: ["第一条", "第二条{\\危险}<script>", "下一行"],
       },
     ]);
-    const document = buildSubtitleOverlaySvg(intervals[0], {
+    const document = buildSubtitleOverlaySheet(intervals, {
       width: 1080,
       height: 1920,
     });
@@ -86,6 +87,22 @@ describe("timelineMediaExport", () => {
     expect(document).toContain("cript&gt;");
     expect(document).not.toContain("<script>");
     expect(document.match(/<tspan/g)).toHaveLength(4);
+  });
+
+  it("shares the font across subtitle tiles and clips each tile to its canvas", () => {
+    const document = buildSubtitleOverlaySheet(
+      [{ lines: ["第一行"] }, { lines: ["Second line"] }],
+      { width: 1080, height: 1920 },
+      "test-font"
+    );
+    expect(document.match(/test-font/g)).toHaveLength(1);
+    expect(document).toContain('height="3840"');
+    expect(document).toContain('y="1920" width="1080" height="1920" viewBox="0 0 1080 1920" overflow="hidden"');
+  });
+
+  it("distinguishes probing failure from media with no audio", async () => {
+    await expect(probeMediaAudioStream("unused.mp4", { ffprobePath: "/missing-ffprobe" }))
+      .resolves.toBe("unavailable");
   });
 
   it("serializes frame timing and literal ASS control characters safely", () => {
@@ -545,7 +562,7 @@ it("exports two positioned language lanes in one interval in both renderers", ()
   const intervals = buildSubtitleOverlayIntervals(plan);
   expect(intervals).toHaveLength(1);
   expect(intervals[0].positioned).toHaveLength(2);
-  const svg = buildSubtitleOverlaySvg(intervals[0], {
+  const svg = buildSubtitleOverlaySheet(intervals, {
     width: 1080,
     height: 1920,
   });

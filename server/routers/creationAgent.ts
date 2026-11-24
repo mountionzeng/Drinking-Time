@@ -171,7 +171,8 @@ import {
 } from "../services/timelineEditAgent";
 import { confirmEditingTransition } from "../services/editingTransitionWorkflow";
 import { extractTimelineFrameForStory } from "../services/timelineFrameExtraction";
-import { exportStoryTimeline } from "../services/videoExport";
+import { exportStoryTimeline, getTimelineExportSettings } from "../services/videoExport";
+import { getTimelineExportJob, startTimelineExportJob } from "../services/timelineExportJobs";
 import {
   adviseStoryImages,
   applyImageDirectorAdvice,
@@ -1373,6 +1374,30 @@ export const creationAgentRouter = router({
         targetAspectRatio: input.targetAspectRatio,
         fallbackToLatestTake: input.fallbackToLatestTake,
       });
+    }),
+
+  timelineExportSettings: protectedProcedure
+    .input(z.object({ storyId: z.number().int().positive(), accountId: z.number().int().positive() }))
+    .query(({ ctx, input }) => ctx.user.id === input.accountId
+      ? getTimelineExportSettings(input.storyId, ctx.user.id) : null),
+
+  timelineExportStatus: protectedProcedure
+    .input(z.object({ storyId: z.number().int().positive(), accountId: z.number().int().positive() }))
+    .query(({ ctx, input }) => ctx.user.id === input.accountId
+      ? getTimelineExportJob(ctx.user.id, input.storyId) : null),
+
+  startTimelineExport: protectedProcedure
+    .input(z.object({
+      storyId: z.number().int().positive(),
+      accountId: z.number().int().positive(),
+      expectedRevision: z.number().int().nonnegative(),
+      targetAspectRatio: z.enum(VIDEO_TARGET_ASPECT_RATIOS),
+      resolution: z.union([z.literal(720), z.literal(1080)]),
+      subtitleTrackIds: z.array(z.string().min(1).max(200)).max(1).optional(),
+    }))
+    .mutation(({ ctx, input: { accountId, ...options } }) => {
+      if (ctx.user.id !== accountId) throw new TRPCError({ code: "FORBIDDEN" });
+      return startTimelineExportJob({ ...options, userId: ctx.user.id, fallbackToLatestTake: false });
     }),
 
   /**

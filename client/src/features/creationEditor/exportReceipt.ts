@@ -18,3 +18,10 @@ export function saveExportReceipt(store: Store | null, key: string | null, recei
   if (!key) return;
   try { store?.setItem(key, JSON.stringify(receipt)); } catch { /* Keep the in-memory link available. */ }
 }
+
+/** Old receipts describe silent stock footage as an informational diagnostic. */
+export function getExportWarnings(receipt: Pick<ExportReceipt, "mediaDiagnostics"> | undefined) {
+  return (receipt?.mediaDiagnostics ?? []).filter(message =>
+    !/^视频 .+ 本身没有音轨，已安全跳过原声$/.test(message)
+  );
+}

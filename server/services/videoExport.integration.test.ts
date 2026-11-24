@@ -130,9 +130,17 @@ it("really encodes selected video, held image, subtitle, sound and an intentiona
     unassignedVideos: [],
     reusableVideoTakes: [],
   } as unknown as StoryMaterialState;
-  const result = await exportStoryTimeline({ storyId: 1, userId: 1 });
+  const onStage = vi.fn();
+  const stale = await exportStoryTimeline({ storyId: 1, userId: 1, expectedRevision: 0, onStage });
+  expect(stale).toMatchObject({ status: "error", error: expect.stringContaining("剪辑已更新") });
+  expect(onStage).not.toHaveBeenCalled();
+  const result = await exportStoryTimeline({
+    storyId: 1, userId: 1, expectedRevision: 1, targetAspectRatio: "16:9", resolution: 720,
+    subtitleTrackIds: [SUBTITLE_TRACK_ID], onStage,
+  });
   expect(result.status, JSON.stringify(result)).toBe("ok");
   if (result.status !== "ok") return;
+  expect(onStage.mock.calls).toEqual([["picture"], ["media"], ["file"]]);
   expect(result.mediaDiagnostics?.some(message => message.includes("No picture"))).toBe(true);
   const file = path.join(fixture.directory, result.videoKey);
   const probe = JSON.parse(
@@ -143,6 +151,7 @@ it("really encodes selected video, held image, subtitle, sound and an intentiona
     )
   );
   expect(Number(probe.format.duration)).toBeCloseTo(2.5, 1);
+  expect(probe.streams[0]).toMatchObject({ width: 1280, height: 720 });
   expect(
     probe.streams.map((stream: { codec_type: string }) => stream.codec_type)
   ).toEqual(["video", "audio"]);
