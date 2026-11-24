@@ -17,6 +17,8 @@ export type WarehouseRenderJob = {
   assetId?: number;
   url?: string;
   retry?: ImageRetryOffer;
+  previewRetry?: Awaited<ReturnType<typeof warehouseImageAttempts>>[number]["previewRetry"];
+  failureCount?: number;
   error?: string;
 };
 
@@ -31,7 +33,8 @@ export function mergeImageAttempts(jobs: readonly WarehouseRenderJob[], attempts
     if (attempt.status === "succeeded") continue;
     const state = attempt.status === "failed" ? "failed" : attempt.status === "unknown" ? "unknown" : "rendering";
     merged.push({ id: attempt.requestId, requestId: attempt.requestId, startedAt: attempt.startedAt, storyId: attempt.storyId,
-      shotId: attempt.shotId, kind: "image", state, error: attempt.error, retry: attempt.offer });
+      shotId: attempt.shotId, kind: "image", state, error: attempt.error, retry: attempt.offer,
+      previewRetry: attempt.previewRetry, failureCount: attempt.failureCount });
   }
   return merged.sort((a, b) => b.startedAt - a.startedAt);
 }

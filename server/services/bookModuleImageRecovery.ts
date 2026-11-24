@@ -103,7 +103,7 @@ export async function runModuleImageTask<T extends { status: string; error?: str
     const existing = tasks.filter(t => matches(t, scope)).at(-1);
     if (scope.previousTaskId && existing?.id !== scope.previousTaskId) throw new Error("候选图片已更新，请重新打开窗口");
     if (existing && existing.status !== "failed" && !(existing.status === "succeeded" && previous?.id === existing.id && (previous.inserted || scope.previousTaskId === existing.id))) return existing;
-    const task: BookModuleImageTask = { id, requestId: scope.requestId, chapterId: scope.chapterId, moduleId: scope.moduleId, sourceHash: source.fingerprint, provider: scope.provider, status: "preparing", candidates: [] };
+    const task: BookModuleImageTask = { id, createdAt: Date.now(), requestId: scope.requestId, chapterId: scope.chapterId, moduleId: scope.moduleId, sourceHash: source.fingerprint, provider: scope.provider, status: "preparing", candidates: [] };
     tasks.push(task);
     return task;
   });
@@ -126,6 +126,7 @@ export async function runModuleImageTask<T extends { status: string; error?: str
         task.error = result.error;
         return task.status;
       });
+      if (outcome === "accepted" && isLegnextReceipt(result.providerTaskId || acceptedId || "")) followAcceptedBookImage(scope, id);
       if (outcome === "failed" || outcome === "unknown") {
         await recordGenerationResolved(scope.userId, "image", id, outcome === "failed" && definiteFailure ? "failed" : "unknown");
       }
@@ -133,29 +134,73 @@ export async function runModuleImageTask<T extends { status: string; error?: str
     return result;
   } catch (error) {
     // Keep the durable claim even when saving a receipt or final response fails.
+    if (acceptedId && isLegnextReceipt(acceptedId)) followAcceptedBookImage(scope, id);
     // No lease expiry or browser retry is allowed to turn it into another POST.
     return { status: "error" as const, error: error instanceof Error ? error.message : "任务状态保存失败",
       ...(acceptedId ? { providerTaskId: acceptedId } : {}), submissionUncertain: !acceptedId };
   }
 }
 
+async function readExistingResult(scope: Scope, task: BookModuleImageTask, receipt: string) {
+  // Never compile a new prompt, submit a new task, or change the saved provider.
+  const result = isLegnextReceipt(receipt)
+    ? await resumeLegnextImage(receipt)
+    : task.provider === "midjourney"
+    ? await resume302MidjourneyTask(receipt, { mjTimeoutMs: 8_000, mjPollIntervalMs: 1_000 })
+    : await resume302GptImageTask(receipt, { gptImageModel: "gpt-image-2", gptTimeoutMs: 8_000, gptPollIntervalMs: 1_000 });
+  if (result.status === "ok") {
+    const stored = await finish(scope, task.id, result.candidates ?? (result.imageUrl ? [{ imageUrl: result.imageUrl, imageKey: result.imageKey }] : []));
+    return response({ ...task, status: "succeeded", candidates: stored.map(c => ({ imageId: c.id, imageUrl: c.imageUrl })) });
+  }
+  // Transient fetch errors must never clear the previously accepted receipt.
+  if (result.providerConfirmedFailure) {
+    const changed = await mutateModuleImageTasks(scope, tasks => {
+      const current = tasks.find(t => t.id === task.id && matches(t, scope));
+      if (current?.status !== "accepted" || current.providerTaskId !== receipt) return false;
+      current.status = "failed";
+      current.error = result.message || "图片服务确认生成失败。";
+      return true;
+    });
+    if (changed) await recordGenerationResolved(scope.userId, "image", task.id, "failed");
+    const saved = await getStoryById(scope.storyId, scope.userId);
+    const exact = moduleImageTasks(saved?.body).find(t => t.id === task.id && matches(t, scope));
+    return response(exact ?? task);
+  }
+  return { status: "error" as const, pending: result.errorCode === "timeout_pending", error: result.message ?? "任务尚未完成，请稍后恢复", providerTaskId: task.providerTaskId };
+}
+
+const activeReads = new Map<string, ReturnType<typeof readExistingResult>>();
+async function recoverSaved(scope: Scope, task: BookModuleImageTask) {
+  if (task.status !== "accepted" || !task.providerTaskId) return response(task);
+  const key = JSON.stringify([scope.userId, scope.storyId, scope.chapterId, scope.moduleId, task.id]);
+  const existing = activeReads.get(key);
+  if (existing) return existing;
+  const read = readExistingResult(scope, task, task.providerTaskId).finally(() => activeReads.delete(key));
+  activeReads.set(key, read);
+  return read;
+}
+
+// The legacy store has no task worker. Follow fast MJ receipts while this
+// process is running, including when the browser dialog has been closed.
+function followAcceptedBookImage(scope: Scope, taskId: string) {
+  const deadline = Date.now() + 10 * 60_000;
+  async function poll() {
+    try {
+      const task = await readModuleImageTask(scope);
+      if (task?.id !== taskId || task.status !== "accepted") return;
+      const result = await recoverSaved(scope, task);
+      if (result.status === "ok") return;
+    } catch { /* The persisted receipt can be checked on the next tick or on reopen. */ }
+    if (Date.now() < deadline) setTimeout(poll, 10_000).unref();
+  }
+  setTimeout(poll, 6_000).unref();
+}
+
 export async function recoverModuleImageTask(scope: Scope) {
   if (imageTaskAsyncSubmitEnabled()) return recoverModuleImageTaskAsync(scope);
   const task = await readModuleImageTask(scope);
   if (!task) throw new Error("没有可恢复的模块图片任务");
-  if (task.status === "succeeded" || !task.providerTaskId) return response(task);
-  // Never compile a new prompt, submit a new task, or change the saved provider.
-  const result = isLegnextReceipt(task.providerTaskId)
-    ? await resumeLegnextImage(task.providerTaskId)
-    : task.provider === "midjourney"
-    ? await resume302MidjourneyTask(task.providerTaskId, { mjTimeoutMs: 8_000, mjPollIntervalMs: 1_000 })
-    : await resume302GptImageTask(task.providerTaskId, { gptImageModel: "gpt-image-2", gptTimeoutMs: 8_000, gptPollIntervalMs: 1_000 });
-  if (result.status === "ok") {
-    await finish(scope, task.id, result.candidates ?? (result.imageUrl ? [{ imageUrl: result.imageUrl, imageKey: result.imageKey }] : []));
-    return response((await readModuleImageTask(scope))!);
-  }
-  // Transient fetch errors must never clear the previously accepted receipt.
-  return { status: "error" as const, pending: result.errorCode === "timeout_pending", error: result.message ?? "任务尚未完成，请稍后恢复", providerTaskId: task.providerTaskId };
+  return recoverSaved(scope, task);
 }
 
 // ---------------------------------------------------------------------------

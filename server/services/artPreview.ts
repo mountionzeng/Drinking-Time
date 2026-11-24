@@ -16,6 +16,7 @@ import { runJsonAgent } from "./agentRuntime";
 import { previewArtBasis } from "./previewArtBasis";
 import { isWechatImportImage, privateReferenceOrigin, wechatProviderReference } from "./wechatVideoImage";
 import { preparePreviewCoverCopy } from "./previewCoverCopy";
+import { failedPreviewSource, previewRetryToken } from "./reviewedImageRetry";
 import { stillVisualDescription } from "./confirmedStoryboardImagePrompt";
 import { compileCreationEmotion } from "../../shared/creationEmotion";
 import { storyEmotion } from "./creationEmotion";
@@ -64,13 +65,25 @@ export async function readPreviewArtBasis(storyId: number, userId: number) {
   const cover = current.material.warehouseImages?.find(i => i.id === current.artBasis.coverImageId);
   const defaultReferenceId = current.material.artSystemReference?.image.id ?? cover?.id;
   return { ...current.artBasis, filmStyleImageId: current.filmStyle?.imageId ?? null,
+    basisKey: creationFingerprint([current.sourceHash, current.artBasisHash]),
+    privateCover: !!cover?.imageUrl && isWechatImportImage(cover.imageUrl) && !privateReferenceOrigin(),
     needsCoverCopy: !!cover?.imageUrl && (current.filmStyle ? current.filmStyle.imageId === cover.id : defaultReferenceId === cover.id) &&
       isWechatImportImage(cover.imageUrl) && !privateReferenceOrigin() };
 }
-export async function planArtPreviews(input: { storyId: number; userId: number; editorName: string; instruction: string; operationToken: string; imageId?: number; sampleShotId?: string; sampleShotIds?: string[]; adjustment?: string; coverCopyImageId?: number }) {
+export async function retryPreviewPlan(input: { storyId: number; userId: number; editorName: string; failedId: string; basisKey: string; coverCopyImageId?: number }) {
+  const { body } = await ownedCreationStory(input);
+  const source = failedPreviewSource(body, input.failedId);
+  if (!source) throw new Error("原任务状态或镜头已变化，请刷新仓库查看最新结果。");
+  return planArtPreviews({ ...input, retryOf: input.failedId, operationToken: previewRetryToken(input.failedId, input.basisKey),
+    instruction: source.batch.instruction, sampleShotIds: [source.shot.stableShotId], adjustment: source.batch.adjustment,
+    imageId: source.batch.explicitBaseline ? source.batch.baselineImageId ?? undefined : undefined });
+}
+export async function planArtPreviews(input: { storyId: number; userId: number; editorName: string; instruction: string; operationToken: string; imageId?: number; sampleShotId?: string; sampleShotIds?: string[]; adjustment?: string; coverCopyImageId?: number; retryOf?: string; basisKey?: string }) {
   if (input.sampleShotId && input.sampleShotIds) throw new Error("请选择一种试图镜头范围");
   const samples = input.sampleShotIds ?? (input.sampleShotId ? [input.sampleShotId] : undefined);
   const current = await source(input.storyId, input.userId);
+  if (input.retryOf && (input.basisKey !== creationFingerprint([current.sourceHash, current.artBasisHash]) || !failedPreviewSource(current.body, input.retryOf)))
+    throw new Error("镜头依据或原任务状态已变化，请重新打开报价。");
   const batches = readArtPreviewBatches(current.body);
   const replay = batches.find(b => b.id === input.operationToken);
   if (replay) {
@@ -119,7 +132,7 @@ export async function planArtPreviews(input: { storyId: number; userId: number; 
     }
   }
   const batch = artPreviewBatchSchema.parse({ id: input.operationToken, version: Math.max(0, ...batches.map(b => b.version)) + 1, createdAt: Date.now(), editorId: input.userId, editorName: input.editorName,
-    instruction: input.instruction, sourceHash: current.sourceHash, baselineImageId: baselineImageId ?? null, sampleShotId: input.sampleShotId,
+    instruction: input.instruction, retryOf: input.retryOf, sourceHash: current.sourceHash, baselineImageId: baselineImageId ?? null, sampleShotId: input.sampleShotId,
     sampleShotIds: input.sampleShotIds,
     filmStyle: current.filmStyle,
     explicitBaseline: input.imageId ? true : undefined,

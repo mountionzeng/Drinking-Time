@@ -4,8 +4,10 @@ import { protectedProcedure, router } from "../_core/trpc";
 import { ownedCreationStory } from "../repositories/textSourceLineage";
 import { normalizeStoryArtDirection } from "../../shared/artDirection";
 import { writeArtSystem } from "../services/artSystemChat";
-import { planArtPreviews, readArtPreviews, chooseArtPreview, readPreviewArtBasis } from "../services/artPreview";
+import { planArtPreviews, readArtPreviews, chooseArtPreview, readPreviewArtBasis, retryPreviewPlan } from "../services/artPreview";
 export const artSystemsRouter = router({
+  previewRetryPlan: protectedProcedure.input(z.object({ storyId: z.number().int().positive(), failedId: z.string().uuid(), basisKey: z.string().min(1).max(128), coverCopyImageId: z.number().int().positive().optional() }).strict())
+    .mutation(({ input, ctx }) => retryPreviewPlan({ ...input, userId: ctx.user.id, editorName: ctx.user.name || String(ctx.user.id) })),
   previewArtBasis: protectedProcedure.input(z.object({ storyId: z.number().int().positive() }))
     .query(({ input, ctx }) => readPreviewArtBasis(input.storyId, ctx.user.id)),
   previewPlan: protectedProcedure.input(z.object({ storyId: z.number().int().positive(), instruction: z.string().trim().min(1).max(8000), operationToken: z.string().uuid(), sampleShotId: z.string().min(1).max(128).optional(), sampleShotIds: sampleShotIdsSchema.optional(), imageId: z.number().int().positive().optional(), adjustment: z.string().trim().min(1).max(600).optional(), coverCopyImageId: z.number().int().positive().optional() }).strict())

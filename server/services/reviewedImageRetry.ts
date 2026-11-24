@@ -7,6 +7,7 @@ import {
   localEraseReceiptId,
 } from "../../shared/chatImageEditPlan";
 import { shotIdentityFromShot } from "../../shared/shotIdentity";
+import { readArtPreviewBatches, type ArtPreviewBatch } from "../../shared/artPreview";
 import { getStoryById } from "../repositories/stories";
 import { jsonRecord } from "../repositories/storyValues";
 import type { Task } from "./storyboardImageTask";
@@ -32,6 +33,8 @@ export function imageEditBatchRequestId(
 }
 export const retryRequestId = (failedId: string) =>
   requestUuid(["chat-image-retry", failedId]);
+
+export const previewRetryToken = (failedId: string, basis: string) => requestUuid(["warehouse-preview-retry", failedId, basis]);
 
 export function imageAttemptHistory(byId: Map<string, Task>, root: string) {
   const history: Task[] = [];
@@ -75,8 +78,54 @@ export type ImageRetryOffer = {
   unitCny: number;
 };
 
+type WarehouseImageAttempt = {
+  storyId: number; shotId: string; requestId: string; requestIds: string[]; startedAt: number;
+  status: Task["status"]; offer?: ImageRetryOffer; error?: string; failureCount?: number;
+  previewRetry?: { failedId: string; version: number; referenceId?: number };
+};
+
+/** Resolve one owned, final receipt against the exact shot in its saved preview plan. */
+export function failedPreviewSource(body: Record<string, unknown>, failedId: string) {
+  const tasks: Task[] = Array.isArray(body.storyboardImageTasks) ? body.storyboardImageTasks : [];
+  const task = tasks.find(t => t.requestId === failedId);
+  if (!task || !canRetryImage(task)) return;
+  const plans = readArtPreviewBatches(body);
+  if (plans.some(p => p.retryOf === failedId && p.shots.some(s => tasks.some(t => t.requestId === s.requestId)))) return;
+  const batch = plans.find(p => p.shots.some(s => s.requestId === failedId && task.shotIdentity === `preview:${p.id}:${s.stableShotId}`));
+  const shot = batch?.shots.find(s => s.requestId === failedId);
+  if (batch && shot && Array.isArray(body.shots) && body.shots.some((s, i) => shotIdentityFromShot(s,i) === shot.stableShotId))
+    return { batch, shot };
+}
+
+function previewAttempts(storyId: number, batches: ArtPreviewBatch[], byId: Map<string, Task>, liveShots: Set<string | null>): WarehouseImageAttempt[] {
+  const rows: WarehouseImageAttempt[] = [];
+  const retried = new Set<string>();
+  const parents = new Map<string, string>();
+  const counts = new Map<string, number>();
+  for (const batch of batches) for (const shot of batch.shots) {
+    const task = byId.get(shot.requestId);
+    if (!task || task.shotIdentity !== `preview:${batch.id}:${shot.stableShotId}`) continue;
+    if (batch.retryOf) {
+      retried.add(batch.retryOf);
+      parents.set(task.requestId, batch.retryOf);
+    }
+    if (task.status === "failed") counts.set(shot.stableShotId, (counts.get(shot.stableShotId) ?? 0) + 1);
+    if (task.status !== "failed" && !batch.retryOf) continue;
+    rows.push({ storyId, shotId: shot.stableShotId, requestId: task.requestId, requestIds: [task.requestId],
+      startedAt: task.createdAt ?? batch.createdAt, status: task.status,
+      error: task.result?.status === "error" ? imageFailureReason(task.result.error) : undefined,
+      previewRetry: liveShots.has(shot.stableShotId) && canRetryImage(task) ? { failedId: task.requestId, version: batch.version,
+        referenceId: batch.explicitBaseline ? batch.baselineImageId ?? undefined : undefined } : undefined });
+  }
+  return rows.filter(row => !retried.has(row.requestId)).map(row => {
+    const chain = new Set([row.requestId]);
+    for (let id = parents.get(row.requestId); id && !chain.has(id); id = parents.get(id)) chain.add(id);
+    return { ...row, requestIds: [...chain], failureCount: counts.get(row.shotId) };
+  });
+}
+
 /** A compact projection of saved receipts for the warehouse, including attempts made on another device. */
-export async function warehouseImageAttempts(storyId: number, userId: number) {
+export async function warehouseImageAttempts(storyId: number, userId: number): Promise<WarehouseImageAttempt[]> {
   const story = await getStoryById(storyId, userId);
   if (!story)
     throw new TRPCError({ code: "NOT_FOUND", message: "故事不存在或无权访问" });
@@ -107,7 +156,7 @@ export async function warehouseImageAttempts(storyId: number, userId: number) {
       }
     }
   }
-  return tasks.flatMap(first => {
+  const reviewed = tasks.flatMap(first => {
     const output = first.reviewedOutput ?? legacy.get(first.requestId);
     if (
       !output ||
@@ -173,6 +222,7 @@ export async function warehouseImageAttempts(storyId: number, userId: number) {
         startedAt: latest.createdAt ?? 0,
         status: latest.status,
         offer,
+        failureCount: history.filter(t => t.status === "failed").length,
         error:
           latest.result?.status === "error"
             ? imageFailureReason(latest.result.error)
@@ -180,4 +230,5 @@ export async function warehouseImageAttempts(storyId: number, userId: number) {
       },
     ];
   });
+  return [...reviewed, ...previewAttempts(storyId, readArtPreviewBatches(body), byId, shots)];
 }

@@ -16,16 +16,16 @@ const field =
   "w-full rounded-lg border border-border bg-background px-3 py-2 text-sm";
 const button =
   "min-h-10 rounded-lg px-3 py-2 text-sm text-primary disabled:opacity-40";
-export function FeedbackDialog() {
+export function FeedbackDialog({ issue, onDismiss }: { issue?: { title: string; content: string }; onDismiss?: () => void } = {}) {
   const t = useUiText();
   const utils = trpc.useUtils();
-  const [open, setOpen] = useState(false);
-  const [writing, setWriting] = useState(false);
+  const [open, setOpen] = useState(Boolean(issue));
+  const [writing, setWriting] = useState(Boolean(issue));
   const [filter, setFilter] = useState<Category | "">("");
   const [offset, setOffset] = useState(0);
-  const [category, setCategory] = useState<Category>("suggestion");
-  const [title, setTitle] = useState("");
-  const [content, setContent] = useState("");
+  const [category, setCategory] = useState<Category>(issue ? "bug" : "suggestion");
+  const [title, setTitle] = useState(issue?.title ?? "");
+  const [content, setContent] = useState(issue?.content ?? "");
   const [tags, setTags] = useState("");
   const [message, setMessage] = useState("");
   const token = useRef(crypto.randomUUID());
@@ -77,17 +77,19 @@ export function FeedbackDialog() {
     <Dialog
       open={open}
       onOpenChange={next => {
-        if (!submit.isPending) setOpen(next);
+        if (submit.isPending) return;
+        setOpen(next);
+        if (!next) onDismiss?.();
       }}
     >
-      <DialogTrigger asChild>
+      {!issue && <DialogTrigger asChild>
         <button
           type="button"
           className="text-xs text-muted-foreground underline underline-offset-4 hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring rounded-sm"
         >
           {t("赚算力")}
         </button>
-      </DialogTrigger>
+      </DialogTrigger>}
       <DialogContent className="max-h-[90dvh] w-[calc(100%-2rem)] overflow-y-auto sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>{t("赚算力")}</DialogTitle>

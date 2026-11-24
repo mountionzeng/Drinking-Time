@@ -1,4 +1,7 @@
 import { RetryImageButton } from "@/features/storyAgent/views/RetryImageButton";
+import { useState } from "react";
+import { FeedbackDialog } from "@/features/computeAccount/FeedbackDialog";
+import { WarehousePreviewRetry } from "./WarehousePreviewRetry";
 import { Check, CircleAlert, Image, Loader2, Music2, Video } from "lucide-react";
 import { useUiText } from "@/features/uiLanguage/UiLanguage";
 import type { WarehouseRenderJob } from "../warehouseRenderActivity";
@@ -12,6 +15,14 @@ export function WarehouseRenderCards({ jobs, shots, inline = false, onReference 
   onReference?: (id: number, stableShotId?: string) => void;
 }) {
   const ui = useUiText();
+  const [retrying, setRetrying] = useState<{ job: WarehouseRenderJob; label: string } | null>(null);
+  const [issue, setIssue] = useState<{ title: string; content: string } | null>(null);
+  function report(label: string, count: number) {
+    // This board is public. Only include the display number, media type and attempt count.
+    setIssue({ title: ui("{0}渲染失败", [label]), content: ui("我在素材仓库查看{0}时看到了生成失败。", [label]) +
+      (count > 1 ? ui("已有 {0} 次失败记录。", [count]) : "") });
+    setRetrying(null);
+  }
   if (!jobs.length) return null;
   return <div className={inline ? "contents" : "mb-1.5 flex gap-1.5 overflow-x-auto pb-1 custom-scrollbar"} aria-label={ui("生成任务 / Renders")}>
     {jobs.map(job => {
@@ -35,10 +46,18 @@ export function WarehouseRenderCards({ jobs, shots, inline = false, onReference 
         </div>
         <p className="truncate px-1.5 text-[10px] leading-4" title={name}>{name}</p>
         <p role="status" className="px-1.5 pb-1 text-[10px] leading-4 text-muted-foreground">{status}</p>
-        {job.state === "failed" && job.retry && <div className="px-1.5 pb-1.5">
-          <RetryImageButton offer={job.retry} />
+        {job.state === "failed" && <div className="space-y-1 px-1.5 pb-1.5">
+          {job.retry ? <RetryImageButton offer={job.retry} /> : job.previewRetry ?
+            <button type="button" className="rounded bg-primary px-2 py-1 text-[11px] font-medium text-primary-foreground"
+              onClick={() => setRetrying({ job, label: name })}>{ui("重新渲染")}</button> :
+            <p className="text-[10px] text-muted-foreground">{ui("原参数无法重试，可反馈此问题。")}</p>}
+          <button type="button" className="block text-[11px] text-primary underline underline-offset-2"
+            onClick={() => report(name, job.failureCount ?? 1)}>{(job.failureCount ?? 0) > 1 ? ui("已失败 {0} 次 · 反馈问题", [job.failureCount]) : ui("反馈问题")}</button>
         </div>}
       </article>;
     })}
+    {retrying && <WarehousePreviewRetry job={retrying.job} label={retrying.label} onClose={() => setRetrying(null)}
+      onReport={() => report(retrying.label, retrying.job.failureCount ?? 1)} />}
+    {issue && <FeedbackDialog issue={issue} onDismiss={() => setIssue(null)} />}
   </div>;
 }

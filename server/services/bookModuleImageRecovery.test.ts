@@ -67,9 +67,37 @@ it("recovers only the saved provider task and stores concurrent results exactly 
   expect(m.gpt).not.toHaveBeenCalled();
   expect(await getStoryGeneratedImages(scope.storyId, 122)).toHaveLength(1);
   await recoverModuleImageTask(scope);
-  expect(m.resume).toHaveBeenCalledTimes(2);
+  expect(m.resume).toHaveBeenCalledTimes(1);
   expect(await getStoryGeneratedImages(scope.storyId, 122)).toHaveLength(1);
 });
+it("finishes a fast MJ receipt with the book closed and keeps the new candidates available", async () => {
+  const legnext = await import("./legnextImage");
+  vi.useFakeTimers();
+  const resume = vi.spyOn(legnext, "resumeLegnextImage")
+    .mockResolvedValueOnce({ status: "error", errorCode: "timeout_pending", message: "waiting" })
+    .mockResolvedValueOnce({ status: "ok", imageUrl: "/api/images/ready.png", candidates: [{ imageUrl: "/api/images/ready.png" }] });
+  try {
+    const generate = vi.fn(async (hooks: import("./bookModuleImageRecovery").ModuleImageHooks) => {
+      await hooks.onProviderTaskAccepted("legnext:existing");
+      return { status: "error", providerTaskId: "legnext:existing" };
+    });
+    await runModuleImageTask(scope, generate);
+    await vi.advanceTimersByTimeAsync(16_001);
+    expect(resume).toHaveBeenCalledTimes(2);
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(await readModuleImageTask(scope)).toMatchObject({ status: "succeeded", inserted: false, candidates: [{ imageUrl: "/api/images/ready.png" }] });
+  } finally { vi.useRealTimers(); }
+});
+
+it("stops polling after the provider explicitly fails an accepted receipt", async () => {
+  await pending();
+  m.resume.mockResolvedValue({ status: "error", providerConfirmedFailure: true, message: "confirmed failure" });
+  await recoverModuleImageTask(scope);
+  expect(await readModuleImageTask(scope)).toMatchObject({ status: "failed", error: "confirmed failure" });
+  await recoverModuleImageTask(scope);
+  expect(m.resume).toHaveBeenCalledTimes(1);
+});
+
 it("retains accepted receipts after a failed recovery, even if the provider omits the receipt", async () => {
   await pending(); m.resume.mockResolvedValue({ status: "error", message: "HTTP 503" });
   expect(await recoverModuleImageTask(scope)).toMatchObject({ status: "error", providerTaskId: "mj-turbo:paid-task" });

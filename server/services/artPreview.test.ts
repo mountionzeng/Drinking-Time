@@ -1,7 +1,8 @@
 import { beforeEach, expect, it, vi } from "vitest";
 import { createStory, createGeneratedImage, getStoryById, updateStory, getStoryGeneratedImages, resetMemoryStateForTesting } from "../db";
 import { ENV } from "../_core/env";
-import { planArtPreviews, artPreviewGenerationInput, chooseArtPreview, readArtPreviews } from "./artPreview";
+import { planArtPreviews, artPreviewGenerationInput, chooseArtPreview, readArtPreviews, readPreviewArtBasis, retryPreviewPlan } from "./artPreview";
+import { warehouseImageAttempts } from "./reviewedImageRetry";
 import { normalizeAudioState } from "../../shared/timelineAudioModel";
 const mocks = vi.hoisted(() => ({ agent: vi.fn(), material: vi.fn(), audio: vi.fn() }));
 vi.mock("./agentRuntime", () => ({ runJsonAgent: mocks.agent }));
@@ -22,6 +23,33 @@ async function patch(storyId: number, body: Record<string, unknown>) {
   const story = (await getStoryById(storyId, 1))!;
   await updateStory(storyId, 1, { body: { ...story.body as Record<string, unknown>, ...body } });
 }
+it("re-quotes one failed preview, reuses its request across windows and follows the new receipt", async () => {
+  const input = await fixture();
+  const plan = await planArtPreviews({ ...input, sampleShotIds: ["s1","s2"], adjustment: "warm" });
+  const target = plan.shots[1];
+  const task = { requestId: target.requestId, shotIdentity: `preview:${plan.id}:s2`, status: "failed", result: { status: "error", error: "sample failure" } };
+  await patch(input.storyId, { storyboardImageTasks: [task] });
+  const rows = () => warehouseImageAttempts(input.storyId, 1);
+  expect(await rows()).toMatchObject([{ shotId: "s2", failureCount: 1, error: "sample failure", previewRetry: { failedId: target.requestId } }]);
+  const basis = await readPreviewArtBasis(input.storyId, 1);
+  const request = { ...input, basisKey: basis.basisKey, failedId: target.requestId };
+  await expect(retryPreviewPlan({ ...request, userId: 2 })).rejects.toThrow();
+  await expect(retryPreviewPlan({ ...request, basisKey: "outdated" })).rejects.toThrow("变化");
+  const retry = await retryPreviewPlan(request);
+  expect(retry.shots.map(s=>s.stableShotId)).toEqual(["s2"]);
+  expect(retry).toMatchObject({retryOf: target.requestId, adjustment: "warm", estimatedCny: 0.68, baselineImageId: input.imageId});
+  expect((await retryPreviewPlan(request)).shots[0].requestId).toBe(retry.shots[0].requestId);
+  const child = { ...task, requestId: retry.shots[0].requestId, shotIdentity: `preview:${retry.id}:s2` };
+  await patch(input.storyId, { storyboardImageTasks: [task, child] });
+  expect(await rows()).toMatchObject([{requestId: child.requestId, requestIds: [child.requestId, task.requestId], failureCount: 2}]);
+  await expect(retryPreviewPlan(request)).rejects.toThrow("变化");
+  await patch(input.storyId, { storyboardImageTasks: [task, { ...child, status: "accepted" }] });
+  expect(await rows()).toMatchObject([{status: "accepted", previewRetry: undefined}]);
+  await patch(input.storyId, { storyboardImageTasks: [{ ...task, result: { ...task.result, submissionUncertain: true } }] });
+  expect((await rows())[0].previewRetry).toBeUndefined();
+  expect(mocks.agent).not.toHaveBeenCalled();
+});
+
 it("versions the plan with intent, authorship and one quote; replay does not infer again", async () => {
   const input = await fixture(); const batch = await planArtPreviews(input);
   expect(batch).toMatchObject({ version: 1, editorId: 1, editorName: "作者", instruction: input.instruction, baselineImageId: input.imageId, estimatedCny: 1.36 });

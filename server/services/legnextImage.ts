@@ -33,12 +33,12 @@ export async function resumeLegnextImage(id: string, editMode?: "retexture"): Pr
       const providerError = job.providerError;
       const invalidPrompt = /Invalid_Prompt_Parameter|invalid prompt parameter/i.test(String(task.error?.raw_message ?? task.error?.message ?? ""));
       const referenceUnavailable = /reference image could not be fetched/i.test(String(task.error?.raw_message ?? task.error?.message ?? ""));
-      if (referenceUnavailable) return { status: "error", providerTaskId: id, providerError,
+      if (referenceUnavailable) return { status: "error", providerTaskId: id, providerError, providerConfirmedFailure: true,
         message: task.meta?.usage?.consume === 0
           ? "参考图片未能被供应商读取，本次未生成图片；供应商回执显示未扣费。请稍后重新确认生成。"
           : "参考图片未能被供应商读取，本次未生成图片，费用仍待核对。原图保留，没有自动重试。" };
       const reason = shortProviderReason(providerError);
-      return { status: "error", providerTaskId: id, providerError, message: invalidPrompt
+      return { status: "error", providerTaskId: id, providerError, providerConfirmedFailure: true, message: invalidPrompt
         ? "供应商确认本次图片生成失败：MJ 拒绝了精修参数，未生成图片。原图保留，没有自动重试。"
         : `供应商确认本次图片生成失败${reason ? `（${reason}）` : ""}，请联系支持核对费用。` };
     }

@@ -17,6 +17,7 @@ export const previewArtBasisSchema = z.object({
 });
 export type PreviewArtBasis = z.infer<typeof previewArtBasisSchema>;
 export const artPreviewBatchSchema = z.object({
+  retryOf: z.string().uuid().optional(),
   id: z.string().uuid(), version: z.number().int().positive(), createdAt: z.number(), editorId: z.number(), editorName: z.string(),
   instruction: z.string(), sourceHash: z.string(), baselineImageId: z.number().int().positive().nullable(), sampleShotId: z.string().optional(),
   sampleShotIds: sampleShotIdsSchema.optional(),

@@ -112,6 +112,8 @@ export function BookModuleConvert({
     ? savedTask.candidates.map(c => c.imageUrl) : [];
   const visibleImages = readyImages.length ? readyImages : images;
   const previewImages = basis?.previewImages ?? [];
+  const waitingSince = savedTask?.createdAt ?? pollStartedAt.current;
+  const waitSeconds = waitingSince ? Math.max(0, Math.floor((Date.now() - waitingSince) / 1000)) : 0;
 
   function insertFirstImage(url: string) {
     if (!active.current || insertedImage.current === url) return;
@@ -249,7 +251,10 @@ export function BookModuleConvert({
           />
         )}
         {source.kind === "image" && (savedTask?.status === "accepted" || savedTask?.status === "preparing") && !busy && !images.length &&
-          <p role="status">{shouldKeepPolling(savedTask.status, pollStartedAt.current) ? _ui("已受理，正在按原任务取图。可以关闭窗口，重开后会继续查询。") : _ui("图片仍未完成，可点击「恢复上次生成」再次查询。")}</p>}
+          <p role="status">{shouldKeepPolling(savedTask.status, pollStartedAt.current)
+            ? waitSeconds >= 30 ? _ui("已等待 {0} 秒，正在查询原任务。候选入库后会显示在这里。", [waitSeconds])
+              : _ui("已受理，正在按原任务取图。可以关闭窗口，重开后会继续查询。")
+            : _ui("图片仍未完成，可点击「恢复上次生成」再次查询。")}</p>}
         {checkingTask && !savedTask && <p role="status">{_ui("正在核对已有图片任务…")}</p>}
         {source.kind === "image" && imageTask.error && <p role="alert">{_ui("暂时无法读取图片任务，请重新打开窗口核对，避免重复生成。")}</p>}
         {protectedTask && savedTask.sourceChanged && <p>{_ui("原模块已变化；恢复的图片会保留在仓库。")}</p>}

@@ -13817,6 +13817,58 @@
     "en": "Shots",
     "fr": "Plans"
   },
+  "重新渲染": {
+    "en": "Render again",
+    "fr": "Relancer le rendu"
+  },
+  "已等待 {0} 秒，正在查询原任务。候选入库后会显示在这里。": {
+    "en": "Waiting for {0}s. Checking the original job. Candidates will appear here when saved.",
+    "fr": "En attente depuis {0} s. Vérification de la tâche initiale. Les variantes apparaîtront ici une fois enregistrées."
+  },
+  "沿用原试图要求和当前镜头画风，生成 4 张候选。": {
+    "en": "Generate four candidates using the original instructions and the shot’s current style.",
+    "fr": "Générer quatre variantes avec la consigne d’origine et le style actuel du plan."
+  },
+  "允许本轮发送封面 #{0} 的缩图给图片服务": {
+    "en": "Allow the image service to receive a thumbnail of cover #{0} for this render",
+    "fr": "Autoriser l’envoi de la miniature de couverture n°{0} au service pour ce rendu"
+  },
+  "反馈问题": {
+    "en": "Report a problem",
+    "fr": "Signaler un problème"
+  },
+  "确认重新渲染 · {0}": {
+    "en": "Confirm render · {0}",
+    "fr": "Confirmer le rendu · {0}"
+  },
+  "{0}渲染失败": {
+    "en": "{0} render failed",
+    "fr": "Échec du rendu · {0}"
+  },
+  "我在素材仓库查看{0}时看到了生成失败。": {
+    "en": "The media warehouse showed a failed render for {0}.",
+    "fr": "La bibliothèque a affiché un échec de rendu pour {0}."
+  },
+  "已有 {0} 次失败记录。": {
+    "en": " There are {0} failed attempts.",
+    "fr": " Il y a eu {0} échecs."
+  },
+  "原参数无法重试，可反馈此问题。": {
+    "en": "The original settings are unavailable. You can report this issue.",
+    "fr": "Les paramètres d’origine sont indisponibles. Vous pouvez signaler le problème."
+  },
+  "已失败 {0} 次 · 反馈问题": {
+    "en": "{0} failures · Report a problem",
+    "fr": "{0} échecs · Signaler"
+  },
+  "镜头或报价已变化，请重新查看。": {
+    "en": "The shot or price has changed. Review it again.",
+    "fr": "Le plan ou le tarif a changé. Vérifiez à nouveau."
+  },
+  "请重新核对任务状态。": {
+    "en": "Check the task status again.",
+    "fr": "Vérifiez à nouveau l’état de la tâche."
+  },
   "按镜头归类 / By shot": {
     "en": "By shot",
     "fr": "Par plan"

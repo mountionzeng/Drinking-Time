@@ -33,6 +33,16 @@ it("uses English labels throughout English mode", () => {
   expect(html).not.toMatch(/[\u4e00-\u9fff]/);
 });
 
+it("offers a fresh single-shot estimate and feedback after repeated failures", () => {
+  const html = view([{ ...job, state: "failed", error: "参考图已更新", failureCount: 2, previewRetry: { failedId: "r", version: 1 } }]);
+  expect(html).toContain("参考图已更新");
+  expect(html).toContain("重新渲染");
+  expect(html).toContain("已失败 2 次 · 反馈问题");
+  const old = view([{ ...job, state: "failed" }]);
+  expect(old).toContain("反馈问题");
+  expect(old).not.toContain("重新渲染");
+});
+
 it("only attaches a reference action when a ready image has an asset id", () => {
   const ready = { ...job, state: "ready" as const, url: "/ready.png" };
   const html = renderToStaticMarkup(<WarehouseRenderCards shots={shots} onReference={vi.fn()}
