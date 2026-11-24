@@ -1994,10 +1994,10 @@ export const storyAgentRouter = router({
         if (!input.costConfirmation?.accepted || Math.abs(input.costConfirmation.estimatedCny - estimate.estimatedCny) > 0.001) {
           return { status: "error" as const, error: `请先确认本批示意图算力；每镜 ${formatComputeQuote(estimate.estimatedCny)}` };
         }
-        const prompt = `跨镜头美术示意图：只迁移参考图的视觉效果，按本镜内容重新安排构图，不复制上一镜的事件。\n${shot.brief}\n迁移意图：${shot.adaptation}`;
+        const prompt = !batch.baselineImageId ? `镜头基调试图：${shot.brief}` : `跨镜头美术示意图：只迁移参考图的视觉效果，按本镜内容重新安排构图，不复制上一镜的事件。\n${shot.brief}\n迁移意图：${shot.adaptation}`;
         input = { storyId: input.storyId, previewBatchId: batch.id, shotNo: shot.shotNo,
           shotImageRequestId: shot.requestId, prompt, explicitInstruction: prompt,
-          renderReferences: { imageIds: [batch.baselineImageId], imagePurpose: "scene-style", assets: {} },
+          ...(batch.baselineImageId ? { renderReferences: { imageIds: [batch.baselineImageId], imagePurpose: "scene-style" as const, assets: {} } } : {}),
           imageProvider: "midjourney", mode: "final", autoSelect: false, sceneWeight: 0.5, costConfirmation: input.costConfirmation };
       }
       if (input.conversationRevision && (!input.referenceRevision || !input.shotImageRequestId || input.shotNo == null || input.moduleTarget))

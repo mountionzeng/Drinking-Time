@@ -3107,6 +3107,15 @@
             "docs/qa/2026-11-15-film-style-continuity-captions.md",
             "server/services/confirmedStoryboardImagePrompt.test.ts"
           ]
+        },
+        {
+          "date": "2026-11-24",
+          "kind": "enhancement",
+          "summary": "书稿转视频时先在聊天展示图片、台词和可试听音频，请作者确认再导入。视频聊天按已有画面、字幕和音乐提供起步选择，单镜四图报价后生成，字幕草稿经确认放入，音乐以全片范围进入制作。",
+          "evidence": [
+            "shared/bookVideoImportReview.test.ts",
+            "server/services/artPreview.test.ts"
+          ]
         }
       ]
     },

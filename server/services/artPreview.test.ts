@@ -79,3 +79,13 @@ it("does not overwrite concurrent editing during planning", async () => {
   await expect(planArtPreviews(input)).rejects.toThrow("revision conflict");
   expect((await getStoryById(input.storyId, 1))?.body).toMatchObject({ custom: "new edit" });
 });
+
+it("plans one chosen shot without a reference or model call and rejects reuse for another shot", async () => {
+  const input = { ...await fixture(), imageId: undefined, sampleShotId: "s2" };
+  const batch = await planArtPreviews(input);
+  expect(batch.baselineImageId).toBeNull();
+  expect(batch.shots.map(s => s.stableShotId)).toEqual(["s2"]);
+  expect(mocks.agent).not.toHaveBeenCalled();
+  expect((await planArtPreviews(input)).id).toBe(batch.id);
+  await expect(planArtPreviews({ ...input, sampleShotId: "s1" })).rejects.toThrow("操作标识");
+});

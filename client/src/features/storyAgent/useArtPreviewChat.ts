@@ -10,7 +10,7 @@ export function useArtPreviewChat() {
   const choose = trpc.artSystems.previewChoose.useMutation();
   const generate = trpc.storyAgent.generateForMobile.useMutation();
   const utils = trpc.useUtils();
-  return async (storyId: number, instruction: string) => {
+  return async (storyId: number, instruction: string, sampleShotId?: string) => {
     const command = parseArtPreviewChat(instruction);
     if (!command) return null;
     try {
@@ -29,11 +29,11 @@ export function useArtPreviewChat() {
           const state = storySpineStore.getState();
           return state.activeStoryId === storyId && state.storyScopeEpoch === scope.storyScopeEpoch && state.storyLoadEpoch === scope.storyLoadEpoch;
         };
-        const batch = await plan.mutateAsync({ storyId, instruction, imageId: command.imageId, operationToken: crypto.randomUUID() });
+        const batch = await plan.mutateAsync({ storyId, instruction, sampleShotId, imageId: command.imageId, operationToken: crypto.randomUUID() });
         await utils.artSystems.previewRead.invalidate({ storyId });
         if (!current()) return "示意方案已保存到原故事，尚未提交图片。";
         const accepted = await askMediaChatConfirmation({ storyId, kind: "cost",
-          text: `以图片 #${batch.baselineImageId} 的效果为参考，为 ${batch.shots.length} 个镜头各生成 4 张示意候选，共 ${batch.shots.length * 4} 张，预计 ${formatComputeQuote(batch.estimatedCny)}。\n${batch.musicContext}\n各镜头按自己的台词和意图变化，图片先在对话里供你选择，尚不放入正式镜头。` });
+          text: `${batch.baselineImageId ? `参考图片 #${batch.baselineImageId}` : "按镜头文字试画面"}，为 ${batch.shots.length} 个镜头各生成 4 张示意候选，共 ${batch.shots.length * 4} 张，预计 ${formatComputeQuote(batch.estimatedCny)}。\n${batch.musicContext}\n各镜头按自己的台词和意图变化，图片先在对话里供你选择，尚不放入正式镜头。` });
         if (!accepted || !current()) return `示意方案 V${batch.version} 已保存，已取消图片生成，未提交媒体任务。`;
         let next = 0, completed = 0, acceptedJobs = 0;
         const failures: string[] = [];

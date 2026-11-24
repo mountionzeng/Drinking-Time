@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-type Question = { storyId: number; text: string; kind: "cost" | "placement" | "continuity"; videoUrl?: string };
+type Question = { storyId: number; text: string; kind: "cost" | "placement" | "continuity"; videoUrl?: string; bookReview?: import("@shared/bookVideoImportReview").BookVideoImportReview };
 type Session = { finish?: (accepted: boolean) => void; cancelled: boolean };
 const sessions = new Map<number, Session>();
 export const mediaChatQuestionStore = create<{ question: Question | null }>(() => ({ question: null }));

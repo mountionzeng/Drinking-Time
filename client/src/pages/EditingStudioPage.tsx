@@ -195,6 +195,7 @@ function EditingStudioBody({
     window.addEventListener(SHOT_CHAT_FOCUS_EVENT, open);
     return () => window.removeEventListener(SHOT_CHAT_FOCUS_EVENT, open);
   }, [activeStoryId]);
+  const [videoStartHost, setVideoStartHost] = useState<HTMLDivElement | null>(null);
   const [createRequest, setCreateRequest] = useState<StudioCreateRequest | null>(null);
   const { user: creationUser } = useAuth();
   const renderJobs = useWarehouseRenderActivity(creationUser?.id, activeStoryId, job => {
@@ -486,6 +487,7 @@ function EditingStudioBody({
           >
             {activeStoryId !== null ? (
               <StoryAgentChat
+                videoStartHost={workspace === "editing" ? setVideoStartHost : undefined}
                 showCreationActions
                 showHeader={false}
                 workspaceContext={workspace === "publishing" || workspace === "images" ? "book" : "video"}
@@ -537,6 +539,8 @@ function EditingStudioBody({
             editor={(presentation, suspended) => <EditingNleWorkspace
               presentation={presentation}
               suspended={suspended}
+              videoStartHost={workspace === "editing" ? videoStartHost : null}
+              onOpenBook={() => onWorkspaceChange("publishing")}
               musicRequest={createRequest?.kind === "music" ? createRequest : null}
               onMusicRequestHandled={() => setCreateRequest(null)}
               videoEditorHandoffTarget={videoEditorHandoffTarget}

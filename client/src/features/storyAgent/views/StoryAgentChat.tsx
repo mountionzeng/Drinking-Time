@@ -62,6 +62,7 @@ import { storySpineStore } from "../spine/storySpine";
 import { useBookVideoWorkspace } from "@/features/bookVideo/BookVideoWorkspace";
 import { parseSoundChat } from "@shared/soundChat";
 import { parseVisualProductionChat, usesSelectedImageRevision } from "@shared/visualProductionChat";
+import { BookImportMaterials } from "@/features/bookVideo/BookImportMaterials";
 import { mediaChatQuestionStore, answerMediaChatQuestion, cancelMediaChatSession } from "../mediaChatSession";
 import { selectionBelongsToStory } from "../selectionStoryScope";
 import { useUiText as useDesktopUiText, useUiLanguage } from "@/features/uiLanguage/UiLanguage";
@@ -334,12 +335,14 @@ export default function StoryAgentChat({
   showHeader = true,
   interactionMode = "story",
   onOpenPublishingWorkspace,
+  videoStartHost,
   showCreationActions = false,
 }: {
   workspaceContext?: "book" | "video";
   showHeader?: boolean;
   interactionMode?: "story" | "publishing";
   onOpenPublishingWorkspace?: () => void;
+  videoStartHost?: (node: HTMLDivElement | null) => void;
   showCreationActions?: boolean;
 }) {
   const _ui = useDesktopUiText();
@@ -3215,8 +3218,14 @@ export default function StoryAgentChat({
             {writingSnapshot?.layoutMemory && <LayoutMemoryDetails memory={writingSnapshot.layoutMemory} accountId={accountId} />}
           </section>
         </div>}
+          {videoStartHost && <div ref={videoStartHost} hidden={Boolean(mediaQuestion)} />}
           {mediaQuestion && <article className="mb-3 max-h-56 overflow-y-auto rounded-lg border border-border bg-background p-3 text-xs leading-relaxed" aria-label={_ui("制作确认")}>
             <p className="whitespace-pre-wrap">{mediaQuestion.text}</p>
+            {mediaQuestion.bookReview && <BookImportMaterials review={mediaQuestion.bookReview} />}
+            {(mediaQuestion.kind === "placement" || mediaQuestion.kind === "cost") && <div className="my-2 flex gap-3">
+              <button type="button" className="rounded border px-2 py-1" onClick={() => answerMediaChatQuestion(mediaQuestion.storyId, mediaQuestion.kind === "cost" ? "确认" : "放入")}>{_ui(mediaQuestion.kind === "cost" ? "确认报价并生成" : "确认放入")}</button>
+              <button type="button" onClick={() => answerMediaChatQuestion(mediaQuestion.storyId, "取消")}>{_ui(mediaQuestion.kind === "cost" ? "取消" : "先保留")}</button>
+            </div>}
             {mediaQuestion.videoUrl && <video src={mediaQuestion.videoUrl} controls preload="metadata" className="mt-2 max-h-48 w-full rounded" />}
             <p className="mt-2 text-muted-foreground">{_ui(mediaQuestion.kind === "placement" ? "回复“放入”或“先保留”即可。" : "回复“确认”开始，或回复“取消”。")}</p>
           </article>}

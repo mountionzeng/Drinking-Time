@@ -1,3 +1,5 @@
+import { createPortal } from "react-dom";
+import { VideoStartChoices } from "@/features/bookVideo/VideoStartChoices";
 import { isFrameNavigationKey, isFrameNavigationTarget, PAUSED_FRAME_SHORTCUT_EVENT } from "../frameNavigation";
 import { shotConversationSelection } from "@/features/storyAgent/shotConversation";
 import { focusShotChat } from "@/features/storyAgent/shotChatFocus";
@@ -955,6 +957,7 @@ export default function EditingNleWorkspace({
   suspended = false,
   videoEditorHandoffTarget = null,
   onVideoEditorHandoffHandled,
+  videoStartHost, onOpenBook,
   musicRequest,
   onMusicRequestHandled,
 }: {
@@ -962,6 +965,8 @@ export default function EditingNleWorkspace({
   suspended?: boolean;
   videoEditorHandoffTarget?: VideoClipEditorTarget | null;
   onVideoEditorHandoffHandled?: () => void;
+  videoStartHost?: HTMLElement | null;
+  onOpenBook?: () => void;
   musicRequest?: import("@/features/publishingDraft/StudioCreateMenu").StudioCreateRequest | null;
   onMusicRequestHandled?: () => void;
 }) {
@@ -2680,12 +2685,21 @@ export default function EditingNleWorkspace({
     );
   }
 
+  const startChoices = videoStartHost && activeStoryId && creationEditor.materialState?.storyId === activeStoryId && createPortal(
+    <VideoStartChoices key={editingStorySessionKey} storyId={activeStoryId} material={creationEditor.materialState}
+      cues={timelineMedia.cues} candidates={subtitleCandidates} pending={timelineMedia.pending} error={timelineMedia.lastError}
+      musicCount={timelineMedia.audioState.tracks.find(t => t.kind === "music")?.clips.length ?? 0}
+      adoptImage={(imageId, targetStableShotId) => creationEditor.assignStoryImageToShot({ imageId, targetStableShotId })}
+      generateSubtitles={() => timelineMedia.initializeSubtitles([...subtitleCandidates])}
+      openMusic={() => { timelineMedia.clearError(); setAudioCreationRequest({ kind: "music", targetFrame: 0, initialScope: "story" }); }}
+      openBook={() => onOpenBook?.()} />, videoStartHost);
   if (shots.length === 0) {
     return (
       <section
         className="flex h-full flex-col items-center justify-center px-6 text-center"
         aria-label="Storyboard empty state"
       >
+        {startChoices}
         <div className="w-full max-w-[31rem]">
           <div
             className="mx-auto flex h-11 w-11 items-center justify-center rounded-full"
@@ -2909,6 +2923,7 @@ export default function EditingNleWorkspace({
         data-testid="timeline-local-audio-input"
         onChange={event => void importLocalTimelineAudio(event)}
       />
+      {startChoices}
       <TimelineAudioCreationDialog
         request={audioCreationRequest}
         cue={audioCreationCue}

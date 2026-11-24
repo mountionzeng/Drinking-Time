@@ -16,9 +16,18 @@ import {
   adoptBookVideo,
   importBookStoryboard,
 } from "../services/bookVideoCreation";
+import { listChapters } from "../repositories/chapters";
+import { manuscriptFingerprint } from "../services/manuscriptSnapshot";
+import { bookVideoImportReview } from "../../shared/bookVideoImportReview";
+
 const owner = z.object({ storyId: z.number().int().positive() });
 const record = owner.extend({ id: z.string().min(8).max(100) });
 export const bookVideoRouter = router({
+  importReview: protectedProcedure.input(owner).query(async ({ ctx, input }) => {
+    if (!await getStoryById(input.storyId, ctx.user.id)) throw new TRPCError({ code: "NOT_FOUND" });
+    const chapters = await listChapters(input.storyId, ctx.user.id, "storyboard");
+    return { ...bookVideoImportReview(input.storyId, chapters), fingerprint: manuscriptFingerprint(chapters) };
+  }),
   importStoryboard: protectedProcedure
     .input(record.extend({ chapterId: z.number().int().positive(), expectedFingerprint: z.string().min(1).max(128) }))
     .mutation(({ ctx, input }) => importBookStoryboard({ ...input, userId: ctx.user.id,

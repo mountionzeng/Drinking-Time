@@ -1,3 +1,4 @@
+import { withMediaChatSession, askMediaChatConfirmation } from "@/features/storyAgent/mediaChatSession";
 import { requestNewVersion } from "./newVersionRequest";
 import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { COVER_POLL_MS, GATEWAY_TIMEOUT_MESSAGE, IMAGE_TASK_POLL_LIMIT_MS, isGatewayTimeoutError } from "@/lib/imageTaskPolling";
@@ -1397,10 +1398,15 @@ export default function PublishingDraftWorkspace({
         try {
           await prepareBookForVideo(createRequest.storyId, scope.accountId);
           if (!isCurrent()) return;
-          const source = await utils.bookWorkflow.get.fetch({ storyId: createRequest.storyId }, { staleTime: 0 });
+          const source = await utils.bookVideo.importReview.fetch({ storyId: createRequest.storyId }, { staleTime: 0 });
+          if (!isCurrent()) return;
+          const accepted = await withMediaChatSession(createRequest.storyId, () =>
+            askMediaChatConfirmation({ storyId: createRequest.storyId, kind: "placement", bookReview: source,
+              text: "把这版分镜带进视频吗？确认后会按书稿建立镜头，带入下方已有的素材，再选择要制作的部分。" }) ?? Promise.resolve(false));
+          if (!accepted) return;
           if (!isCurrent()) return;
           await importStoryboardMut.mutateAsync({ storyId: createRequest.storyId, id: createRequest.id,
-            chapterId: createRequest.storyboardChapterId!, expectedFingerprint: source.drafts.storyboard.fingerprint });
+            chapterId: createRequest.storyboardChapterId!, expectedFingerprint: source.fingerprint });
           if (!isCurrent()) return;
           await utils.bookVideo.list.invalidate({ storyId: createRequest.storyId });
           await utils.bookWorkflow.get.invalidate({ storyId: createRequest.storyId });

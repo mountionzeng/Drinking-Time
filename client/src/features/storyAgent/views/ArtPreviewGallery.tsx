@@ -8,6 +8,7 @@ export function ArtPreviewGallery({ storyId, includePlans = false, onReference, 
   const query = trpc.artSystems.previewRead.useQuery({ storyId }, { refetchInterval: 5000 });
   const recover = trpc.storyAgent.recoverStoryboardImage.useMutation();
   const utils = trpc.useUtils();
+  const choose = trpc.artSystems.previewChoose.useMutation();
   const recovering = useRef(new Set<string>());
   const lastAttempt = useRef(new Map<string, number>());
   const [version, setVersion] = useState(0);
@@ -37,8 +38,9 @@ export function ArtPreviewGallery({ storyId, includePlans = false, onReference, 
       <select aria-label={ui("示意图版本")} value={version} onChange={e => setVersion(Number(e.target.value))} className="rounded border border-border bg-background text-xs p-1">
         <option value={0}>{ui("最新版本")}</option>{batches.map(b => <option key={b.id} value={b.version}>V{b.version} · {new Date(b.createdAt).toLocaleString()} · {b.editorName}</option>)}
       </select></div>
-    <p className="text-xs text-muted-foreground">V{batch.version} · {ui("参考图片")} #{batch.baselineImageId} · {ui("回复“第 2 镜用第 3 张”即可选择；历史方案请带上 V 版本号。")}</p>
+    <p className="text-xs text-muted-foreground">V{batch.version} · {batch.baselineImageId ? `${ui("参考图片")} #${batch.baselineImageId}` : ui("按分镜文字试图")} · {ui("回复“第 2 镜用第 3 张”即可选择；历史方案请带上 V 版本号。")}</p>
     <p className="text-xs text-muted-foreground">{batch.instruction}</p>
+    {choose.error && <p role="alert">{choose.error.message}</p>}
     {batch.shots.map(shot => {
       const label = shotCode?.(shot.stableShotId) ?? shot.label;
       return <article key={shot.stableShotId} className="space-y-1.5">
@@ -48,7 +50,10 @@ export function ArtPreviewGallery({ storyId, includePlans = false, onReference, 
         const thumbnail = <img src={image.imageUrl} alt={ui("第 {0} 镜 · 第 {1} 张", [label, index + 1])} loading="lazy" className="aspect-video w-full rounded-lg object-contain bg-muted" />;
         return <figure key={image.imageId}>
         {onReference ? <button type="button" className="block w-full" onClick={() => onReference(image.imageId, shot.stableShotId)}>{thumbnail}</button> : thumbnail}
-        <figcaption className="text-[11px] text-muted-foreground">{index + 1} · #{image.imageId}</figcaption>
+        <figcaption className="text-[11px] text-muted-foreground">{index + 1} · #{image.imageId}
+          {includePlans && <button className="ml-2 underline" type="button" disabled={choose.isPending} onClick={() => choose.mutate({ storyId, version: batch.version, shotNo: shot.shotNo, ordinal: index + 1 }, { onSuccess: async () => {
+            await Promise.all([utils.artSystems.previewRead.invalidate({storyId}), utils.storyAgent.storyMaterialState.invalidate({storyId}), utils.storyAgent.storyImages.invalidate({storyId})]);
+          } })}>{ui("采用这张")}</button>}</figcaption>
       </figure>; })}</div> : <p className="text-xs text-muted-foreground">{ui(shot.status === "planned" ? "等待本批算力确认" : shot.status === "failed" ? "本镜尚未生成成功，原记录保留" : "原任务正在生成或取回，无需再次提交")}</p>}
     </article>; })}
   </section>;

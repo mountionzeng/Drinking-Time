@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { expect, it, vi } from "vitest";
 import { UiLanguageContext } from "@/features/uiLanguage/UiLanguage";
 const m = vi.hoisted(() => ({ data: [] as any[] }));
-vi.mock("@/lib/trpc", () => ({ trpc: { artSystems: { previewRead: { useQuery: () => ({ data: m.data, dataUpdatedAt: 1 }) } }, storyAgent: { recoverStoryboardImage: { useMutation: () => ({ mutateAsync: vi.fn() }) } }, useUtils: () => ({}) } }));
+vi.mock("@/lib/trpc", () => ({ trpc: { artSystems: { previewChoose: { useMutation: () => ({ mutate: vi.fn() }) }, previewRead: { useQuery: () => ({ data: m.data, dataUpdatedAt: 1 }) } }, storyAgent: { recoverStoryboardImage: { useMutation: () => ({ mutateAsync: vi.fn() }) } }, useUtils: () => ({}) } }));
 import { ArtPreviewGallery } from "./ArtPreviewGallery";
 it("groups candidate ordinals by shot, keeps versions, and needs no action buttons", () => {
   vi.stubGlobal("React", React);
