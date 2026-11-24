@@ -103,3 +103,31 @@ it("plans one chosen shot without a reference or model call and rejects reuse fo
   expect((await planArtPreviews(input)).id).toBe(batch.id);
   await expect(planArtPreviews({ ...input, sampleShotId: "s1" })).rejects.toThrow("操作标识");
 });
+
+const direction = (version: number, imageId: number) => ({
+  recipe: { version, system: { name: "Ink", confirmedAt: 1, filmStyleImageId: imageId } },
+});
+
+it.each([{ sampleShotId: "s1" }, { sampleShotIds: ["s1", "s2"] }])("pins the style and baseline to the sample quote %j", async selection => {
+  const input = await fixture();
+  await patch(input.storyId, { artDirection: direction(4, input.imageId) });
+  const batch = await planArtPreviews({ ...input, ...selection });
+  for (const shot of batch.shots) {
+    expect(await artPreviewGenerationInput(input.storyId, 1, batch.id, shot.shotNo)).toMatchObject({
+      requiresNewStyleQuote: false, renderReferences: { imageIds: [input.imageId], filmStyleVersion: 4 },
+    });
+  }
+  for (const artDirection of [direction(5, input.imageId), direction(4, input.imageId + 1)]) {
+    await patch(input.storyId, { artDirection });
+    await expect(artPreviewGenerationInput(input.storyId, 1, batch.id, 1)).rejects.toThrow("变化");
+  }
+});
+
+it.each([false, true])("reads historical quotes and requires a fresh quote only with active style %s", async styled => {
+  const input = await fixture();
+  if (styled) await patch(input.storyId, { artDirection: direction(4, input.imageId) });
+  const { filmStyle: _oldField, ...legacy } = await planArtPreviews({ ...input, sampleShotId: "s1" });
+  await patch(input.storyId, { artPreviewBatches: [legacy] });
+  expect((await artPreviewGenerationInput(input.storyId, 1, legacy.id, 1)).requiresNewStyleQuote).toBe(styled);
+  expect(await readArtPreviews(input.storyId, 1)).toHaveLength(1);
+});

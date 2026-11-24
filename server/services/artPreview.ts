@@ -4,7 +4,7 @@ import { artPreviewBatchSchema, readArtPreviewBatches } from "../../shared/artPr
 import { normalizeAudioState } from "../../shared/timelineAudioModel";
 import { normalizeSubtitleState } from "../../shared/timelineSubtitleModel";
 import { estimateStoryboardImageCost } from "../../shared/imageRenderCost";
-import { artSystemPrompt } from "../../shared/artSystem";
+import { activeArtSystemRecipe, artSystemPrompt } from "../../shared/artSystem";
 import { ownedCreationStory, creationFingerprint } from "../repositories/textSourceLineage";
 import { getGeneratedImageById, assignStoryImageToShot } from "../repositories/images";
 import { getStoryMaterialState } from "./storyMaterials";
@@ -39,7 +39,9 @@ async function source(storyId: number, userId: number) {
   const music = assets.map(a => ({ id: a.id, name: a.displayName, durationSeconds: a.durationSeconds,
     // Only authored music notes; a file name is not an audio analysis.
     prompt: text(record(a.provenance).prompt) || text(record(a.provenance).description) }));
-  return { ...owned, material, shots, music, sourceHash: creationFingerprint({ shots, audio, music,
+  const recipe = activeArtSystemRecipe(owned.body);
+  const filmStyle = recipe?.system?.filmStyleImageId ? { version: recipe.version, imageId: recipe.system.filmStyleImageId } : null;
+  return { ...owned, material, shots, music, filmStyle, sourceHash: creationFingerprint({ shots, audio, music,
     art: artSystemPrompt(owned.body), subtitles: record(material.timeline.extensions).subtitleTracks }) };
 }
 export async function planArtPreviews(input: { storyId: number; userId: number; editorName: string; instruction: string; operationToken: string; imageId?: number; sampleShotId?: string; sampleShotIds?: string[] }) {
@@ -85,6 +87,7 @@ export async function planArtPreviews(input: { storyId: number; userId: number; 
   const batch = artPreviewBatchSchema.parse({ id: input.operationToken, version: Math.max(0, ...batches.map(b => b.version)) + 1, createdAt: Date.now(), editorId: input.userId, editorName: input.editorName,
     instruction: input.instruction, sourceHash: current.sourceHash, baselineImageId: baselineImageId ?? null, sampleShotId: input.sampleShotId,
     sampleShotIds: input.sampleShotIds,
+    filmStyle: current.filmStyle,
     musicContext: current.music.length ? `参考当前配乐：${current.music.map(m => m.name).join("、")}；按已有说明与镜头时长设计，尚未做音频节拍检测。` : "参考分镜中的声音说明；当前没有可识别的已选配乐，不假定节拍。",
     estimatedCny: Math.round(estimateStoryboardImageCost().estimatedCny * planned.length * 100) / 100,
     shots: planned.map((s, i) => ({ ...s, shotNo: targets[i].shotNo, label: targets[i].label, requestId: randomUUID() })),
@@ -114,7 +117,15 @@ export async function artPreviewGenerationInput(storyId: number, userId: number,
   const shot = batch?.shots.find(s => s.shotNo === shotNo);
   if (!batch || !shot) throw new Error("未找到这版镜头示意方案");
   if (batch.sourceHash !== current.sourceHash) throw new Error("台词、音乐或镜头要求已变化，请重新整理示意方案；未提交图片");
-  return { batch, shot };
+  if (batch.filmStyle !== undefined && (batch.filmStyle?.version !== current.filmStyle?.version || batch.filmStyle?.imageId !== current.filmStyle?.imageId))
+    throw new Error("全片画风参考已变化，请重新查看试图报价。");
+  // Older plans did not pin a style image ID. With a live style, request a fresh quote before billing.
+  const style = batch.filmStyle;
+  const renderReferences = batch.baselineImageId || style ? {
+    imageIds: batch.baselineImageId ? [batch.baselineImageId] : [],
+    imagePurpose: "scene-style" as const, assets: {}, filmStyleVersion: style?.version ?? 0,
+  } : undefined;
+  return { batch, shot, renderReferences, requiresNewStyleQuote: batch.filmStyle === undefined && !!current.filmStyle };
 }
 
 export async function chooseArtPreview(input: { storyId: number; userId: number; shotNo: number; ordinal: number; version?: number }) {
