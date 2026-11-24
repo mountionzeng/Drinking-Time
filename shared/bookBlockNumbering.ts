@@ -4,15 +4,30 @@ export type BookBlockNumber = {
   kind: "chapter" | "section" | "scene" | "shot";
   number: number;
   sceneNumber?: number;
+  shotNumber?: number;
 };
+
+export function precedingBookShots(
+  chapters: ReadonlyArray<{ id: number; blocks: { writingStyle?: BookWritingStyle } }>,
+  chapterId: number
+): number {
+  let count = 0;
+  for (const chapter of chapters) {
+    if (chapter.id === chapterId) return count;
+    count += chapter.blocks.writingStyle?.filter(row => row.format === "shot").length ?? 0;
+  }
+  return 0;
+}
 
 /** Derived from document order and explicit ownership. Never written into titles or IDs. */
 export function bookBlockNumbers(
-  rows: BookWritingStyle
+  rows: BookWritingStyle,
+  precedingShots = 0
 ): Map<string, BookBlockNumber> {
   const result = new Map<string, BookBlockNumber>();
   const byId = new Map(rows.map(row => [row.id, row]));
   const counts = new Map<string, number>();
+  let shotNumber = precedingShots;
   const ancestor = (id: string | null, format: string): string | undefined => {
     const seen = new Set<string>();
     while (id && !seen.has(id)) {
@@ -45,6 +60,7 @@ export function bookBlockNumbers(
     result.set(row.id, {
       kind,
       number,
+      ...(kind === "shot" ? { shotNumber: ++shotNumber } : {}),
       ...(kind === "shot" && owner
         ? { sceneNumber: result.get(owner)?.number }
         : {}),

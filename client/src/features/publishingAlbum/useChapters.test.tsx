@@ -11,6 +11,7 @@ vi.mock("@/lib/trpc", () => ({
   trpc: {
     useUtils: () => ({}),
     chapters: {
+      bookEntry: { useQuery: () => ({ data: { kind: 'text', chapterId: 2 } }) },
       list: { useQuery: () => ({ data: queries.list, isLoading: queries.list === undefined }) },
       get: { useQuery: () => ({ data: queries.detail, isLoading: queries.detail === undefined }) },
       save: { useMutation: () => ({ mutateAsync: vi.fn() }) },

@@ -20,7 +20,8 @@ type Draft = ChapterWritingDraft;
 export type ChapterWritingHandle = { prepare(): Promise<void>; insertImage(url: string): void; snapshot(): Draft; releaseCleanDraft(latest: Chapter): boolean };
 
 /** Comparison keeps this editor mounted; view switches save before opening the other editor. */
-export function ChapterWriting({ chapter, scope, handle, save, onChange, disabled, comparison, reviewedVersion, titleEditor, renderHeader, footerActions }: {
+export function ChapterWriting({ precedingShots, chapter, scope, handle, save, onChange, disabled, comparison, reviewedVersion, titleEditor, renderHeader, footerActions }: {
+  precedingShots?: number;
   footerActions?: ReactNode;
   renderHeader?: (changeNote: ReactNode) => ReactNode;
   titleEditor?: ReactNode;
@@ -143,7 +144,7 @@ export function ChapterWriting({ chapter, scope, handle, save, onChange, disable
     const matchesSaved = current.title === saved.title && current.body === saved.blocks.body && sameWritingStyle(current.writingStyle,saved.blocks.writingStyle);
     next = {...next,baseVersion:matchesSaved ? saved.version : current.baseVersion};
     draftRef.current = next; setDraft(next);
-    try { localStorage.setItem(key, JSON.stringify(next)); updateRecoveredDraft(scope, chapter.id, JSON.stringify(next)); setError(''); setBackupError(''); }
+    try { localStorage.setItem(key, JSON.stringify(next)); localStorage.setItem(`chapter-last-edit:${scope}`, String(chapter.id)); updateRecoveredDraft(scope, chapter.id, JSON.stringify(next)); setError(''); setBackupError(''); }
     catch { setError(''); setBackupError('本机备份暂不可用，正在尝试保存到账号。'); }
   }
   const changeNote = <details className={renderHeader ? "min-w-0 flex-1" : undefined}><summary className={`cursor-pointer text-xs text-muted-foreground${renderHeader ? ' py-2' : ''}`}>{_ui("修改说明（选填）")}</summary><textarea aria-label={_ui("修改说明（选填）")} maxLength={500} disabled={disabled} className="mt-2 w-full rounded border bg-transparent p-2 text-sm" value={draft.changeNote ?? ""} onChange={e => update({ ...draftRef.current, changeNote: e.target.value })} placeholder={_ui("由你自己填写；留空就不显示。")} /></details>;
@@ -176,7 +177,7 @@ export function ChapterWriting({ chapter, scope, handle, save, onChange, disable
       update({ ...draftRef.current, body: blockBody(blocks), writingStyle: writingStyleOf(blocks) });
       await prepare();
     }} />}
-    <ChapterTextModules footerActions={footerActions} importedChapterIds={chapter.blocks.wechatImport?.modules.filter(module => !module.sourceBlockId).map(module => module.id)} prepareMedia={() => prepare()} writingStyle={draft.writingStyle} onFormattedChange={(body,writingStyle)=>update({...draftRef.current,body,writingStyle})} imageInsert={insertImage} comparison={comparison} contextSource={{ storyId: chapter.storyId, scope: contextScope, chapterId: String(chapter.id) }} onContextChange={onContextChange} formatScope={`${scope}:${chapter.id}`} value={draft.body} selection={selection} disabled={disabled} onChange={body => update({ ...draft, body })} />
+    <ChapterTextModules precedingShots={precedingShots} footerActions={footerActions} importedChapterIds={chapter.blocks.wechatImport?.modules.filter(module => !module.sourceBlockId).map(module => module.id)} prepareMedia={() => prepare()} writingStyle={draft.writingStyle} onFormattedChange={(body,writingStyle)=>update({...draftRef.current,body,writingStyle})} imageInsert={insertImage} comparison={comparison} contextSource={{ storyId: chapter.storyId, scope: contextScope, chapterId: String(chapter.id) }} onContextChange={onContextChange} formatScope={`${scope}:${chapter.id}`} value={draft.body} selection={selection} disabled={disabled} onChange={body => update({ ...draft, body })} />
     {!renderHeader && changeNote}
     {(error || backupError) && <p role="alert" className="text-sm text-destructive">{error || backupError} <button type="button" className="underline" onClick={()=>void prepare().catch(cause=>setError(cause instanceof Error ? cause.message : '保存失败'))}>{_ui("重试保存")}</button></p>}
 

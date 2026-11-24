@@ -4,6 +4,7 @@ import type { ManuscriptKind } from "@shared/bookWorkflow";
 import { requestNewVersion } from "@/features/publishingDraft/newVersionRequest";
 import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { registerBookPreparation } from "@/features/bookVideo/bookPreparation";
+import { precedingBookShots } from "@shared/bookBlockNumbering";
 import { sameWritingStyle } from "@shared/bookWritingStyle";
 import type { ChapterWritingDraft } from "./chapterWritingDraft";
 import { storyLibraryImages } from "./storyImageLibrary";
@@ -85,7 +86,7 @@ export function ChapterWorkspace({
   const [displayMode, setDisplayMode] = useState(mode);
   const writing = useRef<ChapterWritingHandle | null>(null);
   const [manuscriptKind, setManuscriptKind] = useState<ManuscriptKind>();
-  const state = useChapters(props.storyId, latest => displayMode !== 'text' || writing.current?.releaseCleanDraft(latest) === true, manuscriptKind);
+  const state = useChapters(props.storyId, latest => displayMode !== 'text' || writing.current?.releaseCleanDraft(latest) === true, manuscriptKind, props.accountId);
   const { active } = state;
   const [writingDraft, setWritingDraft] = useState<ChapterWritingDraft | null>(null);
   const localDraftConflict = active && writingDraft && (writingDraft.title !== active.title || writingDraft.body !== active.blocks.body || !sameWritingStyle(writingDraft.writingStyle,active.blocks.writingStyle)) && writingDraft.baseVersion !== active.version;
@@ -435,10 +436,10 @@ export function ChapterWorkspace({
           </div>}
           {historyOpen && <section aria-label={_ui("版本列表")} className="space-y-3 border-y py-3">
             {workflow.data && <>
-              <label className="text-sm">{_ui("稿件")} <select aria-label={_ui("查看稿件版本")} className="rounded border bg-transparent p-1" value={manuscriptKind ?? workflow.data.preferredKind} onChange={event => { const kind = event.target.value as ManuscriptKind; void run(async () => setManuscriptKind(kind)); }}>
+              <label className="text-sm">{_ui("稿件")} <select aria-label={_ui("查看稿件版本")} className="rounded border bg-transparent p-1" value={state.selectedKind ?? workflow.data.preferredKind} onChange={event => { const kind = event.target.value as ManuscriptKind; void run(async () => setManuscriptKind(kind)); }}>
                 {(["text", "storyboard"] as const).filter(kind => workflow.data.drafts[kind].count > 0).map(kind => <option key={kind} value={kind}>{kind === "text" ? _ui("文字版") : _ui("分镜版")}</option>)}
               </select></label>
-              <VideoBookHistory state={workflow.data.state} kind={manuscriptKind ?? workflow.data.preferredKind} storyId={props.storyId} accountId={props.accountId} />
+              <VideoBookHistory state={workflow.data.state} kind={state.selectedKind ?? workflow.data.preferredKind} storyId={props.storyId} accountId={props.accountId} />
             </>}
 
             <p className="text-xs">{_ui("章节草稿修订")}{" "}{active.version} · {active.blocks.attribution?.editorName || _ui("未记录编辑者")}{_ui("。选择版本只打开对比，不会替换正在写的内容。")}</p>
@@ -518,7 +519,7 @@ export function ChapterWorkspace({
       {!active && editorControls()}
       {active && (<>
           <div hidden={displayMode !== "text"} className="space-y-3">
-            {displayMode === "text" && <ChapterWriting key={`${active.id}:${state.epoch}`} chapter={active}
+            {displayMode === "text" && <ChapterWriting key={`${active.id}:${state.epoch}`} chapter={active} precedingShots={precedingBookShots(state.chapters, active.id)}
               titleEditor={titleEditor}
               renderHeader={editorControls}
               footerActions={<BookSendMenu disabled={busy} onShare={() => void run(async () => {

@@ -27,7 +27,7 @@ export type StoredChapterBlocks = {
     warnings: string[];
   };
   /** Display provenance stored with each version, never used for authorization. */
-  attribution?: { editorName: string; sourceName?: string; changeNote?: string; action: "created" | "edited" | "received" | "restored" };
+  attribution?: { editorName: string; editedAt?: number; sourceName?: string; changeNote?: string; action: "created" | "edited" | "received" | "restored" };
   body: string;
   writingStyle?: BookWritingStyle;
   blockIds: string[];

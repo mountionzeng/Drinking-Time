@@ -25,6 +25,7 @@ import { readBookAudio } from "../../shared/bookAudioBlock";
 import { getStoryById } from "../repositories/stories";
 import { listChapters } from "../repositories/chapters";
 import {
+  bookEntry,
   manuscriptRows,
   mutateBookWorkflow,
 } from "../repositories/bookWorkflow";
@@ -125,9 +126,7 @@ export async function getBookWorkflow(input: Owner) {
   return {
     state,
     drafts,
-    preferredKind: (drafts.text.count
-      ? "text"
-      : "storyboard") as ManuscriptKind,
+    preferredKind: bookEntry(rows, state).kind,
   };
 }
 export async function saveManuscriptVersion(

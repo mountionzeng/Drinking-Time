@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bookBlockNumbers, bookBlockNumberLabel } from '@shared/bookBlockNumbering';
+import { bookBlockNumbers, bookBlockNumberLabel, precedingBookShots } from '@shared/bookBlockNumbering';
 import { bookWritingStyleSchema, validWritingStyle } from '@shared/bookWritingStyle';
 import { bookAudioText } from '@shared/bookAudioBlock';
 import { layoutBookBlocks, moveBookBlockByKey, findBookDrop } from './bookBlockLayout';
@@ -54,9 +54,13 @@ describe('scene and shot modules',()=>{
   });
   it('moves scene two shot three with every asset to scene one slot two and derives a new label',()=>{
     const before=storyboard();
+    const offset=precedingBookShots([{id:9,blocks:{writingStyle:before}},{id:4,blocks:{writingStyle:before}}],4);
+    expect(offset).toBe(5);
+    expect(bookBlockNumbers(before,offset).get('b3')?.shotNumber).toBe(10);
     expect(bookBlockNumberLabel(bookBlockNumbers(before).get('b3')!)).toBe('二场三镜');
     for(const next of [moveWritingBlock(before,'b3','a2','before'),moveBookSelection(before,['b3'],{id:'a2',position:'before'})]) {
       expect(bookBlockNumberLabel(bookBlockNumbers(next).get('b3')!)).toBe('一场二镜');
+      expect(bookBlockNumbers(next,offset).get('b3')?.shotNumber).toBe(7);
       expect(next.slice(3,9).map(row=>row.id)).toEqual(['b3','image1','image2','dialogue','audio','description']);
       expect(next.find(row=>row.id==='b3')).toMatchObject({text:'用户镜头标题',parentId:'s1'});
       for(const id of ['image1','image2','dialogue','audio','description']) expect(next.find(row=>row.id===id)).toEqual(before.find(row=>row.id===id));

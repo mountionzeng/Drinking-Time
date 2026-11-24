@@ -48,8 +48,8 @@ it('offers scene and shot in the existing format menu and keeps editable titles 
  const scene={...newWritingBlock('自写场名'),id:'s',format:'scene' as const};
  const shot={...newWritingBlock('自写镜头名','s'),id:'a',format:'shot' as const};
  const commit=vi.fn();
- const tree=nodes(render(()=>BookBlockCanvas({blocks:[scene,shot],disabled:false,activeId:'a',onSelect:vi.fn(),onCommit:commit,children:block=><span>{block.text}</span>})));
- expect(tree.filter(n=>n.props?.['data-book-number']).map(n=>n.props.children)).toEqual(['一场','一场一镜']);
+ const tree=nodes(render(()=>BookBlockCanvas({precedingShots:2,blocks:[scene,shot],disabled:false,activeId:'a',onSelect:vi.fn(),onCommit:commit,children:block=><span>{block.text}</span>})));
+ expect(tree.filter(n=>n.props?.['data-book-number']).map(n=>n.props.children)).toEqual(['一场','第 3 镜']);
  const format=tree.find(n=>n.props?.['aria-label']==='模块 2 设置');
  const options=nodes(format).filter(n=>n.type==='button');
  expect(options.some(n=>String(n.props.children).includes('转换成一章'))).toBe(true);

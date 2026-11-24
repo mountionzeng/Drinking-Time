@@ -1,5 +1,6 @@
 import { bookWritingStyleSchema, validWritingStyle } from "../../shared/bookWritingStyle";
-import { manuscriptKindSchema } from "../../shared/bookWorkflow";
+import { manuscriptKindSchema, readBookWorkflow } from "../../shared/bookWorkflow";
+import { bookEntry } from "../repositories/bookWorkflow";
 import { listOwnChapterDeliveryHistory } from "../repositories/chapterDeliveries";
 import { getUserById } from "../repositories/users";
 import { createHash, randomUUID } from "node:crypto";
@@ -104,6 +105,13 @@ const emptyBlocks = (body: string): StoredChapterBlocks => ({
 export const chaptersRouter = router({
   /** The UI hides every chapter entry when this is false. */
   enabled: protectedProcedure.query(() => ({ enabled: chapterEnabled() })),
+
+  bookEntry: protectedProcedure.input(storyInput.extend({ chapterId: chapterInput.shape.chapterId.optional() })).query(async ({ ctx, input }) => {
+    requireEnabled();
+    const story = await ownStory(input.storyId, ctx.user.id);
+    const rows = await listChapters(input.storyId, ctx.user.id, "all");
+    return bookEntry(rows, readBookWorkflow((story.body as Record<string, unknown>)?.bookWorkflow), input.chapterId);
+  }),
 
   list: protectedProcedure.input(storyInput.extend({ kind: manuscriptKindSchema.optional() })).query(async ({ ctx, input }) => {
     requireEnabled();
@@ -315,7 +323,7 @@ export const chaptersRouter = router({
         !isDeepStrictEqual(blocks, chapter.blocks) || !isDeepStrictEqual(layout, chapter.layout);
       const noteChanged = input.changeNote !== undefined && (input.changeNote || undefined) !== blocks.attribution?.changeNote;
       if (contentChanged || noteChanged) blocks.attribution = {
-        ...blocks.attribution, editorName: artworkAuthorName(ctx.user.name), action: "edited",
+        ...blocks.attribution, editorName: artworkAuthorName(ctx.user.name), editedAt: Date.now(), action: "edited",
         changeNote: input.changeNote || undefined,
       };
       return view(

@@ -23,28 +23,44 @@ export type ChapterEdit = {
 };
 
 /** Mounted only behind the server's enabled flag. No platform draft is ever written here. */
-export function useChapters(storyId: number, releaseCleanText?: (latest: Chapter) => boolean, kind?: ManuscriptKind) {
+export function useChapters(storyId: number, releaseCleanText?: (latest: Chapter) => boolean, kind?: ManuscriptKind, accountId?: number | null) {
   const utils = trpc.useUtils();
-  const listInput = { storyId, ...(kind ? { kind } : {}) };
-  const list = trpc.chapters.list.useQuery(
-    listInput,
-    { enabled: isPersistedStoryId(storyId), retry: false, refetchOnWindowFocus: false }
-  );
-  const save = trpc.chapters.save.useMutation();
   const [openId, setOpenId] = useState<number | null>(() => {
     if (typeof window === "undefined") return null;
     const id = Number(new URLSearchParams(window.location.search).get("chapterId"));
-    return Number.isSafeInteger(id) && id > 0 ? id : null;
+    if (Number.isSafeInteger(id) && id > 0) return id;
+    try {
+      const scope = `${accountId ?? "current"}:${storyId}`;
+      const pending = Number(localStorage.getItem(`chapter-last-edit:${scope}`));
+      return pending > 0 && localStorage.getItem(`chapter-writing:${scope}:${pending}`) ? pending : null;
+    } catch { return null; }
   });
+  const [initialEntry, setInitialEntry] = useState<{ kind: ManuscriptKind; chapterId: number | null } | null>(null);
+  const entry = trpc.chapters.bookEntry.useQuery(
+    { storyId, ...(openId ? { chapterId: openId } : {}) },
+    { enabled: isPersistedStoryId(storyId) && !initialEntry && !kind, retry: false, refetchOnMount: "always", refetchOnWindowFocus: false }
+  );
+  const opening = initialEntry ?? (!entry.isFetching ? entry.data : undefined);
+  useEffect(() => {
+    if (!initialEntry && opening) setInitialEntry(opening);
+  }, [initialEntry, opening]);
+  const selectedKind = kind ?? opening?.kind;
+  const listInput = { storyId, kind: selectedKind };
+  const list = trpc.chapters.list.useQuery(
+    listInput,
+    { enabled: isPersistedStoryId(storyId) && Boolean(selectedKind), retry: false, refetchOnWindowFocus: false }
+  );
+  const save = trpc.chapters.save.useMutation();
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [epoch, setEpoch] = useState(0);
   const [externalVersion, setExternalVersion] = useState<number | null>(null);
   const releaseText = useRef(releaseCleanText);
   releaseText.current = releaseCleanText;
-  const chapters = list.data ?? [];
+  const chapters = (selectedKind && list.data) || [];
   const selected =
-    chapters.find(chapter => chapter.id === openId) ?? chapters[0] ?? null;
+    chapters.find(chapter => chapter.id === openId) ??
+    chapters.find(chapter => chapter.id === opening?.chapterId) ?? chapters[0] ?? null;
   const detail = trpc.chapters.get.useQuery(
     { chapterId: selected?.id ?? 0 },
     {
@@ -167,6 +183,16 @@ export function useChapters(storyId: number, releaseCleanText?: (latest: Chapter
     return () => { disposed = true; clearInterval(interval); window.removeEventListener('focus', visible); document.removeEventListener('visibilitychange', visible); };
   }, [active?.id, epoch, storyId]);
   async function refresh() {
+    if (!selectedKind) {
+      const retry = await entry.refetch();
+      if (retry.error) throw retry.error;
+      return;
+    }
+    if (!selected) {
+      const retry = await list.refetch();
+      if (retry.error) throw retry.error;
+      return;
+    }
     const fresh = await detail.refetch();
     if (fresh.error) throw fresh.error;
     await utils.chapters.list.invalidate({ storyId });
@@ -175,14 +201,15 @@ export function useChapters(storyId: number, releaseCleanText?: (latest: Chapter
   }
   return {
     chapters,
+    selectedKind,
     active,
     imageUrls: detail.data?.imageUrls ?? {},
     error,
     saving,
     epoch,
     externalVersion,
-    loading: list.isLoading || (Boolean(selected) && detail.isLoading),
-    queryError: list.error?.message ?? detail.error?.message,
+    loading: (!selectedKind && entry.isFetching) || list.isLoading || (Boolean(selected) && detail.isLoading),
+    queryError: (!selectedKind && entry.error?.message) || list.error?.message || detail.error?.message,
     change,
     flush,
     refresh,

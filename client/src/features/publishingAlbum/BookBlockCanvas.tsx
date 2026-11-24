@@ -21,10 +21,11 @@ const cornerNames = { nw: '左上角', ne: '右上角', sw: '左下角', se: '�
 
 const action = 'min-h-11 w-full rounded px-3 py-2 text-left text-sm hover:bg-accent focus-visible:outline focus-visible:outline-2 disabled:opacity-40';
 
-export function BookBlockCanvas({ importedChapterIds, blocks, disabled, onCommit, children, activeId, onSelect, onSelectionChange, onConvert, onConvertSelection, onComposeImage, textSelectionIds }: {
+export function BookBlockCanvas({ precedingShots, importedChapterIds, blocks, disabled, onCommit, children, activeId, onSelect, onSelectionChange, onConvert, onConvertSelection, onComposeImage, textSelectionIds }: {
   onComposeImage?(ids: string[]): void;
   onConvertSelection?(ids: string[], kind: 'text' | 'music' | 'narration'): void;
   textSelectionIds?: string[];
+  precedingShots?: number;
   importedChapterIds?: readonly string[];
   blocks: WritingBlock[]; disabled: boolean;
   onConvert?(id:string,kind:"text"|"image"|"music"|"narration"|"translate-en"|"translate-zh"):void;
@@ -120,7 +121,7 @@ export function BookBlockCanvas({ importedChapterIds, blocks, disabled, onCommit
   // separate from the saved document so opening a book never rewrites it.
   const [openImportedChapters, setOpenImportedChapters] = useState<Set<string>>(() => new Set());
   const chapterIds = new Set(importedChapterIds ?? []);
-  const numbers = bookBlockNumbers(preview ?? blocks);
+  const numbers = bookBlockNumbers(preview ?? blocks, precedingShots);
   const displayed = (preview ?? blocks).map(block => chapterIds.has(block.id) && block.format === 'heading1'
     ? { ...block, collapsed: !openImportedChapters.has(block.id) }
     : block);
@@ -434,7 +435,7 @@ export function BookBlockCanvas({ importedChapterIds, blocks, disabled, onCommit
               </button>}
               {isImportedChapter ? <div className="min-w-0 flex-1 h-full">{children(block, index, { fontSize: placement.fontSize * scale, lineHeight: 1.6, fontWeight: 650 })}</div> : number ?
               <div className="flex h-full w-full flex-col">
-                <span className="shrink-0 select-none text-[var(--nayin-accent)]" style={{ fontSize: 18 * scale, height: 32 * scale, lineHeight: `${32 * scale}px` }}><span data-book-number={block.id} style={{ fontSize: (number.kind === 'scene' || number.kind === 'chapter' ? 26 : 18) * scale }}>{numberLabel}</span>{(block.format === 'scene' || block.format === 'heading1') && <span className="ml-3 text-muted-foreground">{block.format === 'scene' ? [_ui("{0} 个镜头", [summary.shots]), ...(summary.images.length ? [_ui("{0} 张图片", [summary.images.length])] : [])].join(' · ') : _ui("{0} 节", [summary.sections])}</span>}</span>
+                <span className="shrink-0 select-none text-[var(--nayin-accent)]" style={{ fontSize: 18 * scale, height: 32 * scale, lineHeight: `${32 * scale}px` }}><span data-book-number={block.id} title={number.shotNumber ? numberLabel : undefined} style={{ fontSize: (number.kind === 'scene' || number.kind === 'chapter' ? 26 : 18) * scale }}>{number.shotNumber ? _ui("第 {0} 镜", [number.shotNumber]) : numberLabel}</span>{(block.format === 'scene' || block.format === 'heading1') && <span className="ml-3 text-muted-foreground">{block.format === 'scene' ? [_ui("{0} 个镜头", [summary.shots]), ...(summary.images.length ? [_ui("{0} 张图片", [summary.images.length])] : [])].join(' · ') : _ui("{0} 节", [summary.sections])}</span>}</span>
                 <div className="min-h-0 flex-1">{children(block, index, { fontSize: placement.fontSize * scale, lineHeight: 1.6, fontWeight: 650,
                   color: block.emphasis === 'bright' ? 'var(--nayin-accent)' : undefined, textShadow: block.emphasis === 'bright' ? '0 0 6px rgba(255,255,255,.8)' : undefined })}</div>
                 {summaryText && <p data-book-summary={block.id} className="shrink-0 text-muted-foreground" style={{ height: BOOK_SHOT_SUMMARY_HEIGHT * scale, fontSize: 18 * scale, lineHeight: `${28 * scale}px` }}>{summaryText}</p>}

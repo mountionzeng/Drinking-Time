@@ -4,6 +4,8 @@ import type { TrpcContext } from "./_core/context";
 import * as runtime from "./repositories/runtime";
 import { createStory } from "./repositories/stories";
 import { chaptersRouter } from "./routers/chapters";
+import { insertChapter } from "./repositories/chapters";
+import { getBookWorkflow } from "./services/bookWorkflow";
 
 vi.mock("./storage", () => ({
   storagePut: vi.fn(async (key: string) => ({ key, url: `https://x/${key}` })),
@@ -47,6 +49,23 @@ describe("chapters switch", () => {
 });
 
 describe("chapter CRUD and order", () => {
+  it("opens the last edited manuscript and chapter, preserving explicit links and ownership", async () => {
+    const storyId = await story(), owner = caller(10);
+    const text = await owner.create({ storyId, title: "文字" });
+    const addShotChapter = (title: string) => insertChapter({ storyId, userId: 10,
+      content: { title, layout: null, blocks: { ...text.blocks, manuscriptKind: "storyboard" } } });
+    await addShotChapter("分镜一");
+    const shot = await addShotChapter("分镜二");
+    await owner.save({ chapterId: shot.id, expectedVersion: shot.version, body: "刚修改的镜头" });
+    expect(await owner.bookEntry({ storyId })).toEqual({ kind: "storyboard", chapterId: shot.id });
+    expect((await getBookWorkflow({ storyId, userId: 10 })).preferredKind).toBe("storyboard");
+    expect(await owner.bookEntry({ storyId, chapterId: text.id })).toEqual({ kind: "text", chapterId: text.id });
+    await owner.versions({ chapterId: text.id });
+    expect((await owner.bookEntry({ storyId })).chapterId).toBe(shot.id);
+    await owner.save({ chapterId: text.id, expectedVersion: text.version, body: "后来编辑的文字" });
+    expect(await owner.bookEntry({ storyId })).toEqual({ kind: "text", chapterId: text.id });
+    await expect(caller(11).bookEntry({ storyId, chapterId: shot.id })).rejects.toThrow("故事不存在");
+  });
   it("creates, reorders and deletes chapters", async () => {
     const id = await story();
     const a = await caller(10).create({

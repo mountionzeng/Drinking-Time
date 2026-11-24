@@ -48,6 +48,27 @@ export type WorkflowAggregate = {
   rows: StoryChapter[];
   body: Record<string, unknown>;
 };
+
+/** Resolve the editable chapter. Reading or comparing a historical snapshot does not change it. */
+export function bookEntry(rows: StoryChapter[], state: BookWorkflowState, chapterId?: number) {
+  let best: { kind: ManuscriptKind; chapterId: number; time: number; versionOrder: number } | undefined;
+  for (const kind of ["text", "storyboard"] as const) {
+    const chapters = manuscriptRows(rows, kind);
+    const requested = chapters.find(chapter => chapter.id === chapterId);
+    if (requested) return { kind, chapterId: requested.id };
+    if (!chapters.length) continue;
+    const editTime = (row: StoryChapter) => Math.max(
+      new Date(row.updatedAt).getTime() || 0, row.blocks.attribution?.editedAt ?? 0
+    );
+    const latest = chapters.reduce((a, b) => editTime(b) > editTime(a) ? b : a);
+    const versionOrder = state.versions.findIndex(v => v.id === state.current[kind] && v.kind === kind);
+    const time = Math.max(editTime(latest), state.versions[versionOrder]?.createdAt ?? 0);
+    if (!best || time > best.time || (time === best.time && versionOrder > best.versionOrder)) {
+      best = { kind, chapterId: latest.id, time, versionOrder };
+    }
+  }
+  return { kind: best?.kind ?? "text", chapterId: best?.chapterId ?? null };
+}
 export type WorkflowChange<T> = (aggregate: WorkflowAggregate) => {
   result: T;
   replace?: { kind: ManuscriptKind; chapters: ManuscriptContent[] };

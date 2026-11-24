@@ -10,7 +10,7 @@ vi.mock('react', async () => ({
 const chapter = { id: 2, storyId: 7, version: 3, title: '原稿', layout: null, blocks: { body:'原文', settings:null, coverKey:null, bodyTextureKey:null, illustrations:[] } };
 vi.mock('@/lib/trpc', () => ({ trpc: {
   useUtils: () => ({ client:{chapters:{get:{query:mock.query}}}, chapters:{get:{setData:mock.setDetail},list:{setData:mock.setList,invalidate:mock.invalidate}} }),
-  chapters: { list:{useQuery:()=>({data:[chapter]})}, get:{useQuery:()=>({data:{chapter,imageUrls:{}},refetch:mock.refetch})}, save:{useMutation:()=>({mutateAsync:mock.save})} },
+  chapters: { bookEntry:{useQuery:()=>({data:{kind:'text',chapterId:2}})}, list:{useQuery:()=>({data:[chapter]})}, get:{useQuery:()=>({data:{chapter,imageUrls:{}},refetch:mock.refetch})}, save:{useMutation:()=>({mutateAsync:mock.save})} },
 } }));
 import { useChapters } from './useChapters';
 let cleanups: Array<() => void> = [];
