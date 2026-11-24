@@ -6,12 +6,21 @@ export const sampleShotIdsSchema = z.array(z.string().min(1).max(128)).min(1).ma
 export const artPreviewShotSchema = z.object({
   stableShotId: z.string().min(1), shotNo: z.number().int().positive(), label: z.string(),
   brief: z.string().min(1).max(1700), adaptation: z.string().min(1).max(400), requestId: z.string().uuid(),
+  frameNotes: z.string().optional(),
+  currentFrameId: z.number().int().positive().nullable().optional(),
+  previousChoice: z.object({ imageId: z.number().int().positive(), version: z.number().int().positive(), adjustments: z.array(z.string()) }).optional(),
 });
+export const previewArtBasisSchema = z.object({
+  source: z.string(), direction: z.string(), coverImageId: z.number().int().positive().nullable(),
+  coverNote: z.string(), styleName: z.string(), rules: z.string(), filmBrief: z.string(),
+});
+export type PreviewArtBasis = z.infer<typeof previewArtBasisSchema>;
 export const artPreviewBatchSchema = z.object({
   id: z.string().uuid(), version: z.number().int().positive(), createdAt: z.number(), editorId: z.number(), editorName: z.string(),
   instruction: z.string(), sourceHash: z.string(), baselineImageId: z.number().int().positive().nullable(), sampleShotId: z.string().optional(),
   sampleShotIds: sampleShotIdsSchema.optional(),
   filmStyle: z.object({ version: z.number().int().positive(), imageId: z.number().int().positive() }).nullable().optional(),
+  artBasis: previewArtBasisSchema.optional(), artBasisHash: z.string().optional(), adjustment: z.string().max(600).optional(),
   musicContext: z.string(), estimatedCny: z.number(), shots: z.array(artPreviewShotSchema).min(1).max(12),
 });
 export type ArtPreviewBatch = z.infer<typeof artPreviewBatchSchema>;

@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import type { StoryMaterialState } from "@shared/storyMaterial";
 import { useArtPreviewChat } from "@/features/storyAgent/useArtPreviewChat";
+import { trpc } from "@/lib/trpc";
 
 type Props = {
   storyId: number;
@@ -19,6 +20,9 @@ type Props = {
 
 export function VideoStartChoices({ storyId, material, cues, candidates, shotLabels, musicCount, pending, error, generateSubtitles, adoptImage, openMusic, openBook }: Props) {
   const [choice, setChoice] = useState<"images" | "subtitles" | null>(null);
+  const [adjustment, setAdjustment] = useState("");
+  const basis = trpc.artSystems.previewArtBasis.useQuery({ storyId }, { enabled: choice === "images" });
+  const cover = basis.data?.coverImageId && material.warehouseImages?.find(image => image.id === basis.data?.coverImageId);
   const [target, setTarget] = useState("");
   const [chosenSamples, setChosenSamples] = useState<string[] | null>(null);
   const [working, setWorking] = useState(false);
@@ -45,7 +49,7 @@ export function VideoStartChoices({ storyId, material, cues, candidates, shotLab
     setMessage("");
     try {
       const numbers = samples.map(s => s.shotNo).join("、");
-      const result = await preview(storyId, `为第 ${numbers} 镜各生成四张基调示意图`, samples.map(s => s.stableShotId));
+      const result = await preview(storyId, `为第 ${numbers} 镜各生成四张基调示意图`, samples.map(s => s.stableShotId), adjustment.trim() || undefined);
       setMessage(result?.reply ?? "未能开始试图，请重新选择镜头。");
     } catch (cause) {
       setMessage(cause instanceof Error ? cause.message : "图片制作未完成。");
@@ -67,6 +71,14 @@ export function VideoStartChoices({ storyId, material, cues, candidates, shotLab
         <button className={shortcut} onClick={openMusic}>制作全片配乐</button>
       </div>
       {choice === "images" && <div className="space-y-2">
+        {basis.data ? <section aria-label="沿用的创作依据" className="space-y-1">
+          <p className="font-medium">{basis.data.source}</p>
+          {cover && <img className="max-h-28 max-w-full rounded object-contain" src={cover.imageUrl} alt={basis.data.coverNote} />}
+          <p>{[basis.data.coverNote, basis.data.styleName].filter(Boolean).join(" · ") || "当前还没有确认封面或画风。"}</p>
+          {basis.data.filmStyleImageId && basis.data.coverImageId !== basis.data.filmStyleImageId && <p>全片画风参考 #{basis.data.filmStyleImageId}</p>}
+          {basis.data.rules && <p className="whitespace-pre-line">{basis.data.rules}</p>}
+          {basis.data.filmBrief && <details><summary>影片创作要求</summary><p>{basis.data.filmBrief}</p></details>}
+        </section> : <p role="status">{basis.error ? "暂时读不到创作依据，请重新载入。" : "正在读取当前作品的创作依据…"}</p>}
         <p>从故事前后挑镜头对照画风。每镜出四张候选，可勾选一至三镜。</p>
         <fieldset className="max-h-28 overflow-y-auto" aria-label="基调试图镜头">{material.shots.map(s => {
           const checked = samples.includes(s);
@@ -78,7 +90,9 @@ export function VideoStartChoices({ storyId, material, cues, candidates, shotLab
             <span>第 {s.shotNo} 镜 · {shotLabels.get(s.stableShotId)?.slice(0, 32) || s.cueCode || s.shotNo}</span>
           </label>;
         })}</fieldset>
-        <button className={button} disabled={working || !samples.length} onClick={() => void sample()}>{working ? "正在处理…" : samples.length ? `查看 ${samples.length} 镜 · ${samples.length * 4} 张试图报价` : "先选试图镜头"}</button>
+        <label className="block">这一轮想调整什么？<input value={adjustment} maxLength={600} disabled={working} onChange={e => setAdjustment(e.target.value)}
+          className="mt-1 w-full rounded border border-border bg-background px-2 py-1" placeholder="可留空，沿用当前要求" /></label>
+        <button className={button} disabled={working || !samples.length || !basis.data} onClick={() => void sample()}>{working ? "正在处理…" : samples.length ? `查看 ${samples.length} 镜 · ${samples.length * 4} 张试图报价` : "先选试图镜头"}</button>
         <div>查看本镜素材</div>
         <select aria-label="查看素材的镜头" value={shot.stableShotId} disabled={working} onChange={e => { setTarget(e.target.value); setMessage(""); }}>
           {material.shots.map(s => <option key={s.stableShotId} value={s.stableShotId}>第 {s.shotNo} 镜{s.cueCode ? ` · ${s.cueCode}` : ""}</option>)}

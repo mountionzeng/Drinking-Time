@@ -108,6 +108,59 @@ const direction = (version: number, imageId: number) => ({
   recipe: { version, system: { name: "Ink", confirmedAt: 1, filmStyleImageId: imageId } },
 });
 
+it("quotes the adopted manuscript's cover and carries its written art rules and this round's change to the render", async () => {
+  const input = await fixture();
+  const key = `chapters/1/${"a".repeat(64)}.jpg`;
+  const groupId = "publishing-group-v1-current";
+  const manuscript = { id: "source", kind: "storyboard", number: 3, chapters: [{ blocks: { coverKey: key } }] };
+  const workflow = { schemaVersion: 1, revision: 3, current: { storyboard: "other" }, conversions: [], versions: [manuscript] };
+  const shot = { stableShotId: "s1", shotNo: 1, promptDraft: "a monochrome brick wall", materialTexture: "rag paper", publishingVideo: { groupId } };
+  await patch(input.storyId, {
+    shots: [shot], bookWorkflow: workflow, artDirection: { recipe: { version: 4, style: ["charcoal"], palette: ["ochre"], system: { name: "Ink", confirmedAt: 1, filmStyleImageId: input.imageId } } },
+    bookVideoRecords: [{ status: "adopted", versionId: "v1", videoVersion: 5, preview: { previewId: "current" }, manuscriptSource: { id: "source" }, brief: { tone: "quiet" } }],
+  });
+  mocks.material.mockResolvedValue({ shots: [], warehouseImages: [{ id: input.imageId, imageKey: key }], timeline: { extensions: {} } });
+  const request = { ...input, imageId: undefined, sampleShotId: "s1", adjustment: "soften the ink shadow" };
+  const batch = await planArtPreviews(request);
+  expect(batch.artBasis).toMatchObject({ source: "test · 分镜稿 V3 · 视频 V5", coverImageId: input.imageId, styleName: "Ink V4" });
+  expect(batch.baselineImageId).toBe(input.imageId);
+  const result = await artPreviewGenerationInput(input.storyId, 1, batch.id, 1);
+  for (const expected of ["charcoal","ochre","monochrome brick wall","rag paper","quiet",request.adjustment]) expect(result.prompt).toContain(expected);
+  expect(result.renderReferences).toMatchObject({ imageIds: [input.imageId], filmStyleVersion: 4 });
+  expect(mocks.agent).not.toHaveBeenCalled();
+  await expect(planArtPreviews({ ...request, adjustment: "different change" })).rejects.toThrow("操作标识");
+  await patch(input.storyId, { bookWorkflow: { ...workflow, versions: [{ ...manuscript, chapters: [{ blocks: {} }] }] } });
+  await expect(artPreviewGenerationInput(input.storyId, 1, batch.id, 1)).rejects.toThrow("创作依据已变化");
+});
+
+it("inherits only adjustments from the adopted candidate, using it for the shot and retaining the separate film style", async () => {
+  const input = await fixture();
+  await patch(input.storyId, { artDirection: direction(4, input.imageId) });
+  const first = await planArtPreviews({ ...input, sampleShotId: "s1", adjustment: "subtle ink lines" });
+  await planArtPreviews({ ...input, operationToken: crypto.randomUUID(), sampleShotId: "s1", adjustment: "unselected experiment" });
+  await patch(input.storyId, { storyboardImageTasks: [{ requestId: first.shots[0].requestId, status: "succeeded", result: { candidates: [{ imageId: 71, imageUrl: "/candidate.png" }] } }] });
+  mocks.material.mockResolvedValue({ shots: [{ stableShotId: "s1", currentImage: { id: 71 }, imageVersions: [] }], timeline: { extensions: {} } });
+  const next = await planArtPreviews({ ...input, operationToken: crypto.randomUUID(), sampleShotId: "s1", adjustment: "warm light" });
+  const result = await artPreviewGenerationInput(input.storyId, 1, next.id, 1);
+  expect(result.shot.previousChoice).toMatchObject({ imageId: 71, version: first.version });
+  expect(result.renderReferences).toEqual({ imageIds: [71], assets: {}, filmStyleVersion: 4 });
+  expect(result.prompt).toContain("subtle ink lines"); expect(result.prompt).toContain("warm light"); expect(result.prompt).not.toContain("unselected experiment");
+});
+
+it("requires a fresh quote after the first frame is adopted, then uses the selected frame and the film style", async () => {
+  const input = await fixture();
+  await patch(input.storyId, { artDirection: direction(4, input.imageId) });
+  const request = { ...input, sampleShotId: "s1" };
+  const first = await planArtPreviews(request);
+  mocks.material.mockResolvedValue({ shots: [{ stableShotId: "s1", currentImage: { id: 71, selectionSource: "explicit" }, imageVersions: [] }], timeline: { extensions: {} } });
+  expect((await artPreviewGenerationInput(input.storyId, 1, first.id, 1)).priorFrameChanged).toBe(true);
+  const next = await planArtPreviews({ ...request, operationToken: crypto.randomUUID() });
+  const result = await artPreviewGenerationInput(input.storyId, 1, next.id, 1);
+  expect(result.priorFrameChanged).toBe(false);
+  expect(result.renderReferences).toEqual({ imageIds: [71], assets: {}, filmStyleVersion: 4 });
+  expect(result.prompt).not.toContain("比较这个镜头的四种画面");
+});
+
 it.each([{ sampleShotId: "s1" }, { sampleShotIds: ["s1", "s2"] }])("pins the style and baseline to the sample quote %j", async selection => {
   const input = await fixture();
   await patch(input.storyId, { artDirection: direction(4, input.imageId) });

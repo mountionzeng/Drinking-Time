@@ -320,7 +320,7 @@ describe("storyAgent tRPC router", () => {
     const story = await createStory({ userId, title: "preview", body: { shots: [{ shotNo: 1, stableShotId: "preview-shot", subject: "obsolete room", action: "obsolete action", promptDraft: "obsolete watercolor", publishingVideo: { groupId: "group", draftShotId: "draft" } }] } });
     const reference = await createGeneratedImage({ storyId: story.id, userId, imageUrl: "https://storage.example/baseline.png", prompt: "reference", isCurrent: false });
     creationAgentMocks.runJsonAgent.mockResolvedValueOnce({ parsed: { shots: [{ stableShotId: "preview-shot", brief: "colorful precise particles spread from a teacup", adaptation: "沿用细腻色彩，以延伸呈现连接" }] } });
-    const batch = await planArtPreviews({ storyId: story.id, userId, editorName: "Author", instruction: "生成示意图", imageId: reference.id, operationToken: crypto.randomUUID() });
+    const batch = await planArtPreviews({ storyId: story.id, userId, editorName: "Author", instruction: "生成示意图", adjustment: "retain the dry paper texture", imageId: reference.id, operationToken: crypto.randomUUID() });
     const serverBeforeSave = (await getStoryById(story.id, userId))!.body as Record<string, unknown>;
     await caller.storyAgent.storyUpsert({ id: story.id, title: "preview", body: { shots: serverBeforeSave.shots, artPreviewBatches: [] }, baseRevision: serverBeforeSave._revision as number });
     await caller.storyAgent.storyUpsert({ id: story.id, title: "preview renamed" });
@@ -339,6 +339,7 @@ describe("storyAgent tRPC router", () => {
     expect(legnextMocks.generateLegnextImage).toHaveBeenCalledTimes(1);
     const [prompt,,options] = legnextMocks.generateLegnextImage.mock.calls[0];
     expect(prompt).toContain("colorful precise particles");
+    expect(prompt).toContain("retain the dry paper texture");
     expect(prompt).not.toContain("obsolete"); expect(prompt).not.toContain("forged room");
     expect(options.referenceImageUrl).toBe(reference.imageUrl); expect(options.styleRef).toBe(reference.imageUrl);
     expect(imagePromptDirectorMocks.directImagePrompt).not.toHaveBeenCalled();

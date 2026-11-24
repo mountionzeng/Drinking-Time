@@ -1988,14 +1988,16 @@ export const storyAgentRouter = router({
           remixEdit: true, imageProvider: batch.renderRoute === "storyboard" ? "midjourney" : "gpt-image", mode: "final", autoSelect: false,
           costConfirmation: { accepted: true, estimatedCny: batch.unitEstimatedCny } };
       }
+      let usesPreviewArtBasis = false;
       if (input.previewBatchId) {
-        const { batch, shot, renderReferences, requiresNewStyleQuote } = await artPreviewGenerationInput(input.storyId, ctx.user.id, input.previewBatchId, input.shotNo ?? 0);
+        const { batch, shot, prompt, renderReferences, requiresNewStyleQuote, priorFrameChanged } = await artPreviewGenerationInput(input.storyId, ctx.user.id, input.previewBatchId, input.shotNo ?? 0);
+        if (priorFrameChanged) return { status: "error" as const, error: "本镜采用的画面已更换，请重新查看试图报价。" };
         if (requiresNewStyleQuote) return { status: "error" as const, error: "这份历史报价未记录当前画风，请重新查看试图报价。" };
+        usesPreviewArtBasis = !!batch.artBasis;
         const estimate = estimateStoryboardImageCost();
         if (!input.costConfirmation?.accepted || Math.abs(input.costConfirmation.estimatedCny - estimate.estimatedCny) > 0.001) {
           return { status: "error" as const, error: `请先确认本批示意图算力；每镜 ${formatComputeQuote(estimate.estimatedCny)}` };
         }
-        const prompt = !batch.baselineImageId ? `镜头基调试图：${shot.brief}` : `跨镜头美术示意图：只迁移参考图的视觉效果，按本镜内容重新安排构图，不复制上一镜的事件。\n${shot.brief}\n迁移意图：${shot.adaptation}`;
         input = { storyId: input.storyId, previewBatchId: batch.id, shotNo: shot.shotNo,
           shotImageRequestId: shot.requestId, prompt, explicitInstruction: prompt,
           renderReferences,
@@ -2357,7 +2359,7 @@ export const storyAgentRouter = router({
           ? confirmedStoryboardImagePrompt({ body: storyBody, shot: storyShot,
               title: story.title, instruction: input.explicitInstruction })
           : null;
-        const unreferencedFramePrompt = !composedFrame && confirmedFramePrompt && input.renderReferences &&
+        const unreferencedFramePrompt = !input.previewBatchId && !composedFrame && confirmedFramePrompt && input.renderReferences &&
           input.renderReferences.imageIds.length === 0 && Object.keys(input.renderReferences.assets).length === 0
           ? unreferencedArtFramePrompt({ body: storyBody, shot: storyShot, instruction: input.explicitInstruction }) : null;
         if (confirmedFramePrompt) {
@@ -2481,7 +2483,7 @@ export const storyAgentRouter = router({
           lockedAssets?.sceneRef ??
           lockedAssets?.petRef ??
           (input.renderReferences ? Object.values(lockedAssets?.dimensions ?? {})[0]?.providerReferenceUrl : undefined);
-        const strictReferenceFidelity = !input.imageEditPlanOutput && !composedFrame && Boolean(referenceImage) &&
+        const strictReferenceFidelity = !usesPreviewArtBasis && !input.imageEditPlanOutput && !composedFrame && Boolean(referenceImage) &&
           (input.conversationRevision && input.referenceRevision || requestsStrictReferenceFidelity(input.explicitInstruction ?? ""));
         if (confirmedFramePrompt && referenceImage && referencePlan.referencePurpose === "scene-style") {
           prompt += "\n【已确定画面的连续性】所附图片是本片已经确定的视觉依据：同一人物沿用可见的脸型、发型、服装与身份；沿用对应物体的造型、材质、线条与色调。本镜的内容、构图和动作仍按本镜要求；未在本镜出现的物体不搬过来，不把参考图直接当成本镜首帧。";
@@ -2660,7 +2662,7 @@ export const storyAgentRouter = router({
           shotNo: input.shotNo != null ? String(input.shotNo) : undefined,
           projectId: input.referenceRevision ? undefined : story.projectId ?? undefined,
           storyId: story.id,
-          preservePrompt: Boolean(composedFrame || unreferencedFramePrompt) || (!confirmedFramePrompt && Boolean(coverArtDirection)),
+          preservePrompt: usesPreviewArtBasis || Boolean(composedFrame || unreferencedFramePrompt) || (!confirmedFramePrompt && Boolean(coverArtDirection)),
           outputPurpose: "story-frame" as const,
           // 首次正式出图的候选不该只是同一居中画面的换色。已有画面、用户精确指令
           // 和锁定资产都由各自的连续性约束接管，不能在这里强行分叉。
@@ -2851,7 +2853,7 @@ export const storyAgentRouter = router({
             };
             // Use MJ's exclusion parameter, not prose about lettering/layouts,
             // for confirmed standalone frames whose text lives on subtitle tracks.
-            if (unreferencedFramePrompt || composedFrame) renderedFinalPrompt += " --no text, lettering, typography, captions, borders, frames";
+            if (usesPreviewArtBasis || unreferencedFramePrompt || composedFrame) renderedFinalPrompt += " --no text, lettering, typography, captions, borders, frames";
             return storyboardImage(accepted => submitRender("image.legnext-v7-fast", { prompt: renderedFinalPrompt, onAccepted: accepted, options: legnextOptions }),
               { prompt: renderedFinalPrompt, shotNo: canonicalizeShotNo(input.shotNo)!, promptCompilationId, generationType: referencePlan.usesStoryboardFrames ? "inpaint" : "initial", ...(input.previewBatchId ? { detached: true } : {}), ...(chatBase ? { conversationRevision: true, sourceDimensions: chatBase, parentImageId: input.draftImageId, instruction: input.explicitInstruction } : {}), ...(input.conversationRevision ? { conversationRevision: true, parentImageId: input.renderReferences!.imageIds[0], instruction: input.explicitInstruction } : {}),
                 renderProfile: buildRenderSnapshot("image.legnext-v7-fast", { params: legnextOptions, promptChars: renderedFinalPrompt.length }) });

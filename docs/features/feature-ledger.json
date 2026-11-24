@@ -3138,6 +3138,12 @@
           "kind": "fix",
           "summary": "视频制作建议进入可滚动的聊天记录，支持自由回复、跳过和回看。单镜和多镜试图报价绑定全片画风图片与版本，旧报价可读，重新提交前检查当前画风。",
           "evidence": ["client/src/features/bookVideo/useVideoStartMessage.ts", "server/services/artPreview.test.ts"]
+        },
+        {
+          "date": "2026-11-24",
+          "kind": "enhancement",
+          "summary": "试图先展示当前视频所用稿本的封面、已确认画风与影片要求。本轮调整、固定的创作依据和各镜内容一起用于出图；下轮沿用实际采用的试图调整，可在历史方案中回看。",
+          "evidence": ["server/services/artPreview.test.ts", "server/routers.storyAgent.test.ts", "client/src/features/bookVideo/VideoStartChoices.tsx"]
         }
       ]
     },

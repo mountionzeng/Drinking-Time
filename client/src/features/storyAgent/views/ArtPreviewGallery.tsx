@@ -40,11 +40,17 @@ export function ArtPreviewGallery({ storyId, includePlans = false, onReference, 
       </select></div>
     <p className="text-xs text-muted-foreground">V{batch.version} · {batch.baselineImageId ? `${ui("参考图片")} #${batch.baselineImageId}` : ui("按分镜文字试图")} · {ui("回复“第 2 镜用第 3 张”即可选择；历史方案请带上 V 版本号。")}</p>
     <p className="text-xs text-muted-foreground">{batch.instruction}</p>
+    {batch.artBasis && <details className="text-xs text-muted-foreground"><summary>查看这一轮的创作依据</summary>
+      <p>{[batch.artBasis.source, batch.artBasis.coverNote, batch.artBasis.styleName].filter(Boolean).join(" · ")}</p>
+      <p className="whitespace-pre-line">{batch.artBasis.rules}</p>
+      {batch.adjustment && <p>本轮调整：{batch.adjustment}</p>}
+    </details>}
     {choose.error && <p role="alert">{choose.error.message}</p>}
     {batch.shots.map(shot => {
       const label = shotCode?.(shot.stableShotId) ?? shot.label;
       return <article key={shot.stableShotId} className="space-y-1.5">
       <h4 className="text-xs font-semibold">{ui("第 {0} 镜", [label])}</h4>
+      {shot.previousChoice && <p className="text-xs">沿用 V{shot.previousChoice.version} 已采用的图片 #{shot.previousChoice.imageId} 的调整要求{shot.previousChoice.adjustments.length ? `：${shot.previousChoice.adjustments.join("；")}` : "。"}</p>}
       <p className="text-xs text-muted-foreground">{shot.adaptation}</p>
       {shot.candidates.length ? <div className="grid grid-cols-2 gap-2">{shot.candidates.map((image, index) => {
         const thumbnail = <img src={image.imageUrl} alt={ui("第 {0} 镜 · 第 {1} 张", [label, index + 1])} loading="lazy" className="aspect-video w-full rounded-lg object-contain bg-muted" />;
