@@ -1,3 +1,4 @@
+import { estimateStoryboardImageCost } from "../shared/imageRenderCost";
 import { sourceImageFixture } from "./testFixtures/sourceImage";
 // Provider mocks use synthetic URLs. Supply bytes at the download boundary so the
 // real source inspection and reference/ownership checks still run for every edit.
@@ -264,6 +265,44 @@ describe("storyAgent tRPC router", () => {
     imageGenMocks.editImage.mockClear();
     expect(await caller.storyAgent.generateForMobile({...input,conversationShotId:"missing"})).toMatchObject({status:"error"});
     expect(imageGenMocks.editImage).not.toHaveBeenCalled();
+  });
+  it("uses each ordinary owner's linked shot canvas and style in the book MJ request", async () => {
+    const { createStory, updateStory } = await import("./repositories/stories");
+    const { insertChapter } = await import("./repositories/chapters");
+    for (const userId of [49601, 49602]) {
+      const caller = appRouter.createCaller(createAuthContext(userId));
+      const story = await createStory({ userId, title: "合成书稿", body: {} });
+      const chapter = await insertChapter({ storyId: story.id, userId, content: { title: "纸船", layout: null,
+        blocks: { body: "纸船", writingStyle: [{ id: "module-1", format: "text", lineCount: 1 }], blockIds: ["module-1"],
+          containsAiText: false, settings: null, coverKey: null, bodyTextureKey: null, images: {}, illustrations: [] } } });
+      const scope = { storyId: story.id, chapterId: chapter.id, moduleId: "module-1" };
+      const imageUrl = `https://storage.example/style-${userId}.jpg`;
+      const style = await createGeneratedImage({ storyId: story.id, userId, imageUrl, isCurrent: false });
+      const shots = [{ shotNo: 3, stableShotId: "paper-boat", publishingVideo: { sourceModuleIds: [chapter.id + ":module-1"] } }];
+      await updateStory(story.id, userId, { body: { shots, artDirection: { recipe: { version: 3, system: {
+        name: "Ink", confirmedAt: 1, englishPrompt: "Ochre paper and ink.", filmStyleImageId: style.id } } } } });
+      const ratio = userId === 49601 ? "16:9" : "9:16";
+      if (ratio === "9:16") {
+        const { updateStoryTimeline } = await import("./repositories/timelines");
+        await updateStoryTimeline({ storyId: story.id, userId, expectedVersion: 0, items: [],
+          extensions: { chatCutMigration: { canvas: { width: 1080, height: 1920 } } } });
+      }
+      const basis = await caller.storyAgent.bookModuleVisualBasis(scope);
+      expect(basis).toMatchObject({ shotNumbers: [3], aspectRatio: ratio, styleImageId: style.id });
+      await expect(appRouter.createCaller(createAuthContext(userId+100)).storyAgent.bookModuleVisualBasis(scope)).rejects.toThrow();
+      const input = { storyId: story.id, mode: "final" as const, imageProvider: "midjourney" as const,
+        costConfirmation: { accepted: true as const, estimatedCny: estimateStoryboardImageCost().estimatedCny },
+        prompt: "paper boat", moduleTarget: { ...scope, expectedText: "纸船", requestId: crypto.randomUUID(), basisHash: "0".repeat(64) } };
+      legnextMocks.generateLegnextImage.mockClear();
+      expect(await caller.storyAgent.generateForMobile(input)).toMatchObject({ status: "error", error: expect.stringContaining("画幅或画风已变化") });
+      expect(legnextMocks.generateLegnextImage).not.toHaveBeenCalled();
+      legnextMocks.generateLegnextImage.mockResolvedValueOnce({ status: "ok", imageUrl: "https://storage.example/ready.png" });
+      const result = await caller.storyAgent.generateForMobile({ ...input, moduleTarget: { ...input.moduleTarget, requestId: crypto.randomUUID(), basisHash: basis!.fingerprint } });
+      expect(result.status).toBe("ok");
+      const [prompt, , options] = legnextMocks.generateLegnextImage.mock.calls[0];
+      expect(prompt).toContain("Ochre paper"); expect(options).toMatchObject({ aspectRatio: ratio, styleRef: imageUrl });
+      expect(options).not.toHaveProperty("referenceImageUrl");
+    }
   });
   it("persists module image results and replays through the recovery API without another generation", async () => {
     const { createStory } = await import("./repositories/stories");

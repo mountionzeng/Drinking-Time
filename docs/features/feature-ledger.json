@@ -11820,6 +11820,7 @@
         "client/src/features/mobileWorkspace/MobileBookModuleActions.tsx",
         "server/services/bookModuleTranslation.ts",
         "server/services/legnextImage.ts",
+        "server/services/bookModuleVisualBasis.ts",
         "server/services/bookModuleImageRecovery.ts",
         "server/repositories/bookModuleImageTasks.ts",
         "shared/bookModuleImageTask.ts",
@@ -11895,6 +11896,11 @@
         "整书朗读上限10万字，按4800字符分段并统一确认费用；部分失败/未知回执先到仓库核对，尚无批量续传界面，整书音频未自动按视频镜头对齐。新整书入口为桌面书页，手机入口未改。"
       ],
       "history": [
+        {
+          "date": "2026-11-24",
+          "kind": "fix",
+          "summary": "书页 MJ 对已导入视频的模块从作品读取时间轴画幅、已确认的画风及参考图，生成前显示依据。回执取图和多候选入库沿用既有流程，已关联分镜由用户挑选插入。"
+        },
         {
           "date": "2026-11-24",
           "kind": "fix",

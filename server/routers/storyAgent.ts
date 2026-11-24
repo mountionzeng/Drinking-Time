@@ -1,3 +1,4 @@
+import { bookModuleVisualBasis, bookModuleRenderStyle } from "../services/bookModuleVisualBasis";
 import { recoverChatImageRemix, readChatImageRemixQuote } from "../services/chatImageRemixRecovery";
 import { hasInlineChatImages, inlineChatInstruction } from "../../shared/inlineChatImages";
 import { inlineChatImageContent } from "../services/inlineChatImageContent";
@@ -1860,6 +1861,9 @@ export const storyAgentRouter = router({
       }
     }),
 
+  bookModuleVisualBasis: protectedProcedure
+    .input(z.object({ storyId: z.number().int().positive(), chapterId: z.number().int().positive(), moduleId: z.string().min(1).max(240) }))
+    .query(({ ctx, input }) => bookModuleVisualBasis({ ...input, userId: ctx.user.id })),
   bookModuleImageTask: protectedProcedure
     .input(z.object({ storyId: z.number().int().positive(), chapterId: z.number().int().positive(), moduleId: z.string().min(1).max(240) }))
     .query(({ ctx, input }) => readModuleImageTask({ ...input, userId: ctx.user.id })),
@@ -1890,7 +1894,7 @@ export const storyAgentRouter = router({
         imageEditPlanOutput: z.object({ planMessageId: z.string().min(1).max(500), imageId: z.number().int().positive(), copy: z.number().int().min(1).max(4) }).optional(),
         conversationShotId: z.string().min(1).max(96).optional(),
         previewBatchId: z.string().uuid().optional(),
-        moduleTarget: z.object({ chapterId: z.number().int().positive(), moduleId: z.string().min(1).max(240), expectedText: z.string().max(200_000), requestId: z.string().uuid() }).optional(),
+        moduleTarget: z.object({ chapterId: z.number().int().positive(), moduleId: z.string().min(1).max(240), expectedText: z.string().max(200_000), requestId: z.string().uuid(), basisHash: z.string().length(64).optional(), copyImageId: z.number().int().positive().optional(), previousTaskId: z.string().uuid().optional() }).optional(),
         renderReferences: shotRenderReferencesSchema.optional(),
         referenceRevision: z.boolean().optional(),
         conversationRevision: z.boolean().optional(),
@@ -2120,7 +2124,7 @@ export const storyAgentRouter = router({
         if (input.gptImageModel && (input.imageProvider !== "gpt-image" || input.mode === "draft")) {
           throw new Error("GPT备用图片需要选择GPT正式生成");
         }
-        if (input.explicitInstruction || input.editMaskImageUrl || input.gptImageModel) {
+        if (input.explicitInstruction || input.editMaskImageUrl || input.gptImageModel || input.moduleTarget?.basisHash) {
           const estimate =
             fluxEdit ? estimateFluxKontextEditCost(fluxKontextEditModel(input.explicitInstruction)!) : input.editMaskImageUrl || input.imageProvider === "gpt-image"
               ? estimateStoryboardMaskedEditCost()
@@ -2155,6 +2159,9 @@ export const storyAgentRouter = router({
           };
         }
 
+        const moduleStyle = moduleImage && input.moduleTarget && plannedProvider === "midjourney"
+          ? await bookModuleRenderStyle({ storyId: input.storyId, userId: ctx.user.id, ...input.moduleTarget }, input.moduleTarget)
+          : null;
         const storyBody =
           story.body && typeof story.body === "object"
             ? (story.body as Record<string, unknown>)
@@ -2363,7 +2370,8 @@ export const storyAgentRouter = router({
             }
           : null;
 
-        const confirmedFramePrompt = composedFrame ? composedStoryboardImagePrompt(storyBody, input.explicitInstruction!) : input.previewBatchId ? input.prompt : !input.referenceRevision && !input.exactFrameEdit && !input.remixEdit
+        const confirmedFramePrompt = moduleStyle ? [input.prompt, moduleStyle.direction].filter(Boolean).join("\n")
+          : composedFrame ? composedStoryboardImagePrompt(storyBody, input.explicitInstruction!) : input.previewBatchId ? input.prompt : !input.referenceRevision && !input.exactFrameEdit && !input.remixEdit
           ? confirmedStoryboardImagePrompt({ body: storyBody, shot: storyShot,
               title: story.title, instruction: input.explicitInstruction })
           : null;
@@ -2671,7 +2679,7 @@ export const storyAgentRouter = router({
           shotNo: input.shotNo != null ? String(input.shotNo) : undefined,
           projectId: input.referenceRevision ? undefined : story.projectId ?? undefined,
           storyId: story.id,
-          preservePrompt: usesPreviewArtBasis || Boolean(composedFrame || unreferencedFramePrompt) || (!confirmedFramePrompt && Boolean(coverArtDirection)),
+          preservePrompt: Boolean(moduleStyle) || usesPreviewArtBasis || Boolean(composedFrame || unreferencedFramePrompt) || (!confirmedFramePrompt && Boolean(coverArtDirection)),
           outputPurpose: "story-frame" as const,
           // 首次正式出图的候选不该只是同一居中画面的换色。已有画面、用户精确指令
           // 和锁定资产都由各自的连续性约束接管，不能在这里强行分叉。
@@ -2869,7 +2877,7 @@ export const storyAgentRouter = router({
                 renderProfile: buildRenderSnapshot("image.legnext-v7-fast", { params: legnextOptions, promptChars: renderedFinalPrompt.length }) });
           }
           if (moduleImage && (input.imageProvider ?? "midjourney") === "midjourney") {
-            return submitRender("image.legnext-v7-fast", { prompt: renderedFinalPrompt, onAccepted: moduleImage.onMidjourneyTaskAccepted, options: { inlinePoll: !moduleImage.asyncSubmit } });
+            return submitRender("image.legnext-v7-fast", { prompt: renderedFinalPrompt, onAccepted: moduleImage.onMidjourneyTaskAccepted, options: { inlinePoll: !moduleImage.asyncSubmit, ...(moduleStyle ? { aspectRatio: moduleStyle.aspectRatio, styleRef: moduleStyle.styleRef } : {}) } });
           }
           return referenceImage
             ? editMobileImage(providerReferenceImage!, renderedFinalPrompt, {

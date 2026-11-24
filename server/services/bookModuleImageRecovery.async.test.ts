@@ -57,3 +57,18 @@ it("legacy body record is read through and migrated into the table", async () =>
   expect(await readModuleImageTask(scope)).toMatchObject({ status: "accepted", providerTaskId: "mj-turbo:old" });
   expect(await (await getImageTaskStore()).get("legacy-1")).toMatchObject({ status: "accepted" });
 });
+
+it("can explicitly replace an uninserted success once across two windows", async () => {
+  const ready = (name: string) => async (hooks: any) => {
+    await hooks.onPrepared?.({ prompt: name, promptBillings: [] });
+    await hooks.storeCandidates([{ imageUrl: "/api/images/" + name + ".png" }], { prompt: name });
+    return { status: "ok" };
+  };
+  await runModuleImageTask(scope, ready("first"));
+  const previous = await readModuleImageTask(scope);
+  expect(previous).toMatchObject({status:"succeeded",inserted:false});
+  const generate = vi.fn(ready("second"));
+  await Promise.all([1,2].map(() => runModuleImageTask({ ...scope, previousTaskId: previous!.id, requestId: randomUUID() }, generate)));
+  expect(generate).toHaveBeenCalledTimes(1);
+  expect((await readModuleImageTask(scope))?.candidates[0].imageUrl).toBe("/api/images/second.png");
+});

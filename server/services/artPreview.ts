@@ -169,7 +169,7 @@ export async function readArtPreviews(storyId: number, userId: number) {
   const { body } = await ownedCreationStory({ storyId, userId });
   return readPreviewResults(body);
 }
-function readPreviewResults(body: Record<string, unknown>) {
+export function readPreviewResults(body: Record<string, unknown>) {
   const tasks = (Array.isArray(body.storyboardImageTasks) ? body.storyboardImageTasks : []).map(record);
   return readArtPreviewBatches(body).map(batch => ({ ...batch, shots: batch.shots.map(shot => {
     const task = tasks.find(t => t.requestId === shot.requestId);

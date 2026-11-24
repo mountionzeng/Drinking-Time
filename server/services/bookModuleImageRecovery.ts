@@ -1,6 +1,6 @@
 import { recordGenerationResolved, recordGenerationSubmitted } from "../repositories/activityJourney";
 import { isLegnextReceipt, resumeLegnextImage } from "./legnextImage";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { bookImageText } from "../../shared/bookImageBlock";
 import type { BookModuleImageTask, BookModuleImageTarget, BookModuleImageTaskView } from "../../shared/bookModuleImageTask";
 import { getStoryById } from "../repositories/stories";
@@ -84,9 +84,14 @@ export type ModuleImageHooks = {
 
 /** Claim before prompt preparation. A lost request never grants permission to buy again. */
 export async function runModuleImageTask<T extends { status: string; error?: string; providerTaskId?: string; submissionUncertain?: boolean }>(
-  scope: Scope & { requestId: string; expectedText: string; provider: "midjourney" | "gpt-image" },
+  scope: Scope & { previousTaskId?: string; requestId: string; expectedText: string; provider: "midjourney" | "gpt-image" },
   generate: (hooks: ModuleImageHooks) => Promise<T>,
 ) {
+  // Concurrent explicit replacements of the same completed round share a purchase identity in both stores.
+  if (scope.previousTaskId) {
+    const hash = createHash("sha256").update(JSON.stringify([scope.userId, scope.storyId, scope.chapterId, scope.moduleId, scope.previousTaskId])).digest("hex");
+    scope = { ...scope, requestId: [hash.slice(0, 8), hash.slice(8, 12), "5" + hash.slice(13, 16), "a" + hash.slice(17, 20), hash.slice(20, 32)].join("-") };
+  }
   if (imageTaskAsyncSubmitEnabled()) return runModuleImageTaskAsync(scope, generate);
   const source = await resolveBookModuleSource(scope);
   if (source.image || source.source !== scope.expectedText) throw new Error("原文字模块已变化，请重新打开生成窗口");
@@ -96,7 +101,8 @@ export async function runModuleImageTask<T extends { status: string; error?: str
     const replay = tasks.find(t => matches(t, scope) && t.requestId === scope.requestId);
     if (replay) return replay;
     const existing = tasks.filter(t => matches(t, scope)).at(-1);
-    if (existing && existing.status !== "failed" && !(existing.status === "succeeded" && previous?.id === existing.id && previous.inserted)) return existing;
+    if (scope.previousTaskId && existing?.id !== scope.previousTaskId) throw new Error("候选图片已更新，请重新打开窗口");
+    if (existing && existing.status !== "failed" && !(existing.status === "succeeded" && previous?.id === existing.id && (previous.inserted || scope.previousTaskId === existing.id))) return existing;
     const task: BookModuleImageTask = { id, requestId: scope.requestId, chapterId: scope.chapterId, moduleId: scope.moduleId, sourceHash: source.fingerprint, provider: scope.provider, status: "preparing", candidates: [] };
     tasks.push(task);
     return task;
@@ -187,13 +193,15 @@ async function readTableModuleTask(scope: Scope, body: unknown) {
 }
 
 export async function runModuleImageTaskAsync<T extends { status: string; error?: string; providerTaskId?: string; submissionUncertain?: boolean }>(
-  scope: Scope & { requestId: string; expectedText: string; provider: "midjourney" | "gpt-image" },
+  scope: Scope & { previousTaskId?: string; requestId: string; expectedText: string; provider: "midjourney" | "gpt-image" },
   generate: (hooks: ModuleImageHooks) => Promise<T>,
 ): Promise<T | ReturnType<typeof response>> {
   const source = await resolveBookModuleSource(scope);
   if (source.image || source.source !== scope.expectedText) throw new Error("原文字模块已变化，请重新打开生成窗口");
   const previous = await readModuleImageTask(scope);
-  if (previous && previous.requestId !== scope.requestId && previous.status !== "failed" && !(previous.status === "succeeded" && previous.inserted)) {
+  if (scope.previousTaskId && previous?.id !== scope.previousTaskId && previous?.requestId !== scope.requestId)
+    throw new Error("候选图片已更新，请重新打开窗口");
+  if (previous && previous.requestId !== scope.requestId && previous.status !== "failed" && !(previous.status === "succeeded" && (previous.inserted || scope.previousTaskId === previous.id))) {
     return response(previous);
   }
   const deps = await defaultImageTaskDeps();
