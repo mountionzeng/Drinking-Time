@@ -1395,6 +1395,7 @@ export default function PublishingDraftWorkspace({
         return now.activeStoryId === scope.activeStoryId && now.accountId === scope.accountId && now.storyScopeEpoch === scope.storyScopeEpoch;
       };
       void (async () => {
+        let progress: ReturnType<typeof toast.loading> | undefined;
         try {
           await prepareBookForVideo(createRequest.storyId, scope.accountId);
           if (!isCurrent()) return;
@@ -1402,9 +1403,10 @@ export default function PublishingDraftWorkspace({
           if (!isCurrent()) return;
           const accepted = await withMediaChatSession(createRequest.storyId, () =>
             askMediaChatConfirmation({ storyId: createRequest.storyId, kind: "placement", bookReview: source,
-              text: "把这版分镜带进视频吗？确认后会按书稿建立镜头，带入下方已有的素材，再选择要制作的部分。" }) ?? Promise.resolve(false));
+              text: "用这版分镜建立新的视频版本吗？书内图片会放到对应镜头作参考，台词会生成字幕。已有视频版本会保留。" }) ?? Promise.resolve(false));
           if (!accepted) return;
           if (!isCurrent()) return;
+          progress = toast.loading(_ui("正在把已确认的分镜和素材放入剪辑台…"));
           await importStoryboardMut.mutateAsync({ storyId: createRequest.storyId, id: createRequest.id,
             chapterId: createRequest.storyboardChapterId!, expectedFingerprint: source.fingerprint });
           if (!isCurrent()) return;
@@ -1423,7 +1425,10 @@ export default function PublishingDraftWorkspace({
           toast.success(_ui("当前分镜已放入视频表格"));
         } catch (cause) {
           if (isCurrent()) toast.error(cause instanceof Error ? cause.message : _ui("分镜未导入，请重试"));
-        } finally { importingStoryboard.current = false; }
+        } finally {
+          if (progress !== undefined) toast.dismiss(progress);
+          importingStoryboard.current = false;
+        }
       })();
       return;
     }

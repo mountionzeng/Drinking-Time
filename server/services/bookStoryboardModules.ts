@@ -10,6 +10,7 @@ import {
 } from "../../shared/bookWritingStyle";
 import { readBookImage } from "../../shared/bookImageBlock";
 import { readBookAudio } from "../../shared/bookAudioBlock";
+import { spokenBookDialogue } from "../../shared/bookSound";
 import type { PublishingArticleLayout } from "../../shared/publishingArticleVideo";
 
 type Chapter = {
@@ -130,6 +131,7 @@ export function bookStoryboardModules(
         // Empty means intentional silence: descriptions and titles never become speech.
         dialogueText: texts
           .filter((_, i) => belongs(i) && rows[i].videoRole === "dialogue")
+          .map(spokenBookDialogue)
           .join("\n"),
         referenceImageIds: [...new Set(referenceImageIds)],
       });

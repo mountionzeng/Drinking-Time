@@ -23,7 +23,14 @@ export function VideoStartChoices({ storyId, material, cues, candidates, musicCo
   const [message, setMessage] = useState("");
   const lock = useRef(false);
   const preview = useArtPreviewChat();
-  const shot = material.shots.find(s => s.stableShotId === target) ?? material.shots[0];
+  const sourceImages = material.shots.flatMap(s => s.imageGenerationReferences ?? []);
+  const referenceCount = new Set(sourceImages.map(image => image.id)).size;
+  const shot = material.shots.find(s => s.stableShotId === target)
+    ?? material.shots.find(s => s.imageGenerationReferences?.length) ?? material.shots[0];
+  const references = new Set(shot?.imageGenerationReferences?.map(image => image.id));
+  const images = Array.from(new Map([...(shot?.imageGenerationReferences ?? []), ...(shot?.imageVersions ?? [])]
+    .filter(image => image.availability !== "missing" && image.status !== "rejected")
+    .map(image => [image.id, image])).values());
   const button = "rounded-md border border-border bg-background px-2 py-1.5 hover:bg-muted disabled:opacity-50";
   async function sample() {
     if (!shot || lock.current) return;
@@ -44,9 +51,9 @@ export function VideoStartChoices({ storyId, material, cues, candidates, musicCo
   return <section aria-label="视频制作起点" className="mb-2 max-h-[32vh] space-y-2 overflow-auto rounded-lg border border-border bg-background p-3 text-xs">
     <p className="font-medium">{shot ? "这条视频，你想先做哪一部分？" : "先把故事拆成镜头"}</p>
     {shot ? <>
-      <p>{material.shots.filter(s => s.currentImage).length}/{material.shots.length} 镜已有画面 · 字幕 {cues.length} 条 · 音乐轨 {musicCount} 段</p>
+      <p>{material.shots.filter(s => s.currentImage || s.currentVideo).length}/{material.shots.length} 镜已采用画面{referenceCount > 0 && ` · 分镜参考图 ${referenceCount} 张`} · 字幕 {cues.length} 条 · 音乐轨 {musicCount} 段</p>
       <div className="flex flex-wrap gap-2">
-        <button className={button} aria-expanded={choice === "images"} onClick={() => setChoice(choice === "images" ? null : "images")}>试几张图定基调</button>
+        <button className={button} aria-expanded={choice === "images"} onClick={() => setChoice(choice === "images" ? null : "images")}>{referenceCount ? "看参考图或试图" : "试几张图定基调"}</button>
         <button className={button} aria-expanded={choice === "subtitles"} onClick={() => setChoice(choice === "subtitles" ? null : "subtitles")}>{cues.length ? "查看已有字幕" : "从台词做字幕"}</button>
         <button className={button} onClick={openMusic}>制作全片配乐</button>
       </div>
@@ -56,9 +63,10 @@ export function VideoStartChoices({ storyId, material, cues, candidates, musicCo
           {material.shots.map(s => <option key={s.stableShotId} value={s.stableShotId}>第 {s.shotNo} 镜{s.cueCode ? ` · ${s.cueCode}` : ""}</option>)}
         </select>
         <button className={button} disabled={working} onClick={() => void sample()}>{working ? "正在处理…" : "查看四张试图报价"}</button>
-        {shot.imageVersions.length > 0 && <details open key={shot.stableShotId}><summary>比较本镜已有图片（{shot.imageVersions.length}）</summary>
-          <div className="grid grid-cols-2 gap-2 pt-2">{shot.imageVersions.filter(i => i.availability !== "missing" && i.status !== "rejected").map(image =>
+        {images.length > 0 && <details open key={shot.stableShotId}><summary>比较本镜已有图片（{images.length}）</summary>
+          <div className="grid grid-cols-2 gap-2 pt-2">{images.map(image =>
             <figure key={image.id}><a href={image.imageUrl} target="_blank" rel="noreferrer"><img loading="lazy" className="aspect-video w-full object-contain" src={image.imageUrl} alt={`第 ${shot.shotNo} 镜图片 #${image.id}`} /></a>
+              {references.has(image.id) && <figcaption>分镜参考图</figcaption>}
               <button type="button" disabled={working || shot.currentImage?.id === image.id} className={button} onClick={async () => {
                 if (lock.current) return;
                 lock.current = true; setWorking(true);

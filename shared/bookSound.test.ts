@@ -1,6 +1,13 @@
 import { expect, it } from "vitest";
-import { wholeBookSoundText, narrationSegments } from "./bookSound";
+import { wholeBookSoundText, narrationSegments, spokenBookDialogue } from "./bookSound";
 import { bookAudioText } from "./bookAudioBlock";
+it("separates an explicitly quoted voice-over from a shot direction without guessing at ordinary dialogue", () => {
+  expect(spokenBookDialogue("画外音（回忆）：「雨停了吗？」画面切至窗外。")).toBe("雨停了吗？");
+  expect(spokenBookDialogue("画外音继续：“等一等。”镜头拉远。")).toBe("等一等。");
+  for (const text of ["她说：「我喜欢这个画面。」", "旁白：继续走。", "旁白：「来了。」她又说：「再等等。」", "旁白：「我想说「谢谢」。」"]) {
+    expect(spokenBookDialogue(text)).toBe(text);
+  }
+});
 it("reads all chapters in order, excludes media and never truncates long books", () => {
   const chapters = [
     {

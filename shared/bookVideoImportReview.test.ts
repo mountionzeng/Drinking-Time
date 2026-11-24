@@ -12,3 +12,8 @@ it("lists the book assets that need approval once and confines audio to its owne
 it("reports an empty manuscript without fabricated media", () => {
   expect(bookVideoImportReview(7, [])).toEqual({ shots: 0, images: [], audio: [], dialogue: [] });
 });
+it("shows the same spoken passage that will be placed in the subtitle track", () => {
+  const blocks = { body: "旁白：「车来了。」画面：雨停了。",
+    writingStyle: [{ id: "voice", parentId: null, collapsed: false, format: "text" as const, videoRole: "dialogue" as const }] };
+  expect(bookVideoImportReview(7, [{ blocks }]).dialogue).toEqual(["车来了。"]);
+});

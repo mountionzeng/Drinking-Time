@@ -427,7 +427,7 @@ it('imports the current storyboard directly without AI, preserves its source and
     {...newWritingBlock('雨中'),id:'scene',format:'scene' as const},
     {...newWritingBlock('开伞','scene'),id:'shot',format:'shot' as const},
     {...newWritingBlock('分镜草案 · 0–13秒（13秒）\n开场画面：伞的近景。\n画面运动：慢慢拉远。\n结束画面：完整雨街。\n屏幕文字：「雨停以后」。\n声音建议：雨声。','shot'),id:'description'},
-    {...newWritingBlock('这把伞，还能陪我们很久。','shot'),id:'dialogue',videoRole:'dialogue' as const},
+    {...newWritingBlock('画外音（回忆）：「这把伞，还能陪我们很久。」画面切至雨中的伞面。','shot'),id:'dialogue',videoRole:'dialogue' as const},
     newWritingBlock(`![图片](${image.imageUrl})`,'shot'),
   ];
   const chapter = await insertChapter({storyId:input.storyId,userId:31,content:{title:'现有分镜',layout:null,blocks:{body:blockBody(blocks),writingStyle:writingStyleOf(blocks),manuscriptKind:'storyboard',blockIds:[],containsAiText:false,settings:null,coverKey:null,bodyTextureKey:null,images:{},illustrations:[]}}});
@@ -439,6 +439,7 @@ it('imports the current storyboard directly without AI, preserves its source and
   expect(result.shots).toHaveLength(1);
   expect(result.shots[0]).toMatchObject({dialogue:'这把伞，还能陪我们很久。',durationMs:13000,action:'画面运动：慢慢拉远。'});
   expect(result.shots[0].scriptText).toContain('结束画面：完整雨街。');
+  expect(result.shots[0].scriptText).toContain('画面切至雨中的伞面。');
   expect(result.shots[0].sound).toContain('声音建议：雨声。');
   expect(result.shots[0].sound).toContain(`整书声音（待对齐）：${bookAudioText(input.storyId,audio.id,'整书台词','narration')}`);
   expect(result.shots[0].publishingVideo).toMatchObject({referenceImageIds:[image.id]});

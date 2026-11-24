@@ -363,6 +363,7 @@ type CreationEditorContextValue = {
     quadrant?: FrameQuadrant;
   }) => Promise<{ imageId: number; imageUrl: string }>;
   promoteStoryImage: (imageId: number) => Promise<void>;
+  useImageOnTimelineShot: (imageId: number, stableShotId: string) => Promise<void>;
   assignStoryImageToShot: (input: {
     imageId: number;
     targetStableShotId: string;
@@ -2096,6 +2097,14 @@ export function CreationEditorProvider({
     () => buildTimelineLayout(timelineItems),
     [timelineItems]
   );
+
+  // The timeline can use a book or warehouse image without moving the original.
+  const useImageOnTimelineShot = useCallback(async (imageId: number, stableShotId: string) => {
+    if (!timelineItems.some(item => item.stableShotId === stableShotId))
+      throw new Error("当前时间线中找不到这个镜头，请重新选择。");
+    await saveTimelineItems(timelineItems.map(item => item.stableShotId === stableShotId
+      ? { ...item, referencedImageId: imageId } : item), { throwOnError: true });
+  }, [saveTimelineItems, timelineItems]);
 
   const timelineResolverShots = useMemo(
     () =>
@@ -4162,6 +4171,7 @@ export function CreationEditorProvider({
       rerenderShot,
       promoteFrameCrop,
       promoteStoryImage,
+      useImageOnTimelineShot,
       assignStoryImageToShot,
       deleteStoryImage,
       deleteExtractedFrame,
@@ -4274,6 +4284,7 @@ export function CreationEditorProvider({
       moveVideoTakeToShot,
       reuseVideoTakeForShot,
       assignStoryImageToShot,
+      useImageOnTimelineShot,
       deleteStoryImage,
       deleteExtractedFrame,
       importStoryMaterial,

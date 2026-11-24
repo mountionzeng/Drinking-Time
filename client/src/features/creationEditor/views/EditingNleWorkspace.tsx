@@ -2676,7 +2676,7 @@ export default function EditingNleWorkspace({
     <VideoStartChoices key={editingStorySessionKey} storyId={activeStoryId} material={creationEditor.materialState}
       cues={timelineMedia.cues} candidates={subtitleCandidates} pending={timelineMedia.pending} error={timelineMedia.lastError}
       musicCount={timelineMedia.audioState.tracks.find(t => t.kind === "music")?.clips.length ?? 0}
-      adoptImage={(imageId, targetStableShotId) => creationEditor.assignStoryImageToShot({ imageId, targetStableShotId })}
+      adoptImage={creationEditor.useImageOnTimelineShot}
       generateSubtitles={() => timelineMedia.initializeSubtitles([...subtitleCandidates])}
       openMusic={() => { timelineMedia.clearError(); setAudioCreationRequest({ kind: "music", targetFrame: 0, initialScope: "story" }); }}
       openBook={() => onOpenBook?.()} />, videoStartHost);

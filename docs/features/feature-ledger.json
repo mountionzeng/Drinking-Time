@@ -3116,6 +3116,16 @@
             "shared/bookVideoImportReview.test.ts",
             "server/services/artPreview.test.ts"
           ]
+        },
+        {
+          "date": "2026-11-24",
+          "kind": "fix",
+          "summary": "视频起步区显示分镜参考图和已采用画面，可查看原图，并通过时间线引用选作当前画面。带明确旁白引号和画面说明的分镜只将所说的话放入字幕，画面说明继续保存在镜头描述。",
+          "evidence": [
+            "shared/bookSound.test.ts",
+            "shared/bookVideoImportReview.test.ts",
+            "server/services/bookVideoCreation.test.ts"
+          ]
         }
       ]
     },

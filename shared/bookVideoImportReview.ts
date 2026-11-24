@@ -1,5 +1,6 @@
 import { readBookAudio } from "./bookAudioBlock";
 import { readBookImage } from "./bookImageBlock";
+import { spokenBookDialogue } from "./bookSound";
 import { writingModuleTexts, type BookWritingStyle } from "./bookWritingStyle";
 
 type Chapter = { blocks: { body: string; writingStyle?: BookWritingStyle } };
@@ -12,7 +13,7 @@ export function bookVideoImportReview(storyId: number, chapters: Chapter[]) {
     writingModuleTexts(blocks.body, blocks.writingStyle).forEach((text, index) => {
       const style = blocks.writingStyle?.[index];
       if (style?.format === "shot") shots++;
-      if (style?.videoRole === "dialogue" && text.trim()) dialogue.push(text.trim());
+      if (style?.videoRole === "dialogue" && text.trim()) dialogue.push(spokenBookDialogue(text).trim());
       for (const line of text.split("\n")) {
         const image = readBookImage(line.trim());
         if (image) images.add(image.url);
