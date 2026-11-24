@@ -57,6 +57,20 @@ it("uses only audible current music metadata and current dialogue, and rejects s
   audio.tracks.find(t => t.kind === "music")!.muted = true;
   await expect(artPreviewGenerationInput(input.storyId, 1, batch.id, 2)).rejects.toThrow("已变化");
 });
+it("quotes only the chosen tone samples, preserves their order in the film and does not submit images", async () => {
+  const input = await fixture();
+  await patch(input.storyId, { shots: [1,2,3].map(n => ({ stableShotId: `s${n}`, shotNo: n, promptDraft: `frame ${n}` })) });
+  const selection = { ...input, sampleShotIds: ["s3", "s1"] };
+  const batch = await planArtPreviews(selection);
+  expect(batch.shots.map(shot => shot.shotNo)).toEqual([1, 3]);
+  expect(batch.estimatedCny).toBe(1.36);
+  expect(await planArtPreviews(selection)).toEqual(batch);
+  await expect(planArtPreviews({ ...selection, sampleShotIds: ["s2"] })).rejects.toThrow("操作标识");
+  await expect(planArtPreviews({ ...input, operationToken: crypto.randomUUID(), sampleShotIds: ["s1","missing"] })).rejects.toThrow("重新勾选");
+  await expect(artPreviewGenerationInput(input.storyId, input.userId, batch.id, 2)).rejects.toThrow("未找到");
+  expect((await readArtPreviews(input.storyId, input.userId))[0].shots.map(s => s.status)).toEqual(["planned","planned"]);
+  expect(mocks.agent).not.toHaveBeenCalled();
+});
 it("chooses only the requested batch/shot candidate and preserves the rest in the warehouse", async () => {
   const input = await fixture(); const batch = await planArtPreviews(input);
   const candidates = await Promise.all([1,2,3,4].map(n => createGeneratedImage({ storyId: input.storyId, userId: 1, imageUrl: `/preview${n}.png`, prompt: "preview", isCurrent: false })));

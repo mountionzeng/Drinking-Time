@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 import { generatedSubtitleSpans } from "./generatedSubtitles";
 
 describe("generatedSubtitleSpans", () => {
+  it("keeps punctuation with the preceding caption at the width limit", () => {
+    const text = "字".repeat(28) + "，还有一句。";
+    expect(generatedSubtitleSpans(text, 0, 90).map(cue => cue.text)).toEqual(["字".repeat(28) + "，", "还有一句。"]);
+  });
   it("divides long captions across the whole shot without losing words or frames", () => {
     const text =
       "你可以把作品的一部分，送给另一个人。它被接住，产生回响，并在另一个灵魂中长出新的血肉。Again and again, life goes on.";

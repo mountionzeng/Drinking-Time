@@ -42,29 +42,33 @@ async function source(storyId: number, userId: number) {
   return { ...owned, material, shots, music, sourceHash: creationFingerprint({ shots, audio, music,
     art: artSystemPrompt(owned.body), subtitles: record(material.timeline.extensions).subtitleTracks }) };
 }
-export async function planArtPreviews(input: { storyId: number; userId: number; editorName: string; instruction: string; operationToken: string; imageId?: number; sampleShotId?: string }) {
+export async function planArtPreviews(input: { storyId: number; userId: number; editorName: string; instruction: string; operationToken: string; imageId?: number; sampleShotId?: string; sampleShotIds?: string[] }) {
+  if (input.sampleShotId && input.sampleShotIds) throw new Error("请选择一种试图镜头范围");
+  const samples = input.sampleShotIds ?? (input.sampleShotId ? [input.sampleShotId] : undefined);
   const current = await source(input.storyId, input.userId);
   const batches = readArtPreviewBatches(current.body);
   const replay = batches.find(b => b.id === input.operationToken);
   if (replay) {
-    if (replay.sampleShotId !== input.sampleShotId || replay.instruction !== input.instruction || input.imageId != null && replay.baselineImageId !== input.imageId)
+    if (JSON.stringify(replay.sampleShotIds) !== JSON.stringify(input.sampleShotIds) || replay.sampleShotId !== input.sampleShotId || replay.instruction !== input.instruction || input.imageId != null && replay.baselineImageId !== input.imageId)
       throw new Error("操作标识已用于另一项示意要求");
     return replay;
   }
   if (batches.length >= 40) throw new Error("示意方案历史已满，请先整理仓库");
   const selected = current.material.shots.flatMap(s => s.imageVersions).find(i => i.isPrimary && i.selectionSource === "explicit");
-  const baselineImageId = input.imageId ?? current.material.artSystemReference?.image.id ?? selected?.id;
-  if (!baselineImageId && !input.sampleShotId) throw new Error("请先告诉我采用哪张效果图，例如“用图片 #2038 生成一组镜头示意图”");
+  const bookReference = samples && current.material.shots.find(s => s.imageGenerationReferences?.length)?.imageGenerationReferences?.[0];
+  const baselineImageId = input.imageId ?? current.material.artSystemReference?.image.id ?? selected?.id ?? bookReference?.id;
+  if (!baselineImageId && !samples) throw new Error("请先告诉我采用哪张效果图，例如“用图片 #2038 生成一组镜头示意图”");
   if (baselineImageId) {
     const image = await getGeneratedImageById(baselineImageId);
     if (!image || image.storyId !== input.storyId || image.userId !== input.userId) throw new Error("这张效果图不属于当前故事");
     const projected = current.material.warehouseImages?.find(i => i.id === baselineImageId);
     if (!image.imageUrl || projected?.availability === "missing" || projected?.status === "rejected") throw new Error("这张效果图已缺失或被弃用，请选择可用的参考图片");
   }
-  const targets = input.sampleShotId ? current.shots.filter(s => s.stableShotId === input.sampleShotId) : current.shots;
+  const targets = samples ? current.shots.filter(s => samples.includes(s.stableShotId)) : current.shots;
+  if (samples && (samples.length > 3 || targets.length !== samples.length)) throw new Error("试图镜头已变化，请重新勾选一至三镜");
   if (!targets.length || targets.length > 12) throw new Error("请选择当前分镜中的一个镜头试图，或选择不超过十二镜的方案");
   const schema = z.object({ shots: z.array(z.object({ stableShotId: z.string(), brief: z.string().min(1).max(1400), adaptation: z.string().min(1).max(400) })).min(1).max(12) });
-  const result = input.sampleShotId ? { parsed: { shots: targets.map(s => ({
+  const result = samples ? { parsed: { shots: targets.map(s => ({
     stableShotId: s.stableShotId, brief: (s.imageBrief || s.script || s.dialogue || input.instruction).slice(0, 1400),
     adaptation: "比较这个镜头的四种画面，再决定采用哪张。",
   })) } } : await runJsonAgent<z.infer<typeof schema>>({
@@ -80,6 +84,7 @@ export async function planArtPreviews(input: { storyId: number; userId: number; 
   if (planned.length !== targets.length || planned.some((s, i) => s.stableShotId !== targets[i].stableShotId)) throw new Error("示意方案的镜头编号不匹配，未保存或生成");
   const batch = artPreviewBatchSchema.parse({ id: input.operationToken, version: Math.max(0, ...batches.map(b => b.version)) + 1, createdAt: Date.now(), editorId: input.userId, editorName: input.editorName,
     instruction: input.instruction, sourceHash: current.sourceHash, baselineImageId: baselineImageId ?? null, sampleShotId: input.sampleShotId,
+    sampleShotIds: input.sampleShotIds,
     musicContext: current.music.length ? `参考当前配乐：${current.music.map(m => m.name).join("、")}；按已有说明与镜头时长设计，尚未做音频节拍检测。` : "参考分镜中的声音说明；当前没有可识别的已选配乐，不假定节拍。",
     estimatedCny: Math.round(estimateStoryboardImageCost().estimatedCny * planned.length * 100) / 100,
     shots: planned.map((s, i) => ({ ...s, shotNo: targets[i].shotNo, label: targets[i].label, requestId: randomUUID() })),

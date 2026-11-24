@@ -10,7 +10,7 @@ export function useArtPreviewChat() {
   const choose = trpc.artSystems.previewChoose.useMutation();
   const generate = trpc.storyAgent.generateForMobile.useMutation();
   const utils = trpc.useUtils();
-  return async (storyId: number, instruction: string, sampleShotId?: string) => {
+  return async (storyId: number, instruction: string, sampleShotIds?: string[]) => {
     const command = parseArtPreviewChat(instruction);
     if (!command) return null;
     try {
@@ -29,7 +29,7 @@ export function useArtPreviewChat() {
           const state = storySpineStore.getState();
           return state.activeStoryId === storyId && state.storyScopeEpoch === scope.storyScopeEpoch && state.storyLoadEpoch === scope.storyLoadEpoch;
         };
-        const batch = await plan.mutateAsync({ storyId, instruction, sampleShotId, imageId: command.imageId, operationToken: crypto.randomUUID() });
+        const batch = await plan.mutateAsync({ storyId, instruction, sampleShotIds, imageId: command.imageId, operationToken: crypto.randomUUID() });
         await utils.artSystems.previewRead.invalidate({ storyId });
         if (!current()) return "示意方案已保存到原故事，尚未提交图片。";
         const accepted = await askMediaChatConfirmation({ storyId, kind: "cost",

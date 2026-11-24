@@ -1,5 +1,8 @@
 import { z } from "zod";
 
+export const sampleShotIdsSchema = z.array(z.string().min(1).max(128)).min(1).max(3)
+  .refine(ids => new Set(ids).size === ids.length, "请为每个镜头只勾选一次");
+
 export const artPreviewShotSchema = z.object({
   stableShotId: z.string().min(1), shotNo: z.number().int().positive(), label: z.string(),
   brief: z.string().min(1).max(1700), adaptation: z.string().min(1).max(400), requestId: z.string().uuid(),
@@ -7,6 +10,7 @@ export const artPreviewShotSchema = z.object({
 export const artPreviewBatchSchema = z.object({
   id: z.string().uuid(), version: z.number().int().positive(), createdAt: z.number(), editorId: z.number(), editorName: z.string(),
   instruction: z.string(), sourceHash: z.string(), baselineImageId: z.number().int().positive().nullable(), sampleShotId: z.string().optional(),
+  sampleShotIds: sampleShotIdsSchema.optional(),
   musicContext: z.string(), estimatedCny: z.number(), shots: z.array(artPreviewShotSchema).min(1).max(12),
 });
 export type ArtPreviewBatch = z.infer<typeof artPreviewBatchSchema>;

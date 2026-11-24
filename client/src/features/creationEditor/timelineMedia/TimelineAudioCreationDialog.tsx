@@ -1,5 +1,5 @@
 import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Headphones, Music2, Sparkles, Volume2, Wind } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -98,21 +98,37 @@ export function TimelineAudioCreationDialog({
     targetFrame: number;
     scope: TimelineAudioGenerationScope;
     intent?: string;
+    reviewQuote: (summary: string) => Promise<boolean>;
   }) => Promise<boolean>;
   onImport: (kind: TimelineGeneratedAudioKind) => void;
 }) {
   const _ui = useDesktopUiText();
   const [intent, setIntent] = useState("");
   const [scope, setScope] = useState<TimelineAudioGenerationScope>("shot");
+  const [quote, setQuote] = useState("");
+  const answer = useRef<((accepted: boolean) => void) | null>(null);
+  const activeRequest = useRef(request);
 
   useEffect(() => {
+    activeRequest.current = request;
+    setQuote("");
     setIntent(request && request.kind !== "narration" ? request.initialIntent?.slice(0, 800) ?? "" : "");
     setScope(request && request.kind !== "narration" ? request.initialScope ?? "shot" : "shot");
+    return () => {
+      activeRequest.current = null;
+      answer.current?.(false);
+      answer.current = null;
+    };
   }, [request]);
 
   if (!request) return null;
   const copy = timelineAudioCreationCopy(request.kind);
   const isNarration = request.kind === "narration";
+  const finishQuote = (accepted: boolean) => {
+    answer.current?.(accepted);
+    answer.current = null;
+    setQuote("");
+  };
   const submit = async () => {
     const generated = isNarration
       ? await onGenerateNarration(request.subtitleCueId)
@@ -121,12 +137,18 @@ export function TimelineAudioCreationDialog({
           targetFrame: request.targetFrame,
           scope,
           intent: intent.trim() || undefined,
+          reviewQuote: summary => {
+            if (activeRequest.current !== request || answer.current) return Promise.resolve(false);
+            return new Promise(resolve => { answer.current = resolve; setQuote(summary); });
+          },
         });
-    if (generated) onClose();
+    if (generated && activeRequest.current === request) onClose();
   };
 
   return (
-    <Dialog open onOpenChange={open => !open && !pending && onClose()}>
+    <Dialog open onOpenChange={open => {
+      if (!open && (!pending || quote)) { finishQuote(false); onClose(); }
+    }}>
       <DialogContent
         data-testid="timeline-audio-creation-dialog"
         className="gap-0 overflow-hidden border-[color:var(--panel-border)] p-0 sm:max-w-[520px]"
@@ -169,7 +191,7 @@ export function TimelineAudioCreationDialog({
                 <div className="text-[11px] leading-5 text-muted-foreground">
                   <p className="font-medium text-foreground">{_ui("自动镜头范围")}</p>
                   <p>
-                    {_ui("起点由当前播放头决定；服务端会重新读取镜头位置、时长、情绪、动作和场景，前端不能伪造落点或价格。")}</p>
+                    {scope === "story" ? _ui("从第一镜配到片尾。查看报价后，可核对覆盖时长和算力。") : _ui("从当前播放头所在的镜头开始。查看报价后，可核对覆盖时长和算力。")}</p>
                 </div>
               </div>
               <fieldset className="space-y-2">
@@ -227,6 +249,7 @@ export function TimelineAudioCreationDialog({
               {error}
             </p>
           ) : null}
+          {quote && <p role="status" className="whitespace-pre-line rounded-md border p-3 text-sm">{quote}</p>}
         </div>
 
         <DialogFooter className="border-t border-border/70 bg-muted/15 px-5 py-3">
@@ -245,18 +268,18 @@ export function TimelineAudioCreationDialog({
             type="button"
             variant="outline"
             size="sm"
-            disabled={pending}
-            onClick={onClose}
+            disabled={pending && !quote}
+            onClick={() => { finishQuote(false); onClose(); }}
           >
             {_ui("取消")}</Button>
           <Button
             type="button"
             size="sm"
-            disabled={pending || (isNarration && !cue)}
+            disabled={(pending && !quote) || (isNarration && !cue)}
             data-testid="timeline-audio-generation-submit"
-            onClick={() => void submit()}
+            onClick={() => quote ? finishQuote(true) : void submit()}
           >
-            {pending ? _ui("正在处理…") : _ui("生成{0}", [copy.label])}
+            {quote ? _ui("确认报价并生成") : pending ? _ui("正在处理…") : isNarration ? _ui("生成{0}", [copy.label]) : _ui("查看报价")}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -3126,6 +3126,12 @@
             "shared/bookVideoImportReview.test.ts",
             "server/services/bookVideoCreation.test.ts"
           ]
+        },
+        {
+          "date": "2026-11-24",
+          "kind": "enhancement",
+          "summary": "视频起步默认挑前后两镜试画风，可改选一至三镜，一次确认整批报价后按镜头展示四张候选。字幕清单按时间排列，生成字幕时避免逗号落在下一条开头。音乐在设置窗口内先展示全片范围与算力报价，再确认生成或取消。",
+          "evidence": ["server/services/artPreview.test.ts", "shared/generatedSubtitles.test.ts"]
         }
       ]
     },

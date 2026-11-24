@@ -30,7 +30,8 @@ export function generatedSubtitleSpans(
           )
         : [segment];
     for (const part of parts) {
-      if (width + units(part) > 28 && current.trim()) flush();
+      const closingPunctuation = /^[，。！？；：、,.!?;:」』）”’]+$/u.test(part);
+      if (width + units(part) > 28 && current.trim() && !closingPunctuation) flush();
       current += part;
       width += units(part);
       if (/[。！？；.!?;\n]$/.test(part)) flush();

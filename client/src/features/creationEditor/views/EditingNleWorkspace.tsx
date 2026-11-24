@@ -2674,6 +2674,7 @@ export default function EditingNleWorkspace({
 
   const startChoices = videoStartHost && activeStoryId && creationEditor.materialState?.storyId === activeStoryId && createPortal(
     <VideoStartChoices key={editingStorySessionKey} storyId={activeStoryId} material={creationEditor.materialState}
+      shotLabels={new Map(shots.map(s => [s.stableShotId ?? s.shotIdentity ?? "", (s.scriptText || s.action || "").trim().split("\n").at(-1) ?? ""]))}
       cues={timelineMedia.cues} candidates={subtitleCandidates} pending={timelineMedia.pending} error={timelineMedia.lastError}
       musicCount={timelineMedia.audioState.tracks.find(t => t.kind === "music")?.clips.length ?? 0}
       adoptImage={creationEditor.useImageOnTimelineShot}

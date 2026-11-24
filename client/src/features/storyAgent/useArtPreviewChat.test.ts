@@ -18,6 +18,16 @@ it("quotes the entire batch once and cancellation submits nothing", async () => 
   expect(m.confirm).toHaveBeenCalledTimes(1); expect(m.confirm.mock.calls[0][0].text).toContain("共 12 张");
   expect(m.generate).not.toHaveBeenCalled(); expect(result?.reply).toContain("已取消");
 });
+it("submits only the two selected samples after one batch confirmation", async () => {
+  m.plan.mockResolvedValue({ id: "samples", version: 2, baselineImageId: null, estimatedCny: 1.36,
+    musicContext: "", shots: [2,9].map(shotNo => ({ shotNo, label: String(shotNo) })) });
+  m.confirm.mockResolvedValue(true);
+  await useArtPreviewChat()(1, "生成基调示意图", ["s2","s9"]);
+  expect(m.plan).toHaveBeenCalledWith(expect.objectContaining({sampleShotIds:["s2","s9"]}));
+  expect(m.confirm).toHaveBeenCalledTimes(1);
+  expect(m.confirm.mock.calls[0][0].text).toContain("共 8 张，预计 2.72 算力");
+  expect(m.generate.mock.calls.map(([input]) => input.shotNo)).toEqual([2,9]);
+});
 it("runs at most two jobs concurrently and does not retry a failed purchase", async () => {
   m.confirm.mockResolvedValue(true);
   let active = 0, peak = 0;

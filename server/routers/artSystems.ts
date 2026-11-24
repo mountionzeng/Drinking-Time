@@ -1,11 +1,12 @@
 import { z } from "zod";
+import { sampleShotIdsSchema } from "../../shared/artPreview";
 import { protectedProcedure, router } from "../_core/trpc";
 import { ownedCreationStory } from "../repositories/textSourceLineage";
 import { normalizeStoryArtDirection } from "../../shared/artDirection";
 import { writeArtSystem } from "../services/artSystemChat";
 import { planArtPreviews, readArtPreviews, chooseArtPreview } from "../services/artPreview";
 export const artSystemsRouter = router({
-  previewPlan: protectedProcedure.input(z.object({ storyId: z.number().int().positive(), instruction: z.string().trim().min(1).max(8000), operationToken: z.string().uuid(), sampleShotId: z.string().min(1).max(128).optional(), imageId: z.number().int().positive().optional() }).strict())
+  previewPlan: protectedProcedure.input(z.object({ storyId: z.number().int().positive(), instruction: z.string().trim().min(1).max(8000), operationToken: z.string().uuid(), sampleShotId: z.string().min(1).max(128).optional(), sampleShotIds: sampleShotIdsSchema.optional(), imageId: z.number().int().positive().optional() }).strict())
     .mutation(({ input, ctx }) => planArtPreviews({ ...input, userId: ctx.user.id, editorName: ctx.user.name || String(ctx.user.id) })),
   previewRead: protectedProcedure.input(z.object({ storyId: z.number().int().positive() }))
     .query(({ input, ctx }) => readArtPreviews(input.storyId, ctx.user.id)),
