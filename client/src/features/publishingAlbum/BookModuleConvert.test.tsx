@@ -1,11 +1,11 @@
 import React from 'react';
 import {beforeEach,expect,it,vi} from 'vitest';
-const m=vi.hoisted(()=>({translate:vi.fn(),describe:vi.fn(),image:vi.fn(),recover:vi.fn(),refetch:vi.fn(),task:null as any,taskLoading:false,taskError:null as unknown,music:vi.fn(),price:vi.fn(),invalidate:vi.fn(),states:[] as any[],index:0,refs:[] as any[],ref:0,queryOptions:null as any}));
+const m=vi.hoisted(()=>({translate:vi.fn(),describe:vi.fn(),image:vi.fn(),recover:vi.fn(),refetch:vi.fn(),task:null as any,taskLoading:false,taskError:null as unknown,music:vi.fn(),price:vi.fn(),invalidate:vi.fn(),states:[] as any[],index:0,refs:[] as any[],ref:0,updatedAt:1,queryOptions:null as any}));
 vi.mock('react',async()=>({...await vi.importActual<typeof import('react')>('react'),useEffect:(fn:any)=>fn(),useRef:(v:any)=>m.refs[m.ref++]??(m.refs[m.ref-1]={current:v}),useState:(v:any)=>{const i=m.index++;if(!(i in m.states))m.states[i]=v;return [m.states[i],(n:any)=>m.states[i]=n];}}));
-vi.mock('@/lib/trpc',()=>({trpc:{bookMedia:{translate:{useMutation:()=>({mutateAsync:m.translate})},quoteNarration:{useMutation:()=>({mutateAsync:m.price})},describe:{useMutation:()=>({mutateAsync:m.describe})}},storyAgent:{generateForMobile:{useMutation:()=>({mutateAsync:m.image})},bookModuleImageTask:{useQuery:(_i:any,o:any)=>(m.queryOptions=o,{data:m.task,isLoading:m.taskLoading,isFetching:false,error:m.taskError,refetch:m.refetch})},recoverBookModuleImage:{useMutation:()=>({mutateAsync:m.recover})}},timelineMedia:{generateNarrationCandidate:{useMutation:()=>({mutateAsync:m.music})},quoteSceneAudio:{useMutation:()=>({mutateAsync:m.price})},generateSceneAudio:{useMutation:()=>({mutateAsync:m.music})}},useUtils:()=>({memoryWarehouse:{forStory:{invalidate:m.invalidate}},storyAgent:{storyMaterialState:{invalidate:m.invalidate}},timelineMedia:{audioAssetLibrary:{invalidate:m.invalidate}}})}}));
+vi.mock('@/lib/trpc',()=>({trpc:{bookMedia:{translate:{useMutation:()=>({mutateAsync:m.translate})},quoteNarration:{useMutation:()=>({mutateAsync:m.price})},describe:{useMutation:()=>({mutateAsync:m.describe})}},storyAgent:{generateForMobile:{useMutation:()=>({mutateAsync:m.image})},bookModuleImageTask:{useQuery:(_i:any,o:any)=>(m.queryOptions=o,{data:m.task,isFetchedAfterMount:true,dataUpdatedAt:m.updatedAt,isLoading:m.taskLoading,isFetching:false,error:m.taskError,refetch:m.refetch})},recoverBookModuleImage:{useMutation:()=>({mutateAsync:m.recover})}},timelineMedia:{generateNarrationCandidate:{useMutation:()=>({mutateAsync:m.music})},quoteSceneAudio:{useMutation:()=>({mutateAsync:m.price})},generateSceneAudio:{useMutation:()=>({mutateAsync:m.music})}},useUtils:()=>({memoryWarehouse:{forStory:{invalidate:m.invalidate}},storyAgent:{storyMaterialState:{invalidate:m.invalidate}},timelineMedia:{audioAssetLibrary:{invalidate:m.invalidate}}})}}));
 import {BookModuleConvert} from './BookModuleConvert';
 function nodes(n:any):any[]{return !n||typeof n!=='object'?[]:Array.isArray(n)?n.flatMap(nodes):[n,...nodes(n.props?.children)];}
-beforeEach(()=>{vi.clearAllMocks();m.states=[];m.refs=[];m.index=0;m.ref=0;m.task=null;m.taskLoading=false;m.taskError=null;vi.stubGlobal('React',React);m.invalidate.mockResolvedValue(undefined);m.refetch.mockResolvedValue(undefined);});
+beforeEach(()=>{vi.clearAllMocks();m.states=[];m.refs=[];m.index=0;m.ref=0;m.task=null;m.updatedAt=1;m.recover.mockReset().mockResolvedValue({status:"error",pending:true});m.taskLoading=false;m.taskError=null;vi.stubGlobal('React',React);m.invalidate.mockResolvedValue(undefined);m.refetch.mockResolvedValue(undefined);});
 async function settle(){for(let i=0;i<15;i++)await Promise.resolve();}
 it.each(['text','music'] as const)('sends all selected IDs for %s conversion without starting paid music',async kind=>{
  m.describe.mockResolvedValue({text:'整合结果'});m.price.mockResolvedValue({quoteToken:'signed',estimatedCny:1});
@@ -19,11 +19,15 @@ it.each(['text','music'] as const)('sends all selected IDs for %s conversion wit
 it('reopens an accepted task with recovery instead of a second purchase and inserts its result',async()=>{
  const props={source:{id:'x',text:'纸船',kind:'image' as const},storyId:1,chapterId:2,prepare:vi.fn(),onInsert:vi.fn(),onClose:vi.fn()};
  m.task={id:'task',status:'accepted',providerTaskId:'paid',inserted:false,sourceChanged:false};
+ m.recover.mockResolvedValue({status:'ok',imageUrl:'/api/images/recovered.png',candidates:[{imageUrl:'/api/images/recovered.png',imageId:1}]});
  const tree=nodes(BookModuleConvert(props));
  expect(tree.some(n=>n.type==='button'&&String(n.props.children).startsWith('生成图片（'))).toBe(false);
- m.recover.mockResolvedValue({status:'ok',imageUrl:'/api/images/recovered.png',candidates:[{imageUrl:'/api/images/recovered.png',imageId:1}]});
+ expect(m.recover).toHaveBeenCalledTimes(1);
  tree.find(n=>n.type==='button'&&n.props.children==='恢复上次生成').props.onClick();await settle();
  expect(m.recover).toHaveBeenCalledWith({storyId:1,chapterId:2,moduleId:'x'});
+ expect(m.recover).toHaveBeenCalledTimes(1);expect(m.refetch).toHaveBeenCalled();
+ m.task={...m.task,status:'succeeded',candidates:[{imageUrl:'/api/images/recovered.png'}]};
+ m.index=m.ref=0;BookModuleConvert(props);
  expect(props.onInsert).toHaveBeenCalledTimes(1);expect(props.onInsert).toHaveBeenCalledWith('![图片](/api/images/recovered.png)');
  expect(m.image).not.toHaveBeenCalled();expect(props.prepare).not.toHaveBeenCalled();
 });
@@ -236,4 +240,24 @@ it('turns a 504/HTML gateway reply into a readable message and keeps following t
  nodes(tree).find(n=>n.type==='button').props.onClick();await settle();
  expect(m.states.some(v=>typeof v==='string'&&v.includes('网关等待超时'))).toBe(true);
  expect(m.refetch).toHaveBeenCalled();
+});
+
+it('shows all completed candidates on reopening and waits for an explicit insertion',()=>{
+ const props=imgProps();const candidates=Array.from({length:4},(_,i)=>({imageUrl:'/api/images/'+i+'.png'}));
+ m.task={id:'old',status:'succeeded',sourceChanged:false,inserted:false,candidates};
+ const tree=nodes(BookModuleConvert(props));
+ expect(tree.filter(n=>n.type==='img').map(n=>n.props.src)).toEqual(candidates.map(c=>c.imageUrl));
+ expect(props.onInsert).not.toHaveBeenCalled();expect(m.recover).not.toHaveBeenCalled();expect(m.image).not.toHaveBeenCalled();
+});
+it('waits for another poll after a transient error and keeps changed-source results viewable',async()=>{
+ const props=imgProps();m.task={id:'t',status:'accepted',providerTaskId:'paid',sourceChanged:true,inserted:false,candidates:[]};
+ m.recover.mockRejectedValueOnce(new Error('offline'));
+ BookModuleConvert(props);await settle();
+ m.index=m.ref=0;BookModuleConvert(props);expect(m.recover).toHaveBeenCalledTimes(1);
+ m.updatedAt++;m.index=m.ref=0;BookModuleConvert(props);await settle();expect(m.recover).toHaveBeenCalledTimes(2);
+ m.task={...m.task,status:'succeeded',candidates:[{imageUrl:'/api/images/ready.png'}]};
+ m.index=m.ref=0;const tree=nodes(BookModuleConvert(props));
+ expect(tree.some(n=>n.type==='img')).toBe(true);
+ expect(tree.some(n=>n.props?.['aria-label']==='插入这张图片')).toBe(false);
+ expect(props.onInsert).not.toHaveBeenCalled();expect(m.image).not.toHaveBeenCalled();
 });

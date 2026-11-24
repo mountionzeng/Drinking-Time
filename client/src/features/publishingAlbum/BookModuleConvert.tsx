@@ -93,18 +93,51 @@ export function BookModuleConvert({
       active.current = false;
     };
   }, []);
-  // A task that finishes while we are polling is shown and inserted once, like a direct success.
-  const lastStatus = useRef<string | undefined>(undefined);
+  const recoveryInFlight = useRef(false);
+  const followedTask = useRef<string | null>(null);
+  const insertedImage = useRef<string | null>(null);
+  const lastRecoveryRead = useRef<number | null>(null);
+  const readyImages = savedTask?.status === "succeeded"
+    ? savedTask.candidates.map(c => c.imageUrl) : [];
+  const visibleImages = images.length ? images : readyImages;
+
+  function insertFirstImage(url: string) {
+    if (!active.current || insertedImage.current === url) return;
+    insertedImage.current = url;
+    try { onInsert(bookImageText(url)); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "图片已保存在仓库。"); }
+  }
+  async function checkReceipt(manual: boolean) {
+    if (recoveryInFlight.current || lock.current) return;
+    recoveryInFlight.current = true;
+    try {
+      const data = await recoverImage.mutateAsync(taskScope);
+      if (!active.current) return;
+      if (data.status === "ok" || manual) await imageTask.refetch();
+      if (data.status === "error" && !data.pending) setError(data.error);
+    } catch {
+      if (manual && active.current) setError("暂时无法查询任务，请稍后再试。");
+    } finally {
+      recoveryInFlight.current = false;
+    }
+  }
   useEffect(() => {
-    const status = savedTask?.status;
-    const was = lastStatus.current;
-    lastStatus.current = status;
-    if (!savedTask || status !== "succeeded" || (was !== "accepted" && was !== "preparing") || savedTask.inserted || images.length) return;
-    const first = savedTask.candidates[0];
-    setImages(savedTask.candidates.map(c => c.imageUrl));
-    void utils.storyAgent.storyMaterialState.invalidate({ storyId });
-    if (!savedTask.sourceChanged && first) insertGenerated(bookImageText(first.imageUrl));
-  }, [savedTask?.status]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (source.kind !== "image" || !savedTask || !imageTask.isFetchedAfterMount || checkingTask || imageTask.error) return;
+    if (typeof document !== "undefined" && document.hidden) return;
+    if (savedTask.status === "accepted" || savedTask.status === "preparing") {
+      followedTask.current = savedTask.id;
+      if (savedTask.status === "accepted" && savedTask.providerTaskId && !busy &&
+          shouldKeepPolling(savedTask.status, pollStartedAt.current) && lastRecoveryRead.current !== imageTask.dataUpdatedAt) {
+        lastRecoveryRead.current = imageTask.dataUpdatedAt;
+        void checkReceipt(false);
+      }
+    } else if (savedTask.status === "succeeded" && followedTask.current === savedTask.id && !busy) {
+      followedTask.current = null;
+      setError("");
+      void utils.storyAgent.storyMaterialState.invalidate({ storyId });
+      if (!savedTask.inserted && !savedTask.sourceChanged && readyImages[0]) insertFirstImage(readyImages[0]);
+    }
+  }, [savedTask, checkingTask, imageTask.error, imageTask.isFetchedAfterMount, imageTask.dataUpdatedAt, busy]); // eslint-disable-line react-hooks/exhaustive-deps
   function insertGenerated(text: string) {
     if (active.current) onInsert(text);
   }
@@ -196,16 +229,12 @@ export function BookModuleConvert({
           <p role="status">{shouldKeepPolling(savedTask.status, pollStartedAt.current) ? _ui("图片正在后台生成，完成后会自动显示，可关闭窗口稍后再来。") : _ui("图片仍未完成，可点击「恢复上次生成」再次查询。")}</p>}
         {checkingTask && !savedTask && <p role="status">{_ui("正在核对已有图片任务…")}</p>}
         {source.kind === "image" && imageTask.error && <p role="alert">{_ui("暂时无法读取图片任务，请重新打开窗口核对，避免重复生成。")}</p>}
-        {protectedTask && !busy && !images.length && <div>
-          <p>{savedTask.sourceChanged ? _ui("原模块已变化；恢复的图片会保留在仓库。") : _ui("已有图片任务，恢复只查询同一个任务，不会重新购买生成。")}</p>
-          <button onClick={() => void run(async () => {
-            const data = await recoverImage.mutateAsync(taskScope);
-            if (data.status !== "ok") throw new Error(data.error);
-            setImages(data.candidates.map(c => c.imageUrl));
-            await utils.storyAgent.storyMaterialState.invalidate({ storyId });
-            if (!savedTask.sourceChanged && data.imageUrl) insertGenerated(bookImageText(data.imageUrl));
-          })}>{savedTask.status === "succeeded" ? _ui("插入已生成图片") : _ui("恢复上次生成")}</button>
+        {protectedTask && savedTask.sourceChanged && <p>{_ui("原模块已变化；恢复的图片会保留在仓库。")}</p>}
+        {protectedTask && !busy && !visibleImages.length && <div>
+          {savedTask.status === "unknown" && <p>{_ui("已有图片任务，恢复只查询同一个任务，不会重新购买生成。")}</p>}
+          <button onClick={() => void checkReceipt(true)}>{_ui("恢复上次生成")}</button>
         </div>}
+        {savedTask?.status === "failed" && savedTask.error && !error && <p role="alert">{savedTask.error}</p>}
         {!result && !images.length && !submitted && !blockNewImage && (
           <button
             disabled={busy || (source.kind === "narration" && narrationSubmitted)}
@@ -248,6 +277,7 @@ export function BookModuleConvert({
                     storyId,
                   });
                   if (data.status === "error") {
+                    if ("providerTaskId" in data && data.providerTaskId && !("providerConfirmedFailure" in data && data.providerConfirmedFailure)) return;
                     // A definite submit rejection is different from an accepted/unknown task.
                     const definite = !("providerTaskId" in data && data.providerTaskId) && !("submissionUncertain" in data && data.submissionUncertain);
                     const errorCode = "errorCode" in data ? data.errorCode : undefined;
@@ -273,7 +303,7 @@ export function BookModuleConvert({
                           ? [data.imageUrl]
                           : [];
                     setImages(urls);
-                    if (urls[0]) insertGenerated(bookImageText(urls[0]));
+                    if (urls[0]) insertFirstImage(urls[0]);
                   } else
                     setError("任务已提交，结果可在仓库查看。请勿重复提交。");
                 } else if(source.kind === "narration") {
@@ -368,9 +398,11 @@ export function BookModuleConvert({
           >
             {_ui("插入原模块后")}</button>
         )}
-        {images.length > 0 && (
+        {visibleImages.length > 0 && (
           <div className="grid grid-cols-2 gap-2">
-            {images.map(url => (
+            {visibleImages.map((url, index) => savedTask?.sourceChanged ? (
+              <img key={url} src={url} alt={_ui("生成的插图") + " " + (index + 1)} className="w-full rounded" />
+            ) : (
               <button
                 key={url}
                 aria-label={_ui("插入这张图片")}

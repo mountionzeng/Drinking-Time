@@ -35,6 +35,7 @@ const response = (task: BookModuleImageTask) => {
     candidates: task.candidates, prompt: "", intent: "", rationale: "", mode: "final" as const,
   };
   return { status: "error" as const,
+    pending: task.status === "accepted" || task.status === "preparing",
     error: task.error || "任务已保存，请查看进度或恢复同一任务，不会重新提交生成。",
     ...(task.providerTaskId ? { providerTaskId: task.providerTaskId } : {}),
     submissionUncertain: task.status !== "failed" && !task.providerTaskId,
@@ -148,7 +149,7 @@ export async function recoverModuleImageTask(scope: Scope) {
     return response((await readModuleImageTask(scope))!);
   }
   // Transient fetch errors must never clear the previously accepted receipt.
-  return { status: "error" as const, error: result.message ?? "任务尚未完成，请稍后恢复", providerTaskId: task.providerTaskId };
+  return { status: "error" as const, pending: result.errorCode === "timeout_pending", error: result.message ?? "任务尚未完成，请稍后恢复", providerTaskId: task.providerTaskId };
 }
 
 // ---------------------------------------------------------------------------
