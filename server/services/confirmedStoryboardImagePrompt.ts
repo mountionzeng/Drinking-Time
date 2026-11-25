@@ -1,4 +1,6 @@
 import { stripExplicitScreenText } from "../../shared/bookScreenText";
+import { stillVisualDescription } from "../../shared/stillVisualDescription";
+export { stillVisualDescription } from "../../shared/stillVisualDescription";
 import { confirmedShotScene, shotSceneFacts } from "../../shared/shotSceneDirection";
 import { SCENE_OBJECT_DIRECTION, STILL_EDGE_INTEGRATION } from "../../shared/sceneObjectDirection";
 import { artSystemPrompt } from "../../shared/artSystem";
@@ -9,14 +11,6 @@ function record(value: unknown): Record<string, unknown> {
 }
 function text(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
-}
-/** Project a still frame, leaving spoken words and transitions in the source script. */
-export function stillVisualDescription(value: string): string {
-  return stripExplicitScreenText(value)
-    .replace(/(?:画外音(?:继续)?|旁白(?:继续)?|对白|台词|声音建议|音效|配乐|voice[- ]?over|narration|dialogue|sound)(?:[（(][^）)\n]{0,30}[）)])?\s*[：:]\s*(?:「[^」\n]*」|“[^”\n]*”|"[^"\n]*"|『[^』\n]*』|[^\n]*?(?=(?:画面|visuals?)\s*[：:]|\n|$))/giu, "")
-    .replace(/[,，]?\s*(?:与|和)[^，。；\n]{1,40}(?:叠化|交叉淡化)/gu, "")
-    .replace(/(?:图片要求(?:（最高优先级）)?|画面动作|画面描述|开场画面|结束画面|画面|visuals?)[：:]/giu, "")
-    .replace(/【[^】]+】/gu, "").replace(/\s+/gu, " ").trim();
 }
 
 /** With a confirmed recipe and no images, feed MJ visual prose, not the

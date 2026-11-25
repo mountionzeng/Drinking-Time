@@ -371,6 +371,29 @@ describe("storyAgent tRPC router", () => {
       ENV.openaiNextApiKey = key; ENV.openaiNextVisionModel = model;
     }
   });
+  it.each(["midjourney","gpt-image"] as const)("keeps an unlinked book's answer through the final %s supplier prompt", async imageProvider => {
+    const { createStory } = await import("./repositories/stories");
+    const { insertChapter } = await import("./repositories/chapters");
+    const { estimatePublishingCoverFallbackCost } = await import("../shared/imageRenderCost");
+    const userId = 49609;
+    const caller = appRouter.createCaller(createAuthContext(userId));
+    const story = await createStory({ userId, title: "舞台", body: {} });
+    const source = "台上的舞者挥手，琴师坐在台下。";
+    const chapter = await insertChapter({ userId, storyId: story.id, content: {title:"排练",layout:null,blocks:{
+      body:source, writingStyle:[{id:"verse",format:"text",lineCount:1}], blockIds:["verse"],
+      containsAiText:false,settings:null,coverKey:null,bodyTextureKey:null,images:{},illustrations:[],
+    }}});
+    const direction = "琴师的视线：抬头看舞者";
+    const provider = imageProvider === "midjourney" ? legnextMocks.generateLegnextImage : imageGenMocks.generateImage;
+    provider.mockResolvedValueOnce({status:"ok",imageUrl:"https://storage.example/verse.png"});
+    const result = await caller.storyAgent.generateForMobile({ storyId:story.id,mode:"final",imageProvider,prompt:source,
+      ...(imageProvider==="gpt-image" ? {explicitInstruction:"沿用画面主体",gptImageModel:"gpt-image-2" as const} : {}),
+      costConfirmation:{accepted:true,estimatedCny:(imageProvider==="midjourney" ? estimateStoryboardImageCost() : estimatePublishingCoverFallbackCost()).estimatedCny},
+      moduleTarget:{chapterId:chapter.id,moduleId:"verse",expectedText:source,requestId:crypto.randomUUID(),frameDirection:direction} });
+    expect(result).toMatchObject({status:"ok"});
+    expect(provider.mock.lastCall?.[0]).toContain(direction);
+    expect(provider.mock.lastCall?.[0]).toContain(source);
+  });
   it("persists module image results and replays through the recovery API without another generation", async () => {
     const { createStory } = await import("./repositories/stories");
     const { insertChapter } = await import("./repositories/chapters");

@@ -1,4 +1,13 @@
 {
+  "出图前读一遍文字": {"en":"Review the text before generating","fr":"Relire le texte avant la génération"},
+  "这一帧要画什么": {"en":"What goes in this frame","fr":"Ce qui apparaît dans cette image"},
+  "这一刻，{0}看向哪里？": {"en":"Where is {0} looking at this moment?","fr":"Où regarde {0} à cet instant ?"},
+  "画面里，{0}的位置怎么安排？": {"en":"Where should {0} appear in the frame?","fr":"Où placer {0} dans l’image ?"},
+  "「{0}」说的是谁？": {"en":"Who is performing this action: “{0}”?","fr":"Qui accomplit cette action : « {0} » ?"},
+  "这处细节你想怎么画？{0}": {"en":"How should this detail appear? {0}","fr":"Comment représenter ce détail ? {0}"},
+  "这里具体要画什么场景？": {"en":"What scene should the illustration show?","fr":"Quelle scène faut-il illustrer ?"},
+  "补充或纠正画面（可选）": {"en":"Add or correct a detail (optional)","fr":"Ajouter ou corriger un détail (facultatif)"},
+  "可留空，沿用原文": {"en":"Leave blank to follow the text","fr":"Laisser vide pour suivre le texte"},
   "定位哪些物体": {"en":"Objects to locate","fr":"Objets à localiser"},
   "用逗号分隔，可填写英文物体短语": {"en":"Separate objects with commas. English phrases are supported.","fr":"Séparez les objets par des virgules. Les expressions en anglais sont acceptées."},
   "请填写 1 至 8 个物体，每个最多 64 字。": {"en":"Enter 1–8 objects, up to 64 characters each.","fr":"Indiquez 1 à 8 objets de 64 caractères maximum chacun."},

@@ -4,6 +4,7 @@ import { formatComputeQuote } from "@shared/computeMoney";
 import { sceneLayoutText, type SceneAllowance, type SceneLayout } from "@shared/shotSceneDirection";
 import { objectTargetsSchema, suggestObjectTargets } from "@shared/shotObjectTargets";
 import { useUiText } from "@/features/uiLanguage/UiLanguage";
+import { TextSceneIntentReview, useTextSceneIntent } from "./TextSceneIntent";
 
 export function ShotScenePreparation({ storyId, stableShotId, shotNo, adjustment, disabled, compact, onReady }: {
   storyId: number; stableShotId: string; shotNo: number; adjustment: string; disabled: boolean; compact?: boolean;
@@ -31,8 +32,11 @@ export function ShotScenePreparation({ storyId, stableShotId, shotNo, adjustment
   const input = { ...scope, imageId: imageId || undefined, adjustment: adjustment.trim() || undefined, localTargets };
   const quote = trpc.artSystems.sceneQuote.useQuery(input, { enabled: !!basis.data && targetsValid && (!!imageId || !usingSaved || !basis.data.confirmed), retry: false,
     refetchInterval: q => q.state.data?.pending ? 6000 : false });
-  const ready = Boolean(usingSaved && !imageId && basis.data?.confirmed && draft === undefined);
-  const offer = !ready && draft === undefined && !analyze.isPending && !confirm.isPending && quote.isSuccess && !quote.isFetching && !quote.data.pending && quote.data;
+  const available = imageId ? quote.data?.layout : layout ?? quote.data?.layout;
+  const review = useTextSceneIntent(JSON.stringify([storyId, stableShotId, basis.data?.basisKey]), basis.data?.source ?? "",
+    [basis.data?.facts, draft, adjustment].filter(Boolean).join("\n"), imageId ? undefined : available);
+  const ready = Boolean(usingSaved && !imageId && basis.data?.confirmed && draft === undefined && !review.direction);
+  const offer = !ready && !review.direction && draft === undefined && !analyze.isPending && !confirm.isPending && quote.isSuccess && !quote.isFetching && !quote.data.pending && quote.data;
   const quoteKey = offer ? offer.key : undefined, readingCny = offer ? offer.estimatedCny : 0;
   useEffect(() => { onReady(stableShotId, ready || !!quoteKey, quoteKey ? { stableShotId, key: quoteKey, estimatedCny: readingCny,
     imageId: imageId || undefined, localTargets } : undefined); }, [onReady, stableShotId, ready, quoteKey, readingCny, imageId, localTargets]);
@@ -43,11 +47,11 @@ export function ShotScenePreparation({ storyId, stableShotId, shotNo, adjustment
     <p className="whitespace-pre-wrap">{current.confirmed}</p>
     <button type="button" className="underline" disabled={busy} onClick={() => edit()}>{ui("重新识图或调整")}</button></details>;
   const value = draft ?? current.confirmed;
-  const available = imageId ? quote.data?.layout : layout ?? quote.data?.layout;
   const title = ui("第 {0} 镜 · 出图前确认画面", [shotNo]);
   const controls = <fieldset aria-label={title} disabled={busy} className="space-y-2 rounded border p-2 text-sm">
     {!compact && <legend>{title}</legend>}
-    <label className="block">{ui("构图来源")} <select value={imageId} onChange={e => { setSelection(Number(e.target.value)); setLayout(undefined); edit(); }}>
+    <TextSceneIntentReview review={review} disabled={busy} />
+    <label className="block">{ui("构图来源")} <select value={imageId} onChange={e => { setSelection(Number(e.target.value)); setLayout(undefined); edit(draft); }}>
       <option value={0}>{ui("本镜分镜文字")}</option>
       {current.images.map(i => <option key={i.id} value={i.id}>{ui("本镜图片 #{0}", [i.id])}</option>)}
     </select></label>
@@ -85,24 +89,24 @@ export function ShotScenePreparation({ storyId, stableShotId, shotNo, adjustment
     {offer && <p>{offer.cached ? ui("将复用首次分析，识图费用为零。") : imageId ?
       ui("生成时自动定位一次，识别为 0 算力。也可以先查看候选位置。") : ui("首次分镜分析已计入下方总报价。")}</p>}
     {(available?.observed || quote.data?.observed) && <p>{ui("原图所见")} · {available?.observed || quote.data?.observed}</p>}
-    {!!available?.uncertain.length && <p>{ui("待核对")} · {available.uncertain.join("、")}</p>}
+    {!!imageId && !!available?.uncertain.length && <p>{ui("待核对")} · {available.uncertain.join("、")}</p>}
     <label className="block">{ui("本镜要画什么")}<textarea rows={3} maxLength={2600} value={value}
       placeholder={ui("人物数量与装束、谁在哪里、谁向谁做动作、必要物件")}
       className="mt-1 w-full rounded border bg-transparent p-2" onChange={e => edit(e.target.value)} /></label>
     {!value && current.source && <details><summary>{ui("查看本镜原文")}</summary><p className="whitespace-pre-wrap">{current.source}</p></details>}
     <button type="button" className="underline" onClick={async () => {
       if (lock.current) return;
-      const text = (value || current.source).trim();
+      const text = [(value || current.source).trim(), review.direction].filter(Boolean).join("\n");
       if (!text || text.length > 2600) { setError("请在上方填写 1–2600 字的本镜要求。"); return; }
       lock.current = true;
       try {
         await confirm.mutateAsync({ ...scope, basisKey: draftBasis || current.basisKey, text });
         await Promise.all([basis.refetch(), utils.artSystems.previewArtBasis.invalidate({ storyId }), utils.storyAgent.bookModuleVisualBasis.invalidate({ storyId })]);
-        setDraft(undefined); setUsingSaved(true); setError("");
+        review.clear(); setDraft(undefined); setUsingSaved(true); setError("");
         if (imageId && !quote.data?.cached) setSelection(0);
       } catch (e) { setError(e instanceof Error ? e.message : "未能保存调度"); }
       finally { lock.current = false; }
-    }}>{ui(value ? "确认本镜调度" : "直接沿用分镜原文")}</button>
+    }}>{ui(value || review.direction ? "确认本镜调度" : "直接沿用分镜原文")}</button>
     {(error || quote.error) && <p role="alert">{error || quote.error?.message}</p>}
   </fieldset>;
   return compact ? <details className="text-sm"><summary>{title}</summary>{controls}</details> : controls;

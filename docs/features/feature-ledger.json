@@ -11828,6 +11828,9 @@
         "shared/shotObjectTargets.ts",
         "shared/shotSceneDirection.ts",
         "client/src/features/bookVideo/ShotScenePreparation.tsx",
+        "client/src/features/bookVideo/TextSceneIntent.tsx",
+        "shared/textSceneIntent.ts",
+        "shared/stillVisualDescription.ts",
         "server/services/bookModuleImageRecovery.ts",
         "server/repositories/bookModuleImageTasks.ts",
         "shared/bookModuleImageTask.ts",
@@ -11842,6 +11845,7 @@
       "evidence": [
         "server/services/bookModuleSource.test.ts",
         "server/services/shotSceneReading.test.ts",
+        "shared/textSceneIntent.test.ts",
         "scripts/frame-regions/test_worker.py",
         "scripts/frame-regions/README.md",
         "server/services/storyAudioGeneration.test.ts",
@@ -11935,6 +11939,11 @@
           "date": "2026-11-25",
           "kind": "enhancement",
           "summary": "各作品书页和视频试图选择本镜图片后，CLIPSeg 按可编辑的物体短语离线定位。显示候选框及漏检，免费观察随已有调度进入生图。作品和账号间隔离，同图同目标复用。需部署 CPU、现有 Python 依赖与 CLIPSeg 权重。区域可能合并多个人，人物身份、动作和视线依靠已确认调度。"
+        },
+        {
+          "date": "2026-11-25",
+          "kind": "enhancement",
+          "summary": "书页文字生成图片及视频试图可在生成前免费核对本镜原文，按可辨认的动作标出主体，询问影响构图的一处视线、站位或指代。用户可留空或补充；普通书页的本轮补充进入 MJ 与 GPT 的生成要求，关联单镜继续保存并复用本镜调度。复杂句保留原文供纠正。"
         },
         {
           "date": "2026-11-24",

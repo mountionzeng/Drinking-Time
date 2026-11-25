@@ -4,6 +4,7 @@ const m=vi.hoisted(()=>({translate:vi.fn(),describe:vi.fn(),image:vi.fn(),recove
 vi.mock('react',async()=>({...await vi.importActual<typeof import('react')>('react'),useCallback:(fn:any)=>fn,useEffect:(fn:any)=>fn(),useRef:(v:any)=>m.refs[m.ref++]??(m.refs[m.ref-1]={current:v}),useState:(v:any)=>{const i=m.index++;if(!(i in m.states))m.states[i]=v;return [m.states[i],(n:any)=>m.states[i]=n];}}));
 vi.mock('@/lib/trpc',()=>({trpc:{bookMedia:{translate:{useMutation:()=>({mutateAsync:m.translate})},quoteNarration:{useMutation:()=>({mutateAsync:m.price})},describe:{useMutation:()=>({mutateAsync:m.describe})}},storyAgent:{generateForMobile:{useMutation:()=>({mutateAsync:m.image})},bookModuleVisualBasis:{useQuery:()=>({data:m.basis})},bookModuleImageTask:{useQuery:(_i:any,o:any)=>(m.queryOptions=o,{data:m.task,isFetchedAfterMount:!m.taskLoading,dataUpdatedAt:m.updatedAt,isLoading:m.taskLoading,isFetching:false,error:m.taskError,refetch:m.refetch})},recoverBookModuleImage:{useMutation:()=>({mutateAsync:m.recover})}},timelineMedia:{generateNarrationCandidate:{useMutation:()=>({mutateAsync:m.music})},quoteSceneAudio:{useMutation:()=>({mutateAsync:m.price})},generateSceneAudio:{useMutation:()=>({mutateAsync:m.music})}},useUtils:()=>({memoryWarehouse:{forStory:{invalidate:m.invalidate}},storyAgent:{storyMaterialState:{invalidate:m.invalidate}},timelineMedia:{audioAssetLibrary:{invalidate:m.invalidate}}})}}));
 import {BookModuleConvert} from './BookModuleConvert';
+import {TextSceneIntentReview} from '../bookVideo/TextSceneIntent';
 function nodes(n:any):any[]{return !n||typeof n!=='object'?[]:Array.isArray(n)?n.flatMap(nodes):[n,...nodes(n.props?.children)];}
 beforeEach(()=>{vi.clearAllMocks();m.states=[];m.refs=[];m.index=0;m.ref=0;m.task=null;m.basis=null;m.updatedAt=1;m.recover.mockReset().mockResolvedValue({status:"error",pending:true});m.taskLoading=false;m.taskError=null;vi.stubGlobal('React',React);m.invalidate.mockResolvedValue(undefined);m.refetch.mockResolvedValue(undefined);});
 async function settle(){for(let i=0;i<15;i++)await Promise.resolve();}
@@ -213,6 +214,35 @@ vi.mock("@/features/uiLanguage/UiLanguage", async (importOriginal) => {
 });
 
 const imgProps=()=>({source:{id:'x',text:'纸船',kind:'image' as const},storyId:1,chapterId:2,prepare:vi.fn(),onInsert:vi.fn(),onClose:vi.fn()});
+it.each(["midjourney", "gpt-image"])("keeps a book answer with its question when the style changes (%s)", async provider => {
+ const props = imgProps();
+ props.source.text = "姐姐把书递给妹妹，她挥手。";
+ m.basis = { stableShotId: "", shotNumbers: [2, 3], fingerprint: "x".repeat(64) };
+ const render = () => { m.index=m.ref=0; return nodes(BookModuleConvert(props)); };
+ let tree = render();
+ const review = tree.find(n=>n.type===TextSceneIntentReview).props.review;
+ expect(review.question.focus).toBe("她挥手");
+ review.setValue("妹妹");
+ tree.find(n=>n.type==="select").props.onChange({target:{value:provider}});
+ tree.find(n=>n.props?.["aria-label"]==="转换要求").props.onChange({target:{value:"蓝".repeat(800)}});
+ tree=render();
+ expect(tree.find(n=>n.type===TextSceneIntentReview).props.review.value).toBe("妹妹");
+ expect(m.image).not.toHaveBeenCalled();
+ const originalSource=props.source;
+ props.source={...originalSource,id:"another"};
+ expect(render().find(n=>n.type===TextSceneIntentReview).props.review.value).toBe("");
+ props.source={...originalSource,text:"门开了"};
+ expect(render().find(n=>n.type===TextSceneIntentReview).props.review.value).toBe("");
+ props.source=originalSource;
+ tree=render();
+ m.image.mockResolvedValue({status:"ok",imageUrl:"/api/images/result.png"});
+ tree.find(n=>n.type==="button").props.onClick(); await settle();
+ const input=m.image.mock.calls[0][0];
+ expect(input.imageProvider).toBe(provider);
+ expect(input.moduleTarget.adjustment).toHaveLength(800);
+ expect(input.moduleTarget.frameDirection).toBe("关于「她挥手」的动作归属：妹妹");
+ expect(input.moduleTarget.expectedText).toBe(props.source.text);
+});
 it('polls a running task every few seconds and stops after ~10 minutes or when finished',()=>{
  m.task={id:'t',status:'accepted',providerTaskId:'p',inserted:false,sourceChanged:false,candidates:[]};
  BookModuleConvert(imgProps());

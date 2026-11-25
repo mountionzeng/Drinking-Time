@@ -1896,7 +1896,7 @@ export const storyAgentRouter = router({
         imageEditPlanOutput: z.object({ planMessageId: z.string().min(1).max(500), imageId: z.number().int().positive(), copy: z.number().int().min(1).max(4) }).optional(),
         conversationShotId: z.string().min(1).max(96).optional(),
         previewBatchId: z.string().uuid().optional(),
-        moduleTarget: z.object({ chapterId: z.number().int().positive(), moduleId: z.string().min(1).max(240), expectedText: z.string().max(200_000), requestId: z.string().uuid(), sceneAllowance: sceneAllowanceSchema.optional(), followReceipt: z.literal(true).optional(), basisHash: z.string().length(64).optional(), adjustment: z.string().trim().max(800).optional(), copyImageId: z.number().int().positive().optional(), previousTaskId: z.string().uuid().optional() }).optional(),
+        moduleTarget: z.object({ chapterId: z.number().int().positive(), moduleId: z.string().min(1).max(240), expectedText: z.string().max(200_000), requestId: z.string().uuid(), sceneAllowance: sceneAllowanceSchema.optional(), followReceipt: z.literal(true).optional(), basisHash: z.string().length(64).optional(), adjustment: z.string().trim().max(800).optional(), frameDirection: z.string().trim().min(1).max(800).optional(), copyImageId: z.number().int().positive().optional(), previousTaskId: z.string().uuid().optional() }).optional(),
         renderReferences: shotRenderReferencesSchema.optional(),
         referenceRevision: z.boolean().optional(),
         conversationRevision: z.boolean().optional(),
@@ -2670,6 +2670,10 @@ export const storyAgentRouter = router({
           if (lockedAssets?.promptContract.trim()) prompt += "\n" + lockedAssets.promptContract.trim();
           if (prompt.length > 3500) throw new Error("生成描述与参考素材要求过长，请缩短描述后再生成；本次未提交图片任务。");
         }
+        // Add the author's answer after style synthesis so both book providers
+        // receive the same subject and staging, including unlinked book modules.
+        const frameDirection = input.moduleTarget?.frameDirection;
+        if (frameDirection) prompt = `本轮画面要求优先：${frameDirection}\n${prompt}`;
         const gateContext = {
           sourceOwnerId: ctx.user.id,
           referenceEditPrompt,
@@ -2710,7 +2714,7 @@ export const storyAgentRouter = router({
             !lockedAssets &&
             !input.renderReferences &&
             !referencePlan.usesStoryboardFrames &&
-            !input.explicitInstruction?.trim(),
+            !input.explicitInstruction?.trim() && !frameDirection,
           lockedVisualAssets: lockedAssets
             ? {
                 fingerprint: lockedAssets.fingerprint,
@@ -2814,6 +2818,8 @@ export const storyAgentRouter = router({
         // 场景一致经垫图(--iw)，默认 0.5（可变不卡死），前端可经 sceneWeight 调。
         let renderedFinalPrompt = prompt;
         const result = await renderViaGate(gateContext, async renderedPrompt => {
+          if (frameDirection && !renderedPrompt.includes(frameDirection))
+            throw new Error("本轮画面要求超出模型容量，请精简后再生成。");
           renderedFinalPrompt = renderedPrompt;
           // Table mode: durable "request sent" mark + prompt, immediately before the provider call.
           await moduleImage?.onPrepared?.({ prompt: renderedPrompt, promptCompilationId, promptBillings });

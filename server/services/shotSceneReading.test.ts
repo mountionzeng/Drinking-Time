@@ -4,6 +4,7 @@ import { ENV } from "../_core/env";
 import { analyzeShotScene, confirmShotScene, quoteSceneReading, sceneReadingBasis, readSceneForRender } from "./shotSceneReading";
 import { prepareStoryBody } from "./storySync";
 import { sceneLayoutText } from "../../shared/shotSceneDirection";
+import { intentAnswer, textSceneIntent } from "../../shared/textSceneIntent";
 
 const mocks = vi.hoisted(() => ({ infer: vi.fn(), material: vi.fn(), pixels: vi.fn(), price: vi.fn(), locate: vi.fn(), bytes: vi.fn() }));
 vi.mock("./localFrameRegions", () => ({ locateLocalObjects: mocks.locate, localObjectModelVersion: () => ["test-weights"] }));
@@ -63,6 +64,22 @@ it("uses a text request when there is no source image and never calls it an obse
   expect(result.observed).toBe(""); expect(mocks.pixels).not.toHaveBeenCalled();
   expect(mocks.infer.mock.calls[0][0].useCase).toBe("text");
   expect(JSON.stringify(mocks.infer.mock.calls[0][0].messages)).not.toContain("image_url");
+});
+it("reuses a manual text reply with the current shot and its free image observations", async () => {
+  const scope = await fixture();
+  const source = "A dancer stands on the balcony. A violinist waves.";
+  const basis = await sceneReadingBasis(scope);
+  const answer = intentAnswer(textSceneIntent(source).question, "toward the violinist");
+  expect(answer).toContain("dancer");
+  await confirmShotScene({ ...scope, basisKey: basis.basisKey, text: source + "\n" + answer });
+  expect((await sceneReadingBasis(scope)).confirmed).toContain(answer);
+  expect((await sceneReadingBasis({ ...scope, stableShotId: "other" })).confirmed).toBe("");
+  await expect(sceneReadingBasis({ ...scope, userId: 321 })).rejects.toThrow();
+  mocks.bytes.mockResolvedValue({ bytes: Buffer.from("synthetic stage") });
+  mocks.locate.mockResolvedValue([[]]);
+  const local = { ...scope, imageId: 11, localTargets: ["violin"] };
+  expect(await readSceneForRender(scope, { ...local, ...await quoteSceneReading(local) })).toContain(answer);
+  expect(mocks.infer).not.toHaveBeenCalled();
 });
 it("locates arbitrary objects once per source and retains direction across free reuse without inferring identities", async () => {
   const scope = await fixture();
