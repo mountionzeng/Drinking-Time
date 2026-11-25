@@ -1418,10 +1418,11 @@ export function StoryAgentProvider({
       publishing?: PublishingDraftState;
       publishingBuffers?: Record<string, PublishingDraftBuffer>;
       baseRevision?: number;
-    }, saveReason: "automatic" | "explicit" = "automatic"): Promise<number | undefined> => {
-      if (!shouldSaveArchiveStory(snapshot, saveReason)) return Promise.resolve(undefined);
+    }, saveReason: "automatic" | "explicit" | "creation" = "automatic"): Promise<number | undefined> => {
+      if (!shouldSaveArchiveStory(snapshot, saveReason === "creation" ? "explicit" : saveReason)) return Promise.resolve(undefined);
       const current = storySpineStore.getState();
       const snapshotScopeEpoch = current.storyScopeEpoch;
+      const creationLoadEpoch = saveReason === "creation" ? current.storyLoadEpoch : null;
       const latest =
         snapshot.scripts.length > 0
           ? snapshot.scripts[snapshot.scripts.length - 1]
@@ -1447,6 +1448,7 @@ export function StoryAgentProvider({
         try {
           const latestState = storySpineStore.getState();
           if (userId === null || latestState.accountId !== userId) return undefined;
+          if (creationLoadEpoch !== null && creationLoadEpoch !== latestState.storyLoadEpoch) return undefined;
           const storyId = snapshot.remoteStoryId ?? latestState.remoteStoryId;
           if (
             !canPersistStorySnapshot({
@@ -1492,6 +1494,7 @@ export function StoryAgentProvider({
           if (saved && typeof saved.id === "number") {
             const currentScope = storySpineStore.getState();
             if (
+              (creationLoadEpoch !== null && creationLoadEpoch !== currentScope.storyLoadEpoch) ||
               !canPersistStorySnapshot({
                 snapshotScopeEpoch,
                 currentScopeEpoch: currentScope.storyScopeEpoch,
@@ -3089,8 +3092,11 @@ export function StoryAgentProvider({
   const createNewStory = useCallback(() => {
     storySpineStore.getState().beginStoryLoad();
     clearCurrentStory();
-    setActiveStoryId(-1); // -1 = new unsaved story, will get real ID on first save
-  }, [clearCurrentStory]);
+    setActiveStoryId(-1);
+    void saveArchiveStory({
+      messages: [], cards: [], scripts: [], storyShots: [], characters: [],
+    }, "creation");
+  }, [clearCurrentStory, saveArchiveStory]);
 
   const backToList = useCallback(() => {
     storySpineStore.getState().beginStoryLoad();

@@ -40,6 +40,12 @@ vi.mock("@/lib/trpc", () => {
         parts: { useQuery: () => ({ data: [] }) },
         preview: { useQuery: () => ({ data: undefined }) },
         send: mutation,
+        publishMemory: mutation,
+        memoryVersion: { useQuery: () => ({ data: {
+          version: 2, markdown: "## Source\nStart with the photo.",
+          added: ["Start with the photo."], removed: ["Start with the sound."],
+          isLatest: true, recipientStoryId: 1,
+        } }) },
         receive: mutation,
         removeContact: mutation,
       },
@@ -92,6 +98,17 @@ const render = (selection: string | null = "friend") =>
     </UiLanguageContext.Provider>
   );
 describe("mailbox interface", () => {
+  it("shows shared note edits and an explicit adoption action apart from story receipt", () => {
+    fixtures.entries[0].changes = [{ kind: "storyMemory", updated: 1 }];
+    const html = render();
+    expect(html).toContain("Share creative notes");
+    expect(html).toContain("Open note update");
+    expect(html).toContain("Start with the photo.");
+    expect(html).toContain("Start with the sound.");
+    expect(html).toContain("Use in my story");
+    expect(html).not.toContain("Accept this version");
+    expect(fixtures.mutate).not.toHaveBeenCalled();
+  });
   it("shows the contributor, concrete changes, independent receipt and consent in English", () => {
     const html = render();
     expect(html).toContain("岱");

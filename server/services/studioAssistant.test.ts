@@ -14,6 +14,7 @@ import {
   removeMailboxContact,
 } from "../repositories/storyMailbox";
 import { studioAssistantRouter } from "../routers/studioAssistant";
+import { publishMailboxMemory } from "../repositories/storyMailboxMemory";
 import {
   executeStudioPlan,
   confirmStudioAssistant,
@@ -88,6 +89,26 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 describe("interface assistant permission and real mailbox execution", () => {
+  it("uses the opened friend's note as the exact target of a confirmed chat adoption", async () => {
+    await publishMailboxMemory(1, "甲", {
+      contactId: mailboxContactId(1, 2), storyId, requestId: randomUUID(),
+      markdown: "书页没有注明合影的拍摄日期。",
+    });
+    const target = (await createStory({ userId: 2, title: "我的处理", body: {} })).id;
+    const entry = memoryState.storyMailboxEntries[0];
+    const context = { ...ui, storyId: target, contactId: mailboxContactId(2, 1), mailboxOpen: true, mailboxMemoryEntryId: entry.id };
+    const result = await planStudioAssistant({ userId: 2, ui: context, history: [], message: "把这段用到我这版里" });
+    expect(model).not.toHaveBeenCalled();
+    expect(result.reply).toContain("《我的处理》");
+    expect(result.pending?.kind).toBe("receive");
+    expect(entry.receivedStoryId).toBeNull();
+    await expect(confirm(result.pending!.token, "确认接收", 2, { ...context, mailboxMemoryEntryId: null }))
+      .rejects.toMatchObject({ code: "FORBIDDEN" });
+    const adopted = await confirm(result.pending!.token, "确认接收", 2, context);
+    expect(adopted.uiAction).toBeUndefined(); // Keep the recipient's in-progress editor open.
+    expect(adopted.reply).toContain("已加入当前故事");
+    expect(entry.receivedStoryId).toBe(target);
+  });
   it("reads and navigates without sending or receiving anything", async () => {
     expect((await run({ tool: "inspect_workspace" })).reply).toContain("纸船");
     expect(

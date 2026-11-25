@@ -10,6 +10,8 @@ import { openMemoryWarehouse } from "@/features/memoryWarehouse/memoryWarehouseE
 import { conversationSections } from "../conversationSections";
 import type { ChatMessage } from "../types";
 import { stripAssistantReasoning } from "@shared/assistantReplyText";
+import { storyMemoryFilePath, storyMemoryMarkdown } from "@shared/storyMemoryDocument";
+import { useStorySpine } from "../spine/storySpine";
 
 const visibleMessageText = (message: ChatMessage) => message.role === "assistant" ? stripAssistantReasoning(message.content) : message.content;
 
@@ -47,6 +49,7 @@ export default function StoryChatContents({
   disabled: boolean;
 }) {
   const _ui = useDesktopUiText();
+  const storyId = useStorySpine(state => state.activeStoryId);
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const locating = useRef(false);
@@ -77,6 +80,14 @@ export default function StoryChatContents({
           }}
         >
           <h2 className="font-serif text-base">{_ui("故事里的对话")}</h2>
+          {storyId != null && <a
+            className="mt-1 inline-block text-xs underline underline-offset-2"
+            href={storyId > 0 ? storyMemoryFilePath(storyId) + "?view=1" :
+              "data:text/markdown;charset=utf-8," + encodeURIComponent(storyMemoryMarkdown({ messages }))}
+            target={storyId > 0 ? "_blank" : undefined}
+            rel="noopener noreferrer"
+            download={storyId > 0 ? undefined : "MEMORY.md"}
+          >MEMORY.md</a>}
           <p className="mb-3 mt-1 text-xs text-muted-foreground">
             {_ui("点一句原话，回到当时的上下文。")}</p>
           <input

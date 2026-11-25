@@ -1,3 +1,4 @@
+import { readStoryMemory } from "../repositories/storyMemoryDocument";
 import { bookModuleVisualBasis, bookModuleRenderStyle } from "../services/bookModuleVisualBasis";
 import { sceneAllowanceSchema, sceneRenderTotal, type SceneAllowance } from "../../shared/shotSceneDirection";
 import { readSceneForRender } from "../services/shotSceneReading";
@@ -425,6 +426,7 @@ export const storyAgentRouter = router({
             writingContext: { ...input.writingContext, fullDraft: true },
             storyTitle: story.title,
             uiContext: input.uiContext,
+            storyMemory: await readStoryMemory(story, true),
           }), configured: true };
         } catch (error) {
           if (error instanceof WritingCompanionInputError) throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
@@ -433,6 +435,7 @@ export const storyAgentRouter = router({
       }
       return replyFromStoryAgent({
         referenceContext: inheritedStoryReference(story?.body),
+        storyMemory: story ? await readStoryMemory(story, true) : undefined,
         message: inlineContent ? inlineChatInstruction(input.message) : input.message,
         inlineImageContent: inlineContent,
         history: input.history?.map(turn => ({ ...turn, content: hasInlineChatImages(turn.content) ? inlineChatInstruction(turn.content) : turn.content })),

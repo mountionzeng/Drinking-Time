@@ -18,6 +18,7 @@ import { useUiLanguage, useUiText } from "@/features/uiLanguage/UiLanguage";
 import type { ShareBackNotice } from "@shared/shareBackInbox";
 import { inventoryText, changeText } from "./mailboxPresentation";
 import { LegacyMailbox } from "./LegacyMailbox";
+import { MailboxMemoryComposer, MailboxMemoryEntry } from "./MailboxMemory";
 const button =
   "inline-flex min-h-9 items-center justify-center gap-2 rounded-md border border-[var(--panel-border)] px-3 py-2 text-sm transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50";
 export function StoryMailbox({
@@ -31,7 +32,9 @@ export function StoryMailbox({
   onContactChange,
   nativeReceipt,
   onDraftChange,
+  onMemoryPreview,
 }: {
+  onMemoryPreview?: (entryId: string, open: boolean) => void;
   onDraftChange?: (
     draft: import("@shared/studioAssistant").StudioUiContext["mailboxDraft"]
   ) => void;
@@ -67,6 +70,7 @@ export function StoryMailbox({
             key={`${userId}:${initialSection}:${nativeReceipt?.id ?? ""}`}
             nativeReceipt={nativeReceipt}
             onDraftChange={onDraftChange}
+            onMemoryPreview={onMemoryPreview}
             initialSection={initialSection}
             onContactChange={onContactChange}
             currentStoryId={currentStoryId}
@@ -91,7 +95,9 @@ export function MailboxContents({
   onContactChange,
   nativeReceipt,
   onDraftChange,
+  onMemoryPreview,
 }: {
+  onMemoryPreview?: (entryId: string, open: boolean) => void;
   onDraftChange?: (
     draft: import("@shared/studioAssistant").StudioUiContext["mailboxDraft"]
   ) => void;
@@ -114,6 +120,7 @@ export function MailboxContents({
     ),
     [compose, setCompose] = useState(false),
     [remove, setRemove] = useState(false);
+  const [shareMemory, setShareMemory] = useState(false);
   const [destination, setDestination] = useState<"web" | "wechat">("web"),
     [receipt, setReceipt] = useState(nativeReceipt ?? null);
   const nativeStatus = trpc.storyMailbox.nativeStatus.useQuery(undefined, {
@@ -262,6 +269,7 @@ export function MailboxContents({
     setSelection(id);
     setCursor(undefined);
     setCompose(false);
+    setShareMemory(false);
     setRemove(false);
     setError("");
   }
@@ -324,14 +332,14 @@ export function MailboxContents({
       inFlight.current = false;
     }
   }
-  async function accept(id: string) {
+  async function accept(id: string, targetStoryId?: number) {
     if (inFlight.current) return;
     inFlight.current = true;
     setError("");
     try {
-      const result = await receive.mutateAsync({ entryId: id });
+      const result = await receive.mutateAsync({ entryId: id, targetStoryId });
       await invalidate();
-      if (alive.current) onOpenStory(result.storyId);
+      if (alive.current && result.storyId !== currentStoryId) onOpenStory(result.storyId);
     } catch {
       setError(t("接收未完成，原有作品保留，请重试。"));
     } finally {
@@ -630,6 +638,12 @@ export function MailboxContents({
                   <Send className="h-4 w-4" />
                   {t("发送故事")}
                 </button>
+                {currentStoryId != null && currentStoryId > 0 && (
+                  <button type="button" className={button} disabled={busy || selected.removed}
+                    onClick={() => setShareMemory(value => !value)}>
+                    {t("分享创作笔记")}
+                  </button>
+                )}
                 <button
                   type="button"
                   className={button}
@@ -641,6 +655,11 @@ export function MailboxContents({
                 </button>
               </div>
             </header>
+            {shareMemory && currentStoryId != null && currentStoryId > 0 && !selected.removed && (
+              <MailboxMemoryComposer key={`${contactId}:${currentStoryId}`} contactId={contactId}
+                storyId={currentStoryId} buttonClass={button} onCancel={() => setShareMemory(false)}
+                onPublished={async () => { setShareMemory(false); setCursor(undefined); await invalidate(); }} />
+            )}
             {remove ? (
               <div
                 className="mb-5 space-y-3 rounded-md border p-4"
@@ -729,7 +748,9 @@ export function MailboxContents({
                     <span>
                       {entry.authorName} ·{" "}
                       {t(
-                        entry.kind === "received"
+                        entry.changes.some(change => change.kind === "storyMemory")
+                          ? entry.kind === "updated" ? "更新了创作笔记" : "分享了创作笔记"
+                        : entry.kind === "received"
                           ? "接收了故事"
                           : entry.kind === "updated"
                             ? "更新了故事"
@@ -753,6 +774,12 @@ export function MailboxContents({
                       ))}
                     </ul>
                   ) : null}
+                  {entry.changes.some(change => change.kind === "storyMemory") ? (
+                    <MailboxMemoryEntry entry={entry} contactId={contactId} removed={selected.removed}
+                      busy={busy} buttonClass={button} currentStoryId={currentStoryId}
+                      onAdopt={(id, storyId) => void accept(id, storyId)}
+                      onOpenStory={onOpenStory} onPublished={invalidate} onPreview={onMemoryPreview} />
+                  ) : <>
                   <p className="text-xs leading-5 text-muted-foreground">
                     {inventoryText(entry.inventory, t)}
                   </p>
@@ -789,6 +816,7 @@ export function MailboxContents({
                       </button>
                     </div>
                   ) : null}
+                  </>}
                 </li>
               ))}
             </ol>

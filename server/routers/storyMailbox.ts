@@ -26,8 +26,23 @@ import {
   mailboxStoryChoices,
 } from "../repositories/storyMailboxActions";
 import { receiveMailboxStory } from "../repositories/storyMailboxImport";
+import { publishMailboxMemory, readMailboxMemory } from "../repositories/storyMailboxMemory";
 const contact = z.object({ contactId: z.string().length(43) });
 export const storyMailboxRouter = router({
+  publishMemory: protectedProcedure.input(contact.extend({
+    storyId: z.number().int().positive(),
+    markdown: z.string().trim().min(1).max(12_000),
+  }).and(z.union([
+    z.object({ requestId: z.string().uuid(), threadId: z.never().optional() }),
+    z.object({ threadId: z.string().uuid(), expectedVersion: z.number().int().positive(), requestId: z.never().optional() }),
+  ]))).mutation(({ ctx, input }) =>
+    publishMailboxMemory(ctx.user.id, ctx.user.name?.trim().slice(0, 100) || "朋友", input)
+  ),
+  memoryVersion: protectedProcedure.input(z.object({ entryId: z.string().uuid() }))
+    .query(({ ctx, input }) => {
+      ctx.res.setHeader?.("Cache-Control", "private, no-store");
+      return readMailboxMemory(ctx.user.id, input.entryId);
+    }),
   nativeStatus: protectedProcedure.query(async ({ ctx }) => ({
     enabled: mailboxHandoffCanCreate(ctx.user.id) && wechatLoginQrConfigured(),
     bound:
@@ -120,9 +135,9 @@ export const storyMailboxRouter = router({
       refreshMailboxThread(ctx.user.id, input.threadId)
     ),
   receive: protectedProcedure
-    .input(z.object({ entryId: z.string().uuid() }))
+    .input(z.object({ entryId: z.string().uuid(), targetStoryId: z.number().int().positive().optional() }))
     .mutation(({ ctx, input }) =>
-      receiveMailboxStory(ctx.user.id, input.entryId)
+      receiveMailboxStory(ctx.user.id, input.entryId, input.targetStoryId)
     ),
   markRead: protectedProcedure
     .input(contact.extend({ entryIds: z.array(z.string().uuid()).max(30) }))

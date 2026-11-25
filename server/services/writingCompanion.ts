@@ -15,6 +15,7 @@ import { studioContextDescription, type StudioUiContext } from "../../shared/stu
  *   用户原话进入记忆；草稿只有用户点「放进正文」并保存后才成为正文。
  */
 import type { Message } from "../_core/llm";
+import { storyMemoryReferenceRule } from "../../shared/storyMemoryDocument";
 import { invokeAgent } from "../_core/agentChannel";
 import { parseJsonLoose } from "../_core/llmJson";
 import { stripAssistantReasoning } from "../../shared/assistantReplyText";
@@ -332,6 +333,7 @@ export async function replyAsWritingCompanion(
     writingContext: WritingCompanionContext;
     storyTitle?: string | null;
     uiContext?: StudioUiContext;
+    storyMemory?: string;
   },
   invoke: WritingCompanionInvoke = (messages, maxTokens) =>
     invokeAgent(
@@ -344,6 +346,10 @@ export async function replyAsWritingCompanion(
     )
 ): Promise<{ reply: string; modelLabel: string; rewriteText?: string }> {
   const module = input.writingContext.module;
+  const memoryMessages: Message[] = input.storyMemory ? [
+    { role: "system", content: storyMemoryReferenceRule },
+    { role: "user", content: input.storyMemory },
+  ] : [];
   const rewriteSource = module?.kind === 'text' ? input.writingContext.rewriteSource : undefined;
   const bookRewrite = Boolean(rewriteSource && module?.scope.includes(':chapter:'));
   const memory = input.writingContext.layoutMemory;
@@ -372,6 +378,7 @@ export async function replyAsWritingCompanion(
             ...(bookRewrite ? [BOOK_TEXT_FORMAT_RULE] : []),
           ].join("\n"),
         },
+        ...memoryMessages,
         ...input.history.slice(-10).map(turn => ({
           role: turn.role,
           content:
@@ -478,6 +485,7 @@ export async function replyAsWritingCompanion(
       role: "system" as const,
       content: `【本次打开聊天时的引子，仅作背景，不是最新提问】\n${opening}\n【引子结束】以下历史和用户本轮回应优先；已回答或跳过的问题不要再问。`,
     }] : []),
+    ...memoryMessages,
     ...input.history.slice(-10).map(turn => ({
       role: turn.role,
       content:

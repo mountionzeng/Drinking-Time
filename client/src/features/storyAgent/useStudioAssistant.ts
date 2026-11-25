@@ -1,6 +1,7 @@
 import { useRef } from "react";
 import { trpc } from "@/lib/trpc";
 import {
+  isSelectedMailboxMemoryAdoption,
   isStudioAssistantRequest,
   studioConfirmation,
   STUDIO_ASSISTANT_CHANGED,
@@ -36,12 +37,14 @@ export function useStudioAssistant(
     const scopeKey = () => {
       const s = storySpineStore.getState(),
         ui = latest.current.getContext();
-      return `${s.accountId}:${s.activeStoryId}:${s.storyScopeEpoch}:${s.storyLoadEpoch}:${ui.workspace}:${ui.warehouseOpen}:${ui.mailboxOpen}:${ui.contactId}:${JSON.stringify(ui.mailboxDraft ?? null)}`;
+      return `${s.accountId}:${s.activeStoryId}:${s.storyScopeEpoch}:${s.storyLoadEpoch}:${ui.workspace}:${ui.warehouseOpen}:${ui.mailboxOpen}:${ui.contactId}:${ui.mailboxMemoryEntryId ?? ""}:${JSON.stringify(ui.mailboxDraft ?? null)}`;
     };
     const scope = scopeKey();
     if (pending.current?.scope !== scope) pending.current = null;
     const decision = studioConfirmation(message);
-    if (!decision && !isStudioAssistantRequest(message)) {
+    const ui = submittedUi ?? latest.current.getContext();
+    const adoptSelected = Boolean(ui.mailboxMemoryEntryId && isSelectedMailboxMemoryAdoption(message));
+    if (!decision && !adoptSelected && !isStudioAssistantRequest(message)) {
       pending.current = null;
       return null;
     }
@@ -50,7 +53,6 @@ export function useStudioAssistant(
         handled: true,
         reply: "上一项操作仍在处理 / The previous action is still running",
       };
-    const ui = submittedUi ?? latest.current.getContext();
     const text = (zh: string, en: string) => (ui.language === "zh" ? zh : en);
     if (decision === "cancel") {
       pending.current = null;

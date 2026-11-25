@@ -10,6 +10,7 @@ import { INHERITED_STORY_REFERENCE_RULE } from "../../shared/storyContextShare";
 import type { MemoryCardSnapshot } from "../../shared/memoryWarehouse";
 import { CREATIVE_EXPLORATION_RULE } from "../../shared/creativeExploration";
 import { BOOK_TEXT_FORMAT_RULE } from "../../shared/bookTextFormat";
+import { storyMemoryReferenceRule } from "../../shared/storyMemoryDocument";
 
 export type WritingEvidence = {
   storyId: number;
@@ -35,7 +36,8 @@ export function compileTextDraftPrompt(
   referenceContext = "",
   memoryCards?: MemoryCardSnapshot[],
   conversationSnapshot: TextDraftMessage[] = input.messages,
-  creationEmotion?: CreationEmotionSnapshot
+  creationEmotion?: CreationEmotionSnapshot,
+  storyMemory?: string
 ) {
   // Keep continuing requirements outside the draft (audience, exclusions, etc.).
   // Delta turns are sent once, separately, so current corrections take priority.
@@ -49,6 +51,7 @@ export function compileTextDraftPrompt(
         ? "你是帮助用户表达的文字编辑。本次仅改写 selectedText，draft.body 只返回选区的新文字，不包含选区外的正文。系统会把它放回原位置形成完整新版本。"
         : "你是帮助用户表达的文字编辑。生成当前平台的一份完整新稿，并进行有证据的文风判断。",
       CREATIVE_EXPLORATION_RULE,
+      ...(storyMemory && !memoryCards ? [storyMemoryReferenceRule] : []),
       "当前是用户主动发起的生成。按本次允许的范围直接输出正文，不再开启素材问答；不要把正文写成问答记录。把有依据的旧稿与新理解组织成表达，缺少的事实不编造，尚未确定的感受允许保持未定。",
       ...(memoryCards
         ? [
@@ -87,6 +90,7 @@ export function compileTextDraftPrompt(
         : {}),
       ...(memoryCards ? { selectedMemoryCards: memoryCards } : {}),
       ...(referenceContext ? { sourceStoryReference: referenceContext } : {}),
+      ...(storyMemory && !memoryCards ? { storyMemory } : {}),
       source: input.source,
       conversationContext,
       conversationDelta: memoryCards ? [] : delta,

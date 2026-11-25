@@ -1,4 +1,5 @@
 import { getChapter } from "../repositories/chapters";
+import { readStoryMemory } from "../repositories/storyMemoryDocument";
 import { storyEmotion } from "./creationEmotion";
 import { readyTextSource } from "../repositories/textSourceLineage";
 import { generatedBookText } from "../../shared/bookTextFormat";
@@ -320,7 +321,8 @@ export async function generateTextDraft(
     memoryCards ? "" : inheritedStoryReference(body),
     memoryCards,
     snapshot,
-    creationEmotion
+    creationEmotion,
+    memoryCards ? undefined : await readStoryMemory(story, true, durable)
   );
   if (prompt.modelMessage.length > 160_000)
     throw bad("写作上下文过长，请缩短本次材料");

@@ -725,6 +725,14 @@ export default function EditingStudioPage() {
   useEffect(()=>{setMailboxNativeReceipt(null);setMailboxDraft(null);setMailboxOpen(false);},[user?.id]);
   const [mailboxSection,setMailboxSection]=useState<string|null>(null);
   const [mailboxContactId, setMailboxContactId] = useState<string | null>(null);
+  const [mailboxMemoryEntryId, setMailboxMemoryEntryId] = useState<string | null>(null);
+  const setMailboxContactIdAndClearMemory = useCallback((id: string | null) => {
+    setMailboxContactId(id);
+    setMailboxMemoryEntryId(null);
+  }, []);
+  const setMailboxMemoryPreview = useCallback((id: string, open: boolean) => {
+    setMailboxMemoryEntryId(current => open ? id : current === id ? null : current);
+  }, []);
   const pendingMailboxVersion=useRef<string|null>(null);
   useEffect(()=>{
     const open=(event:Event)=>{event.preventDefault();setMailboxSection((event as CustomEvent).detail?.section??null);setMailboxOpen(true);};
@@ -763,11 +771,12 @@ export default function EditingStudioPage() {
     return { storyId: state.activeStoryId && state.activeStoryId > 0 ? state.activeStoryId : null,
       workspace, warehouseOpen: materialVisible, mailboxOpen,
       contactId: mailboxOpen ? mailboxContactId : null,
+      mailboxMemoryEntryId: mailboxOpen && mailboxContactId ? mailboxMemoryEntryId : null,
       mailboxDraft: mailboxOpen ? mailboxDraft : null,
       saveStatus: hasPendingStudioDraft(state.accountId, state.activeStoryId, state.storyScopeEpoch) ? "pending" : state.saveStatus === "saved" ? "saved" : state.saveStatus === "idle" ? "unknown" : "pending",
       selection: selectedText ? { kind: "writing", label: selectedText.slice(0, 600) } : selectedModule && moduleLabel ? { kind: selectedModule.kind, label: moduleLabel } : selection && selection.storyId === state.activeStoryId ? { kind: selection.sourceType, label: (selection.fullText || selection.sourceId).slice(0, 600) } : null,
       language };
-  }, [workspace, materialVisible, mailboxOpen, mailboxContactId, mailboxDraft, language]);
+  }, [workspace, materialVisible, mailboxOpen, mailboxContactId, mailboxDraft, mailboxMemoryEntryId, language]);
   const applyInterfaceAction = useCallback((action: StudioUiAction) => {
     if (action.type === "wechatHandoff") { setMailboxNativeReceipt(user?.id ? {...action.receipt,ownerId:user.id} : null);setMailboxSection(null);setMailboxOpen(true); }
     else if (action.type === "mailbox") { setMailboxSection(action.contactId ?? null); setMailboxOpen(true); }
@@ -990,7 +999,7 @@ export default function EditingStudioPage() {
           window.dispatchEvent(new CustomEvent(STUDIO_TOUR_REPLAY_EVENT));
         }}
       />
-      <StoryMailbox onDraftChange={setMailboxDraft} nativeReceipt={mailboxNativeReceipt?.ownerId === user?.id ? mailboxNativeReceipt : null} onContactChange={setMailboxContactId} initialSection={mailboxSection} open={mailboxOpen} onOpenChange={setMailboxOpen} userId={user?.id} currentStoryId={activeStoryId} shareBacks={shareBackNotices.notices} onOpenStory={(id,versionId)=>{pendingMailboxVersion.current=versionId??null;openStory(id);}} />
+      <StoryMailbox onDraftChange={setMailboxDraft} nativeReceipt={mailboxNativeReceipt?.ownerId === user?.id ? mailboxNativeReceipt : null} onContactChange={setMailboxContactIdAndClearMemory} onMemoryPreview={setMailboxMemoryPreview} initialSection={mailboxSection} open={mailboxOpen} onOpenChange={setMailboxOpen} userId={user?.id} currentStoryId={activeStoryId} shareBacks={shareBackNotices.notices} onOpenStory={(id,versionId)=>{pendingMailboxVersion.current=versionId??null;openStory(id);}} />
       <StudioTour blockedByOverlay={dailyLetterOpen || accountMemoriesOpen || mailboxOpen} />
       <DailyLetterWelcome
         suspended={accountMemoriesOpen || mailboxOpen}

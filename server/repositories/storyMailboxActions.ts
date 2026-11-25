@@ -193,6 +193,8 @@ export async function refreshMailboxThread(userId: number, threadId: string) {
           : memoryState.storyMailboxEntries
               .filter(e => e.threadId === threadId && e.senderId === owner)
               .slice(-1);
+        // A shared notebook only receives explicitly published Markdown.
+        if (last?.snapshot.memory) break;
         const full = await captureMailboxPackage(storyId, owner, sql).catch(
           e => {
             if (e instanceof TRPCError && e.code === "NOT_FOUND") return null;

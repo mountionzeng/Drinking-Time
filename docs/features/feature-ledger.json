@@ -1,6 +1,20 @@
 {
   "features": [
     {
+      "id": "per-story-memory-document",
+      "name": "每个故事的 Markdown 创作笔记",
+      "status": "working",
+      "userValue": "新故事自带 MEMORY.md，随实际创作自动更新。作者能在邮箱分享确定的 Markdown 版本，好友看到具体改动后自行采用。",
+      "entryPoints": ["client/src/features/storyAgent/views/StoryChatContents.tsx", "server/_core/storyMemoryFile.ts", "server/routers/storyAgent.ts", "client/src/features/storyMailbox/MailboxMemory.tsx"],
+      "owners": ["shared/storyMemoryDocument.ts", "server/repositories/storyMemoryDocument.ts", "server/repositories/stories.ts", "server/services/textDraftPrompt.ts", "server/repositories/storyMailboxMemory.ts", "server/services/studioAssistant.ts"],
+      "evidence": ["server/storyMemoryDocument.test.ts", "server/services/textDraftHistory.test.ts", "server/routers.storyMailbox.test.ts", "server/integration/storyMailbox.mysql.test.ts", "client/src/features/storyMailbox/StoryMailbox.test.tsx", "docs/qa/2026-11-25-story-memory.md"],
+      "invariants": ["笔记跟随单一故事及其所有者。原话或转述、提议、已确认方向及版本分别记录。", "笔记读取和整理不额外调用模型；选卡生成只读取明确选取的素材。", "共享笔记按明确发布的文本生成独立不可变版本，双方私人材料不跟随。接收者明确采用后才作为故事来源。"],
+      "dependencies": ["story-ownership", "story-mailbox"],
+      "replaces": [],
+      "knownGaps": ["聊天发言人可追溯，转发内容的最初作者仍需在原文中指明。", "双账号接口与隔离 MySQL 通过，浏览器双登录互传待验收。"],
+      "history": [{"date":"2026-11-25","kind":"feature","summary":"接入新建故事和存档、持久对话、网页聊天与书稿引用，并提供按故事鉴权的 Markdown 入口。"},{"date":"2026-11-25","kind":"feature","summary":"新建即保存笔记，接入作者明确留的笔记与纠错。网页版邮箱可发布明确共享的 Markdown、对比更新并采用到独立故事。"}]
+    },
+    {
       "id": "studio-aware-conversation-actions",
       "name": "感知当前界面的对话操作",
       "status": "observing",
@@ -14447,7 +14461,7 @@
         "docs/qa/2026-11-13-mailbox-live-acceptance.md"
       ],
       "invariants": [
-        "只发送实际已有且已保存的故事内容和版本；不发送记忆、聊天、生成提示词、供应商回执或凭据。",
+        "普通故事发送只含实际已有且已保存的作品及版本，不含记忆、聊天、生成提示词、供应商回执或凭据。明确发布的创作笔记使用独立来信。",
         "身份来自登录会话，联系人使用不透明ID；不可读取其他账号、第三人的来稿或素材。",
         "发送及接收有明确提示并建立持续共享；查看邮箱时读取最新保存状态形成带作者的不可变记录，不自动覆盖双方原稿。",
         "接收为独立故事，重新绑定受保护视频、音频及剪辑线素材身份；幂等重试不重复建副本，失败不留下半份故事。",

@@ -1,4 +1,66 @@
 {
+  "采用到当前故事": {"en": "Use in current story", "fr": "Utiliser dans l’histoire actuelle"},
+  "采用并新建故事": {"en": "Use in a new story", "fr": "Utiliser dans une nouvelle histoire"},
+  "允许好友查看的 Markdown": {
+    "en": "Markdown to share with this friend",
+    "fr": "Markdown à partager avec cet ami"
+  },
+  "只发送这里的文字。你可以贴上要分享的段落和它的出处。": {
+    "en": "Only the text below will be sent. You can paste the passages and their sources.",
+    "fr": "Seul ce texte sera envoyé. Vous pouvez coller les passages et leurs sources."
+  },
+  "发布未完成。如果已有新版，请打开最新来信再修改。": {
+    "en": "Could not publish. If a newer version exists, open the latest letter and try again.",
+    "fr": "Publication impossible. Ouvrez le dernier courrier si une nouvelle version existe."
+  },
+  "发布笔记更新": {
+    "en": "Publish note update",
+    "fr": "Publier la mise à jour"
+  },
+  "确认分享笔记": {
+    "en": "Share this note",
+    "fr": "Partager cette note"
+  },
+  "查看共享笔记": {
+    "en": "Open shared note",
+    "fr": "Ouvrir la note partagée"
+  },
+  "查看笔记更新": {
+    "en": "Open note update",
+    "fr": "Ouvrir la mise à jour"
+  },
+  "笔记暂时无法读取，请稍后重试。": {
+    "en": "The note could not be loaded. Try again shortly.",
+    "fr": "Impossible de charger la note. Réessayez dans un instant."
+  },
+  "调整了行序或空行": {
+    "en": "Line order or blank lines changed",
+    "fr": "L’ordre des lignes ou les lignes vides ont changé"
+  },
+  "编辑共享笔记": {
+    "en": "Edit shared note",
+    "fr": "Modifier la note partagée"
+  },
+  "采用到我的故事": {
+    "en": "Use in my story",
+    "fr": "Utiliser dans mon histoire"
+  },
+  "分享创作笔记": {
+    "en": "Share creative notes",
+    "fr": "Partager les notes de création"
+  },
+  "分享了创作笔记": {
+    "en": "Shared creative notes",
+    "fr": "A partagé des notes de création"
+  },
+  "更新了创作笔记": {
+    "en": "Updated creative notes",
+    "fr": "A mis à jour les notes de création"
+  },
+  "创作笔记": {
+    "en": "Creative notes",
+    "fr": "Notes de création"
+  },
   "出图前读一遍文字": {"en":"Review the text before generating","fr":"Relire le texte avant la génération"},
   "这一帧要画什么": {"en":"What goes in this frame","fr":"Ce qui apparaît dans cette image"},
   "这一刻，{0}看向哪里？": {"en":"Where is {0} looking at this moment?","fr":"Où regarde {0} à cet instant ?"},

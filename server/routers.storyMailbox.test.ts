@@ -9,6 +9,8 @@ import type { TrpcContext } from "./_core/context";
 import * as s from "../drizzle/schema";
 import { storyMailboxRouter } from "./routers/storyMailbox";
 import { createStory } from "./repositories/stories";
+import { getStoryById, updateStoryBodyIfRevision } from "./repositories/stories";
+import { readStoryMemory } from "./repositories/storyMemoryDocument";
 import {
   getDb,
   memoryState,
@@ -74,6 +76,61 @@ function blocks(body: string): s.StoryChapter["blocks"] {
     illustrations: [],
   };
 }
+
+it("shares selected Markdown in immutable versions, applies updates only after acceptance, and keeps both private memories independent", async () => {
+  const alice = api(1);
+  const bob = api(2);
+  const aid = mailboxContactId(1, 2);
+  const bid = mailboxContactId(2, 1);
+  const { id } = await createStory({ userId: 1, title: "满城 · 测试", body: {
+    _revision: 1, messages: [{ role: "user", content: "A 的私人对话" }],
+  } });
+  const initial = { storyId: id, contactId: aid, requestId: randomUUID(), markdown: "## 书页\n合影从左往右看。" };
+  const first = await alice.publishMemory(initial);
+  expect(first.version).toBe(1);
+  expect(await alice.publishMemory(initial)).toEqual(first);
+  const firstLetter = (await bob.history({ contactId: bid })).entries[0];
+  expect(firstLetter.changes[0].kind).toBe("storyMemory");
+  expect((await bob.memoryVersion({ entryId: firstLetter.id })).markdown).toBe(initial.markdown);
+  await expect(api(3).memoryVersion({ entryId: firstLetter.id })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  const { id: existingBobStory } = await createStory({ userId: 2, title: "B 的既有故事", body: { _revision: 1 } });
+  await expect(bob.receive({ entryId: firstLetter.id, targetStoryId: id })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  const { storyId: copyId } = await bob.receive({ entryId: firstLetter.id, targetStoryId: existingBobStory });
+  expect(copyId).toBe(existingBobStory);
+  const copy = (await getStoryById(copyId, 2))!;
+  const bMarkdown = async () => readStoryMemory((await getStoryById(copyId, 2))!);
+  expect(await bMarkdown()).toContain(initial.markdown.replace("\n", "\n  "));
+  expect(await bMarkdown()).not.toContain("A 的私人对话");
+  await updateStoryBodyIfRevision({ id: copyId, userId: 2, expectedRevision: 1,
+    body: { ...(copy.body as object), _revision: 2, messages: [{ role: "user", content: "B 的私有决定" }] } });
+  await updateStoryBodyIfRevision({ id, userId: 1, expectedRevision: 1,
+    body: { _revision: 2, messages: [{ role: "user", content: "A 改了私人意图" }] } });
+  expect(await bob.refresh({ threadId: first.threadId })).toEqual({ added: 0 });
+  expect((await alice.history({ contactId: aid })).entries).toHaveLength(1);
+  const update = { contactId: aid, storyId: id, threadId: first.threadId, expectedVersion: 1,
+    markdown: "## 书页\n合影先从右边的彭正谟看起。", };
+  expect((await alice.publishMemory(update)).version).toBe(2);
+  expect((await alice.publishMemory(update)).version).toBe(2);
+  await expect(alice.publishMemory({ ...update, markdown: "并行误覆盖" })).rejects.toMatchObject({ code: "CONFLICT" });
+  const inbox = await bob.history({ contactId: bid });
+  expect(inbox.entries).toHaveLength(2);
+  expect(inbox.entries[0]).toMatchObject({ kind: "updated", unread: true });
+  const updateId = inbox.entries[0].id;
+  expect(await bob.memoryVersion({ entryId: updateId })).toMatchObject({
+    version: 2, added: ["合影先从右边的彭正谟看起。"], removed: ["合影从左往右看。"],
+  });
+  expect(await bMarkdown()).not.toContain("右边的彭正谟");
+  expect((await bob.receive({ entryId: updateId })).storyId).toBe(copyId);
+  expect(await bMarkdown()).toContain("右边的彭正谟");
+  expect(await bMarkdown()).toContain("B 的私有决定");
+  expect(await bMarkdown()).not.toMatch(/从左往右看|A 改了私人意图/);
+  expect((await bob.memoryVersion({ entryId: firstLetter.id })).markdown).toBe(initial.markdown);
+  expect(await alice.refresh({ threadId: first.threadId })).toEqual({ added: 0 });
+  expect(JSON.stringify(await alice.history({ contactId: aid }))).not.toContain("B 的私有决定");
+  await bob.removeContact({ contactId: bid });
+  await expect(alice.publishMemory({ ...update, expectedVersion: 2, markdown: "更新三" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+  expect((await bob.memoryVersion({ entryId: firstLetter.id })).version).toBe(1);
+});
 async function story(owner = 1) {
   const publishing = upsertPublishingPlatformDraft(
     emptyPublishingDraftState(),

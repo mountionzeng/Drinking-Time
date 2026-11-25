@@ -18,6 +18,7 @@ export const studioUiContextSchema = z
     warehouseOpen: z.boolean(),
     mailboxOpen: z.boolean(),
     contactId: z.string().length(43).nullable(),
+    mailboxMemoryEntryId: z.string().uuid().nullable().optional(),
     saveStatus: z.enum(["saved", "pending", "unknown"]),
     selection: z
       .object({ kind: z.string().max(50), label: z.string().max(600) })
@@ -91,12 +92,15 @@ export type StudioAssistantResult = {
 };
 export const STUDIO_ASSISTANT_CHANGED = "dt:studio-assistant-mailbox-changed";
 
+export const isSelectedMailboxMemoryAdoption = (text: string) =>
+  /^(?:请)?(?:帮我)?(?:把)?(?:这段|这封来信|这份笔记)(?:用到|用在|加到|采用到|放到)(?:我这版|我的版本|当前故事)(?:里|中)?[。！.!]?$|^(?:please )?(?:use|add) this (?:passage|note|letter) (?:in|to) my (?:version|story)[.!]?$/i.test(text.trim());
+
 /** Eligibility only: the server model selects a validated tool; this never authorizes a write. */
 export function isStudioAssistantRequest(text: string): boolean {
   // An editing sentence may say “show this frame's region; don't generate video”.
   // Navigation verbs and destinations must belong to the same clause.
   return text.split(/[,，。；;.!?！？\n]/).some(clause =>
-    /小程序|微信|wechat|mini.program|邮箱|收件箱|联系人|界面|页面|寄给|发给|发送.*故事|接收.*(?:故事|版本|来稿)|停止联系|移除.*(?:好友|朋友)|朋友.*(?:改|发)|(?:打开|切换|切到|进入|查看|看看).*(?:仓库|故事|书页|视频|分镜)|(?:有哪些|列出).*(?:故事|朋友)|(?:在哪|在做什么|选中了什么)|好友.*(?:改|发)|好友列表|确认(?:发送|接收|停止联系)|取消(?:发送|接收|停止联系|操作)|\b(?:mailbox|inbox|contact|interface|screen|send .* to|receive .* story|accept .*version|stop sharing|(?:open|switch to|show|list) .*(?:book|video|warehouse|stor(?:y|ies)|friends)|where am i|what.*selected|confirm (?:send|receive|remove)|cancel action)\b|boîte|courrier|contact|ouvrir|envoyer|recevoir|arrêter le partage|où suis-je/i.test(clause)
+    /小程序|微信|wechat|mini.program|邮箱|收件箱|联系人|界面|页面|寄给|发给|发送.*故事|接收.*(?:故事|版本|来稿|来信)|(?:采用|用|加).*(?:好友来信|共享笔记)|(?:好友来信|共享笔记).*(?:采用|用到|加到)|停止联系|移除.*(?:好友|朋友)|朋友.*(?:改|发)|(?:打开|切换|切到|进入|查看|看看).*(?:仓库|故事|书页|视频|分镜)|(?:有哪些|列出).*(?:故事|朋友)|(?:在哪|在做什么|选中了什么)|好友.*(?:改|发)|好友列表|确认(?:发送|接收|停止联系)|取消(?:发送|接收|停止联系|操作)|\b(?:mailbox|inbox|contact|interface|screen|send .* to|receive .* story|accept .*version|stop sharing|(?:open|switch to|show|list) .*(?:book|video|warehouse|stor(?:y|ies)|friends)|where am i|what.*selected|confirm (?:send|receive|remove)|cancel action)\b|boîte|courrier|contact|ouvrir|envoyer|recevoir|arrêter le partage|où suis-je/i.test(clause)
   );
 }
 export function studioConfirmation(

@@ -11,11 +11,17 @@ export type MailboxInventory = {
   exports: number;
 };
 export type MailboxChange = {
-  kind: keyof MailboxInventory | "text" | "editing";
+  kind: keyof MailboxInventory | "text" | "editing" | "storyMemory";
   added?: number;
   removed?: number;
   updated?: number;
   names?: string[];
+};
+export type MailboxMemoryVersion = {
+  version: number;
+  markdown: string;
+  added: string[];
+  removed: string[];
 };
 export type MailboxEntry = {
   id: string;

@@ -51,7 +51,16 @@ try {
       selection: input.selection,
     });
   else if (input.action === "receive")
-    result = await caller.receive({ entryId: input.entryId });
+    result = await caller.receive({ entryId: input.entryId, targetStoryId: input.targetStoryId });
+  else if (input.action === "memoryPublish")
+    result = await caller.publishMemory({
+      contactId, storyId: input.storyId, markdown: input.markdown,
+      ...(input.threadId
+        ? { threadId: input.threadId, expectedVersion: input.expectedVersion }
+        : { requestId: input.requestId }),
+    });
+  else if (input.action === "memoryRead")
+    result = await caller.memoryVersion({ entryId: input.entryId });
   else if (input.action === "refresh")
     result = await caller.refresh({ threadId: input.threadId });
   else if (input.action === "remove")

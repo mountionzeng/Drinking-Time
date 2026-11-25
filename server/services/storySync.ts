@@ -1,3 +1,4 @@
+import { withStoryMemory } from "../../shared/storyMemoryDocument";
 import {
   ensureShotIdentities,
   shotIdentityFromShot,
@@ -498,8 +499,9 @@ export function prepareStoryBody(
   delete prepared.mobileImages;
   delete prepared.images;
   prepared[REVISION_KEY] = revision;
-  assertPersistedStoryBodyEnvelope(prepared);
-  return prepared;
+  const withMemory = withStoryMemory(prepared);
+  assertPersistedStoryBodyEnvelope(withMemory);
+  return withMemory;
 }
 
 export function mergeStaleStoryBody(

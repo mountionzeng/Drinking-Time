@@ -1,6 +1,7 @@
 import { ComputeAccessError } from "../services/computeRequestAccess";
 import { CREATIVE_EXPLORATION_RULE } from "../../shared/creativeExploration";
 import { type Message } from "../_core/llm";
+import { storyMemoryReferenceRule } from "../../shared/storyMemoryDocument";
 import { INHERITED_STORY_REFERENCE_RULE } from "../../shared/storyContextShare";
 import { parseJsonLoose } from "../_core/llmJson";
 import { hasStoryAgentCompute, invokeAgent } from "../_core/agentChannel";
@@ -187,6 +188,7 @@ export async function replyFromStoryAgent(params: {
   existingCardCount?: number;
   summary?: string;
   referenceContext?: string;
+  storyMemory?: string;
   currentShots?: ShotDraft[];
   similarCards?: SimilarStoryCardPayload[];
   storyCards?: StoryCardContextPayload[];
@@ -205,6 +207,10 @@ export async function replyFromStoryAgent(params: {
     { role: "system", content: INHERITED_STORY_REFERENCE_RULE },
     { role: "user", content: params.referenceContext },
   ] : [];
+  if (params.storyMemory) referenceMessages.push(
+    { role: "system", content: storyMemoryReferenceRule },
+    { role: "user", content: params.storyMemory },
+  );
   const currentShots = Array.isArray(params.currentShots)
     ? params.currentShots
     : [];

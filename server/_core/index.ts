@@ -1,5 +1,6 @@
 import { storyMailboxNativeRoutes, storyMailboxNativeMediaRoutes } from "./storyMailboxNative";
 import { downloadWarehouseFile } from "./warehouseFileRoute";
+import { storyMemoryFile } from "./storyMemoryFile";
 import { artSystemSkillDownload } from "./artSystemSkillDownload";
 import { handleChapterMedia } from "../chapterMediaStore";
 import { handleWechatImportMedia } from "./wechatImportMediaRoute";
@@ -165,6 +166,9 @@ async function startServer() {
     createAlipayNotifyRoute()
   );
   app.get("/api/warehouse-files/:storyId/:fileId", downloadWarehouseFile);
+  app.get("/api/stories/:storyId/MEMORY.md", (req, res, next) => {
+    void storyMemoryFile(req, res).catch(next);
+  });
   app.get("/api/chapter-media", handleChapterMedia);
   app.use("/api/material-captures", materialCaptureRoutes());
   app.use("/api/chapter-delivery/media", chapterDeliveryMediaRoutes());

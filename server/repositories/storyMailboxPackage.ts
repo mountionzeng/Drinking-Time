@@ -16,6 +16,7 @@ import {
 import type {
   MailboxInventory,
   MailboxChange,
+  MailboxMemoryVersion,
 } from "../../shared/storyMailbox";
 import { mailboxChanges } from "../../shared/storyMailbox";
 import { decodeStoryTimelinePayload } from "./timelineCodec";
@@ -24,6 +25,7 @@ import { decodeStoryTimelinePayload } from "./timelineCodec";
 export type MailboxPackage = {
   schemaVersion: 1;
   selection?: import("../../shared/storyMailboxSelection").MailboxSelection;
+  memory?: MailboxMemoryVersion;
   title: string;
   body: Record<string, unknown>;
   chapters: schema.StoryChapter[];
@@ -509,6 +511,9 @@ export function describeMailboxChanges(
   before: MailboxPackage | undefined,
   after: MailboxPackage
 ): MailboxChange[] {
+  if (after.memory) return [before?.memory
+    ? { kind: "storyMemory", updated: 1 }
+    : { kind: "storyMemory", added: 1 }];
   const changes = mailboxChanges(before?.inventory, after.inventory);
   if (!before) return changes;
   const changedChapters = after.chapters.filter(c => {

@@ -10,6 +10,54 @@ const describeMysql = process.env.TEST_MYSQL_DATABASE_URL
   ? describe
   : describe.skip;
 describeMysql("story mailbox MySQL transactions", () => {
+  it("publishes immutable Markdown updates and links them to the receiving author's existing story", async () => {
+    await withMysqlTestDatabase(async ({ databaseUrl }) => {
+      const db = await mysql.createConnection(databaseUrl);
+      try {
+        const [users] = await db.execute<mysql.ResultSetHeader>(
+          "INSERT INTO users (openId,name) VALUES ('memo-a','甲'),('memo-b','乙')"
+        );
+        const a = users.insertId, b = a + 1;
+        const [works] = await db.execute<mysql.ResultSetHeader>(
+          "INSERT INTO stories (userId,title,body) VALUES (?, '甲故事', ?),(?, '乙故事', ?)",
+          [a, JSON.stringify({ private: "甲私人笔记" }), b, JSON.stringify({ private: "乙私人笔记" })]
+        );
+        const storyId = works.insertId, targetStoryId = storyId + 1;
+        await db.execute("INSERT INTO story_mailbox_contacts (id,ownerId,peerId) VALUES (?,?,?),(?,?,?)",
+          [randomUUID(), a, b, randomUUID(), b, a]);
+        const run = async (action: string, userId: number, args: Record<string, unknown> = {}) => {
+          const payload = { action, userId, peerId: userId === a ? b : a, storyId, ...args };
+          const { stdout } = await spawnMysqlTestWorker({ databaseUrl,
+            script: path.resolve("server/integration/storyMailboxMysqlWorker.ts"),
+            args: [Buffer.from(JSON.stringify(payload)).toString("base64url")],
+          }).completion;
+          const line = stdout.split("\n").find(line => line.startsWith("MYSQL_WORKER_RESULT:"));
+          if (!line) throw new Error(stdout);
+          return JSON.parse(line.slice("MYSQL_WORKER_RESULT:".length));
+        };
+        const requestId = randomUUID();
+        const first = await run("memoryPublish", a, { requestId, markdown: "原始笔记" });
+        expect(first).toEqual({ threadId: requestId, version: 1 });
+        const [v1] = (await run("history", b)).entries;
+        expect(await run("receive", b, { entryId: v1.id, targetStoryId })).toMatchObject({ storyId: targetStoryId });
+        expect(await run("memoryPublish", a, { threadId: requestId, expectedVersion: 1, markdown: "后来发布的纠正" }))
+          .toEqual({ threadId: requestId, version: 2 });
+        const [v2, earlier] = (await run("history", b)).entries;
+        expect(earlier.id).toBe(v1.id);
+        expect(await run("memoryRead", b, { entryId: v1.id })).toMatchObject({ markdown: "原始笔记", version: 1 });
+        expect(await run("memoryRead", b, { entryId: v2.id })).toMatchObject({ added: ["后来发布的纠正"], removed: ["原始笔记"] });
+        expect(await run("receive", b, { entryId: v2.id })).toMatchObject({ storyId: targetStoryId });
+        expect(await run("refresh", a, { threadId: requestId })).toEqual({ added: 0 });
+        expect((await run("history", a)).entries).toHaveLength(2);
+        const [rows] = await db.execute<mysql.RowDataPacket[]>("SELECT body FROM stories WHERE id = ?", [targetStoryId]);
+        expect(JSON.stringify(rows[0].body)).toContain("乙私人笔记");
+        expect(JSON.stringify(rows[0].body)).not.toContain("甲私人笔记");
+      } finally {
+        await db.end();
+      }
+    });
+  }, 60_000);
+
   it("migrates, binds retries, serializes receipts, and revokes ongoing sharing across processes", async () => {
     await withMysqlTestDatabase(async ({ databaseUrl }) => {
       const db = await mysql.createConnection(databaseUrl);

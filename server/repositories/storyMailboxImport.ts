@@ -8,6 +8,7 @@ import {
 } from "../services/storyMailboxVideo";
 import { manuscriptFingerprint } from "../services/manuscriptSnapshot";
 import { readBookWorkflow } from "../../shared/bookWorkflow";
+import { adoptMailboxMemory } from "./storyMailboxMemory";
 import { copyFile, rm, chmod } from "node:fs/promises";
 import { constants } from "node:fs";
 import { eq } from "drizzle-orm";
@@ -348,10 +349,13 @@ async function insertCopy(
 }
 
 /** Entire DB copy and receipt commit together; filesystem staging is compensated on failure. */
-export async function receiveMailboxStory(userId: number, entryId: string) {
+export async function receiveMailboxStory(userId: number, entryId: string, targetStoryId?: number) {
   const initial = await mailboxEntry(userId, entryId);
   if (initial.recipientId !== userId || initial.kind === "received")
     throw mailboxGone();
+  if (initial.snapshot.memory) return adoptMailboxMemory(userId, initial, targetStoryId);
+  if (targetStoryId !== undefined)
+    throw new Error("只有共享笔记可以采用到指定的故事。");
   const staged: string[] = [],
     videoStaged: string[] = [];
   let localCopyId: number | null = null;

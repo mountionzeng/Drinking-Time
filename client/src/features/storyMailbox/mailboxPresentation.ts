@@ -28,6 +28,8 @@ export function changeText(change: MailboxChange, t: Translate) {
       ? "正文"
       : change.kind === "editing"
         ? "故事内容"
+        : change.kind === "storyMemory"
+          ? "创作笔记"
         : labels[change.kind]
   );
   const label = change.added

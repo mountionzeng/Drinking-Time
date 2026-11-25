@@ -765,7 +765,7 @@ describe("storyAgent tRPC router", () => {
       storyId: id, message: "这里口语一点", history, writingContext,
     });
     expect(result.reply).toContain("只调整这一段");
-    expect(writingMocks.reply).toHaveBeenCalledWith({ message: "这里口语一点", history, writingContext: { ...writingContext, fullDraft: true }, storyTitle: "当前文章" });
+    expect(writingMocks.reply).toHaveBeenCalledWith({ message: "这里口语一点", history, writingContext: { ...writingContext, fullDraft: true }, storyTitle: "当前文章", storyMemory: expect.stringContaining("# 当前文章 · 创作笔记") });
     expect(storyAgentMocks.replyFromStoryAgent).not.toHaveBeenCalled();
     writingMocks.reply.mockClear();
     await expect(appRouter.createCaller(createAuthContext(43)).storyAgent.chat({
