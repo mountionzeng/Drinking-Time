@@ -633,3 +633,68 @@ it.each(["text", "storyboard"] as const)("preserves the original after failure t
   if (target === "storyboard") expect((await chapters.listChapters(input.storyId, 61, "text"))[0].blocks.body).toBe(source.blocks.body);
   expect((await chapters.listChapters(input.storyId, 61, target))[0].blocks.body).toContain("/api/images/original.png");
 });
+
+it("continues a named reading in chat, retaining both endings, original modules and chapter revisions",async()=>{
+  const owner=await fixture();
+  const original=await chapters.insertChapter({...owner,content:{...source,blocks:{...source.blocks,manuscriptKind:"storyboard"}}});
+  const fingerprint=(await service.getBookWorkflow(owner)).drafts.storyboard.fingerprint;
+  const reading={label:"结尾 A",sourceLabel:"作者",shots:[
+    {title:"合影",paragraphs:[{text:"画面提示词：看照片。"},{text:"两个人。",dialogue:true}]},
+    {title:"今天",paragraphs:[{text:"音效提示词：脚步。"},{text:"这里是今天。",dialogue:true}]},
+  ]};
+  const a=await service.importStoryboardReading({...owner,id:randomUUID(),expectedFingerprint:fingerprint,reading});
+  const b=await service.importStoryboardReading({...owner,id:randomUUID(),expectedFingerprint:fingerprint,reading:{...reading,label:"结尾 B"}});
+  const input={...owner,id:randomUUID(),trialBase:{id:b.id,revision:b.revision},request:"第02镜的旁白改成“我记得那一下。”",conversation:[]};
+  const price=await service.quoteFilmManuscript(input);
+  expect(price.estimatedCny).toBe(0);
+  const first=await service.generateFilmManuscript({...input,quoteFingerprint:price.fingerprint});
+  expect(first.trial?.changedShots).toEqual([2]);expect(first.chapters![0].blocks.body).toContain("我记得那一下。");
+  expect(compute).not.toHaveBeenCalled();
+  quote.mockReturnValue({fingerprint:"model-quote",estimatedCny:0.1});
+  const next={...input,id:randomUUID(),request:"再慢一点，保留旁白原句。",trialBase:{id:first.id,revision:first.revision}};
+  compute.mockResolvedValue({parsed:{changes:[{shot:2,index:4,text:"音效提示词：停半秒，再听见脚步。"}]}});
+  const second=await service.generateFilmManuscript({...next,quoteFingerprint:(await service.quoteFilmManuscript(next)).fingerprint});
+  expect(compute.mock.calls[0][0].context.editable.map((s:{shot:number})=>s.shot)).toEqual([2]);
+  expect(second.chapters![0].blocks.body).toContain("我记得那一下。");
+  expect(second.chapters![0].blocks.writingStyle?.map(r=>r.id)).toEqual(b.chapters![0].blocks.writingStyle?.map(r=>r.id));
+  expect(second.chapters![0].blocks.blockIds).toEqual(b.chapters![0].blocks.blockIds);
+  expect((await service.getBookWorkflow(owner)).state.conversions.filter(d=>d.status==="review").map(d=>d.id)).toEqual([a.id,b.id,first.id,second.id]);
+  await expect(service.quoteFilmManuscript({...next,trialBase:{id:first.id,revision:99}})).rejects.toThrow("已更新");
+  expect((await chapters.listChapters(owner.storyId,actor.userId,"storyboard"))[0]).toEqual(original);
+  compute.mockResolvedValue({parsed:{changes:[{shot:1,index:1,text:"误改"}]}});
+  await expect(service.generateFilmManuscript({...next,id:randomUUID(),quoteFingerprint:"model-quote"})).rejects.toThrow("指定镜头");
+  compute.mockResolvedValue({parsed:{changes:[{shot:2,index:5,text:"不该改的旁白"}]}});
+  await expect(service.generateFilmManuscript({...next,id:randomUUID(),quoteFingerprint:"model-quote"})).rejects.toThrow("保留的旁白");
+});
+
+it("keeps the author's visual and timing notes when a provider returns extra edits alongside the requested camera cue",async()=>{
+  const {trialEditor,importedReading}=await import("./storyboardTrial");
+  const chapter=importedReading(source,{label:"试读",sourceLabel:"作者",shots:[{title:"书页",paragraphs:[
+    {text:"画面提示词：先看两个字。一秒为试排值，配音后可调整。"},{text:"说到这里。",dialogue:true},
+  ]}]});
+  const editor=trialEditor([chapter],"第01镜先看见字。保留旁白原句，试写一条简短的运镜提示词。",[]);
+  const extra={shot:1,index:1,text:"画面提示词：先看两个字。"};
+  const valid={shot:1,text:"运镜提示词：从整页推近这两个字。"};
+  expect(editor.apply({changes:[extra,valid]}).chapters[0].blocks.body).toBe(chapter.blocks.body+"\n"+valid.text);
+  expect(()=>editor.apply({changes:[extra]})).toThrow("指定栏目");
+});
+
+it("edits only the last picture and keeps its subtitle, timing, sound, dialogue and earlier shots",async()=>{
+  const {trialEditor,importedReading}=await import("./storyboardTrial");
+  const chapter=importedReading(source,{label:"试读",sourceLabel:"作者",shots:[
+    {title:"开场",paragraphs:[{text:"画面提示词：站台。"}]},
+    {title:"结尾",paragraphs:[{text:"画面提示词：雨落下来。"},{text:"屏幕文字：傍晚"},{text:"时长：三秒，有待试排。"},{text:"音效提示词：雨声。 "},{text:"那一下，我看见了。",dialogue:true}]}
+  ]});
+  const request="只换最后一镜的画面，旁白照旧。";
+  const editor=trialEditor([chapter],request,[]);
+  expect(editor.prompt.context.editable.map(s=>s.shot)).toEqual([2]);
+  const picture={shot:2,index:3,text:"画面提示词：雨中的路灯。"};
+  const unwanted={shot:2,index:4,text:"屏幕文字：夜晚"};
+  const expected=chapter.blocks.body.replace("画面提示词：雨落下来。",picture.text);
+  expect(editor.apply({changes:[unwanted,{shot:2,index:5,text:"时长：一秒。"},picture]}).chapters[0].blocks.body).toBe(expected);
+  expect(()=>editor.apply({changes:[{...picture,text:picture.text+"\n字幕：不要加入"}]})).toThrow("指定栏目");
+  expect(()=>editor.apply({changes:[{shot:2,index:7,text:"另一个人。"}]})).toThrow("保留的旁白");
+  const author=trialEditor([chapter],"最后一个镜头的画面换成“雨中的路灯。”，旁白照旧。",[]);
+  expect(author.freeQuote?.estimatedCny).toBe(0);
+  expect(author.apply(author.exact).chapters[0].blocks.body).toBe(expected);
+});

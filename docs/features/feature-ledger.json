@@ -13141,6 +13141,9 @@
         "server/routers/bookWorkflow.ts"
       ],
       "owners": [
+        "shared/storyboardTrial.ts",
+        "server/services/storyboardTrial.ts",
+        "client/src/features/publishingDraft/readingTrialSelection.ts",
         "server/services/liveManuscript.ts",
         "client/src/features/publishingAlbum/LiveBookWriting.tsx",
         "shared/bookWorkflow.ts",
@@ -13161,6 +13164,7 @@
         "server/services/publishingVideoStoryboard.ts"
       ],
       "evidence": [
+        "shared/storyboardTrial.test.ts",
         "server/services/liveManuscript.test.ts",
         "server/services/bookWorkflow.test.ts",
         "shared/creativeConversation.test.ts",
@@ -13181,6 +13185,7 @@
         "docs/qa/2026-11-14-wechat-image-video.md"
       ],
       "invariants": [
+        "整片试稿按当前选中的来源和修订号续写；单镜或单栏目试改保留其他镜头与明确锁定的旁白。选择、比较和连读均不自动采用。",
         "文字/分镜分别编号；自动保存只更新草稿，正式保存/采用/恢复或用户明确把当前分镜做成视频时才建立必要的来源版本。",
         "记录时间、用途、受众、平台、发起/编辑/确认人、AI标记和来源；身份由服务端账号确定。",
         "互转按创作意图改编；原稿、媒体、历史保留，采用前校验源和目标指纹。",
@@ -13202,6 +13207,7 @@
         "视频转书本地原片字幕路径已在3001生成、校对、采用V1并刷新验证；艺术字体OCR仍需校对，不代表完整旁白或约500字创作改编。付费改编operation255超时费用未知、旧预占1.56092算力待核对，禁止自动重购；Linux OCR/生产环境未验收。"
       ],
       "history": [
+        {"date": "2026-11-26", "kind": "improvement", "summary": "全片试读支持在聊天中命名 A/B、逐镜比较、按作者原话续改并单独保存候选。明确比较两个结尾时定位 A/B，询问刚才的改动时核对同一修订的来源稿。3000 页面验证刷新后继续回答画面追问，改稿只影响指定镜头的画面，保留旁白、字幕、时长和音效。类型检查及 13 组 159 项回归通过。"},
         {"date": "2026-11-25", "kind": "improvement", "summary": "网页聊天可免费列出本故事整片工作稿的镜头，单镜候选和空白模板单独识别。整稿和单镜写稿均将已收到的正文送到文字页，单镜沿用原有镜号。3000 端口用分段测试回包验证半句、下一镜和最终结果，未购买生成。"},
         {"date": "2026-11-25", "kind": "feature", "summary": "网页聊天要求制作整片时先按真实输入报价，用户确认费用后生成可编辑分镜，明确认可才将该版导入并切视频。3000 浏览器用临时故事实测报价、改台词、刷新、回复 OK 和真实导入，生成及审稿响应使用测试稿。隔离服务测试验证真实转换、采用和幂等导入仅调用一次模拟写稿模型。未部署或购买生成。"},
         {"date": "2026-11-25", "kind": "feature", "summary": "单镜候选与署名参考可打开为独立的可编辑分镜章节，沿用原稿件和素材来源。"},

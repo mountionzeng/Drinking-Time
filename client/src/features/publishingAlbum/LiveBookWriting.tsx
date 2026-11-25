@@ -9,7 +9,7 @@ function DraftText({ draft }: { draft: Draft }) {
   const ui = useUiText();
   const viewport = useRef<HTMLDivElement>(null);
   const following = useRef(true);
-  const shotCount = draft.shotNo ?? draft.lines.filter(line => line.format === "shot").length;
+  const shotCount = draft.shotNo ?? draft.lines.filter(line=>line.format==="shot").at(-1)?.number ?? draft.lines.filter(line => line.format === "shot").length;
   const status = draft.complete ? ui("已生成 · 待确认") : shotCount
     ? ui("正在写第 {0} 镜", [String(shotCount).padStart(2, "0")]) : ui(draft.lines.length ? "正在写正文" : "等待正文…");
   useEffect(() => {
@@ -23,7 +23,7 @@ function DraftText({ draft }: { draft: Draft }) {
       const el = e.currentTarget; following.current = el.scrollHeight - el.scrollTop - el.clientHeight < 36;
     }} className="max-h-[50vh] space-y-2 overflow-y-auto overscroll-contain pr-3">
       {draft.lines.map((line, i) => line.format === "shot"
-        ? <h4 key={i} className="pt-2 font-semibold">{ui("第 {0} 镜", [String(++number).padStart(2, "0")])} · {line.text}</h4>
+        ? <h4 key={i} className="pt-2 font-semibold">{ui("第 {0} 镜", [String(line.number ?? ++number).padStart(2, "0")])}{line.text && " · "+line.text}</h4>
         : line.format === "title" ? <h3 key={i} className="font-semibold">{line.text}</h3>
         : <p key={i} className="whitespace-pre-wrap break-words leading-relaxed">{line.text}</p>)}
     </div>

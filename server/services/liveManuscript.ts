@@ -6,7 +6,7 @@ import { writingModuleTexts } from "../../shared/bookWritingStyle";
 import type { ManuscriptContent } from "../../shared/bookWorkflow";
 
 type Owner = { userId: number; storyId: number };
-type Line = { format: "title" | "shot" | "text"; text: string };
+type Line = { number?: number; format: "title" | "shot" | "text"; text: string };
 type Entry = { id: string; owner: Owner; kind: "text" | "storyboard"; raw: string; final?: Line[]; expires: number; showScenes?: boolean; shotNo?: number };
 const entries = new Map<string, Entry>();
 const key = (owner: Owner, id: string) => [owner.userId, owner.storyId, id].join(":");
@@ -18,6 +18,16 @@ function previewLines(entry: Entry): Line[] {
   let value;
   try { value = parse(entry.raw.trimStart().replace(/^\x60\x60\x60(?:json)?\s*/u, "")); } catch { return []; }
   if (value?.draft) return proseLines(value.draft);
+  if (Array.isArray(value?.changes)) {
+    const lines: Line[]=[];
+    let previous=0;
+    for (const change of value.changes) {
+      if (!Number.isSafeInteger(change?.shot) || change.shot<1 || !visible(change.text)) continue;
+      if (previous!==change.shot) lines.push({format:"shot",number:change.shot,text:""});
+      lines.push({format:"text",text:change.text});previous=change.shot;
+    }
+    return lines;
+  }
   if (!Array.isArray(value?.chapters)) return [];
   const lines: Line[] = [];
   for (const chapter of value.chapters) {

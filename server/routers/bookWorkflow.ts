@@ -1,4 +1,5 @@
 import { liveManuscripts } from "../services/liveManuscript";
+import { trialImport } from "../services/storyboardTrial";
 import { getVideoBookSource, quoteVideoBook, generateVideoBook, videoBookInput } from "../services/videoBook";
 import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
@@ -15,15 +16,19 @@ import {
   adoptManuscriptConversion,
   generateFilmManuscript,
   quoteFilmManuscript,
+  importStoryboardReading,
 } from "../services/bookWorkflow";
 const owner = z.object({ storyId: z.number().int().positive() });
 const record = owner.extend({ id: z.string().uuid() });
 const film = owner.extend({
+  trialBase: z.object({id:z.union([z.literal("working"),z.string().uuid()]),revision:z.number().int().positive().optional()}).optional(),
   target: manuscriptKindSchema.default("storyboard"),
   chapterId: z.number().int().positive().optional(), request: z.string().trim().max(4000),
   conversation: z.array(z.object({ role: z.enum(["user", "assistant"]), content: z.string().max(20000) })).max(500).refine(messages => messages.reduce((sum, message) => sum + message.content.length, 0) <= 100000, "聊天内容过长，请先缩小范围"),
 });
 export const bookWorkflowRouter = router({
+  importReading: protectedProcedure.input(record.extend({ reading:trialImport,expectedFingerprint:z.string().length(64) })).mutation(({ctx,input})=>
+    importStoryboardReading({...input,userId:ctx.user.id,actor:{userId:ctx.user.id,name:ctx.user.name || "未设置称呼"}})),
   liveWriting: protectedProcedure.input(owner).query(({ ctx, input }) => liveManuscripts({ storyId: input.storyId, userId: ctx.user.id })),
   videoSource: protectedProcedure.input(owner).query(({ctx,input})=>getVideoBookSource({...input,userId:ctx.user.id})),
   quoteVideoText: protectedProcedure.input(videoBookInput).mutation(({ctx,input})=>quoteVideoBook({...input,userId:ctx.user.id})),

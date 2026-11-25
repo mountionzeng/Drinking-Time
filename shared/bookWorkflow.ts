@@ -44,6 +44,8 @@ export type ManuscriptVersion = ManuscriptReference & {
   fingerprint: string;
 };
 export type ConversionDraft = {
+  /** A reviewable full reading of the storyboard, including the author's unaltered shots. */
+  trial?: { label: string; base: string; baseRevision?: number; importHash?: string; notes?: string; sourceLabel?: string; changedShots?: number[] };
   entryChapterId?: number;
   /** For a scoped storyboard revision, only these existing chapters are regenerated. */
   revisedChapters?: { id: number; index: number }[];

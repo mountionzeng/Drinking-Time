@@ -1,8 +1,10 @@
 import { beginLiveManuscript } from "./liveManuscript";
+import { namedTrialLabel } from "../../shared/storyboardTrial";
+import { editTrialTexts, importedReading, trialEditor, trialImport } from "./storyboardTrial";
 import { bookProductionChapters, expandShotDescriptions, sceneSetting, shotFormatGuide, storyboardUsesScenes } from "../../shared/bookShotFormat";
 import { needsFilmSubject } from "../../shared/creativeConversation";
 import { readVideoWorkflow } from "../../shared/videoWorkflow";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import {
@@ -11,6 +13,7 @@ import {
   readBookWorkflow,
   versionReference,
   type BookWorkflowState,
+  type ConversionDraft,
   type CreationIntent,
   type ManuscriptContent,
   type ManuscriptKind,
@@ -422,6 +425,7 @@ export function applyConversion(
   });
 }
 type FilmInput = {
+  trialBase?: { id: string; revision?: number };
   chapterId?: number; request: string; target?: ManuscriptKind;
   quoteFingerprint?: string;
   conversation: Array<{ role: "user" | "assistant"; content: string }>;
@@ -601,12 +605,18 @@ function filmSource(rows: Awaited<ReturnType<typeof listChapters>>, state: BookW
 export async function quoteFilmManuscript(input: Owner & FilmInput) {
   const story = await getStoryById(input.storyId, input.userId);
   if (!story) throw new TRPCError({ code: "NOT_FOUND", message: "故事不存在" });
+  if (input.trialBase) {
+    const basis = readingBasis(readBookWorkflow((story.body as Record<string, unknown>)?.bookWorkflow), await listChapters(input.storyId,input.userId,"all"), input.trialBase);
+    const editor=trialEditor(basis.chapters,input.request,input.conversation,basis.parent);
+    return editor.freeQuote ?? quoteStoryboardCompute(editor.prompt);
+  }
   const source = filmSource(await listChapters(input.storyId, input.userId, "all"),
     readBookWorkflow((story.body as Record<string, unknown>)?.bookWorkflow), input);
   return quoteStoryboardCompute(conversionPrompt(input.target ?? "storyboard", source.requestedIntent, input.request, input.conversation, source.selected));
 }
 
 export async function generateFilmManuscript(input: ActorInput & FilmInput & { id: string }) {
+  if (input.trialBase) return writeReadingTrial(input, input.trialBase);
   const workflow = await getBookWorkflow(input);
   const previous = workflow.state.conversions.find(draft => draft.id === input.id);
   if (previous) {
@@ -659,6 +669,7 @@ export async function editConversionDraft(
         )
       )
         throw bad("请保持素材与模块对应关系");
+      if (draft.trial) return editTrialTexts(chapter,texts);
       const body = texts.join("\n"),
         style = chapter.blocks.writingStyle!.map((row, j) => ({
           ...row,
@@ -750,4 +761,229 @@ export async function adoptManuscriptConversion(
       replace: { kind: draft.target, chapters: adoptedChapters, ...(selectedChanges ? { updatedChapterIds: [...revisions.keys()] } : {}) },
     };
   });
+}
+
+type TrialBase = NonNullable<FilmInput["trialBase"]>;
+function readingBasis(
+  state: BookWorkflowState,
+  rows: Awaited<ReturnType<typeof listChapters>>,
+  base: TrialBase
+) {
+  const all = manuscriptRows(rows, "storyboard");
+  const fingerprint = manuscriptFingerprint(all);
+  const parent =
+    base.id === "working"
+      ? undefined
+      : state.conversions.find(d => d.id === base.id);
+  if (base.id !== "working") {
+    if (
+      !parent?.chapters?.length ||
+      parent.target !== "storyboard" ||
+      parent.status !== "review" ||
+      parent.revision !== base.revision
+    )
+      throw conflict("所选试稿已更新，请重新打开这一版。");
+    return {
+      all,
+      chapters: parent.chapters,
+      parent,
+      revisedChapters: parent.revisedChapters,
+      fingerprint,
+    };
+  }
+  const chosen = bookProductionChapters(all).filter(
+    c => !c.blocks.shotTextOrigin
+  );
+  if (!chosen.length) throw bad("请先打开一份整片分镜稿。");
+  return {
+    all,
+    chapters: manuscriptContents(chosen),
+    parent,
+    revisedChapters:
+      chosen.length === all.length
+        ? undefined
+        : chosen.map(c => ({ id: c.id, index: all.indexOf(c) })),
+    fingerprint,
+  };
+}
+function createReadingTrial(
+  input: ActorInput & { id: string; request: string },
+  state: BookWorkflowState,
+  basis: ReturnType<typeof readingBasis>,
+  trial: NonNullable<ConversionDraft["trial"]>
+) {
+  if (state.conversions.length >= 100)
+    throw bad("转换记录已达上限，已有草稿保留");
+  const current = currentManuscript(state, "storyboard");
+  const intent = basis.parent?.intent ??
+    current?.intent ?? {
+      purpose: "分镜文字试读",
+      audience: "待确认",
+      platform: "待确认",
+    };
+  const source =
+    basis.parent?.source ??
+    versionReference(
+      current?.fingerprint === basis.fingerprint
+        ? current
+        : appendVersion(state, {
+            ...input,
+            id: randomUUID(),
+            kind: "storyboard",
+            chapters: basis.all,
+            intent,
+            summary: "试读前的分镜工作稿快照",
+          })
+    );
+  const draft: ConversionDraft = {
+    id: input.id,
+    target: "storyboard",
+    source,
+    intent,
+    request: input.request,
+    trial,
+    status: "review",
+    author: input.actor,
+    createdAt: Date.now(),
+    revision: 1,
+    revisedChapters: basis.revisedChapters,
+    sourceFingerprint: basis.parent?.sourceFingerprint ?? basis.fingerprint,
+    targetFingerprint: basis.parent?.targetFingerprint ?? basis.fingerprint,
+  };
+  state.conversions.push(draft);
+  return draft;
+}
+export async function importStoryboardReading(
+  input: ActorInput & {
+    id: string;
+    expectedFingerprint: string;
+    reading: z.infer<typeof trialImport>;
+  }
+) {
+  const importHash = createHash("sha256")
+    .update(JSON.stringify(input.reading))
+    .digest("hex");
+  return mutateBookWorkflow(input, ({ state, rows }) => {
+    const existing = state.conversions.find(d => d.id === input.id);
+    if (existing) {
+      if (
+        existing.trial?.base !== "import" ||
+        existing.request !== input.reading.label ||
+        existing.trial.importHash !== importHash
+      )
+        throw conflict();
+      return { result: existing };
+    }
+    const basis = readingBasis(state, rows, { id: "working" });
+    if (basis.fingerprint !== input.expectedFingerprint) throw conflict();
+    if (basis.chapters.length !== 1) throw bad("请选择单章整片稿导入。");
+    const chapter = importedReading(basis.chapters[0], input.reading);
+    const draft = createReadingTrial(
+      { ...input, request: input.reading.label },
+      state,
+      basis,
+      {
+        base: "import",
+        importHash,
+        label: input.reading.label,
+        sourceLabel: input.reading.sourceLabel,
+        notes: input.reading.notes,
+      }
+    );
+    draft.chapters = [chapter];
+    return { result: draft };
+  });
+}
+async function writeReadingTrial(
+  input: ActorInput & FilmInput & { id: string },
+  base: TrialBase
+) {
+  if ((input.target ?? "storyboard") !== "storyboard")
+    throw bad("请选择分镜版。");
+  const claim = await mutateBookWorkflow<{
+    draft: ConversionDraft;
+    editor?: ReturnType<typeof trialEditor>;
+  }>(input, ({ state, rows }) => {
+    const existing = state.conversions.find(d => d.id === input.id);
+    if (existing) {
+      if (
+        existing.trial?.base !== base.id ||
+        existing.trial?.baseRevision !== base.revision ||
+        existing.request !== input.request ||
+        JSON.stringify(existing.conversation) !==
+          JSON.stringify(input.conversation)
+      )
+        throw conflict();
+      return { result: { draft: existing, editor: undefined } };
+    }
+    if (
+      state.conversions.some(
+        d => d.status === "generating" && Date.now() - d.createdAt < 15 * 60_000
+      )
+    )
+      throw conflict("已有试稿正在写，请等它完成。");
+    const basis = readingBasis(state, rows, base);
+    const editor = trialEditor(
+      basis.chapters,
+      input.request,
+      input.conversation,
+      basis.parent
+    );
+    if (
+      !input.quoteFingerprint ||
+      (editor.freeQuote ?? quoteStoryboardCompute(editor.prompt))
+        .fingerprint !== input.quoteFingerprint
+    )
+      throw conflict("试稿或报价已变化，请重新报价。");
+    const draft = createReadingTrial(input, state, basis, {
+      label: namedTrialLabel(input.request) || input.request.slice(0, 60),
+      base: base.id,
+      baseRevision: base.revision,
+      notes: basis.parent?.trial?.notes,
+      sourceLabel: basis.parent?.trial?.sourceLabel,
+    });
+    draft.status = "generating";
+    draft.conversation = input.conversation;
+    return { result: { draft, editor } };
+  });
+  if (!claim.editor) return claim.draft;
+  const live = beginLiveManuscript(input, input.id, "storyboard");
+  try {
+    const changes =
+      claim.editor.exact ??
+      (
+        await runPublishingVideoStoryboardTextCompute({
+          ...claim.editor.prompt,
+          quoteFingerprint: input.quoteFingerprint,
+          onTextDelta: live.append,
+        })
+      ).parsed;
+    const result = claim.editor.apply(changes);
+    const saved = await mutateBookWorkflow(input, ({ state }) => {
+      const d = state.conversions.find(d => d.id === input.id)!;
+      d.chapters = result.chapters;
+      d.trial!.changedShots = result.changedShots;
+      d.status = "review";
+      d.revision++;
+      return { result: d };
+    });
+    live.finishChapters(result.chapters);
+    return saved;
+  } catch (error) {
+    live.fail();
+    const message =
+      error instanceof z.ZodError
+        ? "生成的修改无法对应镜头，原稿已保留。"
+        : error instanceof Error
+          ? error.message
+          : "文字试改未完成";
+    await mutateBookWorkflow(input, ({ state }) => {
+      const d = state.conversions.find(d => d.id === input.id)!;
+      d.status = "failed";
+      d.error = message;
+      d.revision++;
+      return { result: d };
+    });
+    throw new TRPCError({ code: "BAD_GATEWAY", message });
+  }
 }

@@ -14,14 +14,18 @@ import { writingModuleTexts } from "@shared/bookWritingStyle";
 import { readBookImage } from "@shared/bookImageBlock";
 import { readBookAudio } from "@shared/bookAudioBlock";
 
+import { openReading, selectedReading } from "./readingTrialSelection";
+import { BookShotDocument } from "../publishingAlbum/BookShotDocument";
+
 const button = "rounded-md border px-3 py-2 text-sm disabled:opacity-40";
 const isGenerating = (draft: ConversionDraft) =>
   draft.status === "generating" && Date.now() - draft.createdAt < 15 * 60 * 1000;
 type FilmQuote = { input: RouterInputs["bookWorkflow"]["generateFilm"]; amount: number };
 export function FilmVersionDraft({ storyId, request, blocked, onDone, target = "storyboard",
-  chatTurnId, startOnOpen, approveRef,
+  chatTurnId, startOnOpen, approveRef, readingId, trialBase, writingOnly, flushRef,
 }: {
   target?: "text" | "storyboard"; storyId: number; request: string; blocked: boolean; onDone(): void;
+  flushRef?: RefObject<(() => Promise<void>) | null>; writingOnly?: boolean; readingId?: string; trialBase?: string;
   chatTurnId?: string; startOnOpen?: boolean; approveRef?: RefObject<(() => void) | null>;
 }) {
   const ui = useUiText();
@@ -50,7 +54,7 @@ export function FilmVersionDraft({ storyId, request, blocked, onDone, target = "
       throw new Error(ui("已切换故事，请回到原故事查看生成结果。"));
   }
   const conversions = query.data?.state.conversions ?? [];
-  const id = chatTurnId ?? draft?.id;
+  const id = readingId ?? chatTurnId ?? draft?.id;
   const saved = id ? conversions.find(d => d.id === id) : [...conversions].reverse().find(d =>
     d.target === target && (d.status === "review" || isGenerating(d) ||
       (d.status === "adopted" && d.adoptedId === query.data?.state.current[target])));
@@ -72,7 +76,7 @@ export function FilmVersionDraft({ storyId, request, blocked, onDone, target = "
     lock.current = true; setRunning(true); setError("");
     try {
       current();
-      await prepareMountedBook(storyId, origin.current.accountId);
+      if (!readingId) await prepareMountedBook(storyId, origin.current.accountId);
       current();
       await task();
     } catch (cause) {
@@ -93,13 +97,18 @@ export function FilmVersionDraft({ storyId, request, blocked, onDone, target = "
       const writing = useDesktopWritingSession.getState().session;
       const chapterId = !chatTurnId && writing?.storyId === storyId && writing.accountId === scope.accountId && writing.epoch === scope.storyScopeEpoch
         ? Number(writing.getSnapshot().chapterId) || undefined : undefined;
-      const input = { storyId, request, target, chapterId, conversation };
+      const base = trialBase && trialBase !== "working" ? (await query.refetch()).data?.state.conversions.find(d=>d.id===trialBase && d.status==="review") : undefined;
+      if (trialBase && trialBase!=="working" && !base) throw new Error(ui("当前试稿已更新，请重新选择。"));
+      const input = { storyId, request, target, chapterId, conversation, ...(trialBase ? {trialBase:{id:trialBase,revision:base?.revision}} : {}) };
       const result = await getQuote.mutateAsync(input);
       current();
       const previous = pendingRequest.current;
       const id = chatTurnId ?? (previous?.fingerprint === result.fingerprint ? previous.id : crypto.randomUUID());
       pendingRequest.current = { id, fingerprint: result.fingerprint };
-      setQuote({ input: { ...input, id, quoteFingerprint: result.fingerprint }, amount: result.estimatedCny });
+      const submission = { ...input, id, quoteFingerprint: result.fingerprint };
+      if (trialBase && result.fingerprint.startsWith("author:") && result.estimatedCny===0) {
+        await generateQuoted(submission);
+      } else setQuote({ input: submission, amount: result.estimatedCny });
     });
   }
   useEffect(() => {
@@ -107,20 +116,21 @@ export function FilmVersionDraft({ storyId, request, blocked, onDone, target = "
     opened.current = true;
     void prepareQuote();
   }, [startOnOpen, query.data, blocked, preview]);
-  function submitQuote() {
-    if (!quote) return;
-    void run(async () => {
-      const input = quote.input;
-      setQuote(null);
+  async function generateQuoted(input: FilmQuote["input"]) {
       try {
         const next = await generate.mutateAsync(input);
         current(); setDraft(next);
+        if (next.status==="review" && (writingOnly || (trialBase && (selectedReading(origin.current.accountId,storyId)||"working")===trialBase))) openReading(origin.current.accountId,storyId,next.id);
       } finally {
         const latest = await query.refetch();
         const status = latest.data?.state.conversions.find(row => row.id === input.id)?.status;
         if (status && status !== "generating") pendingRequest.current = null;
       }
-    });
+  }
+  function submitQuote() {
+    if (!quote) return;
+    const input=quote.input;setQuote(null);
+    void run(()=>generateQuoted(input));
   }
   async function saveEdits() {
     if (!editing || !preview) return preview;
@@ -128,6 +138,12 @@ export function FilmVersionDraft({ storyId, request, blocked, onDone, target = "
     current(); setDraft(next); setEditing(null);
     return next;
   }
+  useEffect(() => {
+    if (!flushRef || !editing) return;
+    const flush=async()=>{ await saveEdits(); await query.refetch(); };
+    flushRef.current=flush;
+    return ()=>{if(flushRef.current===flush) flushRef.current=null;};
+  });
   function continueFilm() {
     if (!preview || !(canApprove || canReopen)) return;
     void run(async () => {
@@ -145,7 +161,8 @@ export function FilmVersionDraft({ storyId, request, blocked, onDone, target = "
       window.dispatchEvent(new CustomEvent("dt:select-manuscript", {
         detail: { storyId, accountId: origin.current.accountId, kind: target, chapterId },
       }));
-      if (target === "storyboard") {
+      if (writingOnly || readingId || trialBase) openReading(origin.current.accountId,storyId,"");
+      else if (target === "storyboard") {
         if (!chapterId) throw new Error(ui("当前分镜工作稿不存在"));
         const detail: StudioCreateRequest = { id: "film-" + reviewed.id, storyId, kind: "video", instruction: reviewed.request,
           storyboardChapterId: chapterId, approvedManuscriptFingerprint: version.fingerprint };
@@ -162,9 +179,9 @@ export function FilmVersionDraft({ storyId, request, blocked, onDone, target = "
   });
   let shotNumber = 0, sceneNumber = 0;
   return <div className="space-y-3">
-    {chatTurnId ? <p className="font-medium">{ui("分镜版")} · {ui(preview?.status === "adopted" ? "已确认" : "文字预览")}</p> :
+    {readingId ? <p className="text-xs text-muted-foreground">{ui("待采用试稿")}{preview?.trial && (preview.trial.base==="import" ? " · "+preview.trial.sourceLabel : " · "+ui("从《{0}》续改",[conversions.find(d=>d.id===preview.trial?.base)?.trial?.label ?? ui("本地分镜工作稿")]))}</p> : chatTurnId ? <p className="font-medium">{ui("分镜版")} · {ui(preview?.status === "adopted" ? "已确认" : "文字预览")}</p> :
       <p className="text-sm text-muted-foreground">{ui(target === "text" ? "将分镜改写成文字，原分镜和旧版本会保留。" : "先把书稿和聊天整理成可拍摄的分镜，确认后继续编排视频素材。旧版本会保留。")}</p>}
-    {chapters && <div className="max-h-72 space-y-3 overflow-y-auto rounded-md border p-3" aria-label={ui(target === "text" ? "文字预览" : "分镜预览")}>
+    {readingId && chapters && !editing ? <BookShotDocument initiallyOpen showScenes={showScenes} chapters={chapters.map((c,i)=>({id:preview?.revisedChapters?.[i]?.id ?? i+1,blocks:c.blocks}))} /> : chapters && <div className="max-h-72 space-y-3 overflow-y-auto rounded-md border p-3" aria-label={ui(target === "text" ? "文字预览" : "分镜预览")}>
       {chapters.map((c, i) => <section key={i}><h3 className="font-medium">{c.title}</h3>
         {writingModuleTexts(c.blocks.body, c.blocks.writingStyle).map((text, j) => {
           const media = readBookImage(text) ? ui("沿用原图") : readBookAudio(text) ? ui("沿用原声音素材") : null;
@@ -179,22 +196,23 @@ export function FilmVersionDraft({ storyId, request, blocked, onDone, target = "
                 {label && label + " · "}{media ?? text}</p>;
         })}</section>)}
     </div>}
+    {readingId && preview?.trial?.notes && <details className="text-sm"><summary className="cursor-pointer">{ui("出处与待核项")}</summary><p className="mt-2 whitespace-pre-line">{preview.trial.notes}</p></details>}
     {(error || preview?.error || query.error) && <p role="alert" className="text-sm text-destructive">{error || preview?.error || query.error?.message}</p>}
     {preview?.status === "generating" && <p role="status">{ui("正在整理…")}</p>}
     <div className="flex flex-wrap justify-end gap-2">
-      {(!chatTurnId || !preview) && <button type="button" className={button} disabled={busy || !!editing || query.isLoading || query.isError} onClick={() => void prepareQuote()}>
+      {!readingId && (!chatTurnId || !preview) && <button type="button" className={button} disabled={busy || !!editing || query.isLoading || query.isError} onClick={() => void prepareQuote()}>
         {ui(running ? "正在整理…" : preview?.chapters ? "按新想法重新生成" : target === "text" ? "生成文字" : "生成分镜")}</button>}
-      {canReopen && <button type="button" className={button} onClick={continueFilm}>{ui("进入视频")}</button>}
+      {canReopen && !writingOnly && !trialBase && !readingId && <button type="button" className={button} onClick={continueFilm}>{ui("进入视频")}</button>}
       {preview?.status === "review" && preview.chapters && <>
         <button type="button" className={button} disabled={busy} onClick={() => editing ? void run(async () => { await saveEdits(); await query.refetch(); }) :
           setEditing({ id: preview.id, revision: preview.revision, values: preview.chapters!.map(c => writingModuleTexts(c.blocks.body, c.blocks.writingStyle)) })}>
           {ui(editing ? "保存预览修改" : "编辑文字")}</button>
-        <button type="button" className={button} disabled={!canApprove} onClick={continueFilm}>{ui(target === "text" ? "确认文字新版本" : "确认分镜，进入视频")}</button>
+        <button type="button" className={button} disabled={!canApprove} onClick={continueFilm}>{ui(writingOnly || readingId || trialBase ? "采用为分镜工作稿" : target === "text" ? "确认文字新版本" : "确认分镜，进入视频")}</button>
       </>}
     </div>
     <Dialog open={Boolean(quote)} onOpenChange={open => { if (!open) setQuote(null); }}>
       <DialogContent><DialogHeader><DialogTitle>{ui(target === "text" ? "生成文字" : "生成分镜")}</DialogTitle>
-        <DialogDescription>{ui("本次文字生成报价")} {quote && formatComputeQuote(quote.amount).replace(/算力$/, ui("算力"))}</DialogDescription></DialogHeader>
+        <DialogDescription>{trialBase && <>{ui("试改来源")} · {conversions.find(d=>d.id===trialBase)?.trial?.label ?? ui("分镜工作稿")}<br /></>}{ui("本次文字生成报价")} {quote && formatComputeQuote(quote.amount).replace(/算力$/, ui("算力"))}</DialogDescription></DialogHeader>
         <button type="button" className={button} disabled={running || blocked} onClick={submitQuote}>{ui("确认报价并生成")}</button>
       </DialogContent>
     </Dialog>

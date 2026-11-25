@@ -1,3 +1,5 @@
+import { FilmVersionDraft } from "../publishingDraft/FilmVersionDraft";
+import { useReadingSelection, openReading } from "../publishingDraft/readingTrialSelection";
 import { LiveBookWriting } from "./LiveBookWriting";
 import { useStoryboardScenes } from "../storyAgent/useStoryboardScenes";
 import { OPEN_STORY_MAILBOX } from "@shared/storyMailbox";
@@ -90,6 +92,7 @@ export function ChapterWorkspace({
   const _ui = useDesktopUiText();
   const [displayMode, setDisplayMode] = useState(mode);
   const writing = useRef<ChapterWritingHandle | null>(null);
+  const saveReading = useRef<(() => Promise<void>) | null>(null);
   const selectionKey = `book-manuscript:${props.accountId ?? "current"}:${props.storyId}`;
   const [selection, setSelection] = useState<{ key: string; kind: ManuscriptKind } | null>(() => {
     try {
@@ -120,7 +123,11 @@ export function ChapterWorkspace({
     ...(displayMode === "images" && latestLayout.current ? { layout: latestLayout.current.layout } : {}),
   } : null;
   const utils = trpc.useUtils();
-  const workflow = trpc.bookWorkflow.get.useQuery({ storyId: props.storyId }, { enabled: historyOpen, refetchInterval:q=>q.state.data?.state.conversions.some(d=>d.status==="generating" && Date.now()-d.createdAt<15*60_000)?2500:false });
+  const reading = useReadingSelection(props.accountId,props.storyId);
+  const readingView = displayMode === "text" && (state.selectedKind === "storyboard" || Boolean(reading));
+  const workflow = trpc.bookWorkflow.get.useQuery({ storyId: props.storyId }, { enabled: historyOpen || readingView, refetchInterval:q=>q.state.data?.state.conversions.some(d=>d.status==="generating" && Date.now()-d.createdAt<15*60_000)?2500:false });
+  const readings = workflow.data?.state.conversions.filter(d=>d.target==="storyboard" && d.status==="review" && d.chapters?.some(c=>!c.blocks.shotTextOrigin)) ?? [];
+  const selectedTrial = readingView && readings.find(d=>d.id===reading);
   useEffect(() => {
     const select = (event: Event) => {
       const detail = (event as CustomEvent).detail;
@@ -206,7 +213,7 @@ export function ChapterWorkspace({
     [active, state.imageUrls, state.change]
   );
   useEffect(()=>registerBookPreparation(props.storyId,props.accountId,async()=>{
-    if(displayMode === "text") await writing.current?.prepare(); else await prepare.current?.();
+    if(displayMode === "text") { await saveReading.current?.(); await writing.current?.prepare(); } else await prepare.current?.();
     if(state.error) throw new Error(state.error);
     await state.flush();
   }, async chapters => {
@@ -220,7 +227,7 @@ export function ChapterWorkspace({
     setBusy(true);
     try {
       if (flush) {
-        if (displayMode === "text") await writing.current?.prepare();
+        if (displayMode === "text") { await saveReading.current?.(); await writing.current?.prepare(); }
         else await prepare.current?.();
         if (state.error) throw new Error(state.error);
         await state.flush();
@@ -567,9 +574,19 @@ export function ChapterWorkspace({
   return (
     <div className="space-y-3" aria-label={_ui("故事章节")}>
       {displayMode === "text" && <LiveBookWriting key={`${props.accountId}:${props.storyId}`} storyId={props.storyId} />}
+      {readingView && readings.length > 0 && <section aria-label={_ui("分镜试读版本")} className="space-y-3">
+        <label className="flex flex-wrap items-baseline gap-2 text-sm font-medium">{_ui("全片试读")}
+          <select aria-label={_ui("选择分镜试读版本")} className="min-w-0 max-w-full rounded border border-[var(--panel-border)] bg-transparent px-2 py-1.5"
+            value={selectedTrial ? selectedTrial.id : ""} disabled={busy} onChange={e=>{const id=e.target.value;void run(async()=>openReading(props.accountId,props.storyId,id));}}>
+            <option value="">{_ui("本地分镜工作稿")}</option>
+            {readings.map(d=><option key={d.id} value={d.id}>{d.trial?.label ?? (d.request || d.chapters?.[0]?.title)} · {_ui("试稿")}</option>)}
+          </select>
+        </label>
+        {selectedTrial && <FilmVersionDraft key={selectedTrial.id} storyId={props.storyId} readingId={selectedTrial.id} flushRef={saveReading} request="" blocked={busy} onDone={()=>void state.reloadList()} />}
+      </section>}
       {!active && editorControls()}
       {active && (<>
-          <div hidden={displayMode !== "text"} className="space-y-3">
+          <div hidden={displayMode !== "text" || Boolean(selectedTrial)} className="space-y-3">
             {displayMode === "text" && <ChapterWriting showScenes={showScenes} key={`${active.id}:${state.epoch}`} chapter={active} precedingShots={shotOffset + precedingBookShots(productionChapters, active.id)}
               shotTarget={shotTarget?.chapterId === active.id ? shotTarget : null} onShotFocused={() => setShotTarget(null)}
               titleEditor={active.blocks.chatDocument ? undefined : titleEditor}

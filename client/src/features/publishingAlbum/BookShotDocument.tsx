@@ -4,9 +4,9 @@ import { readBookShotChapter, shotDirections, type BookShotChapter } from "@shar
 import { useUiText } from "@/features/uiLanguage/UiLanguage";
 
 export type BookShotEditTarget = { chapterId: number; moduleId: string; offset: number };
-export function BookShotDocument({ chapters, showScenes, preceding = 0, onEdit }: { chapters: BookShotChapter[]; showScenes?: boolean; preceding?: number; onEdit?(target: BookShotEditTarget): void }) {
+export function BookShotDocument({ chapters, showScenes, preceding = 0, initiallyOpen = false, onEdit }: { chapters: BookShotChapter[]; showScenes?: boolean; initiallyOpen?: boolean; preceding?: number; onEdit?(target: BookShotEditTarget): void }) {
   const ui = useUiText();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(initiallyOpen);
   const count = chapters.reduce((sum, c) => sum + (c.blocks.writingStyle?.filter(r => r.format === "shot").length ?? 0), 0);
   if (!count) return null;
   const pages = open ? chapters.map(chapter => readBookShotChapter(chapter, showScenes)) : [];
@@ -18,7 +18,7 @@ export function BookShotDocument({ chapters, showScenes, preceding = 0, onEdit }
       <dd className="whitespace-pre-line break-words leading-relaxed">{value}</dd></div>
   );
   const audioList = (items: typeof audio) => items.map(a => `${ui(a.label)} · ${a.title || '#' + a.assetId}`).join("\n");
-  return <details className="group rounded-md border border-[var(--panel-border)] text-sm" onToggle={e => setOpen(e.currentTarget.open)}>
+  return <details open={open} className="group rounded-md border border-[var(--panel-border)] text-sm" onToggle={e => setOpen(e.currentTarget.open)}>
     <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-foreground focus-visible:outline-offset-2 [&::-webkit-details-marker]:hidden">
       <FileText aria-hidden="true" size={16} className="shrink-0 text-muted-foreground" />
       <span className="font-medium">{ui("镜头制作单")}</span>
