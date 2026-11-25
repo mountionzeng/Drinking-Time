@@ -1,3 +1,4 @@
+import { isInlineBookRewrite } from '@shared/bookRewrite';
 import type { ChatMessage, StoryCard } from "./types";
 
 export function archiveMessagesFrom(
@@ -22,6 +23,11 @@ export function archiveMessagesFrom(
       imageEditPlan: message.imageEditPlan,
       frameReferences: message.frameReferences,
       frameReview: message.frameReview,
+      ...(message.bookRewrite && isInlineBookRewrite(message.bookRewrite) ? { bookRewrite: message.bookRewrite } : {}),
+      ...(message.bookRewriteChoices && { bookRewriteChoices: message.bookRewriteChoices }),
+      ...(message.bookRewriteFocus && { bookRewriteFocus: message.bookRewriteFocus }),
+      ...(message.bookChatDraft && { bookChatDraft: message.bookChatDraft }),
+      ...(message.bookDocument && { bookDocument: message.bookDocument }),
       editingTransitionCandidate: message.editingTransitionCandidate,
       pendingCard: spawnedCard
         ? {

@@ -154,3 +154,17 @@ it("keeps the toolbar compact and makes real warnings available on demand", () =
   expect(nodes(render()).some(n => n.props?.children === "No picture")).toBe(true);
   expect(nodes(render()).some(n => n.props?.children === silent)).toBe(false);
 });
+
+
+it("names bilingual subtitles only for two identified language tracks", () => {
+  const original = h.settings.subtitleTracks;
+  try {
+    panel().props.onOpenChange(true);
+    const label = () => nodes(render()).find(n => n.type === "option" && n.props.value === "all").props.children;
+    expect(label()).toBe("烧录双语字幕");
+    h.settings.subtitleTracks = [{ id: "a", name: "口播" }, { id: "b", name: "屏幕文字" }];
+    expect(label()).toBe("烧录全部字幕");
+  } finally {
+    h.settings.subtitleTracks = original;
+  }
+});

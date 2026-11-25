@@ -42,6 +42,14 @@ export const layoutModuleContextSchema = z
       }).refine(value => value.index < value.total, "行位置已失效"),
       excerpt: z.string().max(6000),
     }).optional(),
+    bookPassage: z.object({
+      start: z.number().int().nonnegative(),
+      chapterTitle: z.string().max(200).optional(),
+      chapterVersion: z.number().int().nonnegative().optional(),
+      instruction: z.string().min(1).max(6000),
+      previousText: z.string().max(20_000).optional(),
+      previousInstruction: z.string().max(6000).optional(),
+    }).optional(),
     // Only a bounded locally rendered JPEG; never fetch a client-supplied URL.
     pagePreview: z
       .string()

@@ -55,6 +55,74 @@ const layoutModule = {
   pagePreview: "data:image/jpeg;base64,AAAA",
 };
 
+describe("notes to manuscript", () => {
+  const notes = "那天下雨，爸爸来车站接我。他带了两把伞。旧稿说他递给我一把，我们并肩走着，我记不清这两件事。";
+  const message = "爸，今天你把伞往我这边挪，我看见啦。";
+  const history = [
+    { role: "user" as const, content: notes },
+    { role: "user" as const, content: `留给爸爸的微信（定稿）：${message}` },
+  ];
+  const writingContext = { draft: "", cursor: 0, fullDraft: true };
+
+  it("asks the model to organize supplied material without requesting a writing goal", async () => {
+    const invoke = fakeInvoke("我记得的事\n在车站碰见了爸爸。\n旧稿待核实\n递伞一事记不清。");
+    const result = await replyAsWritingCompanion({ message:"帮我理一下", history, writingContext }, invoke);
+    expect(result.reply).toContain("旧稿待核实");
+    expect(result.bookDraft).toBeUndefined();
+    expect(systemText(invoke)).toContain("按这份素材本身选择合适的分组与名称");
+    expect(JSON.stringify(invoke.mock.calls[0][0])).toContain(message);
+  });
+
+  it("uses a draft without a purpose questionnaire and enforces a recognizable ending cue", async () => {
+    const first = "那天下雨，爸爸来车站接我。他带了两把伞。";
+    const initial = fakeInvoke(JSON.stringify({ draft: first }));
+    expect(await replyAsWritingCompanion({ message: "帮我把车站那天的事写出来", history, writingContext }, initial)).toMatchObject({ bookDraft: first });
+    const ending = first.slice(0, -1) + "，见面后，还是把他那把往我这边挪了挪。";
+    const final = fakeInvoke(JSON.stringify({ draft: ending + "那一下，我记住了。" }));
+    const result = await replyAsWritingCompanion({
+      message: "我想把这段放进书里。读到爸爸把伞往我这边挪了挪，就可以停了",
+      history: [...history, { role: "assistant", content: first }],
+      writingContext,
+    }, final);
+    expect(result).toMatchObject({ reply: ending, bookDraft: ending });
+    expect(systemText(final)).toContain("编辑意见、关于自己记不清的评论");
+    expect(JSON.stringify(final.mock.calls[0][0])).toContain(notes);
+  });
+});
+
+describe("quoted manuscript passage context", () => {
+  it("sends the current version, neighboring paragraphs, and earlier suggestion without expanding the editable source", async () => {
+    const invoke = fakeInvoke(JSON.stringify({ reply: "口语了一点。", replacement: "一出车站，爸就把伞挪过来。" }));
+    const before = "前文。".repeat(4400) + "接着走到门口。\n";
+    const source = "他在车站把伞挪过来。";
+    const after = "\n后来我们一起走回家。";
+    const input = {
+      message: "把刚才那句再改得口语一点", history: [],
+      writingContext: { draft: before + source + after, cursor: 0, rewriteSource: source,
+        module: { ...layoutModule, scope: "7:25:chapter:4", bookPassage: {
+          start: before.length, chapterTitle: "两把伞", chapterVersion: 9,
+          instruction: "把刚才那句再改得口语一点", previousText: "他一出车站就把伞挪过来。",
+          previousInstruction: "前面写车站的那段，收短一点",
+        } },
+      },
+    };
+    expect(await replyAsWritingCompanion(input, invoke)).toMatchObject({
+      reply: "口语了一点。", rewriteText: "一出车站，爸就把伞挪过来。",
+    });
+    const payload = JSON.stringify(invoke.mock.calls[0][0]);
+    for (const text of ["两把伞 · V9", "接着走到门口。", "后来我们一起走回家。", "他一出车站就把伞挪过来。", "前面写车站的那段，收短一点", source]) {
+      expect(payload).toContain(text);
+    }
+    expect(payload).not.toContain(before);
+    expect(payload).not.toContain("data:image/jpeg");
+    expect(systemText(invoke)).toContain("只替换明确标出的原文");
+    await expect(replyAsWritingCompanion({
+      ...input, writingContext: { ...input.writingContext, draft: "我已手工改了那段。" },
+    }, invoke)).rejects.toThrow(WritingCompanionInputError);
+    expect(invoke).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("layout module advice", () => {
   it('formats book replacements at generation while preserving ordinary layout output', async () => {
     const raw = '**第 1 幕 · 相遇**\n## 尾声\n$E=mc^2$';

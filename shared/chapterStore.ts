@@ -19,6 +19,7 @@ export type StoredChapterBlocks = {
   manuscriptKind?: "text" | "storyboard";
   /** Replaced draft rows remain addressable by history, but cannot be edited. */
   manuscriptArchived?: boolean;
+  chatDocument?: { requestId: string; fingerprint: string };
   /** Immutable import provenance; normal saves preserve this receipt separately from prose. */
   wechatImport?: {
     storyId: string; revisionId: string; version: number; importedAt: string;

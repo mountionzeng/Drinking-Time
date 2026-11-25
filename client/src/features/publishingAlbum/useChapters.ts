@@ -217,6 +217,11 @@ export function useChapters(storyId: number, releaseCleanText?: (latest: Chapter
     open: async (id: number) => {
       await flush();
       setOpenId(id);
+      const url = new URL(window.location.href);
+      if (url.searchParams.has("chapterId") && url.searchParams.get("storyId") === String(storyId)) {
+        url.searchParams.set("chapterId", String(id));
+        window.history.replaceState(window.history.state, "", url);
+      }
     },
     saveText: async (draft: { title: string; body: string; changeNote?: string; autosave?: boolean; writingStyle?: StoredChapterBlocks["writingStyle"] }, comparedVersion?: number) => {
       if (!active) throw new Error("请先选择章节");

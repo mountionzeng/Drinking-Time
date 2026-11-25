@@ -2092,6 +2092,50 @@
     "en": "You have unsaved changes. Save, discard, or stay here to keep editing.",
     "fr": "Modifications non enregistrées. Enregistrez, abandonnez ou restez pour continuer."
   },
+  "书稿内容或版本已变化，请按当前正文重新指定要改的位置。": {
+    "en": "The manuscript or its version has changed. Please identify the passage in the current text.",
+    "fr": "Le manuscrit ou sa version a changé. Indiquez le passage dans le texte actuel."
+  },
+  "你指的是哪一段？可以选中它，或在这里引用一句原文。": {
+    "en": "Which passage do you mean? Select it in the document or quote a sentence here.",
+    "fr": "De quel passage s’agit-il ? Sélectionnez-le ou citez une phrase ici."
+  },
+  "你指的是哪一段？回复 1 或 2。": {
+    "en": "Which passage do you mean? Reply with 1 or 2.",
+    "fr": "De quel passage s’agit-il ? Répondez par 1 ou 2."
+  },
+  "你说的是这一段。想怎么改？": {
+    "en": "This is the passage. How would you like to revise it?",
+    "fr": "Voici le passage. Comment souhaitez-vous le modifier ?"
+  },
+  "请先打开要保存文稿的故事。": {
+    "en": "Open the story where you want to save the document.",
+    "fr": "Ouvrez l’histoire où vous voulez enregistrer le document."
+  },
+  "你想给这份文稿起什么名字？请把名字放在书名号或引号里。": {
+    "en": "What should this document be called? Put the name in quotation marks.",
+    "fr": "Quel nom donner à ce document ? Placez le nom entre guillemets."
+  },
+  "请标出要保存的具体原话和各段的名字，我会按你选定的文字保存。": {
+    "en": "Point to the exact text and name each section. I’ll save the wording you choose.",
+    "fr": "Indiquez le texte exact et le nom de chaque section. Je conserverai le texte choisi."
+  },
+  "已按原话保存。": {
+    "en": "Saved as written.",
+    "fr": "Enregistré mot pour mot."
+  },
+  "采用修改": {
+    "en": "Accept edit",
+    "fr": "Accepter la modification"
+  },
+  "请在原文里查看这处修改。": {
+    "en": "Review this edit in the document.",
+    "fr": "Vérifiez cette modification dans le document."
+  },
+  "请用引号标出原句，或指定它所在的章节。": {
+    "en": "Quote the original sentence or specify its section.",
+    "fr": "Citez la phrase d’origine ou indiquez sa section."
+  },
   "放弃修改": {
     "en": "Discard changes",
     "fr": "Abandonner les modifications"
@@ -13227,6 +13271,10 @@
   "先选中镜头，再到仓库把图片设为当前首帧。": {
     "en": "Select a shot, then set its image as the current first frame in Library.",
     "fr": "Sélectionnez un plan, puis définissez son image comme première image dans la bibliothèque."
+  },
+  "上下文：当前书稿": {
+    "en": "Context: current manuscript",
+    "fr": "Contexte : manuscrit actuel"
   },
   "已定位：全文": {
     "en": "Located: Full text",

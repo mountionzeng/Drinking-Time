@@ -8,6 +8,7 @@ vi.mock('react', async () => ({
   useMemo: (fn: () => any) => fn(), useCallback: (fn: any) => fn, useEffect() {},
   useLayoutEffect: (fn: () => void) => { hooks.effects.push(fn); },
 }));
+vi.mock('./BookSentenceReview', () => ({ useBookSentenceReview: () => null }));
 import { ChapterTextModules } from './ChapterTextModules';
 import { BookBlockCanvas } from './BookBlockCanvas';
 import { ChapterWriting } from './ChapterWriting';

@@ -1,5 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { randomUUID } from "node:crypto";
+import { acquire302Slot, MAX_RETRY_WAIT_MS } from "./inferenceAdmission";
+import { setTimeout as sleep } from "node:timers/promises";
+import { createHash, randomUUID } from "node:crypto";
 import {
   ComputeAccessError,
   assertComputeRequestAccess,
@@ -62,6 +64,8 @@ export type AttemptError = {
   /** 供应商返回的机器可读 error code，只在其形如安全短标识时保留。 */
   errorCode?: string;
   retryAfterMs?: number;
+  requestIdHash?: string;
+  observedAt?: string;
   aborted: boolean;
   /** 请求是否可能已被受理（发出后连接中断）——决定能否安全重放。 */
   acceptanceUnknown: boolean;
@@ -150,6 +154,8 @@ export type InferenceRequest = {
   retryRejected?: boolean;
   /** Explicit one-attempt workflows must not retry, downgrade or switch provider. */
   maxAttempts?: 1 | 2;
+  /** Server-built fingerprint and price bound from a confirmed quote. */
+  approvedQuote?: { key: string; maxCostMinor: number };
   /** 整个候选链的外层预算；切换候选不重置。 */
   deadlineMs?: number;
   /**
@@ -181,7 +187,19 @@ const MAX_PROVIDER_ATTEMPTS = 2;
 /** 收敛前 agentChannel 用的就是这个值，保持不变。 */
 const TRANSIENT_BACKOFF_MS = 700;
 
-const delay = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
+export function providerQuotaRejected(status?: number, code?: string) {
+  return status === 402 || ["insufficient_quota", "quota_exceeded", "insufficient_balance", "billing_hard_limit_reached"].includes(code?.toLowerCase() ?? "");
+}
+
+export function providerModelRejected(status?: number, code?: string) {
+  return status === 404 || ((status === 400 || status === 403) &&
+    ["model_not_found", "model_not_available", "model_not_supported"].includes(code?.toLowerCase() ?? ""));
+}
+
+function requestIdHash(response: Response): string | undefined {
+  const id = response.headers?.get?.("x-request-id") ?? response.headers?.get?.("request-id");
+  return id ? createHash("sha256").update(id).digest("hex").slice(0, 16) : undefined;
+}
 
 /** 只有这些类别在显式 replay-safe 时才允许换供应商重发。 */
 const REPLAYABLE_CATEGORIES = new Set<AttemptErrorCategory>([
@@ -292,7 +310,7 @@ function readRetryAfterHeader(response: Response): string | null {
 function parseRetryAfterMs(header: string | null): number | undefined {
   if (!header) return undefined;
   const seconds = Number(header.trim());
-  if (Number.isFinite(seconds) && seconds >= 0) return Math.floor(seconds * 1000);
+  if (Number.isFinite(seconds)) return seconds >= 0 && Number.isSafeInteger(Math.floor(seconds * 1000)) ? Math.floor(seconds * 1000) : undefined;
   const at = Date.parse(header);
   if (Number.isFinite(at)) return Math.max(0, at - Date.now());
   return undefined;
@@ -318,7 +336,8 @@ function extractSafeErrorCode(body: string): string | undefined {
       error?: { code?: unknown; type?: unknown };
     };
     const raw = parsed.error?.code ?? parsed.error?.type;
-    if (typeof raw === "string" && SAFE_ERROR_CODE.test(raw)) return raw;
+    if (typeof raw === "string" && SAFE_ERROR_CODE.test(raw) && !/^(sk-|bearer|eyJ)/i.test(raw)) return raw;
+    if (typeof raw === "number" && Number.isSafeInteger(raw)) return String(raw);
   } catch {
     // 非 JSON 正文没有可安全提取的字段，直接放弃。
   }
@@ -475,6 +494,13 @@ type AttemptResult =
   | { ok: true; result: InvokeResult }
   | { ok: false; error: AttemptError };
 
+function interruptedResponse(response: Response, candidate: InferenceCandidate, cause: unknown): AttemptResult {
+  return { ok: false, error: {
+    provider: candidate.id, model: candidate.model, status: response.status,
+    ...classifyThrown(cause), acceptanceUnknown: true, requestIdHash: requestIdHash(response),
+  } };
+}
+
 function endpointFor(candidate: InferenceCandidate): string {
   return candidate.endpointUrl ?? candidate.chatCompletionsUrl;
 }
@@ -526,6 +552,7 @@ async function attemptOpenAiCompatible(
         status: response.status,
         category: refineCategory(response.status, errorCode),
         errorCode,
+        requestIdHash: requestIdHash(response),
         retryAfterMs: parseRetryAfterMs(readRetryAfterHeader(response)),
         aborted: false,
         // Gateway timeouts/server errors do not prove the upstream rejected it.
@@ -534,7 +561,11 @@ async function attemptOpenAiCompatible(
     };
   }
 
-  return { ok: true, result: (await response.json()) as InvokeResult };
+  try {
+    return { ok: true, result: (await response.json()) as InvokeResult };
+  } catch (error) {
+    return interruptedResponse(response, candidate, error);
+  }
 }
 
 type ClaudeMessageResponse = {
@@ -652,6 +683,7 @@ async function attemptClaudeMessages(
         status: response.status,
         category: refineCategory(response.status, errorCode),
         errorCode,
+        requestIdHash: requestIdHash(response),
         retryAfterMs: parseRetryAfterMs(readRetryAfterHeader(response)),
         aborted: false,
         acceptanceUnknown: response.status === 408 || response.status >= 500,
@@ -659,7 +691,12 @@ async function attemptClaudeMessages(
     };
   }
 
-  const data = (await response.json()) as ClaudeMessageResponse;
+  let data: ClaudeMessageResponse;
+  try {
+    data = await response.json() as ClaudeMessageResponse;
+  } catch (error) {
+    return interruptedResponse(response, candidate, error);
+  }
   const text =
     data.content
       ?.filter(block => block.type === "text" && block.text)
@@ -700,6 +737,9 @@ function redactedAttemptLog(error: AttemptError, latencyMs: number) {
     category: error.category,
     errorCode: error.errorCode,
     latencyMs,
+    observedAt: error.observedAt,
+    requestIdHash: error.requestIdHash,
+    retryAfterMs: error.retryAfterMs,
     aborted: error.aborted,
   };
 }
@@ -730,7 +770,9 @@ export async function runInference(
     resolveComputeCandidates(request.useCase, request.candidates);
   if (resolved.length === 0) return runInferenceChain(request);
 
-  const operationId = `inference:${randomUUID()}`;
+  const operationId = request.approvedQuote
+    ? `inference:${scope.userId}:${request.approvedQuote.key}`
+    : `inference:${randomUUID()}`;
   const metered = await runBilledInference(request, {
     userId: scope.userId,
     operationId,
@@ -756,6 +798,7 @@ export async function runInference(
     };
   }
   if (metered.kind === "failed") throw metered.error;
+  if (metered.kind === "replayed") throw new Error("同一笔写稿请求已有账务记录，请核对原结果。");
   if (metered.kind === "insufficient_balance") {
     throw new ComputeAccessError({
       code: "FORBIDDEN",
@@ -781,7 +824,8 @@ export async function runBilledInference(
   candidates = request.explicitCandidates ?? resolveComputeCandidates(request.useCase, request.candidates),
 ) {
   const quote = freezeInferenceQuote(request, candidates);
-  if (!quote) return { kind: "rejected", reason: "no_trusted_max_cost" } as const;
+  if (!quote || (request.approvedQuote && quote.maxCostMinor > request.approvedQuote.maxCostMinor))
+    return { kind: "rejected", reason: "no_trusted_max_cost" } as const;
   return runMeteredCompute({
     ...billing,
     requestHash: inferenceRequestHash(request, candidates),
@@ -800,6 +844,18 @@ export async function runBilledInference(
         // The attempt is still before dispatch. Do not send if its quote cannot be recorded.
       }
       throw new ComputeAccessError({ code: "SERVICE_UNAVAILABLE", message: "暂时无法保存算力报价，未发起调用。" });
+    }, async (index, error, latencyMs) => {
+      const price = quote.prices.find(p => p.provider === error.provider && p.model === error.model);
+      try {
+        await recordOperationProviderAttempt({
+          operationId: billing.operationId, attemptIndex: index, provider: error.provider, model: error.model,
+          status: error.acceptanceUnknown ? "submission_unknown" : "not_charged_failure",
+          usage: { kind: "inference_failure", yuanPer1kTokens: price?.yuanPer1kTokens, ...redactedAttemptLog(error, latencyMs) },
+          costMinor: error.acceptanceUnknown ? null : 0,
+        });
+      } catch {
+        console.warn("[billing] inference attempt diagnostics unavailable", { operationId: billing.operationId, index });
+      }
     }),
     settleSuccess: outcome => settleAcceptedInference(billing.operationId, outcome, quote.prices),
     failureOutcome: inferenceFailureOutcome,
@@ -810,6 +866,7 @@ async function runInferenceChain(
   request: InferenceRequest,
   stopOnUnknownSubmission = false,
   prepareAttempt?: (index: number, candidate: InferenceCandidate) => Promise<void>,
+  recordFailure?: (index: number, error: AttemptError, latencyMs: number) => Promise<void>,
 ): Promise<InferenceOutcome> {
   const now = request.now ?? (() => Date.now());
   const startedAt = now();
@@ -853,13 +910,15 @@ async function runInferenceChain(
     if (request.signal?.aborted) {
       throw new InferenceError("LLM invoke aborted by caller", failures);
     }
-    const remainingMs =
+    let remainingMs =
       chainDeadlineAt === undefined ? undefined : chainDeadlineAt - now();
     if (remainingMs !== undefined && remainingMs <= 0) break;
 
     const candidate = candidates[candidateIndex];
     if (prepareAttempt) {
       await prepareAttempt(attemptsUsed + 1, candidate);
+      remainingMs = chainDeadlineAt === undefined ? undefined : chainDeadlineAt - now();
+      if (remainingMs !== undefined && remainingMs <= 0) break;
       if (request.signal?.aborted) throw new InferenceError("LLM invoke aborted by caller", failures);
     }
     const capabilities = describeModelCapabilities(candidate.model);
@@ -873,23 +932,35 @@ async function runInferenceChain(
         : attemptTimeoutMs === undefined
           ? remainingMs
           : Math.min(remainingMs, attemptTimeoutMs);
+    const boundedAttemptMs = attemptBudgetMs ?? (candidate.id === "302" ? 60_000 : undefined);
     const timeoutSignal =
-      attemptBudgetMs === undefined
+      boundedAttemptMs === undefined
         ? undefined
-        : AbortSignal.timeout(Math.max(1, Math.floor(attemptBudgetMs)));
+        : AbortSignal.timeout(Math.max(1, Math.floor(boundedAttemptMs)));
     const signal = mergeSignals(request.signal, timeoutSignal);
 
     const candidateProtocol = candidate.protocol ?? protocol;
-    const attempt =
-      candidateProtocol === "claude-messages"
-        ? await attemptClaudeMessages(request, candidate, signal)
-        : await attemptOpenAiCompatible(
-            request,
-            candidate,
-            capabilities,
-            { minimal: minimalPayload },
-            signal
-          );
+    const slot = candidate.id === "302" ? await acquire302Slot(candidate, signal) : undefined;
+    let attempt: AttemptResult;
+    let cooldownMs = 0;
+    try {
+      if ((slot && !slot.admitted) || signal?.aborted) {
+        attempt = { ok: false, error: {
+          provider: candidate.id, model: candidate.model, aborted: !!request.signal?.aborted,
+          acceptanceUnknown: false, category: request.signal?.aborted ? "aborted" : signal?.aborted ? "timeout" : "rate_limit",
+          errorCode: "local_queue", retryAfterMs: slot && !slot.admitted ? slot.retryAfterMs : undefined,
+        } };
+      } else {
+        attempt = candidateProtocol === "claude-messages"
+          ? await attemptClaudeMessages(request, candidate, signal)
+          : await attemptOpenAiCompatible(request, candidate, capabilities, { minimal: minimalPayload }, signal);
+        if (!attempt.ok && attempt.error.status === 429 && !providerQuotaRejected(429, attempt.error.errorCode)) {
+          cooldownMs = attempt.error.retryAfterMs ?? request.backoffMs ?? TRANSIENT_BACKOFF_MS;
+        }
+      }
+    } finally {
+      if (slot?.admitted) slot.release(cooldownMs);
+    }
 
     attemptsUsed += 1;
     const latencyMs = now() - attemptStartedAt;
@@ -905,7 +976,9 @@ async function runInferenceChain(
       };
     }
 
+    attempt.error.observedAt = new Date().toISOString();
     failures.push(attempt.error);
+    await recordFailure?.(attemptsUsed, attempt.error, latencyMs);
     console.warn("[inference] attempt failed", redactedAttemptLog(attempt.error, latencyMs));
 
     // One hold covers one accepted request. Textual replay safety does not prove
@@ -919,35 +992,25 @@ async function runInferenceChain(
       throw new InferenceError("LLM invoke aborted by caller", failures);
     }
 
-    if (attempt.error.category === "auth") {
-      // 鉴权失败是配置错误，重发同一把 Key 毫无意义——所以跳过这家**剩下的
-      // 排期**，而不是只退一步。
-      //
-      // 但也不再像从前那样中止整条链。2026-09-07 线上就是这么挂的：首选那家
-      // 的 Key 失效，401 直接 break，后面那家完全健康却一次都没被试过，整个
-      // 产品的聊天全哑。有序候选链的意义就是「一家倒了还有下一家」，让配置
-      // 错误吃掉这个能力，代价比它想防的那个问题更大。
-      //
-      // 「别让回退掩盖坏 Key」这个顾虑仍然成立，交给日志承担：这条 error 级
-      // 日志照打，并且带上被拒的供应商——回退是给用户的，告警是给我们的。
-      console.error("[inference] provider auth rejected — check credentials", {
-        provider: attempt.error.provider,
-        status: attempt.error.status,
-      });
-      const rejected = candidates[candidateIndex];
-      let nextIndex = candidateIndex + 1;
-      // 同一家（同 Key）在链上被排了多次时一并跳过：坏 Key 重试还是坏 Key。
-      while (
-        nextIndex < candidates.length &&
-        candidates[nextIndex].id === rejected.id &&
-        candidates[nextIndex].apiKey === rejected.apiKey
-      ) {
-        nextIndex += 1;
-      }
-      if (nextIndex >= candidates.length) break;
-      // 401 意味着请求根本没被上游执行，不存在「可能已生效」的歧义，
-      // 换一家重发不需要 replay-safe 许可。
-      candidateIndex = nextIndex;
+    if (attemptsUsed >= (request.maxAttempts ?? MAX_PROVIDER_ATTEMPTS) ||
+        attempt.error.errorCode === "local_queue") break;
+
+    const quotaRejected = providerQuotaRejected(attempt.error.status, attempt.error.errorCode);
+    const modelRejected = providerModelRejected(attempt.error.status, attempt.error.errorCode);
+    if (attempt.error.category === "auth" || quotaRejected || modelRejected) {
+      // An auth rejection historically permits the configured alternate. Other rejections need
+      // explicit replay permission; a pinned quote contains no alternate route.
+      if (attempt.error.category !== "auth" &&
+          !(callerAllowsReplay || (request.retryRejected && isStructurallyReplaySafe(request)))) break;
+      if (attempt.error.category === "auth" && !quotaRejected && !modelRejected)
+        console.error("[inference] provider auth rejected — check credentials", {
+          provider: attempt.error.provider, status: attempt.error.status,
+        });
+      let next = candidateIndex + 1;
+      while (next < candidates.length && candidates[next].id === candidate.id &&
+          candidates[next].apiKey === candidate.apiKey &&
+          (!modelRejected || candidates[next].model === candidate.model)) next++;
+      candidateIndex = next;
       minimalPayload = false;
       continue;
     }
@@ -976,8 +1039,12 @@ async function runInferenceChain(
     const remainingForWait =
       chainDeadlineAt === undefined ? undefined : chainDeadlineAt - now();
     // 等不起就别等——宁可直接放弃，也不要把预算耗在等待上。
-    if (remainingForWait !== undefined && waitMs > remainingForWait) break;
-    if (waitMs > 0) await delay(waitMs);
+    if (candidateIndex + 1 >= candidates.length || waitMs > MAX_RETRY_WAIT_MS ||
+        (remainingForWait !== undefined && waitMs >= remainingForWait)) break;
+    if (waitMs > 0) {
+      try { await sleep(waitMs, undefined, { signal: request.signal }); }
+      catch { throw new InferenceError("LLM invoke aborted by caller", failures); }
+    }
 
     candidateIndex += 1;
     minimalPayload = false;

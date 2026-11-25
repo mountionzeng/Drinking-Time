@@ -48,6 +48,28 @@ describe("chapters switch", () => {
   });
 });
 
+describe("confirmed chat documents", () => {
+  it("atomically creates separate sections, reopens exact content and returns the same result for concurrent retries", async () => {
+    const storyId = await story();
+    const sections = [
+      { heading: "书稿", text: "那天下雨，爸爸来车站接我。他带了两把伞，见面后，还是把他那把往我这边挪了挪。" },
+      { heading: "留给爸爸的微信", text: "爸，今天你把伞往我这边挪，我看见啦。" },
+    ];
+    const input = { storyId, title: "车站的两把伞", kind: "text" as const, chatDocument: { requestId: uuid(), sections } };
+    const owner = caller(10);
+    const [first, retry] = await Promise.all([owner.create(input), owner.create(input)]);
+    expect(retry.id).toBe(first.id);
+    expect(await owner.list({ storyId })).toHaveLength(1);
+    const result = await caller(10).get({ chapterId: first.id });
+    expect(result.chapter.title).toBe(input.title);
+    expect(result.chapter.blocks.body).toBe(sections.flatMap(section => [section.heading, section.text]).join("\n"));
+    expect(result.chapter.blocks.writingStyle?.map(item => item.format)).toEqual(['heading1', 'text', 'heading1', 'text']);
+    expect(await owner.bookEntry({ storyId, chapterId: first.id })).toEqual({ kind: 'text', chapterId: first.id });
+    await expect(caller(11).get({ chapterId: first.id })).rejects.toThrow("这一章不存在");
+    await expect(owner.create({ ...input, title: "同一次请求不能换标题" })).rejects.toThrow("内容已变化");
+  });
+});
+
 describe("chapter CRUD and order", () => {
   it("opens the last edited manuscript and chapter, preserving explicit links and ownership", async () => {
     const storyId = await story(), owner = caller(10);

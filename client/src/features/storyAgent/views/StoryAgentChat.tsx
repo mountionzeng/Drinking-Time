@@ -1,3 +1,5 @@
+import { ShotTextTrials } from "./ShotTextTrials";
+import { shotTextTrialIntent } from "@shared/shotTextTrial";
 import { useTimelineFeedbackLocation } from "../useTimelineFeedbackLocation";
 import { focusFeedbackQuote, isFeedbackQuote, locateTimelineFeedback } from "../timelineFeedbackLocation";
 import { keyframeGroupEdit } from "../keyframeGroupEdit";
@@ -79,6 +81,7 @@ import { type BookImageCompositionHandle } from '@/features/publishingAlbum/Book
 import { BookImageCompositionHistory } from '@/features/publishingAlbum/BookImageCompositionHistory';
 import { isBookImageCreationIntent } from '@shared/bookImageComposition';
 import { BookRewriteButton } from '@/features/publishingAlbum/BookRewriteButton';
+import { isInlineBookRewrite } from '@shared/bookRewrite';
 import { bookRewriteChatSnapshot } from '@/features/publishingAlbum/bookRewriteChat';
 import { useContext } from "react";
 import { useIsMutating, useMutationState } from "@tanstack/react-query";
@@ -1187,9 +1190,53 @@ export default function StoryAgentChat({
   const feedbackDraft = [input, voicePreview].filter(Boolean).join(" ").trim();
   const feedbackPreview = canLocateFeedback && feedbackDraft && feedbackClock.snapshot && !hasInlineChatImages(feedbackDraft)
     ? locateTimelineFeedback(feedbackDraft, feedbackClock.snapshot, previousFeedback) : null;
+  const trialUtils = trpc.useUtils();
+  const trialOpen = trpc.shotTextTrials.open.useMutation({retry:false});
+  const trialStorageKey = `shot-text-trial:${accountId}:${activeStoryId}`;
+  type TrialView = {key:string;shotId:string;shotNo?:number;requested?:string};
+  const [trialView,setTrialView] = useState<TrialView | null>(null);
+  useEffect(()=>{
+    try {
+      const params=new URLSearchParams(location.search);
+      const target=params.get("textTrialShot");
+      const saved=JSON.parse(sessionStorage.getItem(trialStorageKey) ?? "null") as TrialView|null;
+      setTrialView(target && params.get("storyId")===String(activeStoryId) && target!==saved?.shotId
+        ? {key:trialStorageKey,shotId:target} : saved);
+    }
+    catch {setTrialView(null)}
+  },[trialStorageKey]);
+  const showTrial = (view:TrialView | null) => {
+    setTrialView(view);
+    if(view)sessionStorage.setItem(trialStorageKey,JSON.stringify(view));
+    else sessionStorage.removeItem(trialStorageKey);
+  };
   const handleSubmit = async () => {
     draftEpoch.current++;
     const submittedInput = input;
+    const writingShot = trialView?.key===trialStorageKey ? trialView.shotId : undefined;
+    const selectedWritingTarget = activeSelection?.storyId===activeStoryId ? activeSelection?.stableShotId : undefined;
+    const targetForWords=selectedWritingTarget ?? writingShot;
+    let trial = shotTextTrialIntent(submittedInput, Boolean(targetForWords));
+    if(trial?.revise && activeStoryId && targetForWords && targetForWords!==writingShot) {
+      try {
+        const drafts=await trialUtils.shotTextTrials.list.fetch({storyId:activeStoryId,shotId:targetForWords});
+        if(!drafts.some(row=>row.source==="拾光" && row.request)) trial=shotTextTrialIntent(submittedInput);
+      } catch {toast.info("未读到本镜稿件，请稍后重试。");return;}
+    }
+    if (trial && activeStoryId) {
+      if (trialOpen.isPending || isImportingMedia || voice.isBusy) return;
+      try {
+        const row = await trialOpen.mutateAsync({storyId:activeStoryId,shotNo:trial.shotNo,
+          shotId:(activeSelection?.storyId===activeStoryId ? activeSelection.stableShotId : undefined) ?? writingShot,
+          opening:trial.opening,revise:trial.revise,retry:trial.retry,
+          request:submittedInput,id:crypto.randomUUID()});
+        if(storySpineStore.getState().activeStoryId!==activeStoryId || storySpineStore.getState().accountId!==accountId)return;
+        await trialUtils.shotTextTrials.manuscript.invalidate({storyId:activeStoryId});
+        showTrial({key:trialStorageKey,shotId:row.shotId,shotNo:trial.shotNo,requested:row.id});
+        setInput(current=>current===submittedInput ? "" : current);
+      } catch(e){toast.info(e instanceof Error?e.message:"未能打开镜头文字试稿")}
+      return;
+    }
     let entered = creationFlow.resolveVersionReply?.(input.trim()) ?? input.trim();
     try { if (workspaceContext === "video") entered = resolveShotImageMentions(entered, new Map(inlineImages.map(im => [im.imageId!, im.label]))); }
     catch (error) { toast.info(error instanceof Error ? error.message : "请从仓库重新选图"); return; }
@@ -2152,7 +2199,7 @@ export default function StoryAgentChat({
       ? `${_ui("已定位：")}${writingSnapshot.module.selection ? layoutModuleLabel(writingSnapshot.module) : writingSnapshot.module.kind === "text" ? writingSnapshot.module.text || _ui("空白段落") : layoutModuleLabel(writingSnapshot.module)}${writingSnapshot.module.kind === "image" && !bookMedia && !writingSnapshot.module.pagePreview ? _ui("（画面暂不可用）") : ""}`
       : writingSnapshot.layoutMemory ? _ui("正在聊当前排版") : writingSnapshot.selection
         ? `${_ui("已选中：")}${writingSnapshot.draft.slice(writingSnapshot.selection.start, writingSnapshot.selection.end)}`
-        : _ui("已定位：全文")
+        : _ui(writingSnapshot?.chapterId ? "上下文：当前书稿" : "已定位：全文")
     : workspaceContext === "video" ? videoContext || _ui("当前视频 · 可以直接说音乐小一点、旁白音量或淡入淡出") : activeSelection ? _ui("正在聊你选中的内容") : _ui("想聊什么？");
   const staticVideoContext = workspaceContext === "video" && !composition && !discussingBookVideo && !writingSnapshot && !activeSelection?.selection ? videoContext : undefined;
   const companionMessages = [
@@ -2188,6 +2235,10 @@ export default function StoryAgentChat({
               <WarehouseCompletionNotice storyId={activeStoryId} shots={creationEditor.shots} materialState={creationEditor.materialState}
                 stableShotId={selectedChatShot.stableShotId ?? selectedChatShot.shotIdentity} compact />
             </>}
+            <button type="button" className="shrink-0 text-xs underline" onClick={()=>{
+              const shotId=selectedChatShot.stableShotId ?? selectedChatShot.shotIdentity;
+              if(shotId)showTrial({key:trialStorageKey,shotId,shotNo:selectedChatShot.shotNo});
+            }}>文字试稿</button>
             <button type="button" aria-label={_ui("取消选中")} onClick={clearSelection} className="ml-auto shrink-0 rounded p-1 hover:bg-foreground/10"><X className="h-3 w-3" /></button>
           </div>) : null;
 
@@ -2652,7 +2703,13 @@ export default function StoryAgentChat({
                 {m.frameReview ? <div className="mt-2"><ChatFrameRegionReview shotLabel={labelForShot} onContentChange={handleRevisionContentChange} review={m.frameReview} storyId={activeStoryId} selectedImageId={activeSelection?.imageId} onSelect={referenceCandidate}
                   onFeedback={frame => { if (frame.storyId === activeStoryId) selectConversationImage(frame, true); }} imageRevisions={frameImageRevisions.data} pendingCloudRequests={pendingCloudRequests} /></div> : null}
                 {m.role === "user" && renderQueueStatus(m.id)}
-                {m.role === 'assistant' && m.bookRewrite && <BookRewriteButton proposal={m.bookRewrite} storyId={activeStoryId} />}
+                {m.role === 'assistant' && m.bookRewrite && !isInlineBookRewrite(m.bookRewrite) && <BookRewriteButton proposal={m.bookRewrite} storyId={activeStoryId} />}
+                {m.role === 'assistant' && m.bookDocument?.storyId === activeStoryId && (
+                  <a className="mt-2 inline-block text-primary underline underline-offset-2"
+                    href={`/editing?storyId=${m.bookDocument.storyId}&chapterId=${m.bookDocument.chapterId}`}>
+                    {m.bookDocument.title}
+                  </a>
+                )}
                 {m.promptCandidate ? (
                   <div className="mt-2 border-t border-border/60 pt-2">
                     <div className="text-[10px] text-muted-foreground">
@@ -3196,6 +3253,8 @@ export default function StoryAgentChat({
           </div>
         )}
 
+        {activeStoryId && trialView?.key===trialStorageKey && <ShotTextTrials key={trialStorageKey+trialView.shotId+String(trialView.requested)}
+          storyId={activeStoryId} shotId={trialView.shotId} shotNo={trialView.shotNo ?? creationEditor?.shots.find(shot=>(shot.stableShotId ?? shot.shotIdentity)===trialView.shotId)?.shotNo} requested={trialView.requested} onClose={()=>showTrial(null)}/>}
         <ChatComposerDock enabled={Boolean(selectedChatShot)} avatar={companionAvatar}
           activityText={compactActivity ?? ""} summary={<>{shotComposerContext}{composerActivity}</>}>
           <ChatComposerTools horizontal={workspaceContext === "video"}

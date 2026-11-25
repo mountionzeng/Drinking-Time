@@ -861,3 +861,34 @@ it.each([400,401,429,503])("honors an explicit one-attempt limit after HTTP %s",
   await expect(runInference(baseRequest({fetchImpl:impl,replaySafe:true,maxAttempts:1,responseFormat:{type:"json_object"}}))).rejects.toThrow();
   expect(calls).toHaveLength(1);
 });
+
+it("distinguishes an exhausted provider account from a transient 429 and records safe correlation details", async () => {
+  ENV.api302Key = "";
+  const trace = "private-upstream-request-123";
+  const { impl, calls } = recordingFetch(() =>
+    jsonResponse(429, { error: { code: "insufficient_quota" } }, { "retry-after": "2", "x-request-id": trace })
+  );
+  const error = await runInference(baseRequest({ fetchImpl: impl, retryRejected: true })).catch(e => e as InferenceError);
+  expect(calls).toHaveLength(1);
+  if (!(error instanceof InferenceError)) throw Error("Expected an inference error");
+  expect(error.attempts[0]).toMatchObject({ errorCode: "insufficient_quota", retryAfterMs: 2000, requestIdHash: expect.stringMatching(/^[0-9a-f]{16}$/) });
+  expect(JSON.stringify(error.attempts)).not.toContain(trace);
+});
+
+it("reports a response interrupted after HTTP 200 as uncertain without resubmission", async () => {
+  const { impl, calls } = recordingFetch(() => new Response("{"));
+  await expect(runInference(baseRequest({ fetchImpl: impl, retryRejected: true }))).rejects.toMatchObject({
+    attempts: [expect.objectContaining({ status: 200, acceptanceUnknown: true })],
+  });
+  expect(calls).toHaveLength(1);
+});
+
+it.each([[429,"insufficient_quota"],[404,"model_not_found"]] as const)(
+  "can use an already authorized distinct route after a definite %s rejection", async (status, code) => {
+    const { impl, calls } = recordingFetch((_, i) => i === 0
+      ? jsonResponse(status,{error:{code}}) : jsonResponse(200,okBody("稿件")));
+    const result = await runInference(baseRequest({fetchImpl:impl,retryRejected:true}));
+    expect(result.provider).toBe("302");
+    expect(calls.map(call=>call.url)).toEqual([NEXT_URL,LEGACY_URL]);
+  }
+);

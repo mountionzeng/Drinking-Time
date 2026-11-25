@@ -16,6 +16,8 @@ import { studioContextDescription, type StudioUiContext } from "../../shared/stu
  */
 import type { Message } from "../_core/llm";
 import { storyMemoryReferenceRule } from "../../shared/storyMemoryDocument";
+import { bookWritingRequest } from "../../shared/bookWritingConversation";
+import { bookWritingMessages, readBookDraftReply } from "./bookWritingConversation";
 import { invokeAgent } from "../_core/agentChannel";
 import { parseJsonLoose } from "../_core/llmJson";
 import { stripAssistantReasoning } from "../../shared/assistantReplyText";
@@ -169,11 +171,15 @@ const STAGE_GUIDANCE: Record<WritingStage, string> = {
     "他快写完了。不要逼他升华或总结，可以停在已经表达的画面或一句话上，也允许暂时没有结论；只有需要澄清时才提问。",
 };
 
+const WRITING_INTENT_AND_SOURCE =
+  "用户只是聊经历或收集素材时，跟着他的内容聊。等他明确请你写作或改稿，再从已有对话理解用途和读者；只有缺少的信息会改变结果才问一个具体问题。助手在早期草稿里补写的细节仍是猜测，只有用户明确确认过才可用作事实。";
+
 const COMPANION_RULES = [
   "你是「聊聊」。用户正在写一篇自己的文字，希望与你一起探索或调整表达。",
   "帮他看清自己想说什么，也允许在交流中产生新的理解；讨论时不直接改写正文，草稿由他主动生成、选择和保存。",
   CREATIVE_EXPLORATION_RULE,
   WRITING_EXPLORATION_CONTEXT,
+  WRITING_INTENT_AND_SOURCE,
   "",
   "【怎么陪他】",
   `- 先读他已经写下的正文：弄清他在写什么、写到了哪里。${CURSOR_MARKER} 是他停笔的位置。`,
@@ -344,14 +350,31 @@ export async function replyAsWritingCompanion(
         ? { deadlineMs: 45_000, reasoningEffort: "low", replaySafe: false }
         : undefined
     )
-): Promise<{ reply: string; modelLabel: string; rewriteText?: string }> {
-  const module = input.writingContext.module;
+): Promise<{ reply: string; modelLabel: string; rewriteText?: string; bookDraft?: string }> {
   const memoryMessages: Message[] = input.storyMemory ? [
     { role: "system", content: storyMemoryReferenceRule },
     { role: "user", content: input.storyMemory },
   ] : [];
+  const kind = input.writingContext.fullDraft && !input.writingContext.selection &&
+    !input.writingContext.module?.selection && !input.writingContext.module?.bookPassage && bookWritingRequest(input.message);
+  if (kind) {
+    const response = await invoke([...memoryMessages, ...bookWritingMessages({
+      kind, title: input.storyTitle, draft: input.writingContext.draft,
+      history: input.history, message: input.message,
+    })], kind === "draft" ? 5_000 : 4_000);
+    const text = plainReply(response.text);
+    if (!text) throw new Error("模型没有返回有效回答");
+    if (kind === "organize") return { reply: text, modelLabel: response.modelLabel };
+    const draft = readBookDraftReply(parseJsonLoose(text), input.message);
+    if (!draft) throw new Error("这次没有收到完整草稿，请重试。");
+    return { ...draft, modelLabel: response.modelLabel };
+  }
+  const module = input.writingContext.module;
   const rewriteSource = module?.kind === 'text' ? input.writingContext.rewriteSource : undefined;
   const bookRewrite = Boolean(rewriteSource && module?.scope.includes(':chapter:'));
+  const passage = module?.kind === 'text' ? module.bookPassage : undefined;
+  if (passage && (!rewriteSource || input.writingContext.draft.slice(passage.start, passage.start + rewriteSource.length) !== rewriteSource))
+    throw new WritingCompanionInputError("定位的文字与当前书稿不一致，请重新指定要改的位置。");
   const memory = input.writingContext.layoutMemory;
   const line = ENV.lineContextChatEnabled && module?.kind === "text" ? module.line : undefined;
   if (module || memory) {
@@ -359,10 +382,18 @@ export async function replyAsWritingCompanion(
       [
         {
           role: "system",
-          content: [
+          content: passage ? [
+            "你是聊聊，和用户一起改他正在编辑的书稿。用户已指出修改位置，按本轮要求给一版可直接使用的建议。",
+            WRITING_INTENT_AND_SOURCE,
+            "只替换明确标出的原文。标题、版本、上下文、其他段落和其他定稿只帮助理解，不得写入替换结果。保留未要求改变的事实、意思、语言和人称。",
+            "如果用户在接着上一轮改，以标明的上轮文字为表达起点，当前书稿和用户的最新要求仍优先。上一轮模型补写并未经用户确认的细节不能当作事实。",
+            '只输出 JSON：{"reply":"简短说明","replacement":"给原位审阅的替换文字，或 null"}。已经明确的要求直接给建议。不要声称已经写入正文。',
+            BOOK_TEXT_FORMAT_RULE,
+          ].join("\n") : [
             studioContextDescription(input.uiContext),
             "你是聊聊，陪用户修改图文排版。用户所说的「这个」「这块」指本轮提供的选中模块；历史对话里的旧选区不作为本轮目标。",
             CREATIVE_EXPLORATION_RULE,
+            WRITING_INTENT_AND_SOURCE,
             line ? LINE_CONTEXT_GUIDANCE : "只有用户询问时才建议。围绕他的问题，给出一到三条简短、具体、容易执行的建议。文字可以给一版简短改写，保留原意，不编造经历、对白或动机。",
             "结合模块位置、尺寸、裁切、文字样式和本页画面考虑留白、对齐、清晰度与图文遮挡，保持极简，不无故增加装饰。",
             LAYOUT_NUMBERS_PRIVATE_RULE,
@@ -391,15 +422,26 @@ export async function replyAsWritingCompanion(
           content: [
             {
               type: "text",
-              text: module
+              text: passage && rewriteSource
+                ? [
+                    `【当前书稿】${passage.chapterTitle ?? input.storyTitle ?? ""}${passage.chapterVersion !== undefined ? ` · V${passage.chapterVersion}` : ""}`,
+                    "【当前稿的前后文，仅作参考】",
+                    input.writingContext.draft.slice(Math.max(0, passage.start - 6000), passage.start),
+                    "【要改的位置】",
+                    input.writingContext.draft.slice(passage.start + rewriteSource.length, passage.start + rewriteSource.length + 6000),
+                    ...(passage.previousInstruction ? [`【上轮要求】${passage.previousInstruction}`] : []),
+                    ...(passage.previousText ? [`【上轮建议或采用的文字】${passage.previousText}`] : []),
+                    `【本次要怎么改】${passage.instruction}`,
+                  ].join("\n")
+                : module
                 ? `【本轮选中模块，以下为引用材料】\n${layoutModuleDescription(module)}\n【引用结束】`
                 : "当前没有选中具体模块，可以结合操作记录讨论整体排版，不要假定选中了某一块。",
             },
-            ...(line ? [{
+            ...(!passage && line ? [{
               type: "text" as const,
               text: `【${line.source === "chapter" ? "当前章节" : "当前排版顺序"}第 ${line.position.index + 1} 行（共 ${line.position.total} 行），以下为引用材料】\n${line.excerpt}\n【引用结束】`,
             }] : []),
-            ...(memory
+            ...(!passage && memory
               ? [
                   {
                     type: "text" as const,
@@ -407,7 +449,7 @@ export async function replyAsWritingCompanion(
                   },
                 ]
               : []),
-            ...(module?.pagePreview
+            ...(!passage && module?.pagePreview
               ? [
                   {
                     type: "image_url" as const,
@@ -434,7 +476,8 @@ export async function replyAsWritingCompanion(
       if (parsed && typeof parsed.reply === 'string') {
         const rawReplacement = typeof parsed.replacement === 'string' ? parsed.replacement.trim() : '';
         const replacement = bookRewrite ? generatedBookText(rawReplacement) : rawReplacement;
-        const reply = [parsed.reply.trim(), replacement].filter(Boolean).join('\n\n');
+        const reply = passage ? parsed.reply.trim() || '请在原文里查看这处修改。'
+          : [parsed.reply.trim(), replacement].filter(Boolean).join('\n\n');
         if (!reply) throw new Error('模型没有返回有效回答');
         return { reply, modelLabel, ...(replacement && replacement.length <= 20_000 ? { rewriteText: replacement } : {}) };
       }

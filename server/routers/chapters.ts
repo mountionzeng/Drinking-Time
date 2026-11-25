@@ -1,4 +1,5 @@
 import { bookWritingStyleSchema, validWritingStyle } from "../../shared/bookWritingStyle";
+import { bookChatDocumentInput } from "../../shared/bookWritingConversation";
 import { manuscriptKindSchema, readBookWorkflow } from "../../shared/bookWorkflow";
 import { bookEntry } from "../repositories/bookWorkflow";
 import { listOwnChapterDeliveryHistory } from "../repositories/chapterDeliveries";
@@ -140,6 +141,7 @@ export const chaptersRouter = router({
         title: chapterTitleSchema,
         body: z.string().max(MAX_BODY).default(""),
         draftSource: z.string().max(300).optional(),
+        chatDocument: bookChatDocumentInput.optional(),
         containsAiText: z.boolean().default(false),
         kind: manuscriptKindSchema.optional(),
       })
@@ -147,6 +149,19 @@ export const chaptersRouter = router({
     .mutation(async ({ ctx, input }) => {
       requireEnabled();
       await ownStory(input.storyId, ctx.user.id);
+      const document = input.chatDocument;
+      const body = document ? document.sections.flatMap(section => [section.heading, section.text]).join("\n") : input.body;
+      if (body.length > MAX_BODY)
+        throw new TRPCError({ code: "BAD_REQUEST", message: "文稿过长，请分开保存" });
+      if (document && (input.body || input.draftSource || input.kind === "storyboard"))
+        throw new TRPCError({ code: "BAD_REQUEST", message: "文稿来源不一致" });
+      const writingStyle: StoredChapterBlocks["writingStyle"] = document?.sections.flatMap((section, index) => {
+        const headingId = `chat-heading-${index + 1}`;
+        return [
+          { id: headingId, format: "heading1", parentId: null, collapsed: false },
+          { id: `chat-text-${index + 1}`, format: "text", parentId: headingId, collapsed: false, lineCount: section.text.replace(/\r\n?/gu, "\n").split("\n").length },
+        ];
+      });
       return view(
         await insertChapter({
           storyId: input.storyId,
@@ -154,7 +169,11 @@ export const chaptersRouter = router({
           content: {
             title: input.title,
             blocks: {
-              ...emptyBlocks(input.body),
+              ...emptyBlocks(body),
+              ...(document && {
+                writingStyle,
+                chatDocument: { requestId: document.requestId, fingerprint: draftFingerprint(input.title, JSON.stringify(document.sections)) },
+              }),
               manuscriptKind: input.kind,
               attribution: { editorName: artworkAuthorName(ctx.user.name), action: "created" },
               containsAiText: input.containsAiText,

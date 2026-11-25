@@ -318,8 +318,18 @@ function EditingStudioBody({
     const needsRestore = scope !== null && scope !== restoredWorkspaceScope.current;
     if (scope) restoredWorkspaceScope.current = scope;
     else if (activeStoryId === null) restoredWorkspaceScope.current = null;
+    const entry = new URLSearchParams(window.location.search);
+    if (previousStoryId && activeStoryId !== previousStoryId && entry.has("chapterId") &&
+      Number(entry.get("storyId")) === previousStoryId) {
+      window.history.replaceState(null, "", "/editing");
+    }
     const explicitChapterInbox = (initialEntry || (previousStoryId === activeStoryId && needsRestore)) &&
-      new URLSearchParams(window.location.search).get("chapterInbox") === "1";
+      entry.get("chapterInbox") === "1";
+    if (initialEntry && !explicitChapterInbox && Number(entry.get("storyId")) === activeStoryId &&
+      /^[1-9]\d*$/u.test(entry.get("chapterId") ?? "")) {
+      onWorkspaceChange("publishing");
+      return;
+    }
     const savedView = activeStoryId !== null && !explicitChapterInbox
       ? readStoryView(browserStoryViewStorage(), creationUser?.id, activeStoryId, "workspace") : null;
     if (savedView && needsRestore && previousStoryId !== -1) {

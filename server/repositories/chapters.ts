@@ -102,27 +102,42 @@ export async function insertChapter(input: {
   userId: number;
   content: ChapterContent;
 }): Promise<StoryChapter> {
-  const existing = await listChapters(input.storyId, input.userId, input.content.blocks.manuscriptKind);
-  if (existing.length >= CHAPTER_MAX_PER_STORY)
-    throw new TRPCError({ code: "BAD_REQUEST", message: "这个故事的章节已满" });
-  const position = existing.length
-    ? Math.max(...existing.map(row => row.position)) + 1
-    : 0;
+  const { storyId, userId, content } = input;
+  const request = content.blocks.chatDocument;
+  const owned = and(eq(storyChapters.storyId, storyId), eq(storyChapters.userId, userId));
+  function creationPlan(rows: StoryChapter[]) {
+    const existing = request && rows.find(row => row.blocks.chatDocument?.requestId === request.requestId);
+    if (existing && existing.blocks.chatDocument?.fingerprint !== request?.fingerprint)
+      throw new TRPCError({ code: "CONFLICT", message: "这条保存指令的内容已变化，请发一条新的指令" });
+    const peers = manuscriptRows(rows, content.blocks.manuscriptKind);
+    if (!existing && peers.length >= CHAPTER_MAX_PER_STORY)
+      throw new TRPCError({ code: "BAD_REQUEST", message: "这个故事的章节已满" });
+    return { existing, position: Math.max(-1, ...peers.map(row => row.position)) + 1 };
+  }
   const db = await getDb();
   if (db) {
-    const [result] = await db.insert(storyChapters).values({
-      storyId: input.storyId,
-      userId: input.userId,
-      position,
-      title: input.content.title,
-      blocks: input.content.blocks,
-      layout: input.content.layout,
+    const insert = async (tx: Pick<typeof db, "insert" | "select">) => {
+      const { existing, position } = creationPlan(await tx.select().from(storyChapters).where(owned));
+      if (existing) return existing;
+      const [result] = await tx.insert(storyChapters).values({
+        storyId, userId, position, title: content.title, blocks: content.blocks, layout: content.layout,
+      });
+      const [created] = await tx.select().from(storyChapters)
+        .where(and(eq(storyChapters.id, Number(result.insertId)), eq(storyChapters.userId, userId))).limit(1);
+      if (!created) throw gone();
+      return created;
+    };
+    if (!request) return insert(db);
+    return db.transaction(async tx => {
+      const [story] = await tx.select({id: stories.id}).from(stories)
+        .where(and(eq(stories.id, storyId), eq(stories.userId, userId))).for("update");
+      if (!story) throw gone();
+      return insert(tx);
     });
-    const created = await getChapter(Number(result.insertId), input.userId);
-    if (!created) throw gone();
-    return created;
   }
   return withLocalAggregateMutationLock(async () => {
+    const { existing, position } = creationPlan(memoryState.storyChapters.filter(row => row.storyId === storyId && row.userId === userId));
+    if (existing) return structuredClone(existing);
     const current = now();
     const row: StoryChapter = {
       id: nextMemoryId("storyChapter"),

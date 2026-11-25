@@ -42,6 +42,13 @@ type Draft = {
 };
 const defaults: Draft = { resolution: 1080, subtitleChoice: "all" };
 
+function isBilingualPair(tracks: Array<{ id: string; name?: string }>) {
+  if (tracks.length !== 2) return false;
+  const labels = tracks.map(track => (track.name || track.id).trim().toLowerCase());
+  return labels.some(label => /^(zh(?:-cn|-tw)?|中文(?:字幕)?|chinese)$/.test(label))
+    && labels.some(label => /^(en(?:-us|-gb)?|英文(?:字幕)?|english)$/.test(label));
+}
+
 function storage() {
   try { return window.sessionStorage; } catch { return null; }
 }
@@ -212,7 +219,7 @@ export function ExportButton({ storyId, pendingStoryRequestId }: { storyId: numb
             </div>
             <label className="grid gap-1.5 text-sm font-medium">{t("字幕")}
               <select className={fieldClass} value={settings.subtitleTracks.length ? subtitleChoice : "off"} disabled={!settings.subtitleTracks.length} onChange={event => setDraft({ ...draft, subtitleChoice: event.target.value })}>
-                {settings.subtitleTracks.length > 0 && <option value="all">{settings.subtitleTracks.length === 2 ? t("烧录双语字幕") : t("烧录全部字幕")}</option>}
+                {settings.subtitleTracks.length > 0 && <option value="all">{isBilingualPair(settings.subtitleTracks) ? t("烧录双语字幕") : t("烧录全部字幕")}</option>}
                 {settings.subtitleTracks.map((track, index) => <option key={track.id} value={`track:${track.id}`}>{track.name || t("字幕轨 {0}", [index + 1])}</option>)}
                 <option value="off">{t("关闭字幕")}</option>
               </select>

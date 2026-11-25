@@ -35,6 +35,7 @@ import {
   type ReactNode,
 } from "react";
 import { toast } from "sonner";
+import { prepareBookTurn, bookChatReplyMetadata, isBookWritingMaterialTurn } from "@/features/publishingAlbum/bookDocumentChat";
 import type { WritingCompanionSnapshot } from "@/features/writingCompanion/writingCompanionText";
 
 type ChatSendOptions = { clientMessageId?: string; writingContext?: WritingCompanionSnapshot; workspaceContext?: "book" | "video"; selection?: SelectionState | null; onMessageAdded?: () => void };
@@ -62,6 +63,7 @@ import {
   shouldShowReturningGreeting,
   type ChatMessage,
   type StoryCard,
+  type StoryAgentChatResult,
   type GeneratedScript,
   type EditingTransitionCandidateReference,
   type StoryShot,
@@ -677,22 +679,7 @@ const storyAgentActionKeys = [
 
 const StoryAgentActionsContext = createContext<StoryAgentActions | null>(null);
 
-type StoryAgentChatResult = {
-  rewriteText?: string;
-  reply?: string;
-  suggestedTitle?: string;
-  card?: Partial<StoryCard> | null;
-  read?: unknown;
-  configured?: boolean;
-  modelLabel?: string;
-  /** 阶段 C：小酌判断某镜头某维度出现了新信息时提议的候选（server 已按白名单+镜头存在性过滤）。 */
-  toolCalls?: Array<{
-    name: string;
-    shotNo?: number;
-    dimension?: string;
-    content?: string;
-  }>;
-};
+
 
 type StoryAgentClassifyResult =
   | {
@@ -1864,8 +1851,19 @@ export function StoryAgentProvider({
         let nextMessages = [...storySpineStore.getState().messages, userMsg];
         setMessages(nextMessages);
         options?.onMessageAdded?.();
-
-        const interfaceOutcome: (StudioCommandOutcome & { frameReferences?: ChatMessage["frameReferences"]; frameReview?: ChatMessage["frameReview"]; imageEditPlan?: ChatMessage["imageEditPlan"]; transitionCandidate?: Omit<EditingTransitionCandidateReference, "status" | "error"> }) | null = !timeFeedback && !inlineImages && !photoBase64 && interfaceCommandRunner ? await interfaceCommandRunner(trimmed, submittedUi) : null;
+        const preparedBook = options?.workspaceContext === "book" && !photoBase64 ? await prepareBookTurn(userMsg, activeStoryId, options.writingContext, messages, utils.client.chapters.create.mutate) : undefined;
+        const bookReview = preparedBook?.reply, writingContext = preparedBook?.writingContext ?? options?.writingContext;
+        if (bookReview) {
+          if (!isCurrent()) return false;
+          const latest = storySpineStore.getState();
+          const finalMessages = insertTurnReply(latest.messages, userMsg, bookReview);
+          answered = true;
+          setMessages(finalMessages);
+          await saveArchiveStory({ ...latest, messages: finalMessages, baseRevision: latest.serverRevision });
+          await appendCommandConversation(appendConversationTurnMut.mutateAsync, resolvePersistedStoryId(activeStoryId, remoteStoryId), userMsg, bookReview, null);
+          return true;
+        }
+        const interfaceOutcome: (StudioCommandOutcome & { frameReferences?: ChatMessage["frameReferences"]; frameReview?: ChatMessage["frameReview"]; imageEditPlan?: ChatMessage["imageEditPlan"]; transitionCandidate?: Omit<EditingTransitionCandidateReference, "status" | "error"> }) | null = !timeFeedback && !inlineImages && !photoBase64 && interfaceCommandRunner && !(options?.workspaceContext === "book" && writingContext && isBookWritingMaterialTurn(trimmed)) ? await interfaceCommandRunner(trimmed, submittedUi) : null;
         if (interfaceOutcome?.handled) {
           nextMessages = nextMessages.map(m => m.id === userMsg.id ? { ...m, interfaceAction: true } : m);
           setMessages(nextMessages);
@@ -2002,7 +2000,7 @@ export function StoryAgentProvider({
           if (!isCurrent()) return false;
         }
         const result = (await chatMut.mutateAsync({
-          writingContext: options?.writingContext,
+          writingContext,
           uiContext: submittedUi ? { ...submittedUi, storyId: requestStoryId && requestStoryId > 0 ? requestStoryId : null } : undefined,
           storyId: requestStoryId && requestStoryId > 0 ? requestStoryId : undefined,
           message: userContent,
@@ -2166,9 +2164,7 @@ export function StoryAgentProvider({
           content: result.reply || "我在。你可以再多说一点那个感觉。",
           timestamp: Date.now(),
           spawnedCardId,
-          ...(result.rewriteText && options?.writingContext?.bookRewriteTarget ? {
-            bookRewrite: { text: result.rewriteText, target: options.writingContext.bookRewriteTarget },
-          } : {}),
+          ...bookChatReplyMetadata(result, writingContext, activeStoryId),
         };
         const finalMessages = insertTurnReply(storySpineStore.getState().messages, userMsg, replyMsg);
         answered = true;
@@ -2317,7 +2313,7 @@ export function StoryAgentProvider({
       getInterfaceContext,
       interactionMode,
       setStoryTitle,
-      utils.promptLineage.getStoryProjection,
+      utils.promptLineage.getStoryProjection, utils.client,
       // promptCandidateMut / rejectPromptCandidateMut 故意不放进依赖数组：
       // 它们在组件里比 sendMessage 声明得晚，放进去会在渲染时触发 TDZ
       // （同一处理法见上面「持久化避开 TDZ」的注释）。两者都来自
@@ -3039,7 +3035,7 @@ export function StoryAgentProvider({
           silent: true,
           expectedActiveStoryId: entryState.activeStoryId,
         });
-        if (!cancelled && storySpineStore.getState().activeStoryId === requestedId) {
+        if (!cancelled && storySpineStore.getState().activeStoryId === requestedId && !new URLSearchParams(window.location.search).has("chapterId")) {
           window.history.replaceState(null, "", "/editing");
         }
         return;

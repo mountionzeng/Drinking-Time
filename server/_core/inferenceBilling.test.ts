@@ -330,3 +330,52 @@ describe("出图失败退回提示词整理算力（多次 AI 调用）", () => 
     expect(b).toHaveLength(0);
   });
 });
+
+it("uses a single hold across a rejected 302 dispatch and its accepted retry, and does not buy again on replay", async () => {
+  const userId = await fundedUser("single-confirmation", 10);
+  ENV.openaiNextApiKey = ""; ENV.api302Key = "test-only";
+  const fetchImpl = vi.fn()
+    .mockResolvedValueOnce(new Response(JSON.stringify({error:{code:"rate_limit"}}), { status:429, headers:{"retry-after":"0","x-request-id":"example-request"} }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({id:"response", choices:[{message:{role:"assistant",content:"灯亮了。"}}], usage:{total_tokens:50}})));
+  const input: InferenceRequest = { ...request, retryRejected:true, fetchImpl, approvedQuote:{key:"example-confirmation",maxCostMinor:2_000_000} };
+  const result = await withComputeUser(userId, () => runInference(input));
+  expect(result.result.choices[0].message.content).toBe("灯亮了。");
+  await expect(withComputeUser(userId, () => runInference(input))).rejects.toThrow(/已有账务/);
+  expect(fetchImpl).toHaveBeenCalledTimes(2);
+  expect((await getAccountBalance(userId)).lifetimeSpentMinor).toBe(fromYuan(0.05));
+  expect(await ledger.listOperationProviderAttempts(result.billing!.operationId)).toMatchObject([
+    {status:"not_charged_failure", costMinor:0, usage:{status:429,retryAfterMs:0,requestIdHash:expect.stringMatching(/^[0-9a-f]{16}$/)}},
+    {status:"succeeded", costMinor:fromYuan(0.05)},
+  ]);
+});
+
+it("declines a confirmed price ceiling below the live quote without a hold or dispatch", async () => {
+  const userId = await fundedUser("changed-tariff",10);
+  const fetchImpl = vi.fn();
+  await expect(withComputeUser(userId, () => runInference({
+    ...request, fetchImpl, approvedQuote:{key:"old-price",maxCostMinor:1},
+  }))).rejects.toThrow(/报价/);
+  expect(fetchImpl).not.toHaveBeenCalled();
+  expect(await getAccountBalance(userId)).toMatchObject({reservedMinor:0,lifetimeSpentMinor:0});
+});
+
+it("keeps a timed-out writer's hold separate from another user's successful write on the same 302 route", async () => {
+  const waitingUser = await fundedUser("uncertain-writer",10);
+  const activeUser = await fundedUser("independent-writer",10);
+  ENV.openaiNextApiKey = ""; ENV.api302Key = "shared-test-account";
+  let rejectPending!: (e: Error) => void;
+  let submitted!: () => void;
+  const started = new Promise<void>(resolve => { submitted = resolve; });
+  const firstFetch = vi.fn(() => new Promise<Response>((_, reject) => { rejectPending = reject; submitted(); }));
+  const first = withComputeUser(waitingUser, () => runInference({...request, retryRejected:true, fetchImpl:firstFetch})).catch(e=>e);
+  await started;
+  const success = await withComputeUser(activeUser, () => runInference({...request, fetchImpl:async () => new Response(JSON.stringify({
+    id:"separate",choices:[{message:{content:"另一份稿。"}}],usage:{total_tokens:10},
+  }))}));
+  rejectPending(new DOMException("lost after dispatch","TimeoutError"));
+  expect((await first).attempts[0].acceptanceUnknown).toBe(true);
+  expect(success.result.choices[0].message.content).toBe("另一份稿。");
+  expect(firstFetch).toHaveBeenCalledTimes(1);
+  expect((await getAccountBalance(waitingUser)).reservedMinor).toBeGreaterThan(0);
+  expect(await getAccountBalance(activeUser)).toMatchObject({reservedMinor:0,lifetimeSpentMinor:fromYuan(0.01)});
+});

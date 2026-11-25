@@ -59,6 +59,8 @@ export function writingCompanionErrorMessage(error: unknown): string {
 
 export type WritingCompanionSnapshot = {
   chapterId?: string;
+  chapterTitle?: string;
+  chapterVersion?: number;
   manuscriptKind?: "text" | "storyboard";
   bookRewriteTarget?: import('@shared/bookRewrite').BookRewriteTarget;
   rewriteSource?: string;

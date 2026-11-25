@@ -28,6 +28,8 @@ import { BookDialogueText } from './BookDialogueText';
 import { insideBookLatex, splitBookTextModules } from './bookLatex';
 import { bookBlockContext, bookSelectionContext } from './bookBlockContext';
 import { captureBookRewrite, applyBookRewrite } from './bookRewrite';
+import { locateSentenceEdit, type SentenceEdit } from './sentenceEditTarget';
+import { BookSentenceReview, reviewStillMatches, useBookSentenceReview } from './BookSentenceReview';
 import type { BookRewriteTarget } from '@shared/bookRewrite';
 import { textChanges } from './textChanges';
 import { ChangedText, afterTextSlice, type WritingComparison } from './WritingComparison';
@@ -51,6 +53,7 @@ export function ChapterTextModules({ precedingShots, footerActions, importedChap
   onContextChange?(context: LayoutModuleContext | null): void;
 }) {
   const _ui = useDesktopUiText();
+  const sentenceReview = useBookSentenceReview(contextSource);
   const changes = useMemo(() => comparison ? textChanges(comparison.body, value) : [], [comparison?.body, value]);
   // An imported heading can be visually open even if its previously saved
   // collapsed flag is true. Splitting that visible heading must still insert
@@ -64,6 +67,9 @@ export function ChapterTextModules({ precedingShots, footerActions, importedChap
     try { return restoreWritingBlocks(value, key ? JSON.parse(localStorage.getItem(key) || 'null') : null); }
     catch { return restoreWritingBlocks(value, null); }
   });
+  const inlineReviews = !comparison && !disabled && sentenceReview
+    ? new Map([...sentenceReview.pending].filter(([, review]) => reviewStillMatches(blocks, review.proposal)))
+    : undefined;
   // Legacy plain-text chapters have no stable module IDs on the server yet.
   // Persist the same IDs rendered here before media preparation can quote them.
   useLayoutEffect(() => {
@@ -75,6 +81,19 @@ export function ChapterTextModules({ precedingShots, footerActions, importedChap
   const [activeId, setActiveId] = useState<string | null>(null);
   const [selectedModuleIds, setSelectedModuleIds] = useState<string[]>([]);
   const textRange = useBookTextRange({ blocks, disabled: disabled || Boolean(comparison), scope: formatScope, selection, commit });
+  const latestReview = inlineReviews && [...inlineReviews.values()].at(-1);
+  const latestReviewId = latestReview?.id;
+  const latestReviewBlock = latestReview?.proposal.target.parts[0].id;
+  useLayoutEffect(() => {
+    if (!latestReviewBlock) return;
+    const frame = requestAnimationFrame(() => {
+      const preview = textRange.root.current?.querySelector<HTMLElement>(
+        `[data-book-sentence-review="${CSS.escape(latestReviewBlock)}"]`
+      );
+      preview?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [latestReviewId, latestReviewBlock, textRange.root]);
   const [mediaSelection, setMediaSelection] = useState(0);
   const module = useMemo(() => contextSource && blockBody(blocks) === value
     ? (selectedModuleIds.length > 1 ? bookSelectionContext(blocks, selectedModuleIds, contextSource) : bookBlockContext(blocks, activeId, contextSource)) : null,
@@ -135,6 +154,7 @@ export function ChapterTextModules({ precedingShots, footerActions, importedChap
     const session = {
       scope: contextSource.scope, storyId: contextSource.storyId,
       chapterId:Number(contextSource.chapterId),
+      chapterDocument: { body: value, blocks, chapterId: contextSource.chapterId },
       composeImage: (instruction?: string, ids?: string[]) => composeLatest.current(instruction, ids),
       resumeImageComposition: async (task: import('@shared/bookModuleImageTask').BookModuleImageTask) => {
         assertCurrent();
@@ -157,6 +177,10 @@ export function ChapterTextModules({ precedingShots, footerActions, importedChap
             range = { anchor: { id: ids[0], offset: start.cursor }, focus: { id: ids[0], offset: end.cursor } };
         }
         return captureBookRewrite(blocks, ids, contextSource, range);
+      },
+      locateSentenceEdit(edit: SentenceEdit) {
+        assertCurrent();
+        return locateSentenceEdit(blocks, edit, contextSource);
       },
       replaceRewrite(target: BookRewriteTarget, text: string) {
         assertCurrent();
@@ -326,6 +350,10 @@ export function ChapterTextModules({ precedingShots, footerActions, importedChap
       const start = writingBlockOffset(blocks,index); selection.current = {start,end:start};
       window.dispatchEvent(new Event('dt:writing-selection-change'));
     }}><BookInlineImage text={block.text}/></div>;
+    const review = inlineReviews?.get(block.id);
+    if (review) {
+      return <BookSentenceReview style={style} proposal={review.proposal} onResolve={() => sentenceReview?.resolve(review.id)} />;
+    }
     const range = textRange.byId.get(block.id);
     const field = <textarea ref={element => { fields.current[index] = element; }} rows={1} aria-label={_ui("文字模块 {0}", [index + 1])} value={block.text}
               data-book-text-id={comparison ? undefined : block.id}
@@ -420,7 +448,7 @@ export function ChapterTextModules({ precedingShots, footerActions, importedChap
           <div className="space-y-0">{blocks.map((block, index) => renderField(block, index, { fontSize: 16, lineHeight: 1.6, overflowWrap: 'anywhere' }))}</div>
         </article>
       </div>
-    </div> : <BookBlockCanvas precedingShots={precedingShots} importedChapterIds={importedChapterIds} onConvertSelection={contextSource && prepareMedia ? (ids,kind) => {
+    </div> : <BookBlockCanvas inlineReviewKey={inlineReviews && [...inlineReviews.values()].map(review => review.id).join()} precedingShots={precedingShots} importedChapterIds={importedChapterIds} onConvertSelection={contextSource && prepareMedia ? (ids,kind) => {
       const parts = blocks.filter(block => ids.includes(block.id) && (kind !== 'narration' || (!bookImageUrl(block.text) && !readBookAudio(block.text) && block.text.trim()))).map(({id,text}) => ({id,text}));
       if(parts.length < (kind === 'narration' ? 1 : 2)) return;
       if(parts.some(part => readBookAudio(part.text))) { toast.error('音乐模块暂不支持转换，请选择文字或图片模块'); return; }

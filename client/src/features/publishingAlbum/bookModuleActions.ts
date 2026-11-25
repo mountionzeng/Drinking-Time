@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import type { SentenceEdit } from './sentenceEditTarget';
 import type { BookRewriteTarget } from '@shared/bookRewrite';
 import type { LayoutModuleContext } from '@shared/layoutModuleContext';
 
@@ -12,6 +13,8 @@ export type BookModuleActions = {
   composeImage?(instruction?: string, ids?: string[]): Promise<void>;
   resumeImageComposition?(task: import('@shared/bookModuleImageTask').BookModuleImageTask): Promise<void>;
   captureRewrite?(module: LayoutModuleContext): BookRewriteTarget | undefined;
+  chapterDocument?: { body: string; blocks: import('./chapterBlockTree').WritingBlock[]; chapterId: string };
+  locateSentenceEdit?(edit: SentenceEdit): BookRewriteTarget | undefined;
   replaceRewrite?(target: BookRewriteTarget, text: string): void;
 };
 

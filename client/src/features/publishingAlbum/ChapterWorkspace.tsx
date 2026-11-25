@@ -520,7 +520,7 @@ export function ChapterWorkspace({
       {active && (<>
           <div hidden={displayMode !== "text"} className="space-y-3">
             {displayMode === "text" && <ChapterWriting key={`${active.id}:${state.epoch}`} chapter={active} precedingShots={precedingBookShots(state.chapters, active.id)}
-              titleEditor={titleEditor}
+              titleEditor={active.blocks.chatDocument ? undefined : titleEditor}
               renderHeader={editorControls}
               footerActions={<BookSendMenu disabled={busy} onShare={() => void run(async () => {
                 if (currentShareScope.current !== shareScope) return;

@@ -21,7 +21,7 @@ export function applyBookRewrite(blocks: WritingBlock[], target: BookRewriteTarg
   const first = target.parts[0], last = target.parts.at(-1)!;
   const start = blocks.findIndex(block => block.id === first.id);
   const visible = new Set(layoutBookBlocks(blocks).map(item => item.block.id));
-  if (start < 0 || target.parts.some((part, i) => blocks[start + i]?.id !== part.id || blocks[start + i]?.text !== part.text || !visible.has(part.id)))
+  if (start < 0 || target.parts.some((part, i) => blocks[start + i]?.id !== part.id || blocks[start + i]?.text !== part.text || (part.parentId !== undefined && blocks[start + i]?.parentId !== part.parentId) || !visible.has(part.id)))
     throw new Error('原文已变化，请重新选中并让聊聊改写。');
   if (!text.trim() || text.length > 20_000) throw new Error('这段改写暂时无法替换。');
   const result = replaceBookTextRange(blocks, {

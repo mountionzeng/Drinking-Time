@@ -3181,6 +3181,7 @@
         "server/services/textComputeProvider.ts"
       ],
       "owners": [
+        "server/_core/inferenceAdmission.ts",
         "server/_core/env.ts",
         "server/_core/textComputeProvider.ts",
         "server/_core/inferenceOrchestrator.ts",
@@ -3198,6 +3199,8 @@
         "server/_core/httpConnectionPool.ts"
       ],
       "evidence": [
+        "server/_core/inferenceAdmission.test.ts",
+        "docs/qa/2026-11-25-text-inference-recovery.md",
         "server/_core/textComputeProvider.test.ts",
         "server/_core/inferenceOrchestrator.test.ts",
         "server/_core/llm.test.ts",
@@ -3232,11 +3235,17 @@
       "dependencies": [],
       "replaces": [],
       "knownGaps": [
+        "2026-11-25 302 GLM 实测重复 HTTP 429，未提供 Retry-After。限额粒度未确认，隔离候选尚未发布。",
         "本次新增的 Story Agent、登录 DeepSeek V4 与视觉统一执行器尚未使用轮换后的低额度 Key 做主仓 3000 真实 smoke；当前只完成 mock/契约回归。",
         "尚未通过编辑页真实输入触发完整语义标注链路；OpenAI Next 请求协议与模型可用性已实跑验证。",
         "2026-10-19正式站Next首选真实聊天已恢复；302旧备用域名不可达，原Claude模型在国内端点返回禁用，备用通道仍未恢复；历史未知提交需独立对账。"
       ],
       "history": [
+        {
+          "date": "2026-11-25",
+          "kind": "fix",
+          "summary": "隔离候选按网关、凭据和模型限制并发与排队。明确拒绝按剩余时间退避，单模型报价最多结算一次。回执丢失等待原账务核对。"
+        },
         {
           "date": "2026-10-13",
           "kind": "fix",
@@ -9307,7 +9316,8 @@
         "用户无需先有写作主题；愿意继续时由具体经历探索当下处境与判断，不以卡片数量催生成，不将助手观察当成认可结论；只记录、停止与明确操作优先。",
         "手机连续输入按顺序排队，失败或未知提交暂停后续；刷新后排队内容需用户继续发送，保留相同轮次身份和写作上下文。",
         "聊天回复用自然语言描述排版，不输出坐标、像素、字号、行距等内部数值或参数名。",
-        "聊天状态轮换仅改变展示；Logo和输入框保持原位置，真实错误/确认操作持续可见。动画不触发业务请求，切换账号/故事/作用域不得显示旧视频进度。"
+        "聊天状态轮换仅改变展示；Logo和输入框保持原位置，真实错误/确认操作持续可见。动画不触发业务请求，切换账号/故事/作用域不得显示旧视频进度。",
+        "用户明确要求后再整理或起草；按素材选择分类，区分确认的经历、记不清的旧稿细节与独立定稿，按明确的句尾指令结束。"
       ],
       "replaces": [],
       "owners": [
@@ -9342,7 +9352,10 @@
         "client/src/app/shell/DesktopStoryMenuContext.ts",
         "shared/lineModules.ts",
         "client/src/features/mobileWorkspace/MobileSyncedEditor.tsx",
-        "client/src/features/storyAgent/views/ChatCompanionStatus.tsx"
+        "client/src/features/storyAgent/views/ChatCompanionStatus.tsx",
+        "shared/bookWritingConversation.ts",
+        "server/services/bookWritingConversation.ts",
+        "client/src/features/publishingAlbum/bookDocumentChat.ts"
       ],
       "history": [
         {
@@ -9499,6 +9512,11 @@
           "date": "2026-11-10",
           "kind": "fix",
           "summary": "修复图片制作等待期间其他发言被确认卡和选图busy吞掉：非明确确认进入既有持久队列，明确选图编辑冻结原图与模型；异步回复合并最新消息。队列12项与选图回复4项测试、真实3000确认等待/入队/取消后继续通过，原刷新暂停/未知调用不重放机制保持。详见docs/qa/2026-11-10-chat-image-preview.md。"
+        },
+        {
+          "date": "2026-11-25",
+          "kind": "feature",
+          "summary": "原书稿对话支持原始素材整理、直接起草和依照用户反馈结束；确认后的书稿和独立定稿按原话保存并在聊天提供章节链接。"
         }
       ],
       "knownGaps": [
@@ -9507,7 +9525,8 @@
         "本机恢复记录不跨设备；正常关闭后会话清空，已同步对话保留在共同故事及记忆仓库。",
         "电脑真实四步流程已通过并刷新验证；候选生成75.9秒仍偏慢，选区真实付费改写及多用户/MySQL并发尚未验收。旧失败队列需显式核对后继续，不能自动重放未知提交。",
         "手机新合并流程已通过模拟模型的真实路由持久化验收与390px浏览器入口/预览；尚未进行真实付费模型、真机键盘和公网双设备端到端验收。旧独立伴写组件保留兼容代码但不再有活动入口。",
-        "当前行方向提示 LINE_CONTEXT_CHAT_ENABLED 默认关闭；本地模拟与组件处理验证不代表真实模型、浏览器和真机验收。网页正文当前行从现有全文/选区/光标快照推导，稳定章节 blockId 持久化依赖文档03。"
+        "当前行方向提示 LINE_CONTEXT_CHAT_ENABLED 默认关闭；本地模拟与组件处理验证不代表真实模型、浏览器和真机验收。网页正文当前行从现有全文/选区/光标快照推导，稳定章节 blockId 持久化依赖文档03。",
+        "新版整理与起草通过本地实际聊天入口及模拟供应商验收。真实供应商效果与账户联调仍待完成。"
       ],
       "name": "小忆正文伴写",
       "dependencies": [
@@ -9561,7 +9580,9 @@
         "docs/qa/2026-11-01-conversation-exploration.md",
         "docs/qa/2026-11-03-book-fulltext-context.md",
         "docs/qa/2026-11-04-book-editor-release.md",
-        "docs/qa/2026-11-04-chat-status-spacing.md"
+        "docs/qa/2026-11-04-chat-status-spacing.md",
+        "client/src/features/publishingAlbum/bookDocumentChat.test.ts",
+        "docs/qa/2026-11-25-book-sentence-review.md"
       ]
     },
     {
@@ -11061,7 +11082,8 @@
         "docs/qa/2026-11-04-book-dialogue-review.md",
         "docs/qa/2026-11-06-book-scene-shot-modules.md",
         "docs/qa/2026-11-08-book-outline-overview.md",
-        "docs/qa/2026-11-09-book-video-workflow.md"
+        "docs/qa/2026-11-09-book-video-workflow.md",
+        "docs/qa/2026-11-25-book-sentence-review.md"
       ],
       "invariants": [
         "CHAPTER_PACKAGE_ENABLED gates chapter reads/writes. When enabled, text and image-layout use one chapter workspace; the separate platform/chapter navigation is removed. Disabled flag retains the legacy editor.",
@@ -11075,7 +11097,8 @@
         "版本统一入口包含历史、生成稿、收到稿及分享记录；文字对比左为所选旧稿并标红删除，右为可编辑当前稿并标红新增。打开对比不保存或采用；沿用原模块、粘贴、中文输入、撤销和聊天定位，只有明确采用才替换且保留旧稿。",
         "跨浏览器检测到新版本须显式比较和接收，不自动更新正文或保存基准。接收复核对比版本；有独立草稿则先保留，保存仍以CAS保护。候选与收件箱更新仅提示，不自动采用。",
         "本机未保存稿必须保留实际 baseVersion；旧/未知基准不得继承最新服务器版本。先明确比较最新稿，提交仍以该快照的 expectedVersion 校验；并发更新必须拒绝覆盖，不能静默重试新基准。",
-        "多选批量删除仅删除所选书稿模块，沿用单次提交及撤销，仓库资产保留；全删留下可编辑空模块。把手点击打开菜单，拖动和四角缩放继续作用整组。"
+        "多选批量删除仅删除所选书稿模块，沿用单次提交及撤销，仓库资产保留；全删留下可编辑空模块。把手点击打开菜单，拖动和四角缩放继续作用整组。",
+        "聊天确认创建文稿时，现有章节创建入口一次写入不同段落和标题。同一故事与请求号重复提交只生成一份，修改请求内容需新请求号。"
       ],
       "dependencies": [
         "publishing-image-modules",
@@ -11357,6 +11380,11 @@
           "date": "2026-11-24",
           "kind": "fix",
           "summary": "书页从当前账号和故事的有效章节及已确认版本选最近编辑稿；明确章节链接与本机待保存草稿可重开，历史对比不改变默认稿。镜头标题按分镜导入顺序跨场跨章节显示第 N 镜，移动模块后立即重排，原有场内镜号可悬停查看。"
+        },
+        {
+          "date": "2026-11-25",
+          "kind": "feature",
+          "summary": "本地实际网页版完成《车站的两把伞》两段按原话新建并从对话回执刷新重开。浏览器模拟接口；独立本地文件使用真实章节路由写入、请求去重并跨进程读取。"
         }
       ]
     },
@@ -12478,10 +12506,11 @@
       "id": "book-chat-rewrite-adoption",
       "name": "书稿聊天改写一键替换",
       "status": "working",
-      "userValue": "选中书稿文字并在原聊天里讨论改写，满意时点击结果后的一个小按钮，直接替换对应文字且可撤销。",
+      "userValue": "在书稿聊天中指向单句或段落，接着上次的建议继续改，在原位审阅、采用或放弃。选区改写继续支持现有替换和撤销。",
       "entryPoints": [
         "client/src/features/storyAgent/views/StoryAgentChat.tsx",
-        "client/src/features/publishingAlbum/BookRewriteButton.tsx"
+        "client/src/features/publishingAlbum/BookRewriteButton.tsx",
+        "client/src/features/publishingAlbum/ChapterTextModules.tsx"
       ],
       "owners": [
         "shared/bookRewrite.ts",
@@ -12494,7 +12523,14 @@
         "server/services/writingCompanion.ts",
         "server/routers/storyAgent.ts",
         "shared/bookTextFormat.ts",
-        "client/src/features/publishingAlbum/BookMathText.tsx"
+        "client/src/features/publishingAlbum/BookMathText.tsx",
+        "client/src/features/publishingAlbum/BookSentenceReview.tsx",
+        "client/src/features/publishingAlbum/sentenceEditTarget.ts",
+        "client/src/features/publishingAlbum/bookSentenceReviewChat.ts",
+        "client/src/features/storyAgent/archiveChatMessages.ts",
+        "client/src/features/publishingAlbum/bookPassageTarget.ts",
+        "shared/layoutModuleContext.ts",
+        "client/src/features/publishingAlbum/ChapterWriting.tsx"
       ],
       "evidence": [
         "client/src/features/publishingAlbum/bookRewrite.test.ts",
@@ -12507,14 +12543,19 @@
         "command:pnpm verify:draft-safety",
         "docs/qa/2026-11-03-book-text-format.md",
         "client/src/features/publishingAlbum/BookMathText.test.tsx",
-        "docs/qa/2026-11-04-book-editor-release.md"
+        "docs/qa/2026-11-04-book-editor-release.md",
+        "client/src/features/publishingAlbum/sentenceEditTarget.test.ts",
+        "docs/qa/2026-11-25-book-sentence-review.md",
+        "client/src/features/publishingAlbum/bookPassageTarget.test.ts"
       ],
       "invariants": [
-        "仅在明确的改写结果后提供一个替换按钮；点击前聊天不自动修改正文，不新增常驻工具栏或二次确认。",
+        "选区伴写仅在明确结果后提供原替换按钮。无选区且已定位的单句或单段修改在原位显示采用和放弃，点击采用前正文不修改，无常驻工具栏。",
         "发送时固定storyId、scope、稳定模块ID、原文和字符范围；排队与后续选区改变不得重定向目标。",
         "替换前核对来源、模块顺序和完整原文；源变化、删除、夹入其他块、媒体或隐藏内容均拒绝覆盖；不按重复文本搜索另一个目标。",
         "只替换选中字符，保留未选中的前后文、换行/空行、首块ID和其他模块；沿用原编辑撤销及保存CAS，原文与保存基准不被模型响应静默覆盖。",
-        "同一次伴写调用返回说明与完整改写正文；只把正文应用到书稿，不将解释、提问和多个备选自动猜成改写。"
+        "同一次伴写调用返回说明与完整改写正文；只把正文应用到书稿，不将解释、提问和多个备选自动猜成改写。",
+        "按清楚的引用、范围、当前段落或本章最近建议定位。两处匹配时展示原文，等待用户选定。确认时重新核对目标与字符，选区优先，未指定内容逐字保留。",
+        "定位基于当前编辑文章全文。模型输入带上当前版本、目标附近的前后文、用户要求及上轮相关编辑；只有目标字符可写，文章切换或目标已改则拒绝旧建议。"
       ],
       "dependencies": [
         "publishing-module-chat-context",
@@ -12525,7 +12566,8 @@
       "knownGaps": [
         "真实模型的结构化改写遵循质量本轮未付费调用验证；服务与真实路由使用模拟模型，真实浏览器使用仅内存测试稿。",
         "历史聊天回复未记录发送时目标，不能安全追补替换按钮；仅新改写携带目标。",
-        "当前支持桌面书稿连续文字范围；手机、旧排版画布、媒体、非连续多选和折叠隐藏内容不提供此按钮。已随0db079d4上线，其他验收边界不变。"
+        "当前支持桌面书稿连续文字范围；手机、旧排版画布、媒体、非连续多选和折叠隐藏内容不提供此按钮。已随0db079d4上线，其他验收边界不变。",
+        "3000 的 /editing 正常界面已通过模拟 API 与模型验收长书稿定位、续改、保存重开和旧建议保护；真实账户与服务联调待完成，采用或放弃状态限当前浏览器。"
       ],
       "history": [
         {
@@ -12542,6 +12584,16 @@
           "date": "2026-11-04",
           "kind": "verification",
           "summary": "本轮书稿编辑、格式、图片导入及图文分享随0db079d4合main/push并部署book-editor-20261104；175产物哈希、HTTPS版本/资源与ready/mysql/required通过，正式站发送菜单/全文定位等入口实点通过。旧权限、保存CAS、账号和已发布计费保护保留。类型/构建通过，10项非本轮测试失败在原70031a98基线复现；真实付费改写、真机和公网图文完整发送仍沿用既有验收缺口。详见2026-11-04-book-editor-release QA。"
+        },
+        {
+          "date": "2026-11-25",
+          "kind": "feature",
+          "summary": "明确单句编辑无需模型即可原位显示删改、采用或放弃。复用聊天归档和章节保存；3000 隔离测试稿完成刷新、采用、放弃、过期拦截和英文验收，161项定向与78项草稿安全测试通过。"
+        },
+        {
+          "date": "2026-11-25",
+          "kind": "feature",
+          "summary": "长稿指代支持按前后定位、两段澄清和续改上轮；书稿版本、邻近正文和编辑原话随请求携带。主仓3000真实页面使用模拟接口发消息验证约1.2万字稿、V3至V6与另一份定稿；179项定向和78项保存安全回归通过。"
         }
       ]
     },
@@ -13782,6 +13834,10 @@
         "client/src/features/storyAgent/views/StoryAgentChat.tsx"
       ],
       "owners": [
+        "shared/shotTextTrial.ts",
+        "server/services/shotTextTrials.ts",
+        "server/routers/shotTextTrials.ts",
+        "client/src/features/storyAgent/views/ShotTextTrials.tsx",
         "client/src/features/storyAgent/views/ShotChatInspector.tsx",
         "client/src/features/storyAgent/shotChatFocus.ts",
         "shared/shotChangeHistory.ts",
@@ -13798,6 +13854,8 @@
         "client/src/features/storyAgent/views/ChatComposerDock.tsx"
       ],
       "evidence": [
+        "docs/qa/2026-11-25-text-inference-recovery.md",
+        "server/services/shotTextTrials.test.ts",
         "shared/shotChangeHistory.test.ts",
         "client/src/features/storyAgent/views/ShotChatInspector.test.tsx",
         "client/src/features/storyAgent/desktopChatQueue.test.ts",
@@ -13838,6 +13896,16 @@
         "早期验收故事没有视频Take；2026-11-16原3000已展示现有历史视频并验证仓库，未新购视频做视觉验收。"
       ],
       "history": [
+        {
+          "date": "2026-11-25",
+          "kind": "fix",
+          "summary": "文字试稿限流后保留原话与稿件，换模型或服务需重新确认。虚构原稿从 302 两次限流恢复到 OpenAI Next，确认后一次出稿并完成本地结算。"
+        },
+        {
+          "date": "2026-11-25",
+          "kind": "enhancement",
+          "summary": "本地镜头文字试稿支持单镜原话、署名参考和独立原始材料。对话先给出写稿上限，确认后才调用模型；稿件从镜头小框重开，全文独立于采用的镜头和剪辑线。"
+        },
         {
           "date": "2026-11-10",
           "kind": "feature",

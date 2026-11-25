@@ -1,7 +1,8 @@
 import { frameRegionReviewSchema, type FrameRegionReview } from "@shared/frameRegionReview";
 import { chatFrameReferenceSchema, type ChatFrameReference } from "@shared/chatFrameReference";
 import type { SelectionContext } from "@shared/selectionContext";
-import { bookRewriteProposalSchema } from '@shared/bookRewrite';
+import { bookChatDraftSchema, savedBookDocumentSchema } from '@shared/bookWritingConversation';
+import { bookRewriteProposalSchema, bookRewriteChoicesSchema, bookRewriteTargetSchema } from '@shared/bookRewrite';
 import { chatImageEditPlanSchema, type ChatImageEditPlan } from '@shared/chatImageEditPlan';
 
 /**
@@ -107,6 +108,10 @@ export interface ChatMessage {
   /** Navigation and mailbox operations are not manuscript content. */
   interfaceAction?: true;
   bookRewrite?: import('@shared/bookRewrite').BookRewriteProposal;
+  bookChatDraft?: import('zod').infer<typeof bookChatDraftSchema>;
+  bookDocument?: import('zod').infer<typeof savedBookDocumentSchema>;
+  bookRewriteChoices?: import('@shared/bookRewrite').BookRewriteChoices;
+  bookRewriteFocus?: import('@shared/bookRewrite').BookRewriteTarget;
   imageRevision?: ImageRevision;
   imageEditPlan?: ChatImageEditPlan;
   frameReferences?: ChatFrameReference[];
@@ -611,6 +616,14 @@ export function normalizeChatMessages(
       if (role === 'assistant') {
         const rewrite = bookRewriteProposalSchema.safeParse(obj.bookRewrite);
         if (rewrite.success) message.bookRewrite = rewrite.data;
+        const choices = bookRewriteChoicesSchema.safeParse(obj.bookRewriteChoices);
+        if (choices.success) message.bookRewriteChoices = choices.data;
+        const focus = bookRewriteTargetSchema.safeParse(obj.bookRewriteFocus);
+        if (focus.success) message.bookRewriteFocus = focus.data;
+        const draft = bookChatDraftSchema.safeParse(obj.bookChatDraft);
+        if (draft.success) message.bookChatDraft = draft.data;
+        const document = savedBookDocumentSchema.safeParse(obj.bookDocument);
+        if (document.success) message.bookDocument = document.data;
       }
       if (obj.promptCandidate && typeof obj.promptCandidate === "object") {
         const candidate = obj.promptCandidate as Record<string, unknown>;
@@ -844,3 +857,21 @@ export type StoryboardImageRerenderResult = {
 export type StoryboardImageRerenderRunner = (
   request: NonNullable<ChatMessage["imageRerenderAction"]>
 ) => Promise<StoryboardImageRerenderResult>;
+
+export type StoryAgentChatResult = {
+  rewriteText?: string;
+  bookDraft?: string;
+  reply?: string;
+  suggestedTitle?: string;
+  card?: Partial<StoryCard> | null;
+  read?: unknown;
+  configured?: boolean;
+  modelLabel?: string;
+  /** 阶段 C：小酌判断某镜头某维度出现了新信息时提议的候选（server 已按白名单+镜头存在性过滤）。 */
+  toolCalls?: Array<{
+    name: string;
+    shotNo?: number;
+    dimension?: string;
+    content?: string;
+  }>;
+};

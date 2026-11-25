@@ -21,11 +21,12 @@ const cornerNames = { nw: '左上角', ne: '右上角', sw: '左下角', se: '�
 
 const action = 'min-h-11 w-full rounded px-3 py-2 text-left text-sm hover:bg-accent focus-visible:outline focus-visible:outline-2 disabled:opacity-40';
 
-export function BookBlockCanvas({ precedingShots, importedChapterIds, blocks, disabled, onCommit, children, activeId, onSelect, onSelectionChange, onConvert, onConvertSelection, onComposeImage, textSelectionIds }: {
+export function BookBlockCanvas({ inlineReviewKey, precedingShots, importedChapterIds, blocks, disabled, onCommit, children, activeId, onSelect, onSelectionChange, onConvert, onConvertSelection, onComposeImage, textSelectionIds }: {
   onComposeImage?(ids: string[]): void;
   onConvertSelection?(ids: string[], kind: 'text' | 'music' | 'narration'): void;
   textSelectionIds?: string[];
   precedingShots?: number;
+  inlineReviewKey?: string;
   importedChapterIds?: readonly string[];
   blocks: WritingBlock[]; disabled: boolean;
   onConvert?(id:string,kind:"text"|"image"|"music"|"narration"|"translate-en"|"translate-zh"):void;
@@ -151,11 +152,13 @@ export function BookBlockCanvas({ precedingShots, importedChapterIds, blocks, di
   const shotCount = blocks.filter(block => block.format === 'shot').length;
   const layouts = layoutBookBlocks(displayed,imageRatios,pageWidth, chapterIds,formulaHeights);
   useLayoutEffect(()=>{
-    const formulas=Array.from(root.current?.querySelectorAll<HTMLElement>('[data-book-math-preview]')??[]);
+    const formulas = Array.from(root.current?.querySelectorAll<HTMLElement>(
+      inlineReviewKey ? '[data-book-math-preview], [data-book-sentence-review]' : '[data-book-math-preview]'
+    ) ?? []);
     let cancelled=false;
     const measure=()=>{
       if(cancelled)return;
-      const next=Object.fromEntries(formulas.map(node=>[node.dataset.bookMathPreview!,Math.ceil(node.scrollHeight/scale)+4]));
+      const next=Object.fromEntries(formulas.map(node=>[(node.dataset.bookMathPreview ?? node.dataset.bookSentenceReview)!,Math.ceil(node.scrollHeight/scale)+4]));
       setFormulaHeights(previous=>Object.keys(previous).length===Object.keys(next).length&&Object.entries(next).every(([id,height])=>previous[id]===height)?previous:next);
     };
     measure();
@@ -163,7 +166,7 @@ export function BookBlockCanvas({ precedingShots, importedChapterIds, blocks, di
     const observer=new ResizeObserver(measure);formulas.forEach(node=>observer.observe(node));
     void document.fonts?.ready.then(measure);
     return()=>{cancelled=true;observer.disconnect();};
-  },[blocks,preview,width,zoom,openImportedChapters]);
+  },[blocks,preview,width,zoom,openImportedChapters,inlineReviewKey]);
   // "After a heading" means after its entire visible group, not between the heading and its children.
   const dropMarkerId = drop?.position === 'after'
     ? layouts.filter(item => item.block.id === drop.id || blockAncestors(displayed, item.block.id).includes(drop.id)).at(-1)?.block.id
