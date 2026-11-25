@@ -371,6 +371,20 @@ it("quotes an alternate channel for the original request only after pricing, pre
     model: "alternate2",
   });
   expect(infer).toHaveBeenCalledTimes(2);
+
+  const thirdTarget = { ...scope, id: third.id };
+  const rateLimitedQuote = await trialQuote(thirdTarget);
+  infer.mockRejectedValueOnce(Object.assign(new Error("rate limited"), {
+    attempts: [{ category: "rate_limit", status: 429, acceptanceUnknown: false }],
+  }));
+  await expect(writeTrial({ ...thirdTarget, ...rateLimitedQuote })).rejects.toThrow(/429/);
+  const manualRetry = await openTrial({ ...retry, id: randomUUID(), failedId: first.id });
+  expect(manualRetry.retryOf).toBe(third.id);
+  expect(await trialQuote({ ...scope, id: manualRetry.id })).toMatchObject({
+    provider: "302",
+    model: "alternate2",
+  });
+  expect(infer).toHaveBeenCalledTimes(3);
 });
 
 it("freezes two preceding author wishes for a short opening, excluding other shots and external scripts", async () => {

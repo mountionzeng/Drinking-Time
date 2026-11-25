@@ -422,6 +422,7 @@ async function prepare(
   const failedProviders = new Set<string>();
   const failedModels = new Set<string>();
   const busyModels = new Set<string>();
+  const quotaLimitedProviders = new Set<string>();
   const modelKey = (provider: string, model: string) => JSON.stringify([provider, model]);
   let legacyFailure = false;
   let retryId = draft.retryOf;
@@ -446,7 +447,15 @@ async function prepare(
       failedModels.add(
         modelKey(failed.attemptedProvider, failed.attemptedModel)
       );
-    } else failedProviders.add(failed.attemptedProvider);
+    } else {
+      // History is traversed newest first. Only a confirmed quota failure can be
+      // reconsidered on a later quote. A permission failure stays excluded.
+      if (!failedProviders.has(failed.attemptedProvider) &&
+          (failed.failureStatus === 402 || failed.failureReason?.startsWith("供应商报告账号额度或余额受限"))) {
+        quotaLimitedProviders.add(failed.attemptedProvider);
+      }
+      failedProviders.add(failed.attemptedProvider);
+    }
     retryId = failed.retryOf;
   }
   const options = (["text", "vision"] as const).flatMap(useCase =>
@@ -477,7 +486,7 @@ async function prepare(
   // Offer it on a fresh quote only. A confirmation is still bound to exactly one model and cap.
   const restoredAlternative = lastFailure?.attemptedProvider && busyModels.size
     ? options.find(({ candidate }) => candidate.id !== lastFailure.attemptedProvider &&
-        priced(candidate) && !failedModels.has(modelKey(candidate.id, candidate.model)) &&
+        quotaLimitedProviders.has(candidate.id) && priced(candidate) && !failedModels.has(modelKey(candidate.id, candidate.model)) &&
         !waitingOn(candidate))
     : undefined;
   const selected = quoted.find(({ candidate }) => !busyModels.has(modelKey(candidate.id, candidate.model))) ??
