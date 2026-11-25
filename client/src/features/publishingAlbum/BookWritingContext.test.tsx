@@ -45,17 +45,17 @@ it('classifies a text module from its existing menu without changing its text',(
  tree.find(n=>n.type==='button'&&String(n.props.children).includes('转换成台词/字幕')).props.onClick();
  expect(commit.mock.calls[0][0][0]).toMatchObject({id:block.id,text:'你好',format:'text',videoRole:'dialogue'});
 });
-it('offers scene and shot in the existing format menu and keeps editable titles separate from numbering',()=>{
+it.each([false,true])('shows scene labels and controls only when requested (%s)',showScenes=>{
  const scene={...newWritingBlock('自写场名'),id:'s',format:'scene' as const};
  const shot={...newWritingBlock('自写镜头名','s'),id:'a',format:'shot' as const};
  const commit=vi.fn();
- const tree=nodes(render(()=>BookBlockCanvas({precedingShots:2,blocks:[scene,shot],disabled:false,activeId:'a',onSelect:vi.fn(),onCommit:commit,children:block=><span>{block.text}</span>})));
- expect(tree.filter(n=>n.props?.['data-book-number']).map(n=>n.props.children)).toEqual(['一场','第 3 镜']);
+ const tree=nodes(render(()=>BookBlockCanvas({showScenes,precedingShots:2,blocks:[scene,shot],disabled:false,activeId:'a',onSelect:vi.fn(),onCommit:commit,children:block=><span>{block.text}</span>})));
+ expect(tree.filter(n=>n.props?.['data-book-number']).map(n=>n.props.children)).toEqual(showScenes ? ['一场','第 3 镜'] : ['第 3 镜']);
  const format=tree.find(n=>n.props?.['aria-label']==='模块 2 设置');
  const options=nodes(format).filter(n=>n.type==='button');
  expect(options.some(n=>String(n.props.children).includes('转换成一章'))).toBe(true);
  expect(options.some(n=>String(n.props.children).includes('转换成一节'))).toBe(true);
- expect(options.some(n=>String(n.props.children).includes('转换成一场'))).toBe(true);
+ expect(options.some(n=>String(n.props.children).includes('转换成一场'))).toBe(showScenes);
  options.find(n=>String(n.props.children).includes('转换成一个镜头')).props.onClick();
  expect(commit.mock.calls[0][0][1]).toMatchObject({id:'a',text:'自写镜头名',format:'shot',parentId:'s'});
 });

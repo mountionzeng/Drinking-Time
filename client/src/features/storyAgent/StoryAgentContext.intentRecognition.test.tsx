@@ -142,7 +142,7 @@ describe("StoryAgentContext background intent recognition", () => {
       versionId: null,
     });
   });
-  it("keeps listening through a short uncertain opening", async () => {
+  it("keeps the opening conversational and detects a creative request after a long conversation", async () => {
     const { shouldTriggerIntentRecognition } = await import(
       "./StoryAgentContext"
     );
@@ -150,24 +150,14 @@ describe("StoryAgentContext background intent recognition", () => {
     expect(
       shouldTriggerIntentRecognition({
         messages: [fixtures.openingMessage],
-        confirmedIntent: null,
-        pendingIntentDraft: null,
+        confirmedIntent: null, pendingIntentDraft: null, latestUserMessage: "我刚参加了一场面试。",
       })
-    ).toBe(true);
+    ).toBe(false);
 
     expect(
       shouldTriggerIntentRecognition({
-        messages: [
-          fixtures.openingMessage,
-          {
-            id: "user-1",
-            role: "user",
-            content: "我想做找工作的片子",
-            timestamp: 2,
-          },
-        ],
-        confirmedIntent: null,
-        pendingIntentDraft: null,
+        messages: Array.from({length: 12}, (_, i) => ({id: String(i), role: "user", content: "车站的雨", timestamp: i})),
+        confirmedIntent: null, pendingIntentDraft: null, latestUserMessage: "我想做找工作的片子",
       })
     ).toBe(true);
   });

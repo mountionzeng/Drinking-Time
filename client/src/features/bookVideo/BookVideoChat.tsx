@@ -111,9 +111,6 @@ export function BookVideoChat({
     onProgressChange?.(progress);
   }, [onProgressChange, progress]);
   useEffect(() => () => onProgressChange?.(""), [onProgressChange]);
-  useEffect(() => {
-    if (session?.recordId) { setSelected(session.recordId); setOpened(session.recordId); }
-  }, [session?.recordId]);
   const records = query.data?.records ?? [];
   const current = records.find(r => r.id === selected);
   const detail =

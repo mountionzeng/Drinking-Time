@@ -1,4 +1,5 @@
 import { ComputeAccessError } from "../services/computeRequestAccess";
+import { creativeChatDirection } from "../../shared/creativeConversation";
 import { CREATIVE_EXPLORATION_RULE } from "../../shared/creativeExploration";
 import { type Message } from "../_core/llm";
 import { storyMemoryReferenceRule } from "../../shared/storyMemoryDocument";
@@ -182,11 +183,14 @@ export function isReadOnlyStoryChatRequest(message: string): boolean {
   ].some(pattern => pattern.test(normalized));
 }
 
+const WEB_NEXT_STEP = "用户明确要做作品或操作时，根据这次实际进展给出一个可以马上做的具体下一步。一句就够。已有确认、预览或重试入口时指向该操作；缺少决定时只问一个具体问题。只描述当前已知可用的操作。用户明确收尾时尊重他的决定。";
+
 export async function replyFromStoryAgent(params: {
   message: string;
   history?: ChatTurn[];
   existingCardCount?: number;
   summary?: string;
+  guideNextStep?: boolean;
   referenceContext?: string;
   storyMemory?: string;
   currentShots?: ShotDraft[];
@@ -225,6 +229,7 @@ export async function replyFromStoryAgent(params: {
   const allowStoryTitleSuggestion =
     params.allowStoryTitleSuggestion ?? userTurnNumber === 1;
 
+  const cleanedHistory = historyBeforeCurrentMessage(params.history, params.message);
   if (!hasStoryAgentCompute()) {
     return {
       configured: false,
@@ -242,16 +247,15 @@ export async function replyFromStoryAgent(params: {
     };
   }
 
-  const cleanedHistory = historyBeforeCurrentMessage(
-    params.history,
-    params.message
-  );
+  const conversationDirection = creativeChatDirection(params.message);
 
   if (params.interactionMode === "publishing") {
     const platform = params.confirmedIntent?.platform?.trim();
     const publishingPrompt = [
       "你是用户的个人发布稿编辑，先通过对话帮助他把真正想说的内容讲清楚。",
       CREATIVE_EXPLORATION_RULE,
+      conversationDirection,
+      params.guideNextStep ? WEB_NEXT_STEP : "",
       "回复简洁、自然，先回应用户刚说的具体意思；有必要再问一件事。不要仅因用户回复简短就收尾，也不要为填满事实反复采访。",
       "保留用户的事实、情绪、结论、原话和个人棱角，不要把批评磨成中性鸡汤。",
       "当前阶段不要生成发布稿标题、标签、故事卡、分镜或图片；只有用户点击“生成发布稿”后，另一条显式流程才会生成。",
@@ -380,7 +384,7 @@ export async function replyFromStoryAgent(params: {
         Boolean(params.photoUrl || params.inlineImageContent), // 有照片 → 注入「先看图」指令
         params.confirmedIntent,
         params.storyCards
-      ),
+      ) + "\n" + conversationDirection + (params.guideNextStep ? "\n" + WEB_NEXT_STEP : ""),
     },
     ...referenceMessages,
     ...turns,
@@ -451,7 +455,7 @@ export async function replyFromStoryAgent(params: {
     return {
       configured: true,
       modelLabel: "请求失败",
-      reply: "嗯……我这边刚刚卡了一下，没接住你说的。能再说一遍吗？",
+      reply: "回复服务暂时未返回结果。原消息和引用已保留。",
       card: null,
       read: null,
       toolCalls: [],

@@ -21,6 +21,8 @@ describe("story agent intent modes", () => {
     expect(prompt).toContain("没有顺着回答、沉默或换话题不代表认可");
     expect(prompt).toContain("用户明确的新感悟、纠正和当前要求优先");
     expect(prompt).toContain("明确要求就直接推进");
+    expect(prompt).toContain("您最想让我知道他俩的哪件事");
+    expect(prompt).toContain("就是书上写的事情");
   });
 
   it("helps self-reflection understand experience without optimizing for outsiders", () => {
@@ -96,5 +98,6 @@ describe("story agent intent modes", () => {
     );
     expect(prompt).not.toContain(WRITING_EXPLORATION_CONTEXT);
     expect(prompt).toContain("只讨论选中镜头的剪辑与节奏");
+    expect(prompt).not.toContain("合影提问示例");
   });
 });

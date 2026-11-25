@@ -53,7 +53,7 @@ it('supports untitled and image-only shots with stable IDs and generated display
  const rows=[module('s','','scene'),module('a','','shot','s')];
  mocks.chapters.mockResolvedValue([{...chapter(blockBody(rows)),blocks:{body:blockBody(rows),blockIds:[],writingStyle:writingStyleOf(rows)}}]);
  const source=(await readBookVideoSource(scope))!;
- expect(publishingArticleLayoutSchema.parse(source.layout).bookScenes?.[0]).toMatchObject({id:'book-shot-1-a',text:'一场一镜',dialogueText:''});
+ expect(publishingArticleLayoutSchema.parse(source.layout).bookScenes?.[0]).toMatchObject({id:'book-shot-1-a',text:'第 1 镜',dialogueText:''});
 });
 it('does not silently omit old layout-only pictures when adopting explicit shot modules',async()=>{
  const rows=[module('s','场','scene'),module('a','镜','shot','s')];

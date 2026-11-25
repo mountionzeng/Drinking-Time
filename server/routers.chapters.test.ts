@@ -5,6 +5,7 @@ import * as runtime from "./repositories/runtime";
 import { createStory } from "./repositories/stories";
 import { chaptersRouter } from "./routers/chapters";
 import { insertChapter } from "./repositories/chapters";
+import { attachTrial } from "./services/shotTextTrials";
 import { getBookWorkflow } from "./services/bookWorkflow";
 
 vi.mock("./storage", () => ({
@@ -71,6 +72,48 @@ describe("confirmed chat documents", () => {
 });
 
 describe("chapter CRUD and order", () => {
+  it("starts a manually created storyboard with an editable root shot and a separate speech field", async () => {
+    const owner = caller(10), storyId = await story();
+    const chapter = await owner.create({ storyId, title: "新故事分镜", kind: "storyboard" });
+    const rows = chapter.blocks.writingStyle!;
+    expect(rows[0]).toMatchObject({ format: "shot", parentId: null });
+    expect(rows.slice(1).every(r => r.parentId === rows[0].id)).toBe(true);
+    expect(rows.filter(r => r.videoRole === "dialogue")).toHaveLength(1);
+    expect(chapter.blocks.body).toContain("音效提示词");
+  });
+  it("opens one editable chapter per shot draft and keeps later user edits", async () => {
+    const userId = 10, storyId = await story(userId), trialId = uuid();
+    const owner = caller(userId), scope = { userId, storyId, shotId: `text-opening:${storyId}:1` };
+    const text = "镜头一\n风声渐弱。";
+    await attachTrial({ ...scope, id: trialId, kind: "reference", source: "委托人", text });
+    const open = () => owner.openShotDraft({ storyId, trialId });
+    const [first, again] = await Promise.all([open(), open()]);
+    expect(first).toEqual(again);
+    const { chapter } = await owner.get(first);
+    expect(chapter.blocks).toMatchObject({ body: text, containsAiText: false, shotTextOrigin: { trialId, shotId: scope.shotId, source: "委托人" } });
+    expect(chapter.blocks.writingStyle?.map(b => b.id).length).toBe(2);
+    await owner.save({ ...first, expectedVersion: chapter.version, body: "我的修改" });
+    expect(await open()).toEqual(first);
+    expect((await owner.get(first)).chapter.blocks.body).toBe("我的修改");
+    await expect(caller(11).openShotDraft({ storyId, trialId })).rejects.toThrow();
+    const sourceId = uuid();
+    await attachTrial({ ...scope, id: sourceId, kind: "source", source: "书页", text });
+    await expect(owner.openShotDraft({ storyId, trialId: sourceId })).rejects.toThrow("可编辑");
+  });
+  it("prefers an edited chapter over an unedited sibling saved in the same millisecond", async () => {
+    const storyId = await story(), owner = caller(10);
+    const time = new Date("2026-01-01T12:00:00.000Z");
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(time);
+      await owner.create({ storyId, title: "第一章" });
+      const second = await owner.create({ storyId, title: "第二章" });
+      await owner.save({ chapterId: second.id, expectedVersion: second.version, body: "第二章修订" });
+      expect(await owner.bookEntry({ storyId })).toEqual({ kind: "text", chapterId: second.id });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
   it("opens the last edited manuscript and chapter, preserving explicit links and ownership", async () => {
     const storyId = await story(), owner = caller(10);
     const text = await owner.create({ storyId, title: "文字" });

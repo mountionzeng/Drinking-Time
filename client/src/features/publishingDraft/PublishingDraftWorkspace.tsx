@@ -1343,7 +1343,7 @@ export default function PublishingDraftWorkspace({
     publishing.activeVersionId,
   ]);
 
-  const openVideoSetup = async (preferredDuration?: string, recordId?: string) => {
+  const openVideoSetup = async (preferredDuration?: string) => {
     if (activeStoryId == null || coverBusy || dirty || videoBusy) return;
     // 书稿模式：视频以章节正文为准，不再要求旧发布稿正文非空。
     if (!activeVersion || (!unifiedChapters && !editorContent?.body.trim())) { toast.info("请先保存书稿，再制作视频"); return; }
@@ -1364,7 +1364,7 @@ export default function PublishingDraftWorkspace({
     const currentScope=storySpineStore.getState();
     if(currentScope.activeStoryId!==activeStoryId || currentScope.accountId!==scope.accountId || currentScope.storyScopeEpoch!==scope.storyScopeEpoch)return;
     useBookMediaSession.getState().setSession(null);
-    useBookVideoSession.getState().setSession({storyId:activeStoryId,accountId:scope.accountId,epoch:scope.storyScopeEpoch,versionId:activeVersion.versionId, preferredDuration, recordId,
+    useBookVideoSession.getState().setSession({storyId:activeStoryId,accountId:scope.accountId,epoch:scope.storyScopeEpoch,versionId:activeVersion.versionId, preferredDuration,
       layout:{body:videoBody,illustrations:bookMode ? [] : selectedIllustrationsRef.current.scope === `${activeStoryId}:${activeVersion.versionId}:${platform}` ? selectedIllustrationsRef.current.placements : []},
       onAdopt:async()=>{await loadStory(activeStoryId,{silent:true,expectedActiveStoryId:activeStoryId});onContinueToVideo?.()},
       onAlbum:()=>{
@@ -1387,7 +1387,10 @@ export default function PublishingDraftWorkspace({
     if (!createRequest || createRequest.storyId !== activeStoryId || createRequest.kind !== "video") return;
     onCreateRequestHandled?.();
     if (unifiedChapters && createRequest.storyboardChapterId) {
-      if (importingStoryboard.current || coverBusy || videoBusy) return;
+      if (importingStoryboard.current || coverBusy || videoBusy) {
+        toast.info(_ui("当前生成还在进行，请完成后再制作视频。"));
+        return;
+      }
       importingStoryboard.current = true;
       const scope = storySpineStore.getState();
       const isCurrent = () => {
@@ -1399,9 +1402,9 @@ export default function PublishingDraftWorkspace({
         try {
           await prepareBookForVideo(createRequest.storyId, scope.accountId);
           if (!isCurrent()) return;
-          const source = await utils.bookVideo.importReview.fetch({ storyId: createRequest.storyId }, { staleTime: 0 });
+          const source = await utils.bookVideo.importReview.fetch({ storyId: createRequest.storyId, chapterId: createRequest.storyboardChapterId }, { staleTime: 0 });
           if (!isCurrent()) return;
-          const accepted = await withMediaChatSession(createRequest.storyId, () =>
+          const accepted = createRequest.approvedManuscriptFingerprint === source.fingerprint || await withMediaChatSession(createRequest.storyId, () =>
             askMediaChatConfirmation({ storyId: createRequest.storyId, kind: "placement", bookReview: source,
               text: "用这版分镜建立新的视频版本吗？书内图片会放到对应镜头作参考，台词会生成字幕。已有视频版本会保留。" }) ?? Promise.resolve(false));
           if (!accepted) return;
@@ -1432,11 +1435,11 @@ export default function PublishingDraftWorkspace({
       })();
       return;
     }
-    if (unifiedChapters && !createRequest.videoRecordId) {
+    if (unifiedChapters) {
       requestNewVersion({ storyId: createRequest.storyId, presentation: "film", instruction: createRequest.instruction });
       return;
     }
-    if (!unifiedChapters && (!draft || dirty || !editorContent?.body.trim())) {
+    if (!draft || dirty || !editorContent?.body.trim()) {
       toast.info("请先在文字区保存当前文案，再制作视频。");
       onOpenWriting?.();
       return;
@@ -1445,7 +1448,7 @@ export default function PublishingDraftWorkspace({
       toast.info("当前生成还在进行，请完成后再制作视频。");
       return;
     }
-    openVideoSetup(undefined, createRequest.videoRecordId);
+    void openVideoSetup();
   }, [createRequest, activeStoryId, draft, dirty, unifiedChapters, editorContent?.body, coverBusy, videoBusy, activeVersion?.narrativeSpec, onCreateRequestHandled, onOpenWriting]);
 
   const confirmVideoSetup = async () => {

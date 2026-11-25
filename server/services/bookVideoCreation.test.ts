@@ -73,10 +73,10 @@ beforeEach(() => {
     modelLabel: "test",
   }));
 });
-async function fixture() {
+async function fixture(body = "阿宁修好了旧伞。") {
   let p = upsertPublishingPlatformDraft(emptyPublishingDraftState(100), {
     platform: "xiaohongshu",
-    content: { title: "虚构", body: "阿宁修好了旧伞。", tags: [] },
+    content: { title: "虚构", body, tags: [] },
     activate: true,
     now: 101,
   });
@@ -101,7 +101,7 @@ async function fixture() {
     versionId: p.activeVersionId!,
     id: crypto.randomUUID(),
     request: "给家人看，纪念爷爷修伞的生活，让他们温暖。",
-    layout: { body: "阿宁修好了旧伞。", illustrations: [] },
+    layout: { body, illustrations: [] },
   };
 }
 it("stores intent before generation, reuses an identical proposal and isolates owners", async () => {
@@ -117,6 +117,22 @@ it("stores intent before generation, reuses an identical proposal and isolates o
   await expect(
     service.proposeBookVideo({ ...input, request: "别的内容" })
   ).rejects.toThrow("本次请求已变化");
+});
+
+it("keeps the narrator's choice of people and the original source when the answer points back to the book", async () => {
+  const article = "书中的合影图注列有黄甫俊和彭正谟。";
+  const request = "长辈想突出黄甫俊和彭正谟。";
+  const question = "您说，这张合影里的黄甫俊和彭正谟都得讲。要是现在您指着照片讲给我听，您最想让我知道他俩的哪件事？";
+  const input = { ...await fixture(article), request };
+  mocks.compute.mockResolvedValueOnce({ parsed: { ...brief, question }, modelLabel: "test" });
+  await service.proposeBookVideo(input);
+  const answer = "就是书上写的事情";
+  await service.proposeBookVideo({ ...input, id: crypto.randomUUID(), parentId: input.id, request: answer });
+  const turn = mocks.compute.mock.calls[1][0];
+  expect(turn.systemPrompt).toContain("您最想让我知道他俩的哪件事");
+  expect(turn.systemPrompt).toContain("不再索要私下回忆");
+  expect(turn.context).toMatchObject({ article, previous: { question }, previousRequest: request, request: answer });
+  expect(mocks.generate).not.toHaveBeenCalled();
 });
 
 it("replaces the active table with seven book acts, preserves V1, and carries only 2/0/3/0/0/0/0 references", async () => {
@@ -357,7 +373,6 @@ it("an unavailable music asset leaves the adopted table recoverable; retry compl
 it.each([false,true])('inherits rendered frames and chosen endpoints when legacy acts become scene/shot modules, new publishing version=%s',async(newPublishingVersion)=>{
  const input=await fixture();
  const {insertChapter,saveChapterContent}=await import('../repositories/chapters');
- const {applyStoryboardPlan}=await import('./bookStoryboardPreparation');
  const original=await insertChapter({storyId:input.storyId,userId:31,content:{title:'旧伞',layout:null,blocks:{body:'第1幕\n阿宁撑开那把修好的旧伞。\n第2幕\n旅人撑着这把旧伞慢慢走远。',blockIds:['a','b','c','d'],containsAiText:false,settings:null,coverKey:null,bodyTextureKey:null,images:{},illustrations:[]}}});
  await service.proposeBookVideo(input);await service.generateBookVideo(input);const first=await reviewAndAdopt(input);
  const stable=first.shots[0].stableShotId as string;
@@ -365,7 +380,15 @@ it.each([false,true])('inherits rendered frames and chosen endpoints when legacy
  const story=await db.getStoryById(input.storyId,31);const body=story!.body as any;
  const changed={...body,_revision:body._revision+1,shots:body.shots.map((shot:any,index:number)=>index===0?{...shot,generationParams:JSON.stringify({storyboardFrameRoles:{firstImageId:image.id,lastImageId:image.id,referenceImageIds:[]},referenceFrameImageIds:[],durationSec:8})}:shot)};
  expect(await db.updateStoryBodyIfRevision({id:input.storyId,userId:31,expectedRevision:body._revision,body:changed})).toBe(true);
- const blocks=applyStoryboardPlan(original.id,original.blocks,{scenes:[{title:'雨中',shots:[{title:'开伞',units:[0,1]}]},{title:'街边',shots:[{title:'离开',units:[2,3]}]}]});
+ // A chapter already saved by the retired in-place organizer.
+ const stored = [
+   ["rain","scene",null,"雨中"], ["umbrella","shot","rain","开伞"],
+   ["a","text","umbrella","第1幕"], ["b","text","umbrella","阿宁撑开那把修好的旧伞。"],
+   ["street","scene",null,"街边"], ["leave","shot","street","离开"],
+   ["c","text","leave","第2幕"], ["d","text","leave","旅人撑着这把旧伞慢慢走远。"],
+ ] as const;
+ const blocks = { ...original.blocks, body: stored.map(row => row[3]).join("\n"),
+   blockIds: stored.map(row => row[0]), writingStyle: stored.map(([id, format, parentId]) => ({ id, format, parentId, collapsed: format === "shot" })) };
  await saveChapterContent({id:original.id,userId:31,expectedVersion:original.version,content:{blocks},reason:'storyboard-test'});
  let versionId=input.versionId;
  if(newPublishingVersion) {
@@ -410,6 +433,61 @@ it("connects chat and manuscript conversion to reviewable render inputs and an a
     expect(record).toMatchObject({ status: "adopted", videoVersion: 1 });
     expect(JSON.stringify(record)).toContain(manuscript.id);
   } finally { process.env.CHAPTER_PACKAGE_ENABLED = "false"; }
+});
+
+it("imports the exact edited chat storyboard once after approval without a second model pass", async () => {
+  const input = await fixture();
+  const owner = { storyId: input.storyId, userId: input.userId, actor: { userId: input.userId, name: "作者" } };
+  const { listChapters } = await import("../repositories/chapters");
+  const workflow = await import("./bookWorkflow");
+  mocks.compute.mockResolvedValueOnce({ parsed: { chapters: [{ title: "窗边", modules: [
+    { format: "shot", text: "推窗", parent: null },
+    { format: "text", text: "运镜提示词：镜头停在窗边。", parent: 0 },
+    { format: "text", text: "窗开了。", parent: 0, dialogue: true },
+    { format: "text", text: "音效提示词：窗外风声。", parent: 0 },
+  ] }] } });
+  const draft = await workflow.generateFilmManuscript({ ...owner, id: crypto.randomUUID(), request: "给家人看，做成短片",
+    conversation: [{ role: "user", content: "外公推开窗户。" }] });
+  expect(await listChapters(input.storyId, input.userId, "storyboard")).toHaveLength(0);
+  const edited = await workflow.editConversionDraft({ ...owner, id: draft.id, revision: draft.revision,
+    texts: [["推窗", "运镜提示词：镜头停在窗边。", "风进来了。", "音效提示词：窗外风声。"]] });
+  expect(await service.listBookVideoRecords(input)).toHaveLength(0);
+  const version = await workflow.adoptManuscriptConversion({ ...owner, id: draft.id, revision: edited.revision });
+  const [chapter] = await listChapters(input.storyId, input.userId, "storyboard");
+  const approved = { ...owner, chapterId: chapter.id, expectedFingerprint: version.fingerprint, id: "film-" + draft.id };
+  const result = await service.importBookStoryboard(approved);
+  expect(result.shots).toHaveLength(1);
+  expect(result.shots[0].dialogue).toBe("风进来了。");
+  expect(result.shots[0].sound).toContain("窗外风声");
+  expect((await service.importBookStoryboard(approved)).shots[0].stableShotId).toBe(result.shots[0].stableShotId);
+  expect(await service.listBookVideoRecords(input)).toHaveLength(1);
+  expect(mocks.compute).toHaveBeenCalledOnce();
+  expect(mocks.generate).not.toHaveBeenCalled();
+});
+
+it("imports only the reviewed shot trial when the same story already has a full film", async () => {
+  const input = await fixture();
+  const { insertChapter } = await import("../repositories/chapters");
+  const { getBookWorkflow } = await import("./bookWorkflow");
+  const { readBookVideoSource } = await import("./bookVideoSource");
+  const { structureShotDraft } = await import("../../shared/bookShotFormat");
+  const content = (title: string, voice: string) => ({
+    ...structureShotDraft(`第 1 镜｜${title}\n10 秒，竖屏。\n旁白\n${voice}\n音效提示词\n风声。`, undefined, () => crypto.randomUUID(), title)!,
+    manuscriptKind: "storyboard" as const, blockIds: [], containsAiText: false, settings: null,
+    coverKey: null, bodyTextureKey: null, images: {}, illustrations: [],
+  });
+  const main = await insertChapter({ ...input, content: { title: "全片", layout: null, blocks: content("清晨", "早上好。") } });
+  const trial = await insertChapter({ ...input, content: { title: "试稿", layout: null, blocks: {
+    ...content("收伞", "雨停了。"), shotTextOrigin: { trialId: crypto.randomUUID(), source: "作者", shotId: "umbrella" },
+  } } });
+  expect((await readBookVideoSource({ ...input, bookChapterId: main.id }))?.layout.bookScenes?.map(s => s.dialogueText)).toEqual(["早上好。"]);
+  const result = await service.importBookStoryboard({ ...input, chapterId: trial.id,
+    expectedFingerprint: (await getBookWorkflow(input)).drafts.storyboard.fingerprint, actor: { userId: 31, name: "作者" } });
+  expect(result.shots).toHaveLength(1);
+  expect(result.shots[0]).toMatchObject({ dialogue: "雨停了。", durationMs: 10000 });
+  expect(result.shots[0].sound).toContain("风声");
+  expect(result.shots[0].publishingVideo).toMatchObject({ sourceModuleIds: expect.arrayContaining([`${trial.id}:${trial.blocks.writingStyle![0].id}`]) });
+  expect(mocks.compute).not.toHaveBeenCalled();
 });
 
 it('imports the current storyboard directly without AI, preserves its source and reuses a retry', async () => {

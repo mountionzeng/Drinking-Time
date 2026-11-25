@@ -16,6 +16,7 @@ export type ManuscriptEntry = {
   originalIndex: number;
 };
 type Props = {
+  showScenes?: boolean;
   visible: boolean;
   entries: readonly ManuscriptEntry[];
   selectedShotNo: number | null;
@@ -172,9 +173,7 @@ function Row({ entry, ...props }: Props & { entry: ManuscriptEntry }) {
         >
           {label}
         </button>
-        <p className="mt-1 text-[10px] leading-5 text-muted-foreground">
-          {shot.sceneTitle || shot.sceneNo}
-        </p>
+        {props.showScenes && (shot.sceneTitle || shot.sceneNo) && <p className="mt-1 text-[10px] leading-5 text-muted-foreground">{shot.sceneTitle || shot.sceneNo}</p>}
         <p className="mt-1 text-[10px] tabular-nums text-muted-foreground">
           {props.timingLabel(entry)}
         </p>

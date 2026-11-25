@@ -9,3 +9,10 @@ it('passes interleaved images into the actual model conversation without extract
   expect(invoke.mock.calls[0][0].at(-1)).toEqual({role:'user',content});
   expect(result.reply).toContain('图1');expect(result.toolCalls).toEqual([]);expect(result.card).toBeNull();
 });
+it.each([undefined, "publishing" as const])("guides the web reply towards one available next step in %s mode",async interactionMode=>{
+  invoke.mockClear();
+  await replyFromStoryAgent({ message:"我想讨论这个镜头", allowStoryTitleSuggestion:false, guideNextStep:true, interactionMode });
+  const replyCall = invoke.mock.calls.find(([messages])=>messages.at(-1)?.content === "我想讨论这个镜头");
+  expect(replyCall?.[0][0].content).toContain("只描述当前已知可用的操作");
+  expect(replyCall?.[0][0].content).toContain("区分用户的动机与委托人期待");
+});

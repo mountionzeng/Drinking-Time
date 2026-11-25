@@ -192,6 +192,7 @@ function operationRequestHash(input: {
 }
 
 async function loadPreviewContext(input: {
+  bookChapterId?: number;
   storyId: number;
   userId: number;
   versionId?: string;
@@ -220,7 +221,7 @@ async function loadPreviewContext(input: {
     );
   }
   let draft = version.drafts[version.activePlatform];
-  const bookSource = input.bookSource ? await readBookVideoSource(input) : null;
+  const bookSource = input.bookSource ? await readBookVideoSource({ ...input, bookChapterId: input.bookChapterId ?? input.articleLayout?.bookChapterId }) : null;
   if(input.bookSource && !bookSource) throw new PublishingVideoStoryboardEligibilityError("当前书稿不存在");
   if(bookSource && draft) draft={...draft,content:{...draft.content,body:bookSource.layout.body}};
   // 纯书稿故事可能从未生成过发布稿：正文以章节为准，内存中补一份只读草稿（不回写）。
@@ -1043,6 +1044,7 @@ async function confirmPublishingVideoShots(input: {
   preserveVideoActor?: VersionActor;
   /** Start a fresh video from this manuscript; archive the old table and edit before replacement. */
   preferSourceContent?: boolean;
+  bookChapterId?: number;
   preparedAudio?: import("../../shared/bookVideoAudio").PreparedBookVideoAudio;
   /** 必须与生成时用的规格一致，否则会出现「按 10 秒出镜头、按 30 秒分时长」 */
   narrativeSpec?: NarrativeSpecId;
@@ -1059,6 +1061,7 @@ async function confirmPublishingVideoShots(input: {
       userId: input.userId,
       versionId: input.versionId,
       bookSource:input.bookSource,
+      bookChapterId:input.bookChapterId,
     });
     const aggregate =
       context.version.videoStoryboard ??

@@ -1,3 +1,4 @@
+import { liveManuscripts } from "../services/liveManuscript";
 import { getVideoBookSource, quoteVideoBook, generateVideoBook, videoBookInput } from "../services/videoBook";
 import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
@@ -13,19 +14,24 @@ import {
   editConversionDraft,
   adoptManuscriptConversion,
   generateFilmManuscript,
+  quoteFilmManuscript,
 } from "../services/bookWorkflow";
 const owner = z.object({ storyId: z.number().int().positive() });
 const record = owner.extend({ id: z.string().uuid() });
+const film = owner.extend({
+  target: manuscriptKindSchema.default("storyboard"),
+  chapterId: z.number().int().positive().optional(), request: z.string().trim().max(4000),
+  conversation: z.array(z.object({ role: z.enum(["user", "assistant"]), content: z.string().max(20000) })).max(500).refine(messages => messages.reduce((sum, message) => sum + message.content.length, 0) <= 100000, "聊天内容过长，请先缩小范围"),
+});
 export const bookWorkflowRouter = router({
+  liveWriting: protectedProcedure.input(owner).query(({ ctx, input }) => liveManuscripts({ storyId: input.storyId, userId: ctx.user.id })),
   videoSource: protectedProcedure.input(owner).query(({ctx,input})=>getVideoBookSource({...input,userId:ctx.user.id})),
   quoteVideoText: protectedProcedure.input(videoBookInput).mutation(({ctx,input})=>quoteVideoBook({...input,userId:ctx.user.id})),
   generateVideoText: protectedProcedure.input(videoBookInput.extend({id:z.string().uuid(),quoteFingerprint:z.string().length(64),acknowledgedUnknownIds:z.array(z.string().uuid()).max(100).default([])}))
     .mutation(({ctx,input})=>generateVideoBook({...input,userId:ctx.user.id,actor:{userId:ctx.user.id,name:ctx.user.name||"未设置称呼"}})),
-  generateFilm: protectedProcedure.input(record.extend({
-    target: z.enum(["text", "storyboard"]).default("storyboard"),
-    chapterId: z.number().int().positive().optional(), request: z.string().trim().max(4000),
-    conversation: z.array(z.object({ role: z.enum(["user", "assistant"]), content: z.string().max(20000) })).max(500).refine(messages => messages.reduce((sum, message) => sum + message.content.length, 0) <= 100000, "聊天内容过长，请先缩小范围"),
-  })).mutation(({ctx,input}) => generateFilmManuscript({ ...input, userId: ctx.user.id, actor: { userId: ctx.user.id, name: ctx.user.name || "未设置称呼" } })),
+  quoteFilm: protectedProcedure.input(film).mutation(({ctx,input}) => quoteFilmManuscript({ ...input, userId: ctx.user.id })),
+  generateFilm: protectedProcedure.input(film.extend({ id: z.string().uuid(), quoteFingerprint: z.string().min(1).max(100) }))
+    .mutation(({ctx,input}) => generateFilmManuscript({ ...input, userId: ctx.user.id, actor: { userId: ctx.user.id, name: ctx.user.name || "未设置称呼" } })),
   get: protectedProcedure
     .input(owner)
     .query(({ ctx, input }) =>

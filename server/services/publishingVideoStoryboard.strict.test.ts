@@ -10,11 +10,20 @@ vi.mock("../_core/textComputeProvider", async load => ({
   resolveComputeCandidates: mocks.candidates,
 }));
 import { InferenceError } from "../_core/inferenceOrchestrator";
-import { runPublishingVideoStoryboardTextCompute as compute } from "./publishingVideoStoryboard";
+import { quoteStoryboardCompute, runPublishingVideoStoryboardTextCompute as compute } from "./publishingVideoStoryboard";
 const input = { systemPrompt: "输出 JSON", context: { target: "text" }, failureMode: "throw" as const };
 beforeEach(() => {
   vi.clearAllMocks();
-  mocks.candidates.mockReturnValue([{ label: "302" }]);
+  mocks.candidates.mockReturnValue([{ id: "302", model: "gpt-4o", label: "302" }]);
+});
+it("quotes without inference and rejects a changed brief, provider model or approved price", async () => {
+  const quote = quoteStoryboardCompute(input);
+  expect(quote.estimatedCny).toBeGreaterThan(0);
+  await expect(compute({ ...input, context: { target: "storyboard" }, quoteFingerprint: quote.fingerprint })).rejects.toMatchObject({ code: "CONFLICT" });
+  await expect(compute({ ...input, quoteFingerprint: quote.fingerprint.replace(/:\d+$/, ":0") })).rejects.toMatchObject({ code: "CONFLICT" });
+  mocks.candidates.mockReturnValue([{ id: "302", model: "deepseek-v3.2", label: "302" }]);
+  await expect(compute({ ...input, quoteFingerprint: quote.fingerprint })).rejects.toMatchObject({ code: "CONFLICT" });
+  expect(mocks.run).not.toHaveBeenCalled();
 });
 it("reports missing configuration instead of producing an empty manuscript", async () => {
   mocks.candidates.mockReturnValue([]);

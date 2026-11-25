@@ -153,7 +153,7 @@ describe("recognizeStoryIntent", () => {
     expect(result.platform).toBe("unknown");
     expect(result.confidence).toBe(1);
     expect(result.desiredEffect).toContain("真实目的");
-    expect(result.missingQuestion).toContain("给自己看");
+    expect(result.missingQuestion).toContain("用这份作品做什么");
   });
 
   it("未配置 API 时也能把虚构灵感兜底识别为 fiction", async () => {
@@ -173,7 +173,7 @@ describe("recognizeStoryIntent", () => {
     expect(result.missingQuestion).toContain("人物");
   });
 
-  it("模型误判时也把“写一个……故事”的入口守回 fiction", async () => {
+  it("明确要编一个故事时可识别虚构用途", async () => {
     llmMocks.invokeLLM.mockResolvedValueOnce(
       makeLLMResponse(
         JSON.stringify({
@@ -190,7 +190,7 @@ describe("recognizeStoryIntent", () => {
     );
 
     const result = await recognizeStoryIntent({
-      message: "我想写一个月亮掉进菜市场的故事",
+      message: "我想编一个月亮掉进菜市场的故事",
     });
 
     expect(result.configured).toBe(true);
@@ -199,6 +199,15 @@ describe("recognizeStoryIntent", () => {
     expect(result.platform).toBe("presentation");
     expect(result.desiredEffect).toContain("虚构灵感");
     expect(result.evidence.join(" ")).toContain("虚构故事");
+  });
+
+  it("uses the author's current purpose ahead of an earlier or commissioned purpose", async () => {
+    envMock.ENV.forgeApiKey = undefined;
+    const result = await recognizeStoryIntent({history: [{role: "user", content: "我想发到领英找工作。"}],
+      message: "长辈想发到朋友圈，我想作首歌留给爸爸。"});
+    expect(result.purpose).toBe("gift");
+    expect(result.platform).toBe("private_archive");
+    expect((await recognizeStoryIntent({message: "长辈想发到朋友圈，我还没想好。"})).purpose).toBe("exploration");
   });
 
   it("未配置 API 时不调用模型，直接返回本地兜底", async () => {
@@ -215,6 +224,10 @@ describe("recognizeStoryIntent", () => {
   });
 
   it.each([
+    { message: "我想把我的经历写成文章", purpose: "exploration", audience: "unknown" },
+    { message: "我在朋友圈看见爸爸的照片，想作首歌", purpose: "exploration", audience: "unknown" },
+    { message: "我想写一个关于我们家乡的故事", purpose: "exploration", audience: "unknown" },
+    { message: "我想作首歌送给爸爸", purpose: "gift", audience: "specific_person" },
     {
       message: "我想记录这段旅行，以后留给自己回看",
       purpose: "raw_record",

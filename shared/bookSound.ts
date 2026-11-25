@@ -10,17 +10,18 @@ export const wholeBookSoundSchema = z.object({
 export type WholeBookSound = z.infer<typeof wholeBookSoundSchema>;
 
 /** A marked paragraph may contain both a quoted voice-over and a camera direction. */
-export function spokenBookDialogue(text: string): string {
-  return text.split("\n").map(line => {
+export function splitBookVoiceLine(line: string) {
     const match = /^\s*(?:画外音|旁白|对白|台词)(?:继续)?(?:[（(][^（）()\n]*[）)])?\s*[：:]\s*(?:「([^「」]+)」|“([^“”]+)”|"([^"]+)")\s*([\s\S]*)$/u.exec(line);
-    if (!match) return line;
+    if (!match) return;
     const tail = match[4].trim();
     if (tail && !/^[。！？.!?]?$/.test(tail) &&
-        !/^[。！？.!?]?\s*(?:画面|镜头)(?:[：:]|切|转|拉|推|跟|渐|缓)/u.test(tail)) return line;
+        !/^[。！？.!?]?\s*(?:画面|镜头)(?:[：:]|切|转|拉|推|跟|渐|缓)/u.test(tail)) return;
     // An additional spoken passage on this line needs review as a whole.
-    if (/[「“"]/.test(tail)) return line;
-    return (match[1] ?? match[2] ?? match[3]).trim();
-  }).join("\n");
+    if (/[「“"]/.test(tail)) return;
+    return { spoken: (match[1] ?? match[2] ?? match[3]).trim(), speech: line.slice(0, line.length - match[4].length), direction: match[4] };
+}
+export function spokenBookDialogue(text: string): string {
+  return text.split("\n").map(line => splitBookVoiceLine(line)?.spoken ?? line).join("\n");
 }
 /** Every chapter in manuscript order; media and shot directions are never spoken. */
 export function wholeBookSoundText(

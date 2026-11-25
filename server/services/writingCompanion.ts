@@ -21,6 +21,7 @@ import { bookWritingMessages, readBookDraftReply } from "./bookWritingConversati
 import { invokeAgent } from "../_core/agentChannel";
 import { parseJsonLoose } from "../_core/llmJson";
 import { stripAssistantReasoning } from "../../shared/assistantReplyText";
+import { creativeChatDirection } from "../../shared/creativeConversation";
 import { CREATIVE_EXPLORATION_RULE } from "../../shared/creativeExploration";
 import { BOOK_TEXT_FORMAT_RULE, generatedBookText } from "../../shared/bookTextFormat";
 import { WRITING_EXPLORATION_CONTEXT } from "./writingTechniqueLibrary";
@@ -394,6 +395,7 @@ export async function replyAsWritingCompanion(
             "你是聊聊，陪用户修改图文排版。用户所说的「这个」「这块」指本轮提供的选中模块；历史对话里的旧选区不作为本轮目标。",
             CREATIVE_EXPLORATION_RULE,
             WRITING_INTENT_AND_SOURCE,
+            creativeChatDirection(input.message),
             line ? LINE_CONTEXT_GUIDANCE : "只有用户询问时才建议。围绕他的问题，给出一到三条简短、具体、容易执行的建议。文字可以给一版简短改写，保留原意，不编造经历、对白或动机。",
             "结合模块位置、尺寸、裁切、文字样式和本页画面考虑留白、对齐、清晰度与图文遮挡，保持极简，不无故增加装饰。",
             LAYOUT_NUMBERS_PRIVATE_RULE,
@@ -493,6 +495,7 @@ export async function replyAsWritingCompanion(
       role: "system",
       content: [
         COMPANION_RULES,
+        creativeChatDirection(input.message),
         studioContextDescription(input.uiContext),
         "",
         ...(input.writingContext.fullDraft

@@ -1,3 +1,4 @@
+import { useStoryboardScenes } from "../useStoryboardScenes";
 import { useLayoutEffect, useRef, useState, type ComponentProps } from "react";
 import { toast } from "sonner";
 import { useUiText } from "@/features/uiLanguage/UiLanguage";
@@ -45,6 +46,7 @@ type Props = {
 /** Both presentations share the same timeline and shot data; this only renders the manuscript view. */
 export function StoryboardManuscriptSection(props: Props) {
   const t = useUiText();
+  const showScenes = useStoryboardScenes(props.storyId);
   const { visible, timeline, entries, timings } = props;
   const scroller = useRef<HTMLDivElement>(null);
   const enabled = visible && Boolean(timeline);
@@ -84,7 +86,7 @@ export function StoryboardManuscriptSection(props: Props) {
           onShotTimingPreviewChange={props.updateShotTimingPreview} />
       </div>
     </div>}
-    <StoryboardManuscriptTable visible={visible} entries={entries} selectedShotNo={props.selectedShotNo}
+    <StoryboardManuscriptTable showScenes={showScenes} visible={visible} entries={entries} selectedShotNo={props.selectedShotNo}
       timingLabel={entry => {
         const timing = timings.find(row => row.stableShotId === entry.stableShotId);
         return timing ? `${(timing.startFrame / 30).toFixed(1)}–${((timing.startFrame + timing.durationFrames) / 30).toFixed(1)}s` : t("未放入时间轴");

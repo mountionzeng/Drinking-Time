@@ -51,7 +51,7 @@ export type WorkflowAggregate = {
 
 /** Resolve the editable chapter. Reading or comparing a historical snapshot does not change it. */
 export function bookEntry(rows: StoryChapter[], state: BookWorkflowState, chapterId?: number) {
-  let best: { kind: ManuscriptKind; chapterId: number; time: number; versionOrder: number } | undefined;
+  let best: { kind: ManuscriptKind; chapterId: number; time: number; editedAt: number; versionOrder: number } | undefined;
   for (const kind of ["text", "storyboard"] as const) {
     const chapters = manuscriptRows(rows, kind);
     const requested = chapters.find(chapter => chapter.id === chapterId);
@@ -60,18 +60,23 @@ export function bookEntry(rows: StoryChapter[], state: BookWorkflowState, chapte
     const editTime = (row: StoryChapter) => Math.max(
       new Date(row.updatedAt).getTime() || 0, row.blocks.attribution?.editedAt ?? 0
     );
-    const latest = chapters.reduce((a, b) => editTime(b) > editTime(a) ? b : a);
+    const lastEdit = (row: StoryChapter) => row.blocks.attribution?.editedAt ?? 0;
+    const latest = chapters.reduce((a, b) => {
+      const order = editTime(b) - editTime(a) || lastEdit(b) - lastEdit(a);
+      return order > 0 ? b : a;
+    });
     const versionOrder = state.versions.findIndex(v => v.id === state.current[kind] && v.kind === kind);
     const time = Math.max(editTime(latest), state.versions[versionOrder]?.createdAt ?? 0);
-    if (!best || time > best.time || (time === best.time && versionOrder > best.versionOrder)) {
-      best = { kind, chapterId: latest.id, time, versionOrder };
+    const editedAt = lastEdit(latest);
+    if (!best || (time - best.time || versionOrder - best.versionOrder || editedAt - best.editedAt) > 0) {
+      best = { kind, chapterId: latest.id, time, editedAt, versionOrder };
     }
   }
   return { kind: best?.kind ?? "text", chapterId: best?.chapterId ?? null };
 }
 export type WorkflowChange<T> = (aggregate: WorkflowAggregate) => {
   result: T;
-  replace?: { kind: ManuscriptKind; chapters: ManuscriptContent[] };
+  replace?: { kind: ManuscriptKind; chapters: ManuscriptContent[]; updatedChapterIds?: number[] };
 };
 
 /** Lock the story and chapters together. Source checks and target replacement commit atomically. */
@@ -148,6 +153,7 @@ export async function mutateBookWorkflow<T>(
         const targets = manuscriptRows(rows, kind),
           legacyStoryboard = manuscriptRows(rows, "storyboard");
         for (const row of rows.filter(row => !row.blocks.manuscriptArchived)) {
+          if (outcome.replace.updatedChapterIds && !outcome.replace.updatedChapterIds.includes(row.id)) continue;
           const rowKind =
             row.blocks.manuscriptKind ??
             (legacyStoryboard.some(item => item.id === row.id)
@@ -160,7 +166,7 @@ export async function mutateBookWorkflow<T>(
               .update(storyChapters)
               .set({
                 ...content,
-                position,
+                position: outcome.replace.updatedChapterIds ? row.position : position,
                 blocks: {
                   ...content.blocks,
                   manuscriptKind: kind,
@@ -234,6 +240,7 @@ export async function mutateBookWorkflow<T>(
         const targets = manuscriptRows(rows, kind),
           legacyStoryboard = manuscriptRows(rows, "storyboard");
         for (const row of rows.filter(row => !row.blocks.manuscriptArchived)) {
+          if (outcome.replace.updatedChapterIds && !outcome.replace.updatedChapterIds.includes(row.id)) continue;
           const rowKind =
             row.blocks.manuscriptKind ??
             (legacyStoryboard.some(item => item.id === row.id)
@@ -243,7 +250,7 @@ export async function mutateBookWorkflow<T>(
             content = position >= 0 ? chapters[position] : undefined;
           if (content)
             Object.assign(row, structuredClone(content), {
-              position,
+              position: outcome.replace.updatedChapterIds ? row.position : position,
               blocks: {
                 ...structuredClone(content.blocks),
                 manuscriptKind: kind,

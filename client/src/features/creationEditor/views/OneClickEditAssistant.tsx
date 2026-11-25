@@ -1,3 +1,4 @@
+import { useStoryboardScenes } from "@/features/storyAgent/useStoryboardScenes";
 import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import {
   AlertTriangle,
@@ -385,6 +386,7 @@ export default function OneClickEditAssistant({
   onAnalyzeConsistency,
 }: OneClickEditAssistantProps) {
   const _ui = useDesktopUiText();
+  const showScenes = useStoryboardScenes(activeStoryId);
   const [open, setOpen] = useState(false);
   const [targetAspectRatio, setTargetAspectRatio] =
     useState<OneClickTargetAspectRatio>("1:1");
@@ -933,20 +935,20 @@ export default function OneClickEditAssistant({
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-2">
               <div className="flex items-center gap-2 text-sm font-semibold">
                 <AlertTriangle className="h-4 w-4 text-primary" />
-                {_ui("按场次检查")}</div>
+                {_ui(showScenes ? "按场次检查" : "逐镜检查")}</div>
               <span className="text-xs text-muted-foreground">
                 {_ui("已选")}{" "}{selectedCount} · {report.warningCount} {_ui("个提醒 ·")}{" "}
                 {report.blockingCount} {_ui("个阻塞")}</span>
             </div>
             <div>
-              {report.sceneGroups.map(group => (
+              {(showScenes ? report.sceneGroups : [{ key: "shots", label: "", checks: report.checks }]).map(group => (
                 <section
                   key={group.key}
                   className="border-b border-border last:border-b-0"
                 >
-                  <div className="bg-muted/40 px-3 py-2 text-xs font-medium text-muted-foreground">
+                  {group.label && <div className="bg-muted/40 px-3 py-2 text-xs font-medium text-muted-foreground">
                     {group.label}
-                  </div>
+                  </div>}
                   {group.checks.map(check => (
                     <ShotCheckRow
                       key={check.stableShotId}

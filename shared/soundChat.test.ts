@@ -9,6 +9,12 @@ const state = () => {
 describe("sound chat", () => {
   it.each(["背景音乐小一点", "把音乐音量调到20%", "音乐淡出2秒", "取消音乐静音", "music quieter", "我觉得背景音乐太响了", "旁白听不清"])("recognizes %s", text => expect(parseSoundChat(text)?.type).toBe("edit"));
   it.each(["音乐小一点，旁白慢一点", "音乐和旁白小一点", "音乐小一点不要改旁白", "不要把音乐调到20%", "音乐调到500%", "第2镜音乐小一点"])("does not partly execute %s", text => expect(parseSoundChat(text)?.type).toBe("unsupported"));
+  it.each(["我想做一段音乐", "爸爸听见音乐就回头了", "我在做短片，先写台词和音效提示词，不生成音乐", "音乐让我想起了去接他的那天"])(
+    "leaves a creative wish or a remembered sound in chat: %s", text => expect(parseSoundChat(text)).toBeNull()
+  );
+  it.each(["添加背景音乐", "给整本书生成音乐", "生成有声书"])(
+    "keeps explicit soundtrack and narration controls: %s", text => expect(parseSoundChat(text)).not.toBeNull()
+  );
   it("leaves questions and book writing to conversation", () => {
     expect(parseSoundChat("怎么改音乐？")).toBeNull();
     expect(parseSoundChat("把这一章写得生动一些")).toBeNull();

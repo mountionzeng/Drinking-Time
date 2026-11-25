@@ -1,3 +1,4 @@
+import { isUntitledStoryTitle } from "@shared/storyTitle";
 import type { StoryShot } from "./types";
 import {
   PUBLISHING_PLATFORM_REGISTRY,
@@ -22,7 +23,7 @@ function compactPublishingText(value: string, maxLength = 600): string {
 
 export function buildStoryChatSummary(input: StoryChatSummaryInput): string {
   const lines = [
-    input.title?.trim() ? `当前故事：${input.title.trim()}` : "",
+    !isUntitledStoryTitle(input.title) ? `当前故事：${input.title!.trim()}` : "",
     input.logline?.trim() ? `一句话：${input.logline.trim()}` : "",
     input.theme?.trim() ? `主题：${input.theme.trim()}` : "",
     input.arc?.trim() ? `情绪弧线：${input.arc.trim()}` : "",

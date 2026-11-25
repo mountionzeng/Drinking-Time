@@ -1,4 +1,4 @@
-import type { BookWritingStyle } from "./bookWritingStyle";
+import { validWritingStyle, writingModuleTexts, type BookWritingStyle } from "./bookWritingStyle";
 import { z } from "zod";
 import type { ParagraphAnchor } from "./articleIllustrations";
 import type { PackageImageInfo } from "./chapterPackage";
@@ -16,7 +16,10 @@ export const CHAPTER_MAX_PER_STORY = 100;
 
 /** One nonblank body line per blockId. Layout stores bindings; it never stores another text copy. */
 export type StoredChapterBlocks = {
+  shotTextOrigin?: { trialId: string; shotId: string; source: string; shotNo?: number; formatVersion?: 1 };
   manuscriptKind?: "text" | "storyboard";
+  /** Set when the author requested a scene outline for this manuscript. */
+  storyboardScenes?: boolean;
   /** Replaced draft rows remain addressable by history, but cannot be edited. */
   manuscriptArchived?: boolean;
   chatDocument?: { requestId: string; fingerprint: string };
@@ -253,7 +256,9 @@ export function realignBlockIds(
   oldBody: string,
   oldIds: readonly string[],
   newBody: string,
-  fresh: () => string
+  fresh: () => string,
+  oldStyle?: BookWritingStyle,
+  newStyle?: BookWritingStyle
 ): string[] {
   const lines = (text: string) =>
     text
@@ -263,6 +268,19 @@ export function realignBlockIds(
   const before = lines(oldBody);
   const after = lines(newBody);
   if (oldIds.length === 0 || oldIds.length !== before.length) return [];
+  if (oldStyle && newStyle && validWritingStyle(oldBody, oldStyle) && validWritingStyle(newBody, newStyle)) {
+    const original = new Map<string, { text: string; ids: readonly string[] }>();
+    let offset = 0;
+    writingModuleTexts(oldBody, oldStyle).forEach((text, i) => {
+      const end = offset + lines(text).length;
+      original.set(oldStyle[i].id, { text, ids: oldIds.slice(offset, end) });
+      offset = end;
+    });
+    if (newStyle.some(row => original.has(row.id))) return writingModuleTexts(newBody, newStyle).flatMap((text, i) => {
+      const previous = original.get(newStyle[i].id);
+      return previous?.ids.length ? realignBlockIds(previous.text, previous.ids, text, fresh) : lines(text).map(() => fresh());
+    });
+  }
   let head = 0;
   while (
     head < before.length &&

@@ -5,6 +5,7 @@ import { ExportButton } from "@/features/creationEditor/ExportTimelineButton";
 import type { WechatMailboxReceiptValue } from "@/features/storyMailbox/WechatMailboxReceipt";
 import { hasPendingStudioDraft } from "@/features/storyAgent/studioDraftState";
 import { useDesktopWritingSession } from "@/features/writingCompanion/desktopWritingSession";
+import { startsCreativeConversation } from "@shared/creativeConversation";
 import { useStudioAssistant } from "@/features/storyAgent/useStudioAssistant";
 import type { StudioUiContext, StudioUiAction } from "@shared/studioAssistant";
 import { useUiLanguage } from "@/features/uiLanguage/UiLanguage";
@@ -233,7 +234,7 @@ function EditingStudioBody({
   useEffect(() => {
     if (!incomingCreate || incomingCreate.storyId !== activeStoryId) return;
     setCreateRequest(incomingCreate);
-    onWorkspaceChange("editing");
+    onWorkspaceChange(incomingCreate.kind === "video" ? "publishing" : "editing");
     clearStudioCreateHandoff(sessionStorage, incomingCreate.id);
     setIncomingCreate(null);
   }, [incomingCreate, activeStoryId, onWorkspaceChange]);
@@ -821,6 +822,9 @@ export default function EditingStudioPage() {
         storySpineStore.getState().activeStoryId
       );
       if (storyId == null) return null;
+      const editor = storySpineStore.getState();
+      if (!selectionContext && startsCreativeConversation(instruction, Boolean(editor.confirmedIntent ||
+        editor.storyShots.length || editor.cards.length || editor.messages.slice(0, -1).some(turn => turn.role === "user")))) return null;
       const surface = requestedWorkspace ?? (workspace === "publishing" || workspace === "images" ? "book" : "video");
       if (surface === "video") {
         if (selectionContext?.sourceId && isFeedbackQuote(selectionContext)) {

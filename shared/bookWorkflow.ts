@@ -44,6 +44,9 @@ export type ManuscriptVersion = ManuscriptReference & {
   fingerprint: string;
 };
 export type ConversionDraft = {
+  entryChapterId?: number;
+  /** For a scoped storyboard revision, only these existing chapters are regenerated. */
+  revisedChapters?: { id: number; index: number }[];
   videoTextMethod?: "rewrite" | "local-transcript";
   submissionUncertain?: boolean;
   /** Old unresolved tasks explicitly acknowledged under the new quote. */

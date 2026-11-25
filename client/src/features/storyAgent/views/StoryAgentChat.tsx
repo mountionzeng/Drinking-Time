@@ -171,6 +171,12 @@ import { failedImageEditRecovery, quotedImageEditRecovery, recoveredImageEditQuo
 import type { PhotoAssetRequest } from "./ChatPhotoAssets";
 import AssetSwapProposalCard from "./AssetSwapProposalCard";
 import { useAssetSwapProposal } from "../useAssetSwapProposal";
+import { prepareMountedBook } from "@/features/bookVideo/bookPreparation";
+import { bookManuscriptModules } from "@shared/bookShotDocument";
+import { rememberStoryboardScenes } from "../useStoryboardScenes";
+import { isBlankShotTemplate, listsWholeStoryboard, sceneOutlineViewRequest } from "@shared/bookShotFormat";
+import { initialPurposeQuestion, isPurposeReply, requestsStoryFilm, startsCreativeConversation } from "@shared/creativeConversation";
+import { FilmVersionDraft } from "@/features/publishingDraft/FilmVersionDraft";
 import { useCreationFlowChat } from "../useCreationFlowChat";
 import { chatImageRefsStore } from "../chatImageRefsStore";
 import { storyboardFrameRoleGenerationParams, storyboardShotFrameImages } from "./storyboardReviewModel";
@@ -399,6 +405,7 @@ export default function StoryAgentChat({
     backToList,
     confirmPendingIntent,
     dismissPendingIntent,
+    ensureActiveStoryPersisted,
     clearSelection,
     setActiveSelection,
     sendSelectionEdit,
@@ -806,7 +813,10 @@ export default function StoryAgentChat({
     window.addEventListener(SHOT_CHAT_FOCUS_EVENT, open);
     return () => window.removeEventListener(SHOT_CHAT_FOCUS_EVENT, open);
   }, [activeStoryId, workspaceContext]);
+  const freeConversation = !currentIntent && !hasStudioShots && !writingSession?.snapshot.draft?.length &&
+    !activeSelection && !pendingMedia.length && !soundDirector.active && !bookMedia;
   const inputPlaceholder =
+    freeConversation ? _ui("想聊什么？") :
     composition ? '说说这张图还想怎么改…' :
     workspaceContext === "video" && pendingMedia.some(item => item.kind === "image") ? _ui("说说图片想怎么改…") :
     bookVideo && workspaceContext !== "video" ? "说说视频给谁看、想表达什么，或继续调整方案…" :
@@ -1185,6 +1195,15 @@ export default function StoryAgentChat({
     !composition && !soundDirector.active && !mediaQuestion && !pausedFrameChat.hasManualFrame &&
     !activeSelection?.imageId && (!activeSelection?.selection || activeSelection.selection.kind === "time");
   const previousTurn = messages.at(-1);
+  // Changing the outline never accepts or dismisses the preceding draft.
+  let lastContentIndex = messages.length - 1;
+  while (lastContentIndex > 0 && messages[lastContentIndex].id === "outline:" + messages[lastContentIndex - 1].id)
+    lastContentIndex -= 2;
+  const lastFilmReply = messages[lastContentIndex];
+  const [newFilmTurn, setNewFilmTurn] = useState<string | null>(null);
+  const approveFilm = useRef<(() => void) | null>(null);
+  const filmStarting = useRef(false);
+
   const previousFeedback = previousTurn?.role === "assistant" && previousTurn.id === "reply:" + messages.at(-2)?.id
     ? messages.at(-2)?.selectionQuote : undefined;
   const feedbackDraft = [input, voicePreview].filter(Boolean).join(" ").trim();
@@ -1213,6 +1232,76 @@ export default function StoryAgentChat({
   const handleSubmit = async () => {
     draftEpoch.current++;
     const submittedInput = input;
+    const filmRequest = submittedInput.trim();
+    const filmReply = isPurposeReply(filmRequest, messages) && requestsStoryFilm(messages.at(-2)?.content ?? "");
+    const listShots = listsWholeStoryboard(filmRequest);
+    const wholeStory = listShots || /整个故事|整部|整本|全片|这(?:个|段)故事|书稿|whole (?:story|book)/iu.test(filmRequest);
+    const unscopedFilm = !pendingMedia.length && !(activeStoryId && readWarehouseChatSelection(activeStoryId)?.imageIds.length) && !hasInlineChatImages(filmRequest) && !warehouseFileChatIds(filmRequest).length &&
+      !pausedFrameChat.hasManualFrame && !activeSelection?.imageId && (wholeStory || !activeSelection?.selection) &&
+      !composition && !discussingBookVideo && !bookMedia && !mediaQuestion && !soundDirector.active;
+    if (unscopedFilm && !voice.isBusy && !isImportingMedia && !isReplying && !chatQueue.items.length) {
+      const scenes = sceneOutlineViewRequest(filmRequest);
+      if (scenes !== undefined || listShots) {
+        if (filmStarting.current) return;
+        filmStarting.current = true;
+        try {
+          const storyId = await ensureActiveStoryPersisted();
+          const scope = storySpineStore.getState();
+          if (scope.accountId !== accountId || (scope.remoteStoryId ?? scope.activeStoryId) !== storyId) return;
+          const user: ChatMessage = { id: crypto.randomUUID(), role: "user", content: filmRequest, timestamp: Date.now() };
+          let replyId = "outline:" + user.id;
+          let content = _ui(scenes ? "已打开分场视图。已有场次会显示，也可以在模块菜单里设置场。" : "已切换为连续镜头。");
+          if (listShots) {
+            await prepareMountedBook(storyId, accountId);
+            const chapters = await trialUtils.client.chapters.list.query({ storyId, kind: "storyboard" });
+            const main = chapters.filter(c => !c.blocks.shotTextOrigin && !isBlankShotTemplate(c.blocks.body));
+            const shots = main.flatMap(c => bookManuscriptModules(c.blocks).filter(b => b.row?.format === "shot")
+              .map(b => ({ chapterId: c.id, title: b.text })));
+            replyId = "shot-index:" + (shots[0]?.chapterId ?? 0) + ":" + user.id;
+            content = shots.length
+              ? [_ui("当前整片工作稿共 {0} 镜。", [shots.length]), ...shots.map((shot, i) => _ui("第 {0} 镜", [String(i + 1).padStart(2, "0")]) + " · " + (shot.title || _ui("镜头")))].join("\n")
+              : _ui("请提供整片分镜稿，我可以按原顺序整理镜头。");
+            const latest = storySpineStore.getState();
+            if (latest.accountId !== accountId || latest.storyScopeEpoch !== scope.storyScopeEpoch || latest.activeStoryId !== scope.activeStoryId) return;
+          }
+          if (scenes !== undefined) rememberStoryboardScenes(accountId, storyId, scenes, user.timestamp);
+          const reply: ChatMessage = { id: replyId, role: "assistant", timestamp: Date.now(), content };
+          scope.setMessages(rows => [...rows, user, reply]);
+          setInput(""); resizeAndFocusInput(); if (!listShots) onOpenPublishingWorkspace?.();
+        } catch (cause) { toast.error(cause instanceof Error ? cause.message : _ui("操作未完成，原稿已保留")); }
+        finally { filmStarting.current = false; }
+        return;
+      }
+      if (lastFilmReply?.id.startsWith("film-manuscript:") &&
+          /^(?:(?:我觉得|这版分镜|分镜|这版)\s*)?(?:ok(?:ay)?|好(?:的)?|可以|没问题|确认(?:分镜)?|就用这版|进入视频)(?:了)?(?:[，,、\s]*(?:进入|打开)视频(?:界面)?)?[。.!！\s]*$/iu.test(filmRequest)) {
+        if (!approveFilm.current) { toast.info(_ui("请先查看待确认的分镜版。")); return; }
+        setInput(""); approveFilm.current(); return;
+      }
+      if ((requestsStoryFilm(filmRequest) || filmReply) && (!showingShotHistory || wholeStory)) {
+        if (filmStarting.current) return;
+        filmStarting.current = true;
+        try {
+          const storyId = await ensureActiveStoryPersisted();
+          const scope = storySpineStore.getState();
+          if (scope.accountId !== accountId || (scope.remoteStoryId ?? scope.activeStoryId) !== storyId) return;
+          const user: ChatMessage = { id: crypto.randomUUID(), role: "user", timestamp: Date.now(), content: filmRequest };
+          const question = !filmReply && !confirmedIntent && !writingSession?.getSnapshot().draft.trim() &&
+            !messages.some(m => m.role === "user") ? initialPurposeQuestion(filmRequest) : undefined;
+          const reply: ChatMessage = question
+            ? { id: crypto.randomUUID(), role: "assistant", timestamp: Date.now(), content: _ui(question) }
+            : { id: "film-manuscript:" + user.id, role: "assistant", timestamp: Date.now(), content: _ui("先看分镜版，确认后进入视频。"), interfaceAction: true };
+          scope.setMessages(rows => [...rows, user, reply]);
+          setInput(""); resizeAndFocusInput();
+          if (!question) { setNewFilmTurn(user.id); onOpenPublishingWorkspace?.(); }
+        } catch (cause) { toast.error(cause instanceof Error ? cause.message : _ui("操作未完成，原稿已保留")); }
+        finally { filmStarting.current = false; }
+        return;
+      }
+    }
+    if (workspaceContext === "video" && pausedFrameChat.hasManualFrame && !input.trim() && !pendingMedia.length && !composition && !soundDirector.active) {
+      if (!voice.isBusy && !isImportingMedia) await pausedFrameChat.handle("");
+      return;
+    }
     const writingShot = trialView?.key===trialStorageKey ? trialView.shotId : undefined;
     const selectedWritingTarget = activeSelection?.storyId===activeStoryId ? activeSelection?.stableShotId : undefined;
     const targetForWords=selectedWritingTarget ?? writingShot;
@@ -1236,6 +1325,21 @@ export default function StoryAgentChat({
         setInput(current=>current===submittedInput ? "" : current);
       } catch(e){toast.info(e instanceof Error?e.message:"未能打开镜头文字试稿")}
       return;
+    }
+    // A wish for a new work can mention images or music before any editing target exists.
+    if (!activeSelection && !pendingMedia.length && !(activeStoryId && readWarehouseChatSelection(activeStoryId)?.imageIds.length) && !hasInlineChatImages(submittedInput) &&
+        !warehouseFileChatIds(submittedInput).length && !pausedFrameChat.hasManualFrame && !composition && !bookMedia && !discussingBookVideo && !soundDirector.active && !layoutContext &&
+        !isImportingMedia && !voice.isBusy && !creationFlow.busy) {
+      const writing = writingSession?.getSnapshot();
+      const hasSource = Boolean(confirmedIntent || hasStudioShots || cardRefs.length || writing?.draft.trim() ||
+        messages.some(turn => turn.role === "user"));
+      if (startsCreativeConversation(submittedInput, hasSource)) {
+        const snapshot = bookRewriteChatSnapshot(writing, useBookModuleActions.getState().session);
+        if (chatQueue.enqueue(submittedInput.trim(), snapshot, workspaceContext)) {
+          setInput(""); resizeAndFocusInput();
+        }
+        return;
+      }
     }
     let entered = creationFlow.resolveVersionReply?.(input.trim()) ?? input.trim();
     try { if (workspaceContext === "video") entered = resolveShotImageMentions(entered, new Map(inlineImages.map(im => [im.imageId!, im.label]))); }
@@ -2542,7 +2646,13 @@ export default function StoryAgentChat({
                 {latestCue && m.id!==cueTurn?.reply.id && m.id.startsWith("video-cues:") && m.role==="assistant" && m.selectionQuote?.storyId===activeStoryId &&
                   <button type="button" className="mb-1 text-xs underline" aria-label={"继续此视频对话："+(messages.find(row=>cueReplyId(row.id)===m.id)?.content??"").slice(0,55)}
                     onClick={()=>setOpenedCue({id:m.id,latest:latestCue.reply.id,openedAt:Date.now()})}>继续此视频对话</button>}
-                {m.id === startMessage.messageId ? <section aria-label={_ui("视频制作起点")}>
+                {m.role === "assistant" && m.id.startsWith("film-manuscript:") && (remoteStoryId ?? activeStoryId ?? 0) > 0 ? (() => {
+                  const turn = messages.find(row => row.id === m.id.slice("film-manuscript:".length) && row.role === "user");
+                  return turn && <FilmVersionDraft key={`${accountId}:${scopeEpoch}:${m.id}`} storyId={(remoteStoryId ?? activeStoryId)!}
+                    request={turn.content} chatTurnId={turn.id} startOnOpen={newFilmTurn === turn.id}
+                    approveRef={lastFilmReply?.id === m.id ? approveFilm : undefined}
+                    blocked={isImportingMedia || voice.isBusy} onDone={() => setNewFilmTurn(null)} />;
+                })() : m.id === startMessage.messageId ? <section aria-label={_ui("视频制作起点")}>
                   {startMessage.expanded ? <>
                     <p data-chat-message-text>{_ui(m.content)}</p>
                     <div ref={videoStartHost} hidden={Boolean(mediaQuestion)} />
@@ -2702,6 +2812,8 @@ export default function StoryAgentChat({
                 )}
                 {m.frameReview ? <div className="mt-2"><ChatFrameRegionReview shotLabel={labelForShot} onContentChange={handleRevisionContentChange} review={m.frameReview} storyId={activeStoryId} selectedImageId={activeSelection?.imageId} onSelect={referenceCandidate}
                   onFeedback={frame => { if (frame.storyId === activeStoryId) selectConversationImage(frame, true); }} imageRevisions={frameImageRevisions.data} pendingCloudRequests={pendingCloudRequests} /></div> : null}
+                {activeStoryId && m.role === "assistant" && /^shot-index:[1-9]\d*:/u.test(m.id) &&
+                  <a className="text-sm underline underline-offset-2" href={`/editing?storyId=${activeStoryId}&chapterId=${m.id.split(":")[1]}`}>{_ui("打开整片工作稿")}</a>}
                 {m.role === "user" && renderQueueStatus(m.id)}
                 {m.role === 'assistant' && m.bookRewrite && !isInlineBookRewrite(m.bookRewrite) && <BookRewriteButton proposal={m.bookRewrite} storyId={activeStoryId} />}
                 {m.role === 'assistant' && m.bookDocument?.storyId === activeStoryId && (

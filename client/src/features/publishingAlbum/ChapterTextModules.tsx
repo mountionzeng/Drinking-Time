@@ -15,7 +15,8 @@ import { normalizeWritingColumns } from '@shared/bookWritingStyle';
 import { useBookMediaSession } from "./bookMediaSession";
 import { storySpineStore } from "@/features/storyAgent/spine/storySpine";
 import type { BookWritingStyle } from '@shared/bookWritingStyle';
-import { writingStyleOf, restoreStyledBlocks } from './chapterBlockTree';
+import { blockAncestors, writingStyleOf, restoreStyledBlocks } from './chapterBlockTree';
+import type { BookShotEditTarget } from "./BookShotDocument";
 import { BookInlineImage } from "./BookImageCrop";
 import { bookImageUrl, bookImageText, readBookImage } from "@shared/bookImageBlock";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MutableRefObject, type ReactNode } from 'react';
@@ -38,7 +39,10 @@ import { BookImageImportBoundary } from './BookImageImportBoundary';
 import { insertBookImages } from './bookImageInsert';
 
 type Snapshot = TextPosition & { blocks: WritingBlock[] };
-export function ChapterTextModules({ precedingShots, footerActions, importedChapterIds, prepareMedia, writingStyle, onFormattedChange, imageInsert, value, onChange, disabled, selection, formatScope, contextSource, onContextChange, comparison }: {
+export function ChapterTextModules({ showScenes, shotTarget, onShotFocused, reviewMedia, precedingShots, footerActions, importedChapterIds, prepareMedia, writingStyle, onFormattedChange, imageInsert, value, onChange, disabled, selection, formatScope, contextSource, onContextChange, comparison }: {
+  showScenes?: boolean;
+  reviewMedia?: boolean;
+  shotTarget?: BookShotEditTarget | null; onShotFocused?(): void;
   precedingShots?: number;
   footerActions?: ReactNode;
   importedChapterIds?: readonly string[];
@@ -267,6 +271,22 @@ export function ChapterTextModules({ precedingShots, footerActions, importedChap
   const focus = useRef<TextPosition | null>(null);
   const history = useRef<{ past: Snapshot[]; future: Snapshot[] }>({ past: [], future: [] });
   const [cacheError, setCacheError] = useState(false);
+  useLayoutEffect(() => {
+    if (!shotTarget || disabled || comparison) return;
+    const index = blocks.findIndex(block => block.id === shotTarget.moduleId);
+    if (index < 0) { onShotFocused?.(); return; }
+    const open = new Set([...blockAncestors(blocks, shotTarget.moduleId), shotTarget.moduleId]);
+    if (blocks.some(b => open.has(b.id) && b.collapsed)) {
+      commit(blocks.map(b => open.has(b.id) ? { ...b, collapsed: false } : b), writingBlockOffset(blocks, index) + shotTarget.offset);
+    } else {
+      const field = fields.current[index];
+      setActiveId(shotTarget.moduleId);
+      field?.focus();
+      field?.setSelectionRange(shotTarget.offset, shotTarget.offset);
+      field?.scrollIntoView({ block: "center" });
+    }
+    onShotFocused?.();
+  }, [shotTarget, disabled, comparison]);
   // A different saved version must never inherit unrelated hierarchy by line number.
   const renderedBody = blockBody(blocks);
   useEffect(() => {
@@ -336,7 +356,7 @@ export function ChapterTextModules({ precedingShots, footerActions, importedChap
   }
   function renderField(block: WritingBlock, index: number, style: CSSProperties) {
     const audio = readBookAudio(block.text);
-    if (audio) return <div key={block.id} aria-label={_ui("{0}模块 {1}", [audio.kind==='narration'?_ui("有声书"):_ui("音乐"), index + 1])} onClick={() => setActiveId(block.id)} className="h-full w-full overflow-hidden">
+    if (audio) return <div key={block.id} aria-label={_ui("{0}模块 {1}", [_ui(audio.label), index + 1])} onClick={() => setActiveId(block.id)} className="h-full w-full overflow-hidden">
       <p className="truncate text-sm">♫ {audio.title}</p><MediaPlayer kind="audio" aria-label={audio.title} controls preload="none" src={audio.url} className="h-10 w-full" />
     </div>;
     const imageUrl = bookImageUrl(block.text);
@@ -448,7 +468,7 @@ export function ChapterTextModules({ precedingShots, footerActions, importedChap
           <div className="space-y-0">{blocks.map((block, index) => renderField(block, index, { fontSize: 16, lineHeight: 1.6, overflowWrap: 'anywhere' }))}</div>
         </article>
       </div>
-    </div> : <BookBlockCanvas inlineReviewKey={inlineReviews && [...inlineReviews.values()].map(review => review.id).join()} precedingShots={precedingShots} importedChapterIds={importedChapterIds} onConvertSelection={contextSource && prepareMedia ? (ids,kind) => {
+    </div> : <BookBlockCanvas inlineReviewKey={inlineReviews && [...inlineReviews.values()].map(review => review.id).join()} showScenes={showScenes} precedingShots={precedingShots} importedChapterIds={importedChapterIds} onConvertSelection={contextSource && prepareMedia ? (ids,kind) => {
       const parts = blocks.filter(block => ids.includes(block.id) && (kind !== 'narration' || (!bookImageUrl(block.text) && !readBookAudio(block.text) && block.text.trim()))).map(({id,text}) => ({id,text}));
       if(parts.length < (kind === 'narration' ? 1 : 2)) return;
       if(parts.some(part => readBookAudio(part.text))) { toast.error('音乐模块暂不支持转换，请选择文字或图片模块'); return; }
@@ -468,7 +488,7 @@ export function ChapterTextModules({ precedingShots, footerActions, importedChap
       commit(next, writingBlockOffset(next, Math.max(0, next.findIndex(block => block.id === id))), restoreFocus);
     }}>{renderField}
     </BookBlockCanvas>}
-    {conversion && contextSource && prepareMedia && <BookModuleConvert key={`${formatScope}:${conversion.id}:${conversion.kind}`} source={conversion} storyId={contextSource.storyId} chapterId={Number(contextSource.chapterId)} onClose={()=>setConversion(null)} prepare={async()=>{
+    {conversion && contextSource && prepareMedia && <BookModuleConvert key={`${formatScope}:${conversion.id}:${conversion.kind}`} source={conversion} reviewMedia={reviewMedia} storyId={contextSource.storyId} chapterId={Number(contextSource.chapterId)} onClose={()=>setConversion(null)} prepare={async()=>{
       const assertSource=()=>{
         const latest=mediaLatest.current;
         if(latest.disabled || (conversion.parts ?? [conversion]).some(part=>latest.blocks.find(b=>b.id===part.id)?.text!==part.text))throw new Error('原模块已变化，请重新选择');

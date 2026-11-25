@@ -179,7 +179,12 @@ function normalizeNarrativePurpose(
   return "preserve";
 }
 
-function localIntentFallback(text: string): StoryIntentPayload {
+function localIntentFallback(message: string): StoryIntentPayload {
+  // Third-party wishes and quoted dialogue can inform the model, but cannot
+  // independently declare the author's purpose in a deterministic fallback.
+  const text = message.replace(/[“「『"][^”」』"]*[”」』"]/gu, "").split(/[，,。；;\n]/u)
+    .filter(clause => !/^\s*(?:他说|她说|听说|(?:长辈|委托人|甲方|爸爸|妈妈|朋友|他|她)(?:们)?(?:希望|要求|想|说)|(?:我)?(?:不想|不打算|不准备|不会|还没想好))/u.test(clause))
+    .join("，");
   const normalized = text.toLowerCase();
   const mentionsLinkedIn =
     normalized.includes("linkedin") || text.includes("领英");
@@ -187,8 +192,7 @@ function localIntentFallback(text: string): StoryIntentPayload {
     text.includes("找工作") ||
     text.includes("求职") ||
     text.includes("招聘") ||
-    text.includes("面试") ||
-    text.includes("岗位") ||
+    /争取.{0,6}(?:面试|岗位)|申请.{0,8}岗位/u.test(text) ||
     text.includes("职业机会");
   const mentionsX = /\bx\b/i.test(normalized) || /twitter|推特/i.test(text);
   const mentionsInstagram =
@@ -208,9 +212,8 @@ function localIntentFallback(text: string): StoryIntentPayload {
     text.includes("另一个世界") ||
     text.includes("编一个故事") ||
     text.includes("编故事") ||
-    /(?:我想|想要|希望|帮我)?(?:写|讲|做|创造|生成|设计)(?:一个|一段|一部)?[^。！？\n]{0,48}(?:故事|短片|世界)/.test(
-      text
-    ) ||
+    /(?:构思|编|想象)(?:一个|一篇|一部)?.{0,30}(?:故事|童话|世界)/u.test(text) ||
+    /(?:创造|设计)(?:一个|一座|新的)?[^。！？\n]{0,24}(?:架空世界|虚构世界)/.test(text) ||
     text.includes("故事世界") ||
     text.includes("小说") ||
     text.includes("童话") ||
@@ -221,27 +224,23 @@ function localIntentFallback(text: string): StoryIntentPayload {
     normalized.includes("fantasy") ||
     normalized.includes("sci-fi") ||
     normalized.includes("story world");
-  const hasParentChildStory =
-    /父母|爸爸|妈妈|家长|亲子/.test(text) &&
-    /孩子|小孩|小朋友|儿童|睡前|讲故事/.test(text);
+  const hasParentChildStory = /(?:给|陪|哄)(?:我家|我的|家里)?(?:孩子|小孩|小朋友).{0,10}(?:听|读|看|讲故事|入睡)/u.test(text);
   const hasFriendsGift =
-    /礼物|送给|讲给/.test(text) &&
+    /礼物|送给|讲给|留给|给.{1,10}(?:听|读|看)|(?:生日|婚礼|纪念日).{0,8}(?:放|播放)/u.test(text) &&
     /亲友|亲人|家人|朋友|父母|爸爸|妈妈|孩子|伴侣|爱人|同事|闺蜜/.test(text);
-  const hasSocialAudience =
-    /社交平台|小红书|抖音|视频号|朋友圈|公开发布|陌生人|公开观众/.test(text) ||
-    mentionsX ||
-    mentionsInstagram ||
-    mentionsLinkedIn ||
-    mentionsDouyinTikTok;
+  const namesPlatform = /社交平台|小红书|视频号|朋友圈/u.test(text) ||
+    mentionsX || mentionsInstagram || mentionsLinkedIn || mentionsDouyinTikTok || mentionsXiaohongshu || mentionsMoments;
+  const hasSocialAudience = /公开发布|给陌生人看|讲给陌生人|面向公开观众/u.test(text) ||
+    (namesPlatform && /要发|想发|准备发|发到|放到|发布|上能发|文案|caption|post to|publish/iu.test(text));
   const hasPersonalStory =
-    /介绍自己|自我介绍|我的经历|个人经历|成长经历|职业经历|我的故事/.test(text);
+    /介绍自己|自我介绍|让.{1,8}了解我|展示我的(?:作品|经历|能力)/u.test(text);
   const hasSelfReflection =
     /给自己讲|讲给自己|梳理自己|理解自己|看清自己|想明白自己|自己的选择和变化/.test(
       text
     );
   const hasRawRecord =
     /记录再说|先记录|先记下来|先保存|暂时不讲|以后再说|先留着/.test(text);
-  const hasPersonalRecord = /记录|留念|保存|回看|回忆|纪念/.test(text);
+  const hasPersonalRecord = /留念|留给自己回看|(?:用来|为了|我想|想要)(?:保存|记录|纪念)/u.test(text);
 
   if (mentionsLinkedIn && hasJobSearch) {
     return {
@@ -253,16 +252,16 @@ function localIntentFallback(text: string): StoryIntentPayload {
       confidence: 0.72,
       evidence: ["文本里出现了 LinkedIn / 领英 / 求职 / 找工作 等信号"],
       missingQuestion:
-        "这个短片更想突出你的哪类能力：作品能力、行业经验，还是个人判断力？",
+        "这份作品更想突出你的哪类能力：作品能力、行业经验，还是个人判断力？",
     };
   }
 
-  if (hasFiction) {
+  if (hasFiction && !hasFriendsGift && !hasParentChildStory) {
     return {
       purpose: "fiction",
       audience: "public",
       platform: "presentation",
-      desiredEffect: "把一句虚构灵感发展成一个能拍的短片故事",
+      desiredEffect: "把一句虚构灵感发展成有具体人物和场景的故事",
       tone: "有世界感、有人物动机、带一点电影气质",
       confidence: 0.72,
       evidence: ["文本里出现了虚构故事 / 另一个世界 / 世界观等信号"],
@@ -352,7 +351,7 @@ function localIntentFallback(text: string): StoryIntentPayload {
       desiredEffect: "把自己的真实经历整理成一个别人能理解的个人故事",
       tone: "真实、清楚、有个人视角",
       confidence: 0.72,
-      evidence: ["文本里出现了介绍自己 / 个人经历 / 我的故事等信号"],
+      evidence: ["用户希望借这份作品介绍自己或展示经历与能力"],
       missingQuestion: "这段经历里最能代表你的选择或变化是什么？",
     };
   }
@@ -361,11 +360,11 @@ function localIntentFallback(text: string): StoryIntentPayload {
     purpose: "exploration",
     audience: "unknown",
     platform: "unknown",
-    desiredEffect: "先帮助用户看清这支短片想服务的真实目的",
+    desiredEffect: "先帮助用户看清这份作品想服务的真实目的",
     tone: "开放、轻量、可继续追问",
     confidence: 0.35,
     evidence: [],
-    missingQuestion: "这个小短片最后主要是给自己看，还是给别人看？",
+    missingQuestion: "你想用这份作品做什么？",
   };
 }
 
@@ -422,8 +421,8 @@ function buildIntentPrompt(params: {
 }): string {
   const cardBlock = formatCardsForIntent(params.cards);
   return [
-    "你是 Drinking Time 的短片用途识别 Agent。",
-    "你的任务不是聊天，也不是写文案，而是判断：用户想拿这支小短片去干嘛。",
+    "你为 Drinking Time 识别当前作品的用途。文字、音乐、图像、影片或其他形式都可以。",
+    "只判断用户为什么想做这份作品。媒介不等于用途，区分用户、委托人和作品角色的立场。",
     "",
     "只根据用户明确说过的内容、最近对话、已有故事卡片判断；不要为了显得聪明而脑补商业目的。",
     "如果目的还不清楚，purpose 用 exploration，并给出一个最值得问的 missingQuestion。",
@@ -443,11 +442,11 @@ function buildIntentPrompt(params: {
     "",
     "求职仍是自然语言可识别的独立意图，但不属于‘给别人讲’按钮展开的三个常用分支。",
     "LinkedIn / 求职 特别规则：",
-    "只要用户提到 LinkedIn、领英、找工作、求职、招聘者、面试、个人品牌、职业机会，优先判断为 linkedin_job_search。",
+    "用户明确要用作品寻找职业机会或打动招聘者时，才判断为 linkedin_job_search。故事里发生过面试不足以推断用途。",
     "这种用途的 audience 通常是 recruiters，platform 通常是 linkedin，tone 应偏清晰、专业、可信、有个人温度，但不要太私密。",
     "",
     "虚构故事 / 创造另一个世界 特别规则：",
-    "只要用户明确说想写虚构故事、创造另一个世界、编一个人物/故事世界、小说感、科幻、奇幻、童话、世界观，优先判断为 fiction。",
+    "用户以创造虚构世界为目的时可判断为 fiction。用户明确要写童话送给孩子时，gift 是用途，童话是形式。",
     "这种用途的 audience 通常是 public 或 self，platform 可用 presentation，tone 应服务人物动机、场景规则和电影感，不要套用求职、简历、招聘者话术。",
     "",
     "架构约束：这里只做用途识别，不生成故事卡、不拆镜、不写素材状态；下游模块必须通过 purpose=fiction 自己决定表现。",
@@ -464,7 +463,7 @@ function buildIntentPrompt(params: {
     '  "purpose": "self_reflection | raw_record | gift | social_post | linkedin_job_search | portfolio | fiction | exploration",',
     '  "audience": "self | specific_person | friends | public | recruiters | clients | investors | teammates | unknown",',
     '  "platform": "unknown | wechat | xiaohongshu | x | instagram | linkedin | wechat_moments | douyin_tiktok | douyin | bilibili | portfolio_site | presentation | private_archive",',
-    '  "desiredEffect": "用户希望短片对观众产生的效果，≤40字",',
+    '  "desiredEffect": "用户希望作品带来的效果，≤40字",',
     '  "tone": "适合这个用途的表达气质，≤40字",',
     '  "confidence": 0.0,',
     '  "evidence": ["支撑判断的用户原话或信号，最多5条"],',
@@ -527,13 +526,9 @@ export async function recognizeStoryIntent(params: {
     .filter(turn => turn.content.trim())
     .slice(-10)
     .map(turn => ({ role: turn.role, content: turn.content.trim() }));
-  const fallbackText = [
-    params.summary,
-    ...history.map(turn => turn.content),
-    latestMessage,
-  ]
-    .filter(Boolean)
-    .join("\n");
+  const evidenceTurns = [latestMessage, ...history.filter(turn => turn.role === "user").reverse().map(turn => turn.content)];
+  const undecided = /(?:我(?:自己)?|还|暂时)?(?:还没想好|不确定用途|先不定用途|只想聊聊)/u.test(latestMessage);
+  const fallbackText = undecided ? latestMessage : evidenceTurns.find(turn => localIntentFallback(turn).purpose !== "exploration") ?? latestMessage;
 
   if (!hasStoryAgentCompute()) {
     return {
@@ -553,7 +548,7 @@ export async function recognizeStoryIntent(params: {
       }),
     },
     ...history,
-    { role: "user", content: latestMessage || "帮我判断这个短片的用途" },
+    { role: "user", content: latestMessage || "帮我判断这份作品的用途" },
   ];
 
   try {
@@ -561,7 +556,7 @@ export async function recognizeStoryIntent(params: {
     const parsed = parseJsonLoose<Partial<StoryIntentPayload>>(text);
     return {
       ...normalizeIntent(
-        applyDeterministicIntentGuard(parsed, fallbackText),
+        applyDeterministicIntentGuard(parsed, latestMessage),
         fallbackText
       ),
       configured: true,

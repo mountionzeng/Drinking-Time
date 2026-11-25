@@ -7,7 +7,7 @@ import type {
 } from "./storyAgent.types";
 import { UTTERANCE_ELIGIBLE_DIMENSIONS } from "@shared/promptRevisionAttribution";
 import { promptDimensionLabel } from "@shared/promptDimensions";
-import { CREATIVE_EXPLORATION_RULE } from "../../shared/creativeExploration";
+import { CREATIVE_EXPLORATION_RULE, SOURCE_PORTRAIT_QUESTION } from "../../shared/creativeExploration";
 import { WRITING_EXPLORATION_CONTEXT } from "../services/writingTechniqueLibrary";
 
 export const FIRST_QUESTION =
@@ -600,6 +600,9 @@ export function buildAgentSystemPrompt(
     "",
     "这份信念要一直在你的语气底色里：不要逼问，不要升华，不要只奖励「感动」。你要让对方觉得，普通日常也能被认真接住。",
     CREATIVE_EXPLORATION_RULE,
+    ...(!isJobSearch && !isFiction && !isRawRecord && !editContextBlock && !shotDraftBlock
+      ? [SOURCE_PORTRAIT_QUESTION]
+      : []),
     ...(!directToStoryboard && !isRawRecord && !shotDraftBlock && !editContextBlock
       ? [WRITING_EXPLORATION_CONTEXT]
       : []),
@@ -616,7 +619,7 @@ export function buildAgentSystemPrompt(
           "先真的去看这张图：是什么场景、什么光线和氛围、有没有人、表情和姿态、桌上窗外有什么、最先抓住你视线的是哪个细节。",
           "像朋友看到你发来的照片那样自然回应——说出你在图里看到的那个具体的东西，再顺着它往下聊或轻轻问一句；语气是聊天，不是「图像识别报告」式地罗列清单。",
           "护栏照旧：只说你**真的在图里看到**的，绝不脑补照片里没有的东西。对方几乎没写字时，可以从照片里那个最具体的细节切入。",
-          "（对方愿意递一张照片过来，本身就是很强的情绪信号——你只管自然地回应，后台会另有一步把图里的物件、光线、表情记成这一轮的情绪线索。）",
+          "先说看得到的细节。照片对讲述者有什么意义，以他自己说过的话为依据。",
           "",
         ]
       : []),
@@ -640,7 +643,7 @@ export function buildAgentSystemPrompt(
     directToStoryboard
       ? "1. 意图已确认：绝不要在 reply 里提故事卡、出卡或卡片确认。对话原话会直接作为 Storyboard 表格来源。"
       : "1. 不贴标确认：卡片是在背后默默记下的，绝不要在 reply 里问「我先把它记成 X，你觉得准吗？」这类贴标确认。先像朋友那样有真实的反应，卡片让它自己沉淀。",
-    "2. 原话引用：重要情绪必须能追溯到用户自己的表达。card.sourceQuote 必须从用户原话里截取一个短句或词组（≤24 字）；如果没有原话锚点，就不要把情绪说死，先追问。",
+    "2. 原话引用：重要情绪必须能追溯到用户自己的表达。card.sourceQuote 必须从用户原话里截取一个短句或词组（≤24 字）；没有原话锚点时先保留未知，可以回应他确实说过的行动。",
     "3. 情绪词替换：card.emotionOptions 至少包含 5 个候选，必须正负面平衡——如 感动、好奇、释然、清醒、松弛；也可以额外加 1-2 个更贴近本轮的词。注意：不要全给消极词，正面内容要给正面情绪词。当对方表现出理性、独立判断、边界感时，候选词应包含清醒/笃定/边界感/自洽/松弛/不迁就/敢要/往前走这类力量型正面词，而不是全归为防御/麻木。reply 可以邀请用户改词。",
     "4. 真实性保护：绝不替用户补重大事实、重大创伤、重大疾病、死亡、暴力、背叛、家庭破裂等事件。用户没有说，就不能写成事实；最多只能问「有没有一点像……」。",
     "5. 个人痕迹优先：比起总结大道理，更要保留用户自己的词、物件、地点、动作、回避方式。",
@@ -792,7 +795,8 @@ export function buildCardExtractionPrompt(
           "",
         ]
       : []),
-    "先判断对方此刻的状态（trait），从下面 7 种里挑【最贴的一种】：",
+    "先听这句话来自谁，他描述的处境、当时的决定及他自己说出的感受。用有出处的内容填 card.content、sourceQuote 和 trigger，留出不确定之处，区分讲述者、委托人和作品中的人。",
+    "read 可以为 null。有明确原话依据时才选择下列当轮表达状态；简短、没回答、说得流畅或只是陈述事实都不足以推断心理。",
     "- defensive 防御：用玩笑、抽象、「还好」「就那样」挡掉真实情绪（但清醒的边界感 / 理性判断不算防御）",
     "- performing 表演：故事讲得太顺、太完整，像复述过很多次",
     "- numb 麻木：平、远、抽离，像在说别人的事",
@@ -833,7 +837,7 @@ export function buildCardExtractionPrompt(
       : '"suggestedTitle": null, "suggestedTitleAnchor": null。',
     "★默认就要给出【完整的 card 对象】（下面字段尽量都填好）。只有在纯寒暄、纯工具指令、或这一轮完全没有任何情绪信号这种极少数情况下，才把 card 设成 null。拿不准时，宁可记一张很轻的卡（intensity 0.25 都行），也绝不要偷懒给 null。",
     "",
-    'read 对象：{ "trait": "defensive | performing | numb | romantic | reflecting | nostalgic | conflicted", "note": "≤24 字内部速记" }',
+    'read 可以为 null，有依据时为 { "trait": "defensive | performing | numb | romantic | reflecting | nostalgic | conflicted", "note": "≤24 字内部速记" }',
     "",
     "card 对象（这一轮但凡有一丝情绪，就按这个把字段填出来）：",
     "{",

@@ -333,6 +333,7 @@
         "无来源旧媒体标记untracked，不倒推情绪版本；无镜头身份的候选可能无法发现后来新增的本镜覆盖。"
       ],
       "history": [
+        {"date": "2026-11-25", "kind": "feature", "summary": "网页聊天与书页伴写从第一轮区分讲述者、处境、决定和自述感受。"},
         {
           "date": "2026-11-10",
           "kind": "feature",
@@ -2485,6 +2486,7 @@
         "实时社交媒体趋势适配不在当前可运行能力内。"
       ],
       "history": [
+        {"date": "2026-11-25", "kind": "fix", "summary": "网页日常聊天不自动启动用途识别。明确做作品或回答用途后才触发，长对话同样有效。空故事的单纯创作请求可本地追问一个用途，已有目的、正文及故事资料由当前聊天接续。测试覆盖赠礼、故事转述、现有音轨操作与跨轮回复。"},
         {
           "date": "2026-08-15",
           "kind": "fix",
@@ -2785,6 +2787,7 @@
         "显式场/镜头稿要求图片和台词完整归属镜头；混合未分镜章节、旧排版独有图片需先整理，当前明确拒绝而不自动猜测。镜头内音乐尚未按镜头精确排入/出点，仍沿用整片顺接；真实模型/付费成片未验收。"
       ],
       "history": [
+        {"date": "2026-11-25", "kind": "enhancement", "summary": "故事聊天和书转视频共用合影人物追问。讲述者指向原书时沿用其选择的人物和已有记载，区分转述者意见。提示词与两轮请求上下文通过本地模拟验证，真实模型措辞待验。", "evidence": ["server/archive/storyAgent.prompts.intentModes.test.ts", "server/services/bookVideoCreation.test.ts"]},
         {
           "date": "2026-10-05",
           "kind": "verification",
@@ -3241,6 +3244,7 @@
         "2026-10-19正式站Next首选真实聊天已恢复；302旧备用域名不可达，原Claude模型在国内端点返回禁用，备用通道仍未恢复；历史未知提交需独立对账。"
       ],
       "history": [
+        {"date": "2026-11-25", "kind": "improvement", "summary": "写稿请求可读取 OpenAI 兼容与 Claude 的正文增量，同一次响应提供最终文本与用量；断流按受理不明处理。普通请求保留原传输。使用本地模拟流验证中断、费用用量和 UTF-8 分片；线上供应商未实付复验。"},
         {
           "date": "2026-11-25",
           "kind": "fix",
@@ -8424,6 +8428,7 @@
         "2026-10-13新版提议→候选→保存流程已通过自动化回归，真实供应商验收受本机DNS超时阻碍；没有生成或采用测试候选。"
       ],
       "history": [
+        {"date": "2026-11-25", "kind": "improvement", "summary": "普通写稿与分镜共用文字页的撰写预览。只展示实际返回的正文，按账号、故事和任务隔离；已完成候选沿用原有校验、采用和版本流程。"},
         {
           "date": "2026-10-13",
           "kind": "improvement",
@@ -11952,6 +11957,7 @@
         "整书朗读上限10万字，按4800字符分段并统一确认费用；部分失败/未知回执先到仓库核对，尚无批量续传界面，整书音频未自动按视频镜头对齐。新整书入口为桌面书页，手机入口未改。"
       ],
       "history": [
+        {"date": "2026-11-25", "kind": "feature", "summary": "镜头工作稿内可选段预览图片、朗读或生成指定时长的音效，用户选择后再插入。"},
         {
           "date": "2026-11-24",
           "kind": "fix",
@@ -12941,6 +12947,10 @@
         "微信章节包仍有未携带全部writingStyle的既有缺口；旧客户端需刷新后再编辑新格式。"
       ],
       "history": [
+        {"date": "2026-11-25", "kind": "improvement", "summary": "分镜默认按连续镜号排列，作者明确要求时可显示场次。"},
+        {"date": "2026-11-25", "kind": "feature", "summary": "书页默认收起全书镜头制作单，按同一镜头来源汇总声画。"},
+        {"date": "2026-11-25", "kind": "feature", "summary": "将 统一的结构接到新建分镜、整稿转换和单镜试稿。"},
+        {"date": "2026-11-25", "kind": "refactor", "summary": "空白模板与整片、单镜生成共用 统一的栏目顺序。"},
         {
           "date": "2026-11-06",
           "kind": "feature",
@@ -12988,14 +12998,11 @@
         "server/routers/bookVideo.ts"
       ],
       "owners": [
-        "server/services/bookStoryboardPreparation.ts",
-        "server/repositories/bookStoryboard.ts",
+        "server/routers/bookVideo.ts",
         "client/src/features/bookVideo/bookPreparation.ts",
         "client/src/features/publishingAlbum/ChapterWorkspace.tsx"
       ],
       "evidence": [
-        "server/services/bookStoryboardPreparation.test.ts",
-        "server/repositories/bookStoryboard.test.ts",
         "server/routers/bookVideoPreparation.test.ts",
         "client/src/features/bookVideo/BookVideoChat.test.tsx",
         "client/src/features/bookVideo/bookPreparation.test.ts",
@@ -13024,6 +13031,7 @@
         "本地未提交/部署。"
       ],
       "history": [
+        {"date": "2026-11-25", "kind": "refactor", "summary": "删除已退役的原地分组模型与写回仓储及专属测试，保留公开兼容响应。旧场镜采用已保存形状的样本验证视频与图片继承。"},
         {
           "date": "2026-11-06",
           "kind": "feature",
@@ -13127,12 +13135,16 @@
       "status": "partial",
       "userValue": "同一本书独立维护文字和分镜，按用途、受众和平台改编，预览确认后形成可追溯的新版本。",
       "entryPoints": [
+        "client/src/features/storyAgent/views/StoryAgentChat.tsx",
         "client/src/features/publishingAlbum/ChapterWorkspace.tsx",
         "client/src/features/publishingDraft/TextDraftVersions.tsx",
         "server/routers/bookWorkflow.ts"
       ],
       "owners": [
+        "server/services/liveManuscript.ts",
+        "client/src/features/publishingAlbum/LiveBookWriting.tsx",
         "shared/bookWorkflow.ts",
+        "shared/creativeConversation.ts",
         "server/services/bookWorkflow.ts",
         "server/services/manuscriptSnapshot.ts",
         "server/repositories/bookWorkflow.ts",
@@ -13145,11 +13157,13 @@
         "server/services/videoBookLocalText.ts",
         "scripts/read-video-text.swift",
         "client/src/features/publishingAlbum/VideoBookHistory.tsx",
+        "client/src/features/publishingAlbum/ShotManuscriptReader.tsx",
         "server/services/publishingVideoStoryboard.ts"
       ],
       "evidence": [
+        "server/services/liveManuscript.test.ts",
         "server/services/bookWorkflow.test.ts",
-        "client/src/features/publishingAlbum/BookWorkflowControls.test.tsx",
+        "shared/creativeConversation.test.ts",
         "docs/qa/2026-11-09-book-video-workflow.md",
         "server/services/bookVideoCreation.test.ts",
         "client/src/features/publishingAlbum/ChapterWorkspace.test.tsx",
@@ -13160,6 +13174,7 @@
         "server/services/videoBookLocalText.test.ts",
         "client/src/features/publishingDraft/VideoTextDraft.test.tsx",
         "client/src/features/publishingAlbum/VideoBookHistory.test.tsx",
+        "client/src/features/publishingAlbum/ShotManuscriptReader.test.tsx",
         "docs/qa/2026-11-13-book-version-generation-repair.md",
         "server/services/publishingVideoStoryboard.strict.test.ts",
         "docs/qa/2026-11-14-film-generation-connection.md",
@@ -13187,6 +13202,10 @@
         "视频转书本地原片字幕路径已在3001生成、校对、采用V1并刷新验证；艺术字体OCR仍需校对，不代表完整旁白或约500字创作改编。付费改编operation255超时费用未知、旧预占1.56092算力待核对，禁止自动重购；Linux OCR/生产环境未验收。"
       ],
       "history": [
+        {"date": "2026-11-25", "kind": "improvement", "summary": "网页聊天可免费列出本故事整片工作稿的镜头，单镜候选和空白模板单独识别。整稿和单镜写稿均将已收到的正文送到文字页，单镜沿用原有镜号。3000 端口用分段测试回包验证半句、下一镜和最终结果，未购买生成。"},
+        {"date": "2026-11-25", "kind": "feature", "summary": "网页聊天要求制作整片时先按真实输入报价，用户确认费用后生成可编辑分镜，明确认可才将该版导入并切视频。3000 浏览器用临时故事实测报价、改台词、刷新、回复 OK 和真实导入，生成及审稿响应使用测试稿。隔离服务测试验证真实转换、采用和幂等导入仅调用一次模拟写稿模型。未部署或购买生成。"},
+        {"date": "2026-11-25", "kind": "feature", "summary": "单镜候选与署名参考可打开为独立的可编辑分镜章节，沿用原稿件和素材来源。"},
+        {"date": "2026-11-25", "kind": "feature", "summary": "网页文字区稿件菜单直达分镜版，按镜号读带时间和出处的完整文字候选、等待状态与署名参考，读取沿用独立的单镜试稿，不自动采用。3000 实测选择、刷新、来回切换后参考稿 353 字符逐段核对通过。"},
         {
           "date": "2026-11-09",
           "kind": "feature",

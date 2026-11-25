@@ -1,5 +1,6 @@
 import { manuscriptFingerprint } from "./manuscriptSnapshot";
 import { createHash } from "node:crypto";
+import { bookProductionChapters } from "../../shared/bookShotFormat";
 import { bookStoryboardModules } from './bookStoryboardModules';
 import { TRPCError } from '@trpc/server';
 import { writingModuleTexts, validWritingStyle } from "../../shared/bookWritingStyle";
@@ -16,9 +17,11 @@ import {
 export async function readBookVideoSource(input: {
   storyId: number;
   userId: number;
+  bookChapterId?: number;
 }) {
   const storyboard = await listChapters(input.storyId, input.userId, "storyboard");
-  const chapters = storyboard.length ? storyboard : await listChapters(input.storyId, input.userId);
+  const all = storyboard.length ? storyboard : await listChapters(input.storyId, input.userId);
+  const chapters = bookProductionChapters(all, input.bookChapterId);
   if (!chapters.length) return null;
   const assets = await getStoryImageAssets(input.storyId, input.userId);
   const audioAssets = await listOwnedStoryAudioAssets(input);
@@ -162,8 +165,8 @@ export async function readBookVideoSource(input: {
     };
   }) : undefined;
   return {
-    layout: { body: body || explicitShots?.map(s => s.text).join('\n') || '', illustrations, ...(dialogueRanges ? {dialogueRanges} : {}), ...((explicitShots ?? bookScenes) ? { bookScenes: explicitShots ?? bookScenes } : {}) },
-    manuscriptFingerprint: manuscriptFingerprint(chapters),
+    layout: { ...(input.bookChapterId && chapters[0]?.blocks.shotTextOrigin ? {bookChapterId: input.bookChapterId} : {}), body: body || explicitShots?.map(s => s.text).join('\n') || '', illustrations, ...(dialogueRanges ? {dialogueRanges} : {}), ...((explicitShots ?? bookScenes) ? { bookScenes: explicitShots ?? bookScenes } : {}) },
+    manuscriptFingerprint: manuscriptFingerprint(all),
     missingImages,
     musicAssets,
     missingMusic,

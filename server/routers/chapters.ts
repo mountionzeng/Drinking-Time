@@ -1,7 +1,9 @@
 import { bookWritingStyleSchema, validWritingStyle } from "../../shared/bookWritingStyle";
 import { bookChatDocumentInput } from "../../shared/bookWritingConversation";
+import { blankShotManuscript, structureShotDraft } from "../../shared/bookShotFormat";
 import { manuscriptKindSchema, readBookWorkflow } from "../../shared/bookWorkflow";
 import { bookEntry } from "../repositories/bookWorkflow";
+import { trialManuscript } from "../services/shotTextTrials";
 import { listOwnChapterDeliveryHistory } from "../repositories/chapterDeliveries";
 import { getUserById } from "../repositories/users";
 import { createHash, randomUUID } from "node:crypto";
@@ -135,6 +137,42 @@ export const chaptersRouter = router({
     };
   }),
 
+  openShotDraft: protectedProcedure
+    .input(storyInput.extend({ trialId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      requireEnabled();
+      const userId = ctx.user.id;
+      const trial = (await trialManuscript({ storyId: input.storyId, userId }))
+        .find(row => row.id === input.trialId && (row.state === "ready" || row.state === "reference"));
+      if (!trial?.text.trim()) throw new TRPCError({ code: "NOT_FOUND", message: "这份镜头还没有可编辑的文字。" });
+      const title = `第 ${String(trial.shotNo).padStart(2, "0")} 镜 · ${trial.source}工作稿`.slice(0, 200);
+      const structured = structureShotDraft(trial.text, undefined, randomUUID, "镜头工作稿")!;
+      const blocks = { ...emptyBlocks(structured.body), ...structured };
+      blocks.manuscriptKind = "storyboard";
+      blocks.containsAiText = trial.state === "ready" || /^(Codex|YouMind)$/i.test(trial.source);
+      blocks.shotTextOrigin = { trialId: trial.id, shotId: trial.shotId, source: trial.source, shotNo: trial.shotNo, formatVersion: 1 };
+      blocks.attribution = { editorName: artworkAuthorName(ctx.user.name), sourceName: trial.source, action: "created" };
+      const receipt = createHash("sha256").update(JSON.stringify(["shot-text", input.storyId, trial.id])).digest("hex");
+      const opened = await commitChapterImport({
+        storyId: input.storyId, userId, requestId: receipt, requestHash: receipt,
+        packageId: receipt, senderName: trial.source, title, contents: [{ title, blocks, layout: null }],
+      });
+      if (opened.chapterId === null) throw new TRPCError({ code: "NOT_FOUND", message: "工作稿已不存在。" });
+      const existing = await ownChapter(opened.chapterId, userId);
+      const origin = existing.blocks.shotTextOrigin;
+      if (origin?.trialId === trial.id && !origin.formatVersion) {
+        const upgraded = structureShotDraft(existing.blocks.body, existing.blocks.writingStyle, randomUUID, "镜头工作稿");
+        if (upgraded) await saveChapterContent({
+          id: existing.id, userId, expectedVersion: existing.version, reason: "edit",
+          content: { title: existing.title, layout: existing.layout, blocks: {
+            ...existing.blocks, ...upgraded, shotTextOrigin: blocks.shotTextOrigin,
+            blockIds: realignBlockIds(existing.blocks.body, existing.blocks.blockIds, upgraded.body, randomUUID, existing.blocks.writingStyle, upgraded.writingStyle),
+          } },
+        });
+      }
+      return { chapterId: opened.chapterId };
+    }),
+
   create: protectedProcedure
     .input(
       storyInput.extend({
@@ -162,6 +200,8 @@ export const chaptersRouter = router({
           { id: `chat-text-${index + 1}`, format: "text", parentId: headingId, collapsed: false, lineCount: section.text.replace(/\r\n?/gu, "\n").split("\n").length },
         ];
       });
+      const starter = input.kind === "storyboard" && !document && !input.draftSource && !input.body
+        ? structureShotDraft(blankShotManuscript, undefined, randomUUID, "镜头标题") : null;
       return view(
         await insertChapter({
           storyId: input.storyId,
@@ -169,7 +209,7 @@ export const chaptersRouter = router({
           content: {
             title: input.title,
             blocks: {
-              ...emptyBlocks(body),
+              ...emptyBlocks(starter?.body ?? body), ...starter,
               ...(document && {
                 writingStyle,
                 chatDocument: { requestId: document.requestId, fingerprint: draftFingerprint(input.title, JSON.stringify(document.sections)) },
@@ -299,7 +339,8 @@ export const chaptersRouter = router({
           blocks.body,
           blocks.blockIds,
           input.body,
-          () => chapterPackageBlockId(["web-new-line", randomUUID()])
+          () => chapterPackageBlockId(["web-new-line", randomUUID()]),
+          blocks.writingStyle, input.writingStyle
         );
         blocks.body = input.body;
       }

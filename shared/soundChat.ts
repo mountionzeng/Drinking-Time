@@ -1,3 +1,4 @@
+import { discussesNewWork } from "./creativeConversation";
 import { MAX_AUDIO_GAIN, type AudioTrackKind, type TimelineAudioState } from "./timelineAudioModel";
 
 export type SoundChatCommand = {
@@ -16,14 +17,25 @@ export const SOUND_CHAT_HELP = "还未修改。现在可以直接说“背景音
 
 /** Deliberately bounded grammar: never execute a partial interpretation of a compound request. */
 export function parseSoundChat(text: string): SoundChatIntent | null {
+  if (discussesNewWork(text)) return null;
   const parts = text.trim().split(/[,，;；。\n]+|并且|然后|\band\b/i).map(s => s.trim()).filter(Boolean);
   if (!targets.some(([, re]) => re.test(text)) && !/声音|音频|字幕|sound|audio/i.test(text)) return null;
   // Questions/discussion are left to normal conversation; explicit mixed or unsupported edits are not.
   if (/怎么|如何|能不能|可以吗|是否|\bhow\b|\bcan\b/i.test(text)) return null;
+  // Mentioning a song in a story or a creative brief is common. Only claim an
+  // unsupported edit when the user actually addresses the sound controls.
+  const request = text.trim().replace(/^(?:请你?|麻烦|帮我|我想|我希望|我觉得|再|先|不要|别|把|将|让|给|这段|当前|这本书|整本书|全片|第\s*[\d一二三四五六七八九十]+镜|[，,\s])+/u, "");
+  const editVerb = /^(?:添加|生成|重新生成|(?:重新)?制作|换|更换|调(?:整)?|改|重做|取消|同步|关闭|开启|mute|change|replace|generate)(?:一下|一段|一条|新的?|本书的|全片的|背景|\s)*/iu;
+  const afterVerb = request.replace(editVerb, "");
+  const asksForEdit = /^(?:声音|音频|字幕|语速)(?:再?[大小快慢]|调整|音量|对齐|淡入|淡出|静音)/u.test(request) || targets.some(([, term]) =>
+    afterVerb !== request && afterVerb.search(term) === 0 ||
+    request.search(term) === 0 && /^(?:和(?:旁白|音乐|台词)|与(?:旁白|音乐)|的?(?:音量|语速)|[再太大小轻重慢快换改调]|淡[入出]|静音|取消|对齐|同步|去掉|mute|fade|volume|slower|faster)/iu.test(request.replace(term, "").trim())
+  );
+  const unsupported = asksForEdit ? { type: "unsupported" as const, reply: SOUND_CHAT_HELP } : null;
   const commands: SoundChatCommand[] = [];
   for (const part of parts) {
     const matches = targets.filter(([, re]) => re.test(part));
-    if (matches.length !== 1) return { type: "unsupported", reply: SOUND_CHAT_HELP };
+    if (matches.length !== 1) return commands.length ? { type: "unsupported", reply: SOUND_CHAT_HELP } : unsupported;
     const kind = matches[0][0];
     const body = part.replace(matches[0][1], "").replace(/^(请|帮我|我觉得|把|将|再|让|整段|全部|全片|的|\s)+/g, "").trim();
     if (/^(取消静音|恢复声音|unmute)[!！]?$/i.test(body)) commands.push({ kind, action: { type: "mute", value: false } });
@@ -35,7 +47,7 @@ export function parseSoundChat(text: string): SoundChatIntent | null {
       const fade = body.match(/^(?:在)?(?:结尾|开头)?\s*(淡入|淡出|fade in|fade out)\s*(\d+(?:\.\d+)?)\s*(秒|s|seconds?)[!！]?$/i);
       if (gain && Number(gain[1]) <= MAX_AUDIO_GAIN * 100) commands.push({ kind, action: { type: "gain", value: Number(gain[1]) / 100, relative: false } });
       else if (fade && Number(fade[2]) <= 30) commands.push({ kind, action: { type: "fade", edge: /淡入|fade in/i.test(fade[1]) ? "in" : "out", seconds: Number(fade[2]) } });
-      else return { type: "unsupported", reply: SOUND_CHAT_HELP };
+      else return commands.length ? { type: "unsupported", reply: SOUND_CHAT_HELP } : unsupported;
     }
   }
   return commands.length ? { type: "edit", commands } : null;

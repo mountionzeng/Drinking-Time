@@ -19,14 +19,17 @@ import {
 import { listChapters } from "../repositories/chapters";
 import { manuscriptFingerprint } from "../services/manuscriptSnapshot";
 import { bookVideoImportReview } from "../../shared/bookVideoImportReview";
+import { bookProductionChapters } from "../../shared/bookShotFormat";
 
 const owner = z.object({ storyId: z.number().int().positive() });
 const record = owner.extend({ id: z.string().min(8).max(100) });
 export const bookVideoRouter = router({
-  importReview: protectedProcedure.input(owner).query(async ({ ctx, input }) => {
+  importReview: protectedProcedure.input(owner.extend({ chapterId: z.number().int().positive().optional() })).query(async ({ ctx, input }) => {
     if (!await getStoryById(input.storyId, ctx.user.id)) throw new TRPCError({ code: "NOT_FOUND" });
     const chapters = await listChapters(input.storyId, ctx.user.id, "storyboard");
-    return { ...bookVideoImportReview(input.storyId, chapters), fingerprint: manuscriptFingerprint(chapters) };
+    const selection = bookProductionChapters(chapters, input.chapterId);
+    if (input.chapterId && !selection.length) throw new TRPCError({ code: "NOT_FOUND", message: "当前分镜工作稿不存在" });
+    return { ...bookVideoImportReview(input.storyId, selection), fingerprint: manuscriptFingerprint(chapters) };
   }),
   importStoryboard: protectedProcedure
     .input(record.extend({ chapterId: z.number().int().positive(), expectedFingerprint: z.string().min(1).max(128) }))

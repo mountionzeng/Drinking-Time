@@ -11,6 +11,7 @@ import {
 } from "./publishingVideoStoryboard";
 
 export const publishingArticleLayoutSchema = z.object({
+  bookChapterId: z.number().int().positive().optional(),
   body: z.string().min(1).max(100_000),
   /** Explicit book dialogue spans in the trimmed body; offsets disambiguate repeated text. */
   dialogueRanges: z.array(z.object({start:z.number().int().nonnegative(),end:z.number().int().positive()})).max(20000).optional(),
@@ -18,6 +19,8 @@ export const publishingArticleLayoutSchema = z.object({
   bookScenes: z.array(z.object({
     id: z.string().min(1),
     sourceKind: z.literal('shot').optional(),
+    shotTitle: z.string().max(100_000).optional(),
+    productionNotes: z.string().max(100_000).optional(),
     sourceModuleIds: z.array(z.string().min(1)).max(20000).optional(),
     text: z.string().min(1).max(100_000),
     dialogueText: z.string().max(100_000).optional(),
@@ -46,6 +49,8 @@ export type PublishingArticleVideoRow = {
   id: string;
   sourceModuleIds?: string[];
   sourceKind?: 'shot';
+  shotTitle?: string;
+  productionNotes?: string;
   text: string;
   voiceText: string;
   dialogueText?: string;
@@ -63,6 +68,7 @@ export function publishingArticleVideoRows(
   if (layout.bookScenes?.length) {
     return layout.bookScenes.map(scene => ({
       id: scene.id, text: scene.text, voiceText: scene.text,
+      ...(scene.shotTitle !== undefined ? {shotTitle:scene.shotTitle, productionNotes:scene.productionNotes} : {}),
       ...(scene.sourceModuleIds ? {sourceModuleIds:scene.sourceModuleIds} : {}),
       ...(scene.sourceKind ? {sourceKind:scene.sourceKind} : {}),
       ...(scene.dialogueText !== undefined ? {dialogueText:scene.dialogueText} : {}),

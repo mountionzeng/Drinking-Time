@@ -11,12 +11,9 @@ const api = vi.hoisted(() => ({
   prepare: vi.fn(),
   clear: vi.fn(),
   flush: vi.fn(),
-  organize: vi.fn(),
   workflow: vi.fn(),
-  refresh: vi.fn(),
   propose: vi.fn(),
   effects: [] as Array<() => unknown>,
-  organizeFirst: true,
   activeStoryId: 1,
   workspace: null as any,
   edit: vi.fn(),
@@ -33,7 +30,7 @@ vi.mock("react", async importOriginal => {
     },
     useState: (initial: any) => {
       if (!api.stateful)
-        return actual.useState(initial === true ? api.organizeFirst : initial);
+        return actual.useState(initial);
       const index = api.cursor++;
       if (!(index in api.slots))
         api.slots[index] = typeof initial === "function" ? initial() : initial;
@@ -68,9 +65,6 @@ vi.mock("@/lib/trpc", () => ({
       storyAgent: { storyMaterialState: { invalidate: api.mediaInvalidate } },
     }),
     bookVideo: {
-      prepareManuscript: {
-        useMutation: () => ({ mutateAsync: api.organize, isPending: false }),
-      },
       list: {
         useQuery: () => ({ data: { records: api.records, images: {} } }),
       },
@@ -92,7 +86,6 @@ vi.mock("@/lib/trpc", () => ({
 vi.mock("./bookPreparation", () => ({
   prepareBookForVideo: api.prepare,
   prepareMountedBook: api.flush,
-  refreshPreparedBook: api.refresh,
 }));
 vi.mock("./bookVideoSession", () => ({
   useBookVideoSession: { getState: () => ({ setSession: api.clear }) },
@@ -150,13 +143,7 @@ beforeEach(() => {
   api.adopt.mockResolvedValue({});
   api.effects = [];
   api.workflow.mockResolvedValue({ drafts: { storyboard: { version: { id: "board-v1" }, dirty: false } } });
-  api.organizeFirst = true;
   api.activeStoryId = 1;
-  api.organize.mockResolvedValue({
-    chapters: [{ id: 3, version: 5 }],
-    shotCount: 2,
-    changed: true,
-  });
   api.propose.mockResolvedValue(record);
 });
 function render(onAdopt = vi.fn().mockResolvedValue(undefined)) {
@@ -313,7 +300,6 @@ function openSession() {
 it("flushes live writing and checks the confirmed storyboard before proposing", async () => {
   expect(await openSession().submit("把修伞的故事做成视频")).toBe(true);
   expect(api.flush).toHaveBeenCalledWith(1, 9);
-  expect(api.organize).not.toHaveBeenCalled();
   expect(api.workflow).toHaveBeenCalledWith({ storyId: 1 });
   expect(api.flush.mock.invocationCallOrder[0]).toBeLessThan(api.workflow.mock.invocationCallOrder[0]);
   expect(api.workflow.mock.invocationCallOrder[0]).toBeLessThan(api.propose.mock.invocationCallOrder[0]);
@@ -509,7 +495,6 @@ it("does not create a new chat plan over unsaved review text", async () => {
     ui.field("镜头1台词/字幕").onChange({ target: { value: "还没保存" } });
     expect(await openSession().submit("继续修改视频")).toBe(false);
     expect(api.propose).not.toHaveBeenCalled();
-    expect(api.organize).not.toHaveBeenCalled();
     expect(readReviewDraft(1, 9)?.preview.shots[0].voiceText).toBe("还没保存");
   } finally { ui.spy.mockRestore(); }
 });

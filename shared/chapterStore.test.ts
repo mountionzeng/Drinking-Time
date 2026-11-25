@@ -57,6 +57,12 @@ describe("chapterLayoutProblem", () => {
 
 import { realignBlockIds } from "./chapterStore";
 describe("realignBlockIds", () => {
+  it("keeps a picture's import ID when production fields are inserted before it", () => {
+    const shot = { id: "s", format: "shot" as const, parentId: null, collapsed: true };
+    const picture = { id: "p", format: "text" as const, parentId: "s", collapsed: false };
+    const old = [shot, picture], next = [shot, { ...picture, id: "voice" }, picture];
+    expect(realignBlockIds("下雨\n原图", ["a", "b"], "雨停\n我看见了。\n原图", () => "new", old, next)).toEqual(["a", "new", "b"]);
+  });
   let n = 0;
   const fresh = () => `new-${++n}`;
   const ids = ["a", "b", "c"];

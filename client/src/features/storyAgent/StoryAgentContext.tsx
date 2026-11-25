@@ -10,6 +10,7 @@ export type { GenerationProfileArg, StoryboardImageRerenderResult, StoryboardIma
 import { parseVisualUnderstandingChat } from "@shared/visualEditUnderstanding";
 import { warehouseFileChatIds } from "@shared/warehouseFiles";
 import { isFrameReferenceChat } from "@shared/chatFrameReference";
+import { isPurposeReply, requestsCreativeWork, initialPurposeQuestion } from "@shared/creativeConversation";
 import { parseCreationEmotionChat } from "@shared/creationEmotionChat";
 import { resolveConversationShot, shotConversationSelection, hasConversationShotReference } from "./shotConversation";
 import { parseArtSystemChat } from "@shared/artSystemChat";
@@ -318,14 +319,9 @@ export function shouldTriggerIntentRecognition({
       );
     return hasChangeAction && hasIntentTarget;
   }
-  const userMessageCount = messages.filter(
-    message =>
-      message.role === "user" && (message.content.trim() || message.photoUrl)
-  ).length;
-  // Let an uncertain opening keep listening briefly. Once a useful provisional
-  // purpose is found it becomes active immediately instead of blocking the
-  // conversation behind a confirmation card.
-  return userMessageCount < 3;
+  if (isPurposeReply(latestUserMessage, messages)) return true;
+  // A bare medium names the requested form, without supplying a purpose.
+  return requestsCreativeWork(latestUserMessage) && !initialPurposeQuestion(latestUserMessage);
 }
 
 export function recognitionToPendingIntent(
@@ -678,8 +674,6 @@ const storyAgentActionKeys = [
 ] as const satisfies readonly StoryAgentActionKey[];
 
 const StoryAgentActionsContext = createContext<StoryAgentActions | null>(null);
-
-
 
 type StoryAgentClassifyResult =
   | {
@@ -3059,6 +3053,20 @@ export function StoryAgentProvider({
       cancelled = true;
     };
   }, [ownsScope, hydratedFor, projectId]);
+
+  // Keep a book deep link reloadable until its story is actually left.
+  const previousBookStory = useRef(activeStoryId);
+  useEffect(() => {
+    const previous = previousBookStory.current;
+    previousBookStory.current = activeStoryId;
+    if (!ownsScope || !previous || previous === activeStoryId) return;
+    const url = new URL(window.location.href);
+    if (url.searchParams.has("chapterId") && requestedStoryId(url.search) === previous) {
+      url.searchParams.delete("chapterId");
+      url.searchParams.delete("storyId");
+      window.history.replaceState(window.history.state, "", url);
+    }
+  }, [activeStoryId, ownsScope]);
 
   useEffect(() => {
     if (!activeStoryId || activeStoryId < 1) return;

@@ -24,10 +24,11 @@ export type ModuleConversion = {
   id: string;
   text: string;
   parts?: Array<{ id: string; text: string }>;
-  kind: "text" | "image" | "music" | "narration" | "translate-en" | "translate-zh";
+  kind: "text" | "image" | "music" | "sfx" | "narration" | "translate-en" | "translate-zh";
 };
 export function BookModuleConvert({
   source,
+  reviewMedia = false,
   storyId,
   chapterId,
   prepare,
@@ -35,6 +36,7 @@ export function BookModuleConvert({
   onClose,
 }: {
   source: ModuleConversion;
+  reviewMedia?: boolean;
   storyId: number;
   chapterId: number;
   prepare(): Promise<void>;
@@ -121,6 +123,12 @@ export function BookModuleConvert({
   const observedTask = useRef<string | null | undefined>(undefined);
   const insertedImage = useRef<string | null>(null);
   const lastRecoveryRead = useRef<number | null>(null);
+  const [effectSeconds, setEffectSeconds] = useState(() => {
+    const explicit = Number(/^\s*(?:时长\s*)?(\d+)\s*秒(?:[。；，.,;\s]|$)/u.exec(source.text)?.[1]);
+    return String(explicit >= 1 && explicit <= 30 ? explicit : 10);
+  });
+  const validSeconds = Number.isInteger(Number(effectSeconds)) && Number(effectSeconds) >= 1 && Number(effectSeconds) <= 30;
+  const mediaPreview = reviewMedia && ["image", "sfx", "music", "narration"].includes(source.kind);
   const readyImages = savedTask?.status === "succeeded"
     ? savedTask.candidates.map(c => c.imageUrl) : [];
   const visibleImages = readyImages.length ? readyImages : images;
@@ -129,7 +137,7 @@ export function BookModuleConvert({
   const waitSeconds = waitingSince ? Math.max(0, Math.floor((Date.now() - waitingSince) / 1000)) : 0;
 
   function insertFirstImage(url: string) {
-    if (!active.current || insertedImage.current === url) return;
+    if (mediaPreview || !active.current || insertedImage.current === url) return;
     insertedImage.current = url;
     try { onInsert(bookImageText(url)); }
     catch (cause) { setError(cause instanceof Error ? cause.message : "图片已保存在仓库。"); }
@@ -170,7 +178,7 @@ export function BookModuleConvert({
     }
   }, [savedTask, checkingTask, imageTask.error, imageTask.isFetchedAfterMount, imageTask.dataUpdatedAt, busy]); // eslint-disable-line react-hooks/exhaustive-deps
   function insertGenerated(text: string) {
-    if (active.current) onInsert(text);
+    if (active.current && !mediaPreview) onInsert(text);
   }
   const cost = (imageProvider === "gpt-image" ? estimatePublishingCoverFallbackCost() : estimateStoryboardImageCost()).estimatedCny;
   const sceneAllowance = shotBasis?.stableShotId && reading?.stableShotId === shotBasis.stableShotId ? reading : undefined;
@@ -180,7 +188,7 @@ export function BookModuleConvert({
       ? source.parts ? "所选模块合并为文字" : "图片写成文字"
       : source.kind === "image"
         ? "文字生成图片"
-        : source.kind === "narration" ? "文字生成有声书" : source.parts ? "所选模块合并为音乐" : "模块生成音乐";
+        : source.kind === "narration" ? "文字生成有声书" : source.kind === "sfx" ? "生成音效" : source.parts ? "所选模块合并为音乐" : "模块生成音乐";
   async function run(work: () => Promise<void>) {
     if (lock.current) return;
     lock.current = true;
@@ -213,11 +221,19 @@ export function BookModuleConvert({
     >
       <DialogContent className="max-h-[90dvh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{title}</DialogTitle>
+          <DialogTitle>{_ui(title)}</DialogTitle>
           <DialogDescription>
-            {basis ? _ui("四张候选保存到仓库，选中一张即可插入原模块下方。") : _ui("生成后自动在原模块下方新增模块，同时保存到仓库。原内容保留。")}</DialogDescription>
+            {mediaPreview ? _ui("先预览，选中后可插入原段落下方。") : basis ? _ui("四张候选保存到仓库，选中一张即可插入原模块下方。") : _ui("生成后自动在原模块下方新增模块，同时保存到仓库。原内容保留。")}</DialogDescription>
           {source.parts && <p className="text-xs text-muted-foreground">{_ui("已选")}{" "}{source.parts.length} {_ui("个模块")}</p>}
         </DialogHeader>
+        {source.kind === "sfx" && <div className="space-y-2">
+          <p className="whitespace-pre-wrap text-sm">{source.text}</p>
+          <label className="block text-sm">{_ui("音效时长（秒）")}
+            <input type="number" min={1} max={30} step={1} className="ml-2 w-16 rounded border p-1"
+              value={effectSeconds} disabled={busy || submitted || Boolean(result)}
+              onChange={event => { setEffectSeconds(event.target.value); setQuote(null); }} />
+          </label>
+        </div>}
         {source.kind === 'narration' && <div className="space-y-2">
           <p className="text-xs text-muted-foreground">{_ui("按文章顺序朗读所选文字，图片和音乐不参与。每次最多5000字。")}</p>
           <div aria-label={_ui("朗读原文")} className="max-h-48 overflow-y-auto whitespace-pre-wrap rounded border p-3 text-sm">{source.parts ? source.parts.map(part=>part.text).join('\n\n') : source.text}</div>
@@ -289,7 +305,7 @@ export function BookModuleConvert({
           {_ui("分析最多 {0}，生图 {1}。", [formatComputeQuote(sceneAllowance.estimatedCny), formatComputeQuote(cost)])}</p>}
         {!result && !images.length && !submitted && !blockNewImage && (
           <button
-            disabled={busy || styleBlocked || Boolean(shotBasis?.stableShotId && readyShot !== shotBasis.stableShotId) || (source.kind === "narration" && narrationSubmitted)}
+            disabled={busy || (source.kind === "sfx" && !validSeconds) || styleBlocked || Boolean(shotBasis?.stableShotId && readyShot !== shotBasis.stableShotId) || (source.kind === "narration" && narrationSubmitted)}
             onClick={() =>
               void run(async () => {
                 await prepare();
@@ -367,7 +383,8 @@ export function BookModuleConvert({
                   setQuote(
                     await price.mutateAsync({
                       storyId,
-                      kind: "music",
+                      kind: source.kind === "sfx" ? "sfx" : "music",
+                      ...(source.kind === "sfx" ? { soundEffectSeconds: Number(effectSeconds) } : {}),
                       targetFrame: 0,
                       scope: "book",
                       bookTarget: { chapterId, moduleId: source.id, ...(source.parts ? { moduleIds: source.parts.map(part => part.id) } : {}) },
@@ -383,7 +400,7 @@ export function BookModuleConvert({
                 basis && savedTask?.status === "succeeded" ? _ui("按本镜画风再生成四张（{0}）", [formatComputeQuote(cost)]) : _ui("生成图片（{0}{1}）", [imageProvider === "gpt-image" ? _ui("GPT · 1张 · 预估 ") : "", formatComputeQuote(cost).replace(/算力$/, _ui("算力"))])
               : source.kind === "text"
                 ? _ui("生成文字")
-                : source.kind === "narration" ? _ui("查看朗读费用") : _ui("查看音乐生成费用")}
+                : source.kind === "narration" ? _ui("查看朗读费用") : source.kind === "sfx" ? _ui("查看音效费用") : _ui("查看音乐生成费用")}
           </button>
         )}
         {offerGpt && source.kind === "image" && imageProvider === "midjourney" && !busy && !submitted && images.length === 0 && (
@@ -394,7 +411,7 @@ export function BookModuleConvert({
               {_ui("改用 GPT-image")}</button>
           </div>
         )}
-        {quote && !result && (
+        {quote && !result && !submitted && (
           <button
             disabled={busy || (source.kind === "narration" && narrationSubmitted)}
             onClick={() =>
@@ -413,6 +430,7 @@ export function BookModuleConvert({
                   const text=bookAudioText(storyId,data.candidate.assetId,"有声书","narration");
                   setResult(text);void utils.timelineMedia.audioAssetLibrary.invalidate({storyId});insertGenerated(text);return;
                 }
+                if (source.kind === "sfx") setSubmitted(true);
                 const data = await awaitMediaTask(
                   await music.mutateAsync({
                     storyId,
@@ -422,7 +440,7 @@ export function BookModuleConvert({
                   id => utils.timelineMedia.mediaTaskStatus.fetch({ mediaTaskId: id }, { staleTime: 0 })
                 );
                 if (data.status !== "ready") throw new Error(data.message);
-                const text = bookAudioText(storyId, data.assetId, "模块配乐");
+                const text = source.kind === "sfx" ? bookAudioText(storyId, data.assetId, "模块音效", "sfx") : bookAudioText(storyId, data.assetId, "模块配乐");
                 setResult(text);
                 void utils.timelineMedia.audioAssetLibrary.invalidate({
                   storyId,
@@ -431,7 +449,7 @@ export function BookModuleConvert({
               })
             }
           >
-            {source.kind === "narration" ? _ui("确认按原文朗读") : _ui("确认生成约30秒音乐")}（{formatComputeQuote(quote.estimatedCny).replace(/算力$/, _ui("算力"))}）
+            {source.kind === "narration" ? _ui("确认按原文朗读") : source.kind === "sfx" ? _ui("确认生成 {0} 秒音效", [effectSeconds]) : _ui("确认生成约30秒音乐")}（{formatComputeQuote(quote.estimatedCny).replace(/算力$/, _ui("算力"))}）
           </button>
         )}
         {result &&

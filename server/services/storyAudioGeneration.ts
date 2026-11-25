@@ -455,8 +455,9 @@ async function currentPlacement(input: {
   userId: number;
   stableShotId: string;
   scope: StorySceneAudioScope;
+  durationFrames: number;
 }): Promise<SceneAudioPlacement | null> {
-  if (input.scope === "book") return { startFrame: 0, durationFrames: 900 };
+  if (input.scope === "book") return { startFrame: 0, durationFrames: input.durationFrames };
   const timeline = await loadOwnedStoryTimelineEnvelope({
     storyId: input.storyId,
     userId: input.userId,
@@ -493,16 +494,23 @@ export async function quoteStorySceneAudio(input: {
   scope?: StorySceneAudioScope;
   intent?: string;
   bookTarget?: BookModuleTarget;
+  soundEffectSeconds?: number;
   now?: () => number;
 }): Promise<StorySceneAudioQuote> {
   const intent = text(input.intent).slice(0, 800);
   const scope = input.scope ?? "shot";
   if (input.bookTarget && scope !== "book") throw new Error("模块音乐必须在书中生成");
   const source = input.bookTarget ? await resolveBookModuleSource({...input,...input.bookTarget}) : null;
+  const effect = Boolean(source && input.kind === "sfx");
+  const seconds = input.soundEffectSeconds ?? (effect ? 10 : 30);
+  if (input.soundEffectSeconds !== undefined && (!effect || !Number.isInteger(seconds) || seconds < 1 || seconds > 30))
+    throw new Error("书稿音效时长须为 1 至 30 秒");
+  if (effect && (source?.image || source?.parts)) throw new Error("请选择一段音效提示词");
   const context: StorySceneAudioContext = source ? {
-    stableShotId: `book:${input.bookTarget!.chapterId}:${input.bookTarget!.moduleId}`, shotNo:0,endShotNo:0,startFrame:0,durationFrames:900,
+    stableShotId: `book:${input.bookTarget!.chapterId}:${input.bookTarget!.moduleId}`, shotNo:0,endShotNo:0,startFrame:0,durationFrames:seconds * STORY_TIMELINE_FPS,
     emotionSummary:source.parts ? "Follow the mood of the selected modules" : "Follow the mood of the selected module",sceneSummary:source.parts ? await describeBookModule(source) : (await describeBookModule(source)).slice(0,1800),
-    actionSummary:source.parts ? "Background music inspired only by the selected modules" : "Background music inspired only by this module",soundSummary:"Instrumental music, no speech"
+    actionSummary:effect ? "Follow the timing in this passage" : source.parts ? "Background music inspired only by the selected modules" : "Background music inspired only by this module",
+    soundSummary:effect ? "Use the sound described in the selected passage, no music or speech" : "Instrumental music, no speech"
   } : await currentContext({ ...input, scope });
   if (source) {
     const emotionStory = await loadOwnedStory(input);
@@ -755,6 +763,7 @@ export async function generateStorySceneAudio(input: {
             storyId: input.storyId,
             userId: input.userId,
             stableShotId: claims.context.stableShotId,
+            durationFrames: claims.context.durationFrames,
             scope: claims.scope,
           });
       if (!placement) {
@@ -1043,6 +1052,7 @@ async function continueWithProviderResult(input: {
     storyId: input.input.storyId,
     userId: input.input.userId,
     stableShotId: claims.context.stableShotId,
+    durationFrames: claims.context.durationFrames,
     scope: claims.scope,
   });
   if (!placement) {

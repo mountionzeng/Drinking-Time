@@ -1,3 +1,4 @@
+import { readInferenceTextStream } from "./inferenceTextStream";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { acquire302Slot, MAX_RETRY_WAIT_MS } from "./inferenceAdmission";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -124,6 +125,7 @@ export function collectedInferenceBilling(): InferenceBillingEntry[] {
 
 export type InferenceRequest = {
   useCase: TextComputeUseCase;
+  onTextDelta?: (text: string) => void;
   /**
    * Optional out-param: filled with the ledger operation id and the amount
    * actually charged, so a caller can refund it if the downstream paid step fails.
@@ -445,6 +447,7 @@ export function buildOpenAiPayload(
   payload[capabilities.tokenLimitField] = request.maxTokens ?? 8192;
 
   if (options.minimal) return payload;
+  if (request.onTextDelta) { payload.stream = true; payload.stream_options = { include_usage: true }; }
 
   if (typeof request.temperature === "number" && capabilities.supportsTemperature) {
     payload.temperature = request.temperature;
@@ -561,10 +564,20 @@ async function attemptOpenAiCompatible(
     };
   }
 
+  if (request.onTextDelta && response.headers.get("content-type")?.includes("text/event-stream"))
+    return readStreamAttempt(response, candidate, request.onTextDelta);
   try {
     return { ok: true, result: (await response.json()) as InvokeResult };
   } catch (error) {
     return interruptedResponse(response, candidate, error);
+  }
+}
+
+async function readStreamAttempt(response: Response, candidate: InferenceCandidate, onText: (text: string) => void, claude = false): Promise<AttemptResult> {
+  try { return { ok: true, result: await readInferenceTextStream(response, candidate.model, onText, claude) }; }
+  catch (error) {
+    const { category, aborted } = classifyThrown(error);
+    return { ok: false, error: { provider: candidate.id, model: candidate.model, category, aborted, acceptanceUnknown: true } };
   }
 }
 
@@ -655,6 +668,7 @@ async function attemptClaudeMessages(
         max_tokens: request.maxTokens ?? 8192,
         system,
         messages: toAnthropicMessages(request.messages),
+        ...(request.onTextDelta ? { stream: true } : {}),
       }),
       signal,
     });
@@ -691,6 +705,8 @@ async function attemptClaudeMessages(
     };
   }
 
+  if (request.onTextDelta && response.headers.get("content-type")?.includes("text/event-stream"))
+    return readStreamAttempt(response, candidate, request.onTextDelta, true);
   let data: ClaudeMessageResponse;
   try {
     data = await response.json() as ClaudeMessageResponse;
@@ -1068,7 +1084,7 @@ function hasDowngradableFields(
   ) {
     return true;
   }
-  if (request.responseFormat) return true;
+  if (request.responseFormat || request.onTextDelta) return true;
   if (typeof request.thinkingBudgetTokens === "number") return true;
   return false;
 }

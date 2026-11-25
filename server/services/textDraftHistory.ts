@@ -1,3 +1,4 @@
+import { beginLiveManuscript } from "./liveManuscript";
 import { getChapter } from "../repositories/chapters";
 import { readStoryMemory } from "../repositories/storyMemoryDocument";
 import { storyEmotion } from "./creationEmotion";
@@ -383,6 +384,7 @@ export async function generateTextDraft(
     observation: z.infer<typeof writingObservationSchema>;
   };
   let modelLabel: string;
+  const live = beginLiveManuscript(owner, claimed.id, "text");
   try {
     const result = await runJsonAgent<unknown>({
       systemPrompt: claimed.systemPrompt,
@@ -391,6 +393,7 @@ export async function generateTextDraft(
       maxTokens: 4500,
       responseFormat: { type: "json_object" },
       execution: {
+        onTextDelta: live.append,
         reasoningEffort: "low",
         deadlineMs: 90_000,
         replaySafe: false,
@@ -441,6 +444,7 @@ export async function generateTextDraft(
     if (contentError) throw bad(contentError);
     modelLabel = result.modelLabel;
   } catch (error) {
+    live.fail();
     const inference = error instanceof InferenceError ? error : null;
     const definite =
       error instanceof z.ZodError ||
@@ -500,7 +504,8 @@ export async function generateTextDraft(
     version.modelLabel = modelLabel;
     version.completedAt = Date.now();
     delete version.error;
-  });
+  }).catch(error => { live.fail(); throw error; });
+  live.finishText(output.draft);
   return completed.history;
 }
 

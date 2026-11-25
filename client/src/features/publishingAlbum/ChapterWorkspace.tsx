@@ -1,5 +1,10 @@
+import { LiveBookWriting } from "./LiveBookWriting";
+import { useStoryboardScenes } from "../storyAgent/useStoryboardScenes";
 import { OPEN_STORY_MAILBOX } from "@shared/storyMailbox";
 import { VideoBookHistory } from "./VideoBookHistory";
+import { ShotManuscriptReader } from "./ShotManuscriptReader";
+import { BookShotDocument, type BookShotEditTarget } from "./BookShotDocument";
+import { bookProductionChapters } from "@shared/bookShotFormat";
 import type { ManuscriptKind } from "@shared/bookWorkflow";
 import { requestNewVersion } from "@/features/publishingDraft/newVersionRequest";
 import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
@@ -85,9 +90,25 @@ export function ChapterWorkspace({
   const _ui = useDesktopUiText();
   const [displayMode, setDisplayMode] = useState(mode);
   const writing = useRef<ChapterWritingHandle | null>(null);
-  const [manuscriptKind, setManuscriptKind] = useState<ManuscriptKind>();
+  const selectionKey = `book-manuscript:${props.accountId ?? "current"}:${props.storyId}`;
+  const [selection, setSelection] = useState<{ key: string; kind: ManuscriptKind } | null>(() => {
+    try {
+      if (new URLSearchParams(window.location.search).has("chapterId")) return null;
+      const kind = sessionStorage.getItem(selectionKey);
+      return kind === "text" || kind === "storyboard" ? { key: selectionKey, kind } : null;
+    } catch { return null; }
+  });
+  const manuscriptKind = selection?.key === selectionKey ? selection.kind : undefined;
+  const setManuscriptKind = useCallback((kind: ManuscriptKind) => {
+    setSelection({ key: selectionKey, kind });
+    try { sessionStorage.setItem(selectionKey, kind); } catch { /* The current view still works without storage. */ }
+  }, [selectionKey]);
   const state = useChapters(props.storyId, latest => displayMode !== 'text' || writing.current?.releaseCleanDraft(latest) === true, manuscriptKind, props.accountId);
   const { active } = state;
+  const showScenes = useStoryboardScenes(props.storyId, active?.blocks.storyboardScenes);
+  const [shotTarget, setShotTarget] = useState<BookShotEditTarget | null>(null);
+  const productionChapters = bookProductionChapters(state.chapters, active?.id);
+  const shotOffset = Math.max(0, (active?.blocks.shotTextOrigin?.shotNo ?? 1) - 1);
   const [writingDraft, setWritingDraft] = useState<ChapterWritingDraft | null>(null);
   const localDraftConflict = active && writingDraft && (writingDraft.title !== active.title || writingDraft.body !== active.blocks.body || !sameWritingStyle(writingDraft.writingStyle,active.blocks.writingStyle)) && writingDraft.baseVersion !== active.version;
   const newerVersion = state.externalVersion ?? (localDraftConflict ? active?.version : null);
@@ -107,7 +128,7 @@ export function ChapterWorkspace({
     };
     window.addEventListener("dt:select-manuscript", select);
     return () => window.removeEventListener("dt:select-manuscript", select);
-  }, [props.storyId, props.accountId]);
+  }, [props.storyId, props.accountId, setManuscriptKind]);
   const create = trpc.chapters.create.useMutation();
   const exportPackage = trpc.chapters.exportPackage.useMutation();
   const restore = trpc.chapters.restoreVersion.useMutation();
@@ -246,6 +267,7 @@ export function ChapterWorkspace({
     if (
       state.loading ||
       state.queryError ||
+      state.selectedKind === "storyboard" ||
       state.chapters.length ||
       seeded.current
     )
@@ -261,7 +283,7 @@ export function ChapterWorkspace({
       });
       await state.reloadList();
     }, false);
-  }, [state.loading, state.queryError, state.chapters.length, props.coverBusy]);
+  }, [state.loading, state.queryError, state.selectedKind, state.chapters.length, props.coverBusy]);
 
   function decodedBase64(value: string) {
     const binary = atob(value);
@@ -395,15 +417,43 @@ export function ChapterWorkspace({
       setComparison(null); setGeneratedOpen(false); setHistoryOpen(false);
     }, false);
   }
-  const editorControls = (_changeNote?: ReactNode) => (
+  async function openBookChapter(chapterId: number) {
+    await state.open(chapterId);
+    const url = new URL(window.location.href);
+    url.searchParams.set("storyId", String(props.storyId));
+    url.searchParams.set("chapterId", String(chapterId));
+    window.history.replaceState(window.history.state, "", url);
+  }
+  const openEditableDraft = trpc.chapters.openShotDraft.useMutation({ retry: false });
+  const reader = displayMode === "text" && state.selectedKind === "storyboard" && <ShotManuscriptReader storyId={props.storyId} hideEmpty={state.chapters.some(c => c.blocks.writingStyle?.some(r => r.format === "shot"))} busy={busy} onEdit={trialId => void run(async () => {
+    const { chapterId } = await openEditableDraft.mutateAsync({storyId: props.storyId, trialId});
+    await state.reloadList();
+    await openBookChapter(chapterId);
+  })} />;
+  const editorControls = (_changeNote?: ReactNode, liveDraft?: ChapterWritingDraft) => (
     <>
       <nav
         aria-label={_ui("章节栏")}
         className="flex flex-wrap items-start gap-2 border-b border-[var(--panel-border)] pb-3"
       >
+        {displayMode === "text" && <label className="inline-flex items-center gap-1.5 self-center text-sm">{_ui("稿件")}
+          <select aria-label={_ui("查看稿件版本")} className="rounded border border-[var(--panel-border)] bg-transparent p-1" value={state.selectedKind ?? manuscriptKind ?? "text"} disabled={busy}
+            onChange={event => { const kind = event.target.value as ManuscriptKind; void run(async () => setManuscriptKind(kind)); }}>
+            <option value="text">{_ui("文字版")}</option>
+            <option value="storyboard">{_ui("分镜版")}</option>
+          </select>
+        </label>}
         {active && <button className={button} aria-expanded={historyOpen} onClick={() => { setHistoryOpen(!historyOpen); void versions.refetch(); void sharingHistory.refetch(); }}>{_ui("版本")}{newerVersion ? _ui(" · 有更新") : ''}</button>}
         <button className={button} disabled={busy} onClick={() => requestNewVersion({ storyId: props.storyId, accountId: props.accountId })}>{_ui("生成新版本")}</button>
       </nav>
+      {displayMode === "text" && active && <BookShotDocument showScenes={showScenes} key={`${props.storyId}:${active.blocks.shotTextOrigin?.trialId ?? "book"}`} preceding={shotOffset}
+        onEdit={busy ? undefined : target => {
+          if (target.chapterId === active.id) setShotTarget(target);
+          else void run(async () => { await openBookChapter(target.chapterId); setShotTarget(target); });
+        }} chapters={productionChapters.map(chapter =>
+        chapter.id === active.id && liveDraft ? { id: chapter.id, blocks: liveDraft } : chapter
+      )} />}
+      {active?.blocks.shotTextOrigin && reader ? <details className="text-sm"><summary className="cursor-pointer">{_ui("查看镜头试稿与参考")}</summary>{reader}</details> : reader}
       {(state.error || state.queryError) && (
         <p role="alert" className="text-sm text-destructive">
           {state.error || state.queryError}{_ui("。本机草稿仍保留。")}<button
@@ -436,9 +486,9 @@ export function ChapterWorkspace({
           </div>}
           {historyOpen && <section aria-label={_ui("版本列表")} className="space-y-3 border-y py-3">
             {workflow.data && <>
-              <label className="text-sm">{_ui("稿件")} <select aria-label={_ui("查看稿件版本")} className="rounded border bg-transparent p-1" value={state.selectedKind ?? workflow.data.preferredKind} onChange={event => { const kind = event.target.value as ManuscriptKind; void run(async () => setManuscriptKind(kind)); }}>
+              {displayMode !== "text" && <label className="text-sm">{_ui("稿件")} <select aria-label={_ui("查看稿件版本")} className="rounded border bg-transparent p-1" value={state.selectedKind ?? workflow.data.preferredKind} onChange={event => { const kind = event.target.value as ManuscriptKind; void run(async () => setManuscriptKind(kind)); }}>
                 {(["text", "storyboard"] as const).filter(kind => workflow.data.drafts[kind].count > 0).map(kind => <option key={kind} value={kind}>{kind === "text" ? _ui("文字版") : _ui("分镜版")}</option>)}
-              </select></label>
+              </select></label>}
               <VideoBookHistory state={workflow.data.state} kind={state.selectedKind ?? workflow.data.preferredKind} storyId={props.storyId} accountId={props.accountId} />
             </>}
 
@@ -516,10 +566,12 @@ export function ChapterWorkspace({
   );
   return (
     <div className="space-y-3" aria-label={_ui("故事章节")}>
+      {displayMode === "text" && <LiveBookWriting key={`${props.accountId}:${props.storyId}`} storyId={props.storyId} />}
       {!active && editorControls()}
       {active && (<>
           <div hidden={displayMode !== "text"} className="space-y-3">
-            {displayMode === "text" && <ChapterWriting key={`${active.id}:${state.epoch}`} chapter={active} precedingShots={precedingBookShots(state.chapters, active.id)}
+            {displayMode === "text" && <ChapterWriting showScenes={showScenes} key={`${active.id}:${state.epoch}`} chapter={active} precedingShots={shotOffset + precedingBookShots(productionChapters, active.id)}
+              shotTarget={shotTarget?.chapterId === active.id ? shotTarget : null} onShotFocused={() => setShotTarget(null)}
               titleEditor={active.blocks.chatDocument ? undefined : titleEditor}
               renderHeader={editorControls}
               footerActions={<BookSendMenu disabled={busy} onShare={() => void run(async () => {

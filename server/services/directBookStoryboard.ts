@@ -1,3 +1,4 @@
+import { shotDirections } from "../../shared/bookShotDocument";
 import {
   buildPublishingArticleVideoPreview,
   type PublishingArticleVideoRow,
@@ -13,21 +14,21 @@ export function directBookStoryboardPreview(
   const requirements = new Map<string, ArticleVideoRequirements>();
   for (const row of rows) {
     const lines = row.text.split("\n");
-    const pick = (pattern: RegExp) =>
-      lines.filter(line => pattern.test(line.trim())).join("\n");
-    const duration = row.text.match(
-      /(?:[（(]|时长[：:]\s*)(\d+(?:\.\d+)?)\s*秒[）)]?/
+    const notes = row.productionNotes ?? row.text;
+    const directions = shotDirections(notes);
+    const duration = [...directions.other, ...directions.timing].join("\n").match(
+      /(?:[（(]|时长[：:]\s*|^\s*)(\d+(?:\.\d+)?)\s*秒(?=[）)，,。.\s]|$)/m
     );
     const seconds = duration ? Number(duration[1]) : undefined;
+    const subject = row.shotTitle?.trim() || lines[0] || row.text;
+    const visualNotes = [...directions.other, ...directions.picture].join("\n") || subject;
     requirements.set(row.id, {
-      subject: lines[0] || row.text,
-      action: pick(/^(?:画面运动|动作|运动)[：:]/) || row.text,
-      imageRequirement:
-        pick(/^(?:开场画面|结束画面|画面描述|屏幕文字|素材待准备)[：:]/) ||
-        row.text,
+      subject,
+      action: directions.motion.join("\n") || visualNotes,
+      imageRequirement: directions.picture.join("\n") || visualNotes,
       videoRequirement: row.text,
       soundRequirement: [
-        pick(/^(?:声音|音乐|音效|背景音)/),
+        ...directions.sound,
         ...(audioByShot.get(row.id) ?? []),
       ]
         .filter(Boolean)

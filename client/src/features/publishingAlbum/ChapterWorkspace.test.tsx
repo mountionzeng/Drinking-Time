@@ -1,3 +1,4 @@
+vi.mock("./LiveBookWriting", () => ({ LiveBookWriting: () => null }));
 vi.mock("wouter", () => ({ useLocation: () => ["/editing", vi.fn()] }));
 vi.mock("./BookMusicInsert",()=>({BookMusicInsert:()=>null}));
 import React from "react";
@@ -61,33 +62,32 @@ vi.mock("@/lib/trpc", () => ({
           ])
         ),
       },
-      chapters: {
-        list: { useQuery: () => ({ data: [] }) },
-        ...Object.fromEntries(
-        [
-          "create",
-          "save",
-          "remove",
-          "reorder",
-          "exportPackage",
-          "importPackage",
-          "restoreVersion",
-          "resolveCandidate",
-          "candidates",
-          "versions",
-          "sharingHistory",
-        ].map(name => [
-          name,
-          {
-            useMutation: () => ({ mutateAsync: vi.fn() }),
-            useQuery: (_input: unknown, options: unknown) => {if(name === "candidates") deliveryState.candidateOptions = options; return ({
-              data: ["versions", "sharingHistory"].includes(name) ? [] : { candidates: deliveryState.candidates },
-              refetch: vi.fn(),
-            }); },
-          },
-        ])
-      ),
-    },
+    chapters: Object.fromEntries(
+      [
+        "create",
+        "openShotDraft",
+        "list",
+        "save",
+        "remove",
+        "reorder",
+        "exportPackage",
+        "importPackage",
+        "restoreVersion",
+        "resolveCandidate",
+        "candidates",
+        "versions",
+        "sharingHistory",
+      ].map(name => [
+        name,
+        {
+          useMutation: () => ({ mutateAsync: vi.fn() }),
+          useQuery: (_input: unknown, options: unknown) => {if(name === "candidates") deliveryState.candidateOptions = options; return ({
+            data: ["list", "versions", "sharingHistory"].includes(name) ? [] : { candidates: deliveryState.candidates },
+            refetch: vi.fn(),
+          }); },
+        },
+      ])
+    ),
     useUtils: () => ({ chapters: { get: { fetch: vi.fn() } } }),
   },
 }));

@@ -57,6 +57,7 @@ export type ToolChoice =
   | ToolChoiceExplicit;
 
 export type InvokeParams = {
+  onTextDelta?: (text: string) => void;
   messages: Message[];
   tools?: Tool[];
   toolChoice?: ToolChoice;
@@ -247,6 +248,7 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     useCase: "text",
     messages,
     candidates: fallbackCandidates(messages),
+    ...(params.onTextDelta ? { onTextDelta: params.onTextDelta } : {}),
     tools,
     toolChoice: toolChoice || tool_choice,
     maxTokens: maxTokens ?? max_tokens,
@@ -297,6 +299,7 @@ export async function invokeLLMWithProvider(params: InvokeParams) {
     useCase: "text",
     messages,
     candidates: fallbackCandidates(messages),
+    ...(params.onTextDelta ? { onTextDelta: params.onTextDelta } : {}),
     tools,
     toolChoice: toolChoice || tool_choice,
     maxTokens: maxTokens ?? max_tokens,

@@ -1,3 +1,4 @@
+import { LiveBookWriting } from "../publishingAlbum/LiveBookWriting";
 import { VideoTextDraft } from "./VideoTextDraft";
 import { NEW_VERSION_EVENT, type NewVersionRequest } from "./newVersionRequest";
 import { FilmVersionDraft } from "./FilmVersionDraft";
@@ -61,6 +62,7 @@ export function TextDraftVersions({
     enabled: directionOpen && Boolean(storyId && storyId > 0), retry: false,
   });
   const sourceReady = !storyId || storyId <= 0 || Boolean(videoSource.data && !videoSource.isFetching && !videoSource.isError);
+  const showVideoWritingExamples = presentation !== "film" && videoSource.data?.available;
   const useVideo = Boolean(videoSource.data?.available && textBasis !== "book");
   useEffect(() => { if (directionOpen && videoSource.data?.available && presentation === null) setPresentation("text"); }, [directionOpen, videoSource.data?.available, presentation]);
   const [articleOptions, setArticleOptions] = useState<ArticleGenerationOptions>(DEFAULT_ARTICLE_OPTIONS);
@@ -424,12 +426,12 @@ export function TextDraftVersions({
               {_ui("生成新版本")}
             </DialogTitle>
             <DialogDescription>
-              {_ui(videoSource.data?.available ? "告诉我想把视频写成什么样，也可以选一个例子再修改。" : "根据当前书稿、聊天和新的想法生成，旧版本会保留。")}</DialogDescription>
+              {_ui(showVideoWritingExamples ? "告诉我想把视频写成什么样，也可以选一个例子再修改。" : "根据当前书稿、聊天和新的想法生成，旧版本会保留。")}</DialogDescription>
           </DialogHeader>
-          <label className="grid gap-1 text-sm">{_ui(videoSource.data?.available ? "你想生成什么样的文字？" : "这次有什么新想法？（选填）")}
+          <label className="grid gap-1 text-sm">{_ui(showVideoWritingExamples ? "你想生成什么样的文字？" : "这次有什么新想法？（选填）")}
             <textarea aria-label={_ui("新的想法")} className="rounded-md border bg-background p-3" rows={3} maxLength={2000} value={newThoughts} onChange={event => setNewThoughts(event.target.value)} placeholder={_ui("想表达什么、给谁看、准备发在哪里……")} />
           </label>
-          {videoSource.data?.available && <label className="grid gap-1 text-sm text-muted-foreground">{_ui("参考写法（可选）")}
+          {showVideoWritingExamples && <label className="grid gap-1 text-sm text-muted-foreground">{_ui("参考写法（可选）")}
             <select aria-label={_ui("参考写法")} className="min-h-10 rounded-md border bg-background px-3" value="" onChange={e=>{if(e.target.value){setNewThoughts(e.target.value);setTextBasis(e.target.selectedOptions[0]?.dataset.method==="local-transcript"?"video-transcript":"video");}}}>
               <option value="">{_ui("选一个例子，也可以完全自己写")}</option>
               {[
@@ -442,6 +444,7 @@ export function TextDraftVersions({
           <fieldset className="space-y-2"><legend className="mb-2 text-sm">{_ui("这次想做成影片，还是直接用文字呈现？")}</legend>
             <div className="flex gap-4">{([["film", "做成影片"], ["text", "文字呈现"]] as const).map(([value, label]) => <label key={value} className="flex items-center gap-2 text-sm"><input type="radio" name="version-presentation" value={value} checked={presentation === value} onChange={() => setPresentation(value)} />{_ui(label)}</label>)}</div>
           </fieldset>
+          {directionOpen && storyId && <LiveBookWriting key={`${spine.accountId}:${storyId}`} storyId={storyId} />}
           {presentation === "film" && storyId && storyId > 0 && <FilmVersionDraft key={`${spine.accountId}:${storyId}`} storyId={storyId} request={[input, newThoughts].filter(Boolean).join("\n")} blocked={blocked} onDone={() => setDirectionOpen(false)} />}
           {presentation === "film" && (!storyId || storyId <= 0) && <p className="text-sm text-muted-foreground">{_ui("先把聊天生成文字稿，再继续制作影片。")}</p>}
           {presentation === "text" && !sourceReady && <p role="status" className="text-sm text-muted-foreground">{_ui(videoSource.isError ? "视频来源读取失败，请关闭后重试；未提交生成。" : "正在读取视频来源…")}</p>}

@@ -16,7 +16,7 @@ import {
 import { resolveComputeCandidates } from "./textComputeProvider";
 
 export type AgentExecutionOptions = Pick<InferenceRequest,
-  "deadlineMs" | "reasoningEffort" | "replaySafe">;
+  "deadlineMs" | "reasoningEffort" | "replaySafe" | "onTextDelta">;
 
 function shouldUseClaudeChannel(): boolean {
   return Boolean(

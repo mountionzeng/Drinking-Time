@@ -1,5 +1,7 @@
-import { readStoryMemory } from "../repositories/storyMemoryDocument";
 import { bookModuleVisualBasis, bookModuleRenderStyle } from "../services/bookModuleVisualBasis";
+import { initialPurposeQuestion } from "../../shared/creativeConversation";
+import { isUntitledStoryTitle } from "../../shared/storyTitle";
+import { readStoryMemory } from "../repositories/storyMemoryDocument";
 import { sceneAllowanceSchema, sceneRenderTotal, type SceneAllowance } from "../../shared/shotSceneDirection";
 import { readSceneForRender } from "../services/shotSceneReading";
 import { recoverChatImageRemix, readChatImageRemixQuote } from "../services/chatImageRemixRecovery";
@@ -413,6 +415,29 @@ export const storyAgentRouter = router({
         const emotionReply = await handleCreationEmotionChat({ storyId: story.id, userId: ctx.user.id, message: input.message });
         if (emotionReply) return emotionReply;
       }
+      const memory = story ? await readStoryMemory(story, true) : "";
+      const reference = inheritedStoryReference(story?.body);
+      const emotion = storyEmotion(story?.body, { chapterId: input.writingContext?.module?.line?.position.chapterId });
+      const storyMemory = [
+        memory,
+        input.confirmedIntent && "本作品已确认的用途 " + JSON.stringify(input.confirmedIntent),
+        ...(emotion?.layers ?? []).map(layer => "本作品已设定的创作表达 " + JSON.stringify({ scope: layer.scope, ...layer.intent })),
+      ].filter(Boolean).join("\n\n");
+      // UI state and an empty MEMORY.md are present even in a new workspace.
+      // Any prior story evidence takes precedence over this local first question.
+      const writing = input.writingContext;
+      const opening = initialPurposeQuestion(input.message);
+      if (opening) {
+        const hasDraft = writing && (!story || writing.draft.trim() || writing.selection || writing.module || writing.layoutMemory || writing.rewriteSource);
+        const hasMaterial = inlineContent || input.photoUrl || input.existingCardCount || input.storyCards?.length ||
+          input.similarCards?.length || input.currentShots?.length || input.uiContext?.selection;
+        const hasContext = input.confirmedIntent || reference || emotion || input.summary?.trim() || !isUntitledStoryTitle(story?.title) ||
+          input.history?.some(turn => turn.role === "user" && turn.content.trim()) ||
+          memory.split("\n").some(line => line.startsWith("- ") && line !== "- " + input.message.trim());
+        if (!hasDraft && !hasMaterial && !hasContext) {
+          return { configured: true, modelLabel: "本地创作对话", reply: opening, card: null, read: null, toolCalls: [], suggestImage: false };
+        }
+      }
       if (input.writingContext) {
         if (!story) throw new TRPCError({ code: "BAD_REQUEST", message: "请先保存当前故事" });
         if (input.writingContext.module && input.writingContext.module.storyId !== input.storyId)
@@ -426,7 +451,7 @@ export const storyAgentRouter = router({
             writingContext: { ...input.writingContext, fullDraft: true },
             storyTitle: story.title,
             uiContext: input.uiContext,
-            storyMemory: await readStoryMemory(story, true),
+            storyMemory,
           }), configured: true };
         } catch (error) {
           if (error instanceof WritingCompanionInputError) throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
@@ -434,8 +459,9 @@ export const storyAgentRouter = router({
         }
       }
       return replyFromStoryAgent({
-        referenceContext: inheritedStoryReference(story?.body),
-        storyMemory: story ? await readStoryMemory(story, true) : undefined,
+        guideNextStep: true,
+        referenceContext: reference,
+        storyMemory,
         message: inlineContent ? inlineChatInstruction(input.message) : input.message,
         inlineImageContent: inlineContent,
         history: input.history?.map(turn => ({ ...turn, content: hasInlineChatImages(turn.content) ? inlineChatInstruction(turn.content) : turn.content })),

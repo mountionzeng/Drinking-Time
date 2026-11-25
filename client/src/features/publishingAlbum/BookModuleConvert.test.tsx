@@ -1,7 +1,7 @@
 import React from 'react';
 import {beforeEach,expect,it,vi} from 'vitest';
 const m=vi.hoisted(()=>({translate:vi.fn(),describe:vi.fn(),image:vi.fn(),recover:vi.fn(),refetch:vi.fn(),task:null as any,taskLoading:false,taskError:null as unknown,music:vi.fn(),price:vi.fn(),invalidate:vi.fn(),states:[] as any[],index:0,refs:[] as any[],ref:0,basis:null as any,updatedAt:1,queryOptions:null as any}));
-vi.mock('react',async()=>({...await vi.importActual<typeof import('react')>('react'),useCallback:(fn:any)=>fn,useEffect:(fn:any)=>fn(),useRef:(v:any)=>m.refs[m.ref++]??(m.refs[m.ref-1]={current:v}),useState:(v:any)=>{const i=m.index++;if(!(i in m.states))m.states[i]=v;return [m.states[i],(n:any)=>m.states[i]=n];}}));
+vi.mock('react',async()=>({...await vi.importActual<typeof import('react')>('react'),useCallback:(fn:any)=>fn,useEffect:(fn:any)=>fn(),useRef:(v:any)=>m.refs[m.ref++]??(m.refs[m.ref-1]={current:v}),useState:(v:any)=>{const i=m.index++;if(!(i in m.states))m.states[i]=typeof v==='function'?v():v;return [m.states[i],(n:any)=>m.states[i]=n];}}));
 vi.mock('@/lib/trpc',()=>({trpc:{bookMedia:{translate:{useMutation:()=>({mutateAsync:m.translate})},quoteNarration:{useMutation:()=>({mutateAsync:m.price})},describe:{useMutation:()=>({mutateAsync:m.describe})}},storyAgent:{generateForMobile:{useMutation:()=>({mutateAsync:m.image})},bookModuleVisualBasis:{useQuery:()=>({data:m.basis})},bookModuleImageTask:{useQuery:(_i:any,o:any)=>(m.queryOptions=o,{data:m.task,isFetchedAfterMount:!m.taskLoading,dataUpdatedAt:m.updatedAt,isLoading:m.taskLoading,isFetching:false,error:m.taskError,refetch:m.refetch})},recoverBookModuleImage:{useMutation:()=>({mutateAsync:m.recover})}},timelineMedia:{generateNarrationCandidate:{useMutation:()=>({mutateAsync:m.music})},quoteSceneAudio:{useMutation:()=>({mutateAsync:m.price})},generateSceneAudio:{useMutation:()=>({mutateAsync:m.music})}},useUtils:()=>({memoryWarehouse:{forStory:{invalidate:m.invalidate}},storyAgent:{storyMaterialState:{invalidate:m.invalidate}},timelineMedia:{audioAssetLibrary:{invalidate:m.invalidate}}})}}));
 import {BookModuleConvert} from './BookModuleConvert';
 import {TextSceneIntentReview} from '../bookVideo/TextSceneIntent';
@@ -102,6 +102,19 @@ it('locks voice selection during a pending quote so a late quote cannot describe
  expect(m.music).not.toHaveBeenCalled();
 });
 
+it('quotes the duration written in an effect prompt and waits for adoption after generation',async()=>{
+ const props={reviewMedia:true,source:{id:'field',text:'7 秒。风声渐弱。',kind:'sfx' as const},storyId:1,chapterId:2,prepare:vi.fn(),onInsert:vi.fn(),onClose:vi.fn()};
+ const render=()=>{m.index=m.ref=0;return nodes(BookModuleConvert(props));};
+ m.price.mockResolvedValue({quoteToken:'effect',estimatedCny:.06});
+ render().find(n=>n.type==='button'&&n.props.children==='查看音效费用').props.onClick();await settle();
+ expect(m.price).toHaveBeenCalledWith(expect.objectContaining({kind:'sfx',soundEffectSeconds:7,bookTarget:{chapterId:2,moduleId:'field'}}));
+ expect(m.music).not.toHaveBeenCalled();
+ m.music.mockResolvedValue({status:'ready',assetId:71});
+ render().find(n=>n.type==='button'&&String(n.props.children).includes('确认生成 7 秒音效')).props.onClick();await settle();
+ expect(props.onInsert).not.toHaveBeenCalled();
+ render().find(n=>n.type==='button'&&n.props.children==='插入原模块后').props.onClick();await settle();
+ expect(props.onInsert).toHaveBeenCalledWith(expect.stringContaining('![音效:'));
+});
 it('inserts a completed audiobook with its classification and refreshes the audio library',async()=>{
  m.states=[false,'','', '',[],false,{quoteToken:'quote',estimatedCny:.02,subtitleCueId:'book-one'}];m.music.mockResolvedValue({status:'candidate-ready',candidate:{assetId:9}});const insert=vi.fn();
  const tree=BookModuleConvert({source:{id:'x',text:'照原文朗读',kind:'narration'},storyId:1,chapterId:2,prepare:async()=>{},onInsert:insert,onClose:vi.fn()});

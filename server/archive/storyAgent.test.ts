@@ -988,7 +988,7 @@ describe("storyAgent 收尾留线头 (U3：R10-R11)", () => {
 // 网关抖动韧性 · 临时失败自动重试 + 优雅兜底
 // 真实环境里 302 网关偶发 5xx/超时。旧实现把任何失败都抛成前端一句吞掉真实原因的
 // 「Agent 暂时没接上，再试一次？」并断掉对话。现在：传输层对临时错误自动重试一次；
-// 仍失败则 replyFromStoryAgent 优雅兜底（configured:true + 一句聊聊口吻的「没接住」回复，
+// 仍失败则 replyFromStoryAgent 优雅兜底（configured:true + 保留原话和引用的恢复提示，
 // 不抛错、不断对话）。确定性错误（鉴权 401 等）不重试，免得白白拖慢真实报错。
 //
 // U2 起「重试一次」发生在 invokeLLM **内部**的 inferenceOrchestrator，不再由
@@ -1048,7 +1048,7 @@ describe("storyAgent 网关抖动韧性 (临时失败重试 + 优雅兜底)", ()
     // configured 必须是 true：若返回 false 前端会误弹「接口还没配置模型 API」
     expect(result.configured).toBe(true);
     expect(result.modelLabel).toBe("请求失败");
-    expect(result.reply).toContain("没接住"); // 聊聊口吻的兜底回复
+    expect(result.reply).toContain("原消息和引用已保留");
     expect(result.card).toBeNull();
   });
 
@@ -1065,7 +1065,8 @@ describe("storyAgent 网关抖动韧性 (临时失败重试 + 优雅兜底)", ()
     expect(replyAttempts).toBe(1); // 401 不重试
     expect(mockInvokeLLM).toHaveBeenCalledTimes(2); // 回话(1) + 并行抽取(1)
     expect(result.configured).toBe(true);
-    expect(result.reply).toContain("没接住");
+    expect(result.modelLabel).toBe("请求失败");
+    expect(result.reply).toContain("原消息和引用已保留");
   });
 });
 

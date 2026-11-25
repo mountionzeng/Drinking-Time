@@ -6,8 +6,10 @@ import { randomUUID } from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import type { ManuscriptContent } from "../../shared/bookWorkflow";
 const compute = vi.hoisted(() => vi.fn());
+const quote = vi.hoisted(() => vi.fn());
 vi.mock("./publishingVideoStoryboard", () => ({
   runPublishingVideoStoryboardTextCompute: compute,
+  quoteStoryboardCompute: quote,
 }));
 const dir = await mkdtemp(path.join(os.tmpdir(), "book-workflow-"));
 const previous = {
@@ -63,6 +65,41 @@ beforeEach(() => {
   compute.mockReset();
   compute.mockResolvedValue({ parsed: generated });
 });
+it("asks for material before quoting an empty story with only a video command", async () => {
+  const story = await createStory({ userId: actor.userId, title: "新故事", body: {} });
+  const request = "把这个故事做成视频";
+  const input = { storyId: story.id, userId: actor.userId, request, conversation: [{ role: "user" as const, content: request }] };
+  await expect(service.quoteFilmManuscript(input)).rejects.toThrow("告诉我想拍什么");
+  expect(compute).not.toHaveBeenCalled();
+  expect(await chapters.listChapters(story.id, actor.userId, "all")).toHaveLength(0);
+});
+it("quotes a chat-only story without saving or spending, then edits and adopts the same draft", async () => {
+  const story = await createStory({ userId: actor.userId, title: "雨", body: {} });
+  const input = { storyId: story.id, userId: actor.userId, actor, id: randomUUID(), request: "把这个故事做成视频",
+    conversation: [{ role: "user" as const, content: "爸爸把伞挪到我这边。" }] };
+  quote.mockReturnValue({ fingerprint: "quoted", estimatedCny: 0.01 });
+  await expect(service.quoteFilmManuscript(input)).resolves.toMatchObject({ fingerprint: "quoted" });
+  await expect(service.generateFilmManuscript({ ...input, quoteFingerprint: "old" })).rejects.toThrow("报价已变化");
+  expect(compute).not.toHaveBeenCalled();
+  expect(await chapters.listChapters(story.id, actor.userId, "all")).toHaveLength(0);
+  compute.mockResolvedValueOnce({ parsed: { chapters: [{ title: "两把伞", modules: [
+    { format: "shot", text: "挪伞", parent: null }, { format: "text", text: "我看见了。", parent: 0, dialogue: true },
+  ] }] } });
+  const candidate = await service.generateFilmManuscript({ ...input, quoteFingerprint: "quoted" });
+  expect(candidate.status).toBe("review");
+  expect(compute.mock.calls[0][0].context).toEqual(quote.mock.calls.at(-1)![0].context);
+  expect(await chapters.listChapters(story.id, actor.userId, "storyboard")).toHaveLength(0);
+  expect((await chapters.listChapters(story.id, actor.userId, "text"))[0].blocks.body).toBe("爸爸把伞挪到我这边。");
+  expect((await service.generateFilmManuscript(input)).id).toBe(candidate.id);
+  expect(compute).toHaveBeenCalledOnce();
+  const edited = await service.editConversionDraft({ ...input, revision: candidate.revision, texts: [["挪伞", "爸，我看见啦。"]] });
+  await expect(service.adoptManuscriptConversion({ ...input, revision: candidate.revision })).rejects.toThrow();
+  await service.adoptManuscriptConversion({ ...input, revision: edited.revision });
+  const [chapter] = await chapters.listChapters(story.id, actor.userId, "storyboard");
+  expect(chapter.blocks.body).toBe("挪伞\n爸，我看见啦。");
+  expect(chapter.blocks.writingStyle?.[1]).toMatchObject({ videoRole: "dialogue", parentId: chapter.blocks.writingStyle?.[0].id });
+});
+
 async function fixture() {
   const story = await createStory({
     userId: 61,
@@ -111,12 +148,29 @@ it("preserves an original image listed before the first scene with a numeric-str
   expect(rows.filter(x => x === "![图片](/api/images/original.png)")).toHaveLength(1);
   expect(rows).toContain("窗边近景");
   const style = result.blocks.writingStyle!;
+  expect(style.filter(row => row.format === "scene")).toHaveLength(0);
+  expect(rows).toContain("雨后的清晨");
+  expect(style[0]).toMatchObject({ format: "shot", parentId: null });
+  expect(style[2]).toMatchObject({ format: "shot", parentId: null });
+  expect(style.at(-1)).toMatchObject({ format: "text", parentId: style[2].id });
   for (const row of style) {
     const parent = style.find(candidate => candidate.id === row.parentId);
     if (row.format === "scene") expect(row.parentId).toBeNull();
-    if (row.format === "shot") expect(parent?.format).toBe("scene");
     if (row.format === "text") expect(parent?.format).toBe("shot");
   }
+});
+
+it("starts an independent shot after a scene and keeps its dialogue with it", () => {
+  const modules = [
+    { format: "scene", text: "清晨", parent: null },
+    { format: "shot", text: "窗边", parent: 0, media: 0 },
+    { format: "shot", text: "片尾", parent: null },
+    { format: "text", text: "明天再见。", parent: 2, dialogue: true },
+  ];
+  const [draft] = service.applyConversion([source], "storyboard", { chapters: [{ title: "分镜", modules }] });
+  const style = draft.blocks.writingStyle!;
+  expect(style.at(-2)).toMatchObject({ format: "shot", parentId: null });
+  expect(style.at(-1)).toMatchObject({ videoRole: "dialogue", parentId: style.at(-2)!.id });
 });
 
 it("rejects ambiguous, malformed or out-of-range string media indexes", () => {
@@ -167,7 +221,8 @@ it("repairs invalid storyboard parent indexes within each scene without changing
     { format: "text", parent: 7, media: 0 },
     { format: "text", text: "结尾旁白", parent: 7, dialogue: true },
   ];
-  const [result] = service.applyConversion([source], "storyboard", { chapters: [{ title: "分镜", modules }] });
+  const [result] = service.applyConversion([source], "storyboard", { chapters: [{ title: "分镜", modules }] }, true);
+  expect(result.blocks.storyboardScenes).toBe(true);
   const style = result.blocks.writingStyle!;
   const rows = result.blocks.body.split("\n");
   expect(rows.filter(x => x === "![图片](/api/images/original.png)")).toHaveLength(1);
@@ -478,6 +533,38 @@ it("provider failure remains visible and preserves both drafts", async () => {
   expect((await chapters.listChapters(input.storyId, 61))[0].blocks.body).toBe(
     source.blocks.body
   );
+});
+
+it("regenerates only the selected trial and preserves the live full film when adopting it", async () => {
+  const input = await fixture();
+  const [main] = service.applyConversion([source], "storyboard", generated);
+  const full = await chapters.insertChapter({ ...input, content: { ...main, title: "整部影片" } });
+  const trial = await chapters.insertChapter({ ...input, content: { ...main, title: "单镜试稿", blocks: {
+    ...main.blocks, shotTextOrigin: { trialId: randomUUID(), source: "作者", shotId: "雨中的车站" },
+  } } });
+  const request = { ...input, id: randomUUID(), chapterId: trial.id, request: "把这一镜的节奏放慢", conversation: [] };
+  const draft = await service.generateFilmManuscript(request);
+  expect(compute.mock.calls.at(-1)![0].context.source.map((c: {title: string}) => c.title)).toEqual(["单镜试稿"]);
+  expect(draft.chapters).toHaveLength(1);
+  expect(draft.chapters![0].blocks.writingStyle?.find(r => r.format === "shot")?.id).toBe(trial.blocks.writingStyle!.find(r => r.format === "shot")!.id);
+  await service.adoptManuscriptConversion({ ...input, id: draft.id, revision: draft.revision });
+  const saved = await chapters.listChapters(input.storyId, 61, "storyboard");
+  expect(saved.find(c => c.id === full.id)).toEqual(full);
+  expect(saved.find(c => c.id === trial.id)?.version).toBe(trial.version + 1);
+});
+
+it.each([true, false])("quotes and generates the same author-selected grouping (%s)", async showScenes => {
+  const input = await fixture();
+  const request = { ...input, id: randomUUID(), chapterId: input.chapter.id, request: showScenes ? "按场显示分镜" : "整理成分镜",
+    conversation: [{ role: "assistant" as const, content: "建议分成三场" }] };
+  quote.mockReturnValue({ fingerprint: "quoted" });
+  await service.quoteFilmManuscript(request);
+  const quoted = quote.mock.calls.at(-1)![0].systemPrompt;
+  const candidate = await service.generateFilmManuscript({ ...request, quoteFingerprint: "quoted" });
+  expect(compute.mock.calls.at(-1)![0].systemPrompt).toBe(quoted);
+  expect(quoted).toContain(showScenes ? "已要求分场" : "本版只按连续镜号写");
+  expect(candidate.chapters![0].blocks.writingStyle!.some(row => row.format === "scene")).toBe(showScenes);
+  expect(Boolean(candidate.chapters![0].blocks.storyboardScenes)).toBe(showScenes);
 });
 
 it("generates from the current book and conversation, preserving originals and reusing retries", async () => {

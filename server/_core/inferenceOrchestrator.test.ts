@@ -80,6 +80,26 @@ function baseRequest(overrides: Partial<InferenceRequest> = {}): InferenceReques
 }
 
 describe("runInference — happy path (AE1)", () => {
+  it("uses a single streamed request for live text, including usage, and never replays a lost manuscript stream", async () => {
+    const chunks = [
+      'data: {"choices":[{"index":0,"delta":{"content":"正文"}}]}\n\n',
+      'data: {"choices":[],"usage":{"prompt_tokens":2,"completion_tokens":1,"total_tokens":3}}\n\n',
+      'data: [DONE]\n\n',
+    ];
+    const onTextDelta = vi.fn();
+    const response = (n: number) => new Response(chunks.slice(0, n).join(""), { headers: { "content-type": "text/event-stream" } });
+    const ok = recordingFetch(() => response(3));
+    const outcome = await runInference(baseRequest({ fetchImpl: ok.impl, onTextDelta }));
+    expect(ok.calls).toHaveLength(1);
+    expect(ok.calls[0].payload).toMatchObject({stream:true,stream_options:{include_usage:true}});
+    expect(onTextDelta).toHaveBeenCalledWith("正文");
+    expect(outcome.result.usage?.total_tokens).toBe(3);
+    const broken = recordingFetch(() => response(1));
+    await expect(runInference(baseRequest({ fetchImpl: broken.impl, onTextDelta, retryRejected:true, replaySafe:false })))
+      .rejects.toMatchObject({attempts:[{acceptanceUnknown:true}]});
+    expect(broken.calls).toHaveLength(1);
+  });
+
   it("sends the Next URL, key, model and the capability-matched token field", async () => {
     const { impl, calls } = recordingFetch(() => jsonResponse(200, okBody()));
 

@@ -589,6 +589,7 @@ export const timelineMediaRouter = router({
       z.object({
         storyId,
         kind: generatedAudioKind,
+        soundEffectSeconds: z.number().int().min(1).max(30).optional(),
         targetFrame: frame,
         scope: z.enum(["shot", "from-shot", "story", "book"]).default("shot"),
         bookTarget: z.object({wholeBook:wholeBookSoundSchema.optional(),chapterId:z.number().int().positive(),moduleId:z.string().min(1).max(100),moduleIds:z.array(z.string().min(1).max(100)).min(2).max(50).optional()}).optional(),
@@ -603,6 +604,7 @@ export const timelineMediaRouter = router({
         targetFrame: input.targetFrame,
         scope: input.scope,
         bookTarget: input.bookTarget,
+        soundEffectSeconds: input.soundEffectSeconds,
         intent: input.intent,
       })
     ),

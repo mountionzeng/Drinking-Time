@@ -15,6 +15,7 @@ export function bookBlockContext(
   if (!selected) return null;
   const { block, index, placement } = selected;
   const lines = blocks.map(item => ({ id: item.id, text: item.text.slice(0, 20_000) }));
+  const audio = readBookAudio(block.text);
   const position = linePosition(source.chapterId, lines, index)!;
   return {
     storyId: source.storyId, scope: source.scope, moduleId: block.id, kind: bookImageUrl(block.text) ? 'image' : 'text',
@@ -23,7 +24,7 @@ export function bookBlockContext(
     pageCount: Math.max(...layouts.map(item => item.placement.page + 1)),
     rect: { ...placement.rect }, fontSize: placement.fontSize,
     emphasis: block.emphasis ?? 'normal', backdrop: Boolean(block.backdrop),
-    text: readBookAudio(block.text) ? `${readBookAudio(block.text)!.kind==='narration'?'有声书':'音乐'}：${readBookAudio(block.text)!.title}` : bookImageUrl(block.text) ? "文章插图" : block.text.slice(0, 12_000),
+    text: audio ? `${audio.label}：${audio.title}` : bookImageUrl(block.text) ? "文章插图" : block.text.slice(0, 12_000),
     pageText: layouts.filter(item => item.placement.page === placement.page).map(item => item.block.text).join('\n').slice(0, 16_000),
     // Local editor ids identify the discussion target, not server-owned chapter blocks.
     line: { source: 'layout', position,

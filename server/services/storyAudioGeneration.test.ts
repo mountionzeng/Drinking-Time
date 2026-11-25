@@ -497,6 +497,29 @@ describe("book music", () => {
   });
 });
 
+it("quotes and generates a timed manuscript effect without placing it on the timeline", async () => {
+  const userId = 931, storyId = await seed(userId);
+  const chapter = await insertChapter({ storyId, userId, content: { title: "书稿", layout: null, blocks: {
+    body: "通牒送进城里\n7 秒。轻微风声，尾音渐弱。", blockIds: ["a","b"], containsAiText: true, settings: null,
+    coverKey: null, bodyTextureKey: null, images: {}, illustrations: [],
+    writingStyle: ["a","b"].map(id => ({id, format: "text", parentId: null, collapsed: false})),
+  } } });
+  const request = { storyId, userId, bookTarget: { chapterId: chapter.id, moduleId: "b" }, targetFrame: 0,
+    scope: "book" as const, kind: "sfx" as const, soundEffectSeconds: 7, now: () => NOW };
+  const quote = await quoteStorySceneAudio(request);
+  expect(quote.context.durationFrames).toBe(210);
+  expect(quote.prompt).toContain("轻微风声");
+  expect(quote.prompt).not.toMatch(/Background music inspired|通牒/);
+  await expect(quoteStorySceneAudio({...request, soundEffectSeconds: 31})).rejects.toThrow("时长");
+  const generate = vi.fn(async () => generatedUrl()), insert = vi.fn();
+  const result = await generateStorySceneAudio({ storyId, userId, quoteToken: quote.quoteToken,
+    operation: { editorSessionEpoch: "book", operationId: "book-sfx-7s" },
+    dependencies: { now: () => NOW + 1000, generate, importRemote: fakeRemoteImport("s"), insert } });
+  expect(result).toMatchObject({ status: "ready", timeline: null });
+  expect(generate).toHaveBeenCalledWith(expect.objectContaining({ kind: "sfx", durationSeconds: 7 }));
+  expect(insert).not.toHaveBeenCalled();
+});
+
 it('quotes only the selected text module and rejects a removed source before charging',async()=>{
  const storyId=await seed(922);
  const chapter=await insertChapter({storyId,userId:922,content:{title:'模块',layout:null,blocks:{body:'不应使用的摇滚演出\n雨天的钢琴',blockIds:['a','b'],writingStyle:[{id:'a',format:'text',parentId:null,collapsed:false},{id:'b',format:'text',parentId:null,collapsed:false}],containsAiText:false,settings:null,coverKey:null,bodyTextureKey:null,images:{},illustrations:[]}}});

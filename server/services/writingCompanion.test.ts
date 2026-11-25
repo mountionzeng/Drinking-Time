@@ -124,6 +124,13 @@ describe("quoted manuscript passage context", () => {
 });
 
 describe("layout module advice", () => {
+  it.each([undefined, layoutModule])("keeps the author's purpose and the commissioner's wish distinct on the book page", async module => {
+    const invoke = fakeInvoke(JSON.stringify({ draft: "你看到的是伞挪过来的那一下。" }));
+    await replyAsWritingCompanion({message: "我想把它写出来。", history: [{role: "user", content: "他想记住两个人，我想理解那次选择。"}],
+      writingContext: {draft: "一个雨天", cursor: 0, fullDraft: true, module}}, invoke);
+    expect(systemText(invoke)).toContain("区分用户的动机与委托人期待");
+    expect(invoke.mock.calls[0][0].some(turn => turn.role === "user" && turn.content === "他想记住两个人，我想理解那次选择。")).toBe(true);
+  });
   it('formats book replacements at generation while preserving ordinary layout output', async () => {
     const raw = '**第 1 幕 · 相遇**\n## 尾声\n$E=mc^2$';
     for (const scope of ['account:1:chapter:2', 'layout:v1']) {
@@ -673,6 +680,19 @@ async function seedStory(userId: number) {
 
 describe("writing companion on the shared conversation", () => {
   afterEach(() => vi.restoreAllMocks());
+  it("asks the first purpose question locally and uses an existing purpose on the book page", async () => {
+    const caller = appRouter.createCaller(context(909));
+    const story = await caller.storyAgent.storyUpsert({title: "未命名", body: {}});
+    const input = {storyId: story!.id, message: "我想做个视频", writingContext: {draft: "", cursor: 0}};
+    const invoke = vi.spyOn(agentChannel, "invokeAgent").mockResolvedValue({text: "先保留那一页书。", modelLabel: "test"});
+    expect(await caller.storyAgent.chat(input)).toMatchObject({modelLabel: "本地创作对话", card: null, toolCalls: []});
+    expect(invoke).not.toHaveBeenCalled();
+    await caller.storyAgent.chat({...input, history: [{role: "user", content: "我想留给孩子看。"}],
+      confirmedIntent: {purpose: "gift", desiredEffect: "让孩子认出爷爷"}});
+    expect(invoke).toHaveBeenCalledTimes(1);
+    expect(invoke.mock.calls[0][0].some(m => m.role === "user" && String(m.content).includes("让孩子认出爷爷"))).toBe(true);
+    expect(invoke.mock.calls[0][0].some(m => m.role === "user" && m.content === "我想留给孩子看。")).toBe(true);
+  });
   it('targets the entire unsaved manuscript after deselection, ignoring historical module references',async()=>{
     const {caller,story}=await seedStory(908);
     const invoke=vi.spyOn(agentChannel,'invokeAgent').mockResolvedValue({text:'从全文结构来看，可以这样调整。',modelLabel:'test'});

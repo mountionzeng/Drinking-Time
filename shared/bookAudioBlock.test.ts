@@ -17,5 +17,6 @@ describe("book audio references", () => {
 });
 it('preserves audiobook classification across save and reload',()=>{
  expect(readBookAudio(bookAudioText(1,2,'雨天','narration'))).toMatchObject({kind:'narration',assetId:2,title:'雨天'});
+ expect(readBookAudio(bookAudioText(1,2,'风声','sfx'))).toMatchObject({kind:'sfx',label:'音效',assetId:2});
  expect(readBookAudio(bookAudioText(1,2,'钢琴'))?.kind).toBe('music');
 });
