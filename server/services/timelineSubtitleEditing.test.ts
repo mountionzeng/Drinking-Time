@@ -1,6 +1,8 @@
+import { insertChapter } from "../repositories/chapters";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   createStory,
+  updateStory,
   getStoryTimeline,
   resetMemoryStateForTesting,
   updateStoryTimeline,
@@ -9,6 +11,7 @@ import { clearVisualEditUndoForTesting } from "./visualEditUndoJournal";
 import { clearVisualEditSessionsForTesting } from "./visualEditSessionRegistry";
 import {
   deleteSubtitleCueForStory,
+  bookShotSubtitlesForStory,
   editSubtitleTextForStory,
   initializeSubtitlesForStory,
   initializeGeneratedSubtitlesForStory,
@@ -713,4 +716,29 @@ it("initializes explicit screen lettering beside dialogue and never resurrects a
   await updateStoryTimeline({ storyId: story.id, userId: USER_ID, expectedVersion: row.version, items: row.items, extensions: { ...row.extensions, subtitleTracks: { tracks: [{ id: "subtitle", cues: [] }] } } });
   expect(await initializeGeneratedSubtitlesForStory({ ...input, generationId: "another-preview" })).toMatchObject({ status: "ok", changed: false });
   expect(await subtitleCues(story.id)).toEqual([]);
+});
+
+it("places only the selected book shot's timed dialogue and keeps existing or edited cues", async () => {
+  const storyId=await seedStory();
+  const chapter=await insertChapter({storyId,userId:USER_ID,content:{title:"车站",layout:null,blocks:{
+    body:"出发\n旁白｜第 1 秒开口，第 3 秒前收住\n早安。\n屏幕文字：车站",writingStyle:[
+      {id:"s",format:"shot",parentId:null,collapsed:false},
+      {id:"v",format:"text",parentId:"s",collapsed:false},
+      {id:"t",format:"text",parentId:"s",collapsed:false,videoRole:"dialogue"},
+      {id:"c",format:"text",parentId:"s",collapsed:false}],
+    containsAiText:false,blockIds:[],settings:null,images:{},illustrations:[],coverKey:null,bodyTextureKey:null,manuscriptKind:"storyboard"}}});
+  await updateStory(storyId,USER_ID,{body:{_revision:2,shots:[{stableShotId:"shot-a",shotNo:1,durationMs:5000,publishingVideo:{draftShotId:`book-shot-${chapter.id}-s`}}]}});
+  const input={storyId,userId:USER_ID,chapterId:chapter.id,moduleId:"s",text:"早安。",heading:"旁白｜第 1 秒开口，第 3 秒前收住"};
+  await initializeSubtitlesForStory({storyId,userId:USER_ID,operation:nextOp(),candidates:[{startFrame:0,durationFrames:10,text:"保留",sourceTextRevision:1,provenance:{kind:"manual"}}]});
+  const put=()=>bookShotSubtitlesForStory({...input,operation:nextOp()});
+  expect(await put()).toMatchObject({status:"ok",changed:true});
+  const cues=await subtitleCues(storyId) as {id:string;textRevision:number}[];
+  expect(cues).toMatchObject([{text:"保留"},{text:"早安。",startFrame:30,durationFrames:60}]);
+  expect(await put()).toMatchObject({status:"ok",changed:false});
+  await editSubtitleTextForStory({storyId,userId:USER_ID,operation:nextOp(),cueId:cues[1].id,text:"改过的台词",expectedTextRevision:cues[1].textRevision});
+  expect(await put()).toMatchObject({status:"error"});
+  expect(await subtitleCues(storyId)).toMatchObject([{text:"保留"},{text:"改过的台词"}]);
+  const caption={...input,moduleId:"c",text:"车站",heading:"屏幕文字"};
+  expect(await bookShotSubtitlesForStory({...caption,text:"其他文本",operation:nextOp()})).toMatchObject({status:"error"});
+  expect(await bookShotSubtitlesForStory({...caption,operation:nextOp()})).toMatchObject({status:"ok",changed:true});
 });

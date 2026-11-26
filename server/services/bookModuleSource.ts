@@ -9,7 +9,7 @@ import { readBookImage } from "../../shared/bookImageBlock";
 import { readBookAudio } from "../../shared/bookAudioBlock";
 import { getStoryImageAssets, materializeImageInput } from "./imageAssets";
 import { invokeVisionJson } from "./visionChannel";
-export type BookModuleTarget = { chapterId: number; moduleId: string; moduleIds?: string[]; wholeBook?: WholeBookSound };
+export type BookModuleTarget = { chapterId: number; moduleId: string; moduleIds?: string[]; wholeBook?: WholeBookSound; shotSpeech?: boolean };
 export async function resolveBookModuleSource(
   input: BookModuleTarget & { storyId: number; userId: number }
 ) {

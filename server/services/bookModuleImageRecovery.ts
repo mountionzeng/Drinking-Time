@@ -108,12 +108,12 @@ export async function runModuleImageTask<T extends { status: string; error?: str
     return task;
   });
   if (claimed.id !== id) return response(claimed);
-  await recordGenerationSubmitted(scope.userId, "image", id);
   let acceptedId: string | undefined;
   let settlementStarted = false;
   let definiteFailure = false;
   const onAccepted = async (taskId: string) => { acceptedId = taskId; await accept(scope, id, taskId); };
   try {
+    await recordGenerationSubmitted(scope.userId, "image", id);
     const result = await generate({ onMidjourneyTaskAccepted: onAccepted, onProviderTaskAccepted: onAccepted,
       onDefiniteFailure: () => { definiteFailure = true; },
       storeCandidates: (candidates, meta) => { settlementStarted = true; return finish(scope, id, candidates, meta); } });
@@ -134,6 +134,17 @@ export async function runModuleImageTask<T extends { status: string; error?: str
     return result;
   } catch (error) {
     // Keep the durable claim even when saving a receipt or final response fails.
+    await mutateModuleImageTasks(scope, tasks => {
+      const task = tasks.find(t => t.id === id);
+      if (!task || task.status !== "preparing") return;
+      if (acceptedId) {
+        task.providerTaskId = acceptedId;
+        task.status = "accepted";
+      } else {
+        task.status = "unknown";
+        task.error = "尚未取得图片任务号，受理结果待核对。";
+      }
+    }).catch(() => console.warn("[book-image] task state persistence unavailable"));
     if (acceptedId && isLegnextReceipt(acceptedId)) followAcceptedBookImage(scope, id);
     // No lease expiry or browser retry is allowed to turn it into another POST.
     return { status: "error" as const, error: error instanceof Error ? error.message : "任务状态保存失败",

@@ -11,12 +11,43 @@ import { assignStoryImageToShot } from "../repositories/images";
 import { insertChapter } from "../repositories/chapters";
 import { artSystemsRouter } from "../routers/artSystems";
 import { appRouter } from "../routers";
-import { openPreviewCoverCopy } from "./previewCoverCopy";
+import { openPreviewCoverCopy, preparePreviewCoverCopy } from "./previewCoverCopy";
+import * as referenceHost from "./publicReferenceHost";
 
 const upload = vi.hoisted(() => vi.fn());
 vi.mock("./videoTransition302", async original => ({ ...await original<typeof import("./videoTransition302")>(), uploadFileTo302: upload }));
 const saved = { appOrigin: ENV.appOrigin, cookieSecret: ENV.cookieSecret, databaseUrl: ENV.databaseUrl };
 afterEach(() => { Object.assign(ENV, saved); vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
+
+it("falls back after an unreadable OSS thumbnail and verifies the same reduced bytes on 302", async () => {
+  vi.stubEnv("DISABLE_AUTH", "false");
+  Object.assign(ENV, { databaseUrl: "", cookieSecret: randomUUID() });
+  const author = await account("thumbnail-fallback");
+  const story = await createStory({ userId: author.id, title: "Fixture", body: {} });
+  const bytes = await sharp({ create: { width: 120, height: 80, channels: 3, background: "red" } }).png().toBuffer();
+  const source = "data:image/png;base64," + bytes.toString("base64");
+  const image = await createGeneratedImage({ storyId: story.id, userId: author.id, imageUrl: source });
+  const scope = { storyId: story.id, userId: author.id, imageId: image.id, roundId: randomUUID() };
+  const config = vi.spyOn(referenceHost, "ossConfigFromEnv").mockReturnValue({ bucket: "test", region: "test", accessKeyId: "fixture", accessKeySecret: "fixture" });
+  const put = vi.spyOn(referenceHost, "putPublicReference").mockResolvedValue("https://objects.example.test/thumbnail.jpg");
+  try {
+    let thumbnail: Buffer | undefined;
+    upload.mockImplementation(async input => { thumbnail = input.bytes; return "https://file.302.ai/test.jpg"; });
+    const get = vi.fn(async () => new Response(new Uint8Array(thumbnail ?? [0]), { headers: { "content-type": "image/jpeg" } }));
+    vi.stubGlobal("fetch", get);
+    await preparePreviewCoverCopy(scope);
+    expect(put).not.toHaveBeenCalled();
+    get.mockClear();
+    thumbnail = undefined;
+    const receipt = await preparePreviewCoverCopy({ ...scope, allowPublicHosting: true });
+    expect((await openPreviewCoverCopy(receipt, scope)).url).toMatch(/^https:\/\/file\.302/);
+    expect(get).toHaveBeenCalledTimes(2);
+    expect(put.mock.calls[0][0].bytes).toEqual(thumbnail);
+    expect((await sharp(thumbnail).metadata()).width).toBe(60);
+    get.mockImplementation(async () => new Response(null, { status: 503 }));
+    await expect(preparePreviewCoverCopy(scope)).rejects.toThrow("本次没有提交生成");
+  } finally { config.mockRestore(); put.mockRestore(); upload.mockReset(); }
+});
 
 async function account(name: string) {
   const openId = `email:${name}@example.invalid`;
@@ -97,18 +128,21 @@ it("uses separate signed-in authors' books and prepares only the explicitly auth
     const current = await getStoryById(alice.id, a.id);
     await updateStory(alice.id, a.id, { body: { ...(current!.body as object),
       artDirection: { recipe: { version: 2, system: { name: "Film", confirmedAt: 1, filmStyleImageId: style.id } } } } });
-    expect(await a.caller.previewArtBasis({ storyId: alice.id })).toMatchObject({ coverImageId: image.id, filmStyleImageId: style.id, needsCoverCopy: false });
+    expect(await a.caller.previewArtBasis({ storyId: alice.id })).toMatchObject({
+      coverImageId: image.id, filmStyleImageId: style.id, needsCoverCopy: true, styleCopyImageId: style.id });
+    await expect(a.caller.previewPlan({ ...plan, operationToken: randomUUID() })).rejects.toThrow("画风参考");
+    upload.mockImplementation(async ({ bytes }) => { copy = Buffer.from(bytes); return "https://file.302.ai/style-copy.jpg"; });
     async function checkRequest(composition?: string, explicitId?: number) {
       const before = render.mock.calls.length;
-      const next = await a.caller.previewPlan({ ...plan, imageId: explicitId, operationToken: randomUUID() });
+      const next = await a.caller.previewPlan({ ...plan, imageId: explicitId, coverCopyImageId: style.id, operationToken: randomUUID() });
       expect(next.coverRole).toBe(explicitId ? undefined : "source-only");
       await appRouter.createCaller(a.ctx).storyAgent.generateForMobile({ storyId: alice.id, previewBatchId: next.id,
         shotNo: 1, costConfirmation: { accepted: true, estimatedCny: 0.68 } });
       expect(render).toHaveBeenCalledTimes(before + 1);
       const args = render.mock.lastCall![2];
-      expect(args?.referenceImageUrl).toBe(composition);
-      expect(args?.styleRef).toBe(style.imageUrl);
-      expect(JSON.stringify(args)).not.toMatch(/wechat-import|synth.jpg/);
+      expect(args?.referenceImageUrl).toBe(explicitId === style.id ? args?.styleRef : composition);
+      expect(args?.styleRef).toContain("style-copy.jpg");
+      expect(args?.styleRef).not.toMatch(/wechat-import|data:image|synth\.jpg/);
     }
     await checkRequest();
     const frameUrl = "data:image/jpeg;base64," + original.toString("base64");
@@ -116,6 +150,6 @@ it("uses separate signed-in authors' books and prepares only the explicitly auth
     await assignStoryImageToShot({ storyId: alice.id, userId: a.id, imageId: frame.id, shotNo: "SH01", shotIdentity: shot.stableShotId });
     await checkRequest(frame.imageUrl);
     await checkRequest(style.imageUrl, style.id);
-    expect(upload).toHaveBeenCalledTimes(1);
+    expect(upload.mock.calls.length).toBeGreaterThan(1);
   } finally { render.mockRestore(); }
 });

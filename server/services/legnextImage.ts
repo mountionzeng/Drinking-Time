@@ -1,4 +1,5 @@
 import { legnextReferenceImage } from "./legnextReferenceImage";
+import { withDeadline } from "./providerDeadline";
 import { downloadLegnextImage } from "./legnextImageDownload";
 import { createHash } from "node:crypto";
 import { assertComputeRequestAccess } from "./computeRequestAccess";
@@ -25,9 +26,9 @@ export async function resumeLegnextImage(id: string, editMode?: "retexture"): Pr
   const jobId = id.slice(PREFIX.length);
   if (!isLegnextReceipt(id) || !/^[a-f0-9-]{36}$/i.test(jobId)) return { status: "error", message: "图片任务标识无效" };
   try {
-    const response = await fetch(`${BASE}/v1/job/${jobId}`, { redirect: "error", signal: AbortSignal.timeout(15_000) });
-    if (!response.ok) return pending(id);
-    const task = await response.json();
+    const task = await withDeadline(fetch(`${BASE}/v1/job/${jobId}`, { redirect: "error", signal: AbortSignal.timeout(15_000) })
+      .then(response => response.ok ? response.json() : null), 15_000, "job lookup timed out");
+    if (!task) return pending(id);
     const job = parseLegnextJob(task, editMode);
     if (job.kind === "failed") {
       const providerError = job.providerError;
@@ -80,7 +81,9 @@ export function isPlainAsciiPrompt(text: string) {
 }
 
 /** `inlinePoll: false` returns right after the receipt is durable; the image task worker fetches the result. */
-export type LegnextOptions = { editMode?: "retexture"; inlinePoll?: boolean; aspectRatio?: string; referenceImageUrl?: string; referenceContextImageUrls?: string[]; characterRef?: string; styleRef?: string; characterWeight?: number; imageWeight?: number };
+export type LegnextOptions = { editMode?: "retexture"; inlinePoll?: boolean; aspectRatio?: string; referenceImageUrl?: string; referenceContextImageUrls?: string[]; characterRef?: string; styleRef?: string; characterWeight?: number; imageWeight?: number; submitTimeoutMs?: number };
+const DEFAULT_SUBMIT_TIMEOUT_MS = 45_000;
+
 export async function generateLegnextImage(text: string, onAccepted: (id: string) => Promise<void>, options: LegnextOptions = {}): Promise<ImageGenResult> {
   const key = process.env.LEGNEXT_API_KEY?.trim();
   if (!key) return { status: "error", message: "MJ 新供应商尚未配置，请联系管理员。" };
@@ -102,11 +105,12 @@ export async function generateLegnextImage(text: string, onAccepted: (id: string
     const sources = [...new Set([...refs, options.characterRef, options.styleRef].filter((v): v is string => Boolean(v)))];
     // One image commonly supplies both composition and style. Upload it once,
     // and prepare distinct references concurrently before the single paid POST.
-    const uploaded = new Map(await Promise.all(sources.map(async source => {
+    const submitTimeoutMs = Math.max(1, options.submitTimeoutMs ?? DEFAULT_SUBMIT_TIMEOUT_MS);
+    const uploaded = new Map(await withDeadline(Promise.all(sources.map(async source => {
       const url = await legnextReferenceImage(source);
       if (!url || !/^https:\/\//i.test(url)) throw new Error("参考图上传未返回可读取的 HTTPS 地址");
       return [source, url] as const;
-    })));
+    })), submitTimeoutMs, "legnext reference prepare timed out"));
     if (retexture) baseImageUrl = uploaded.get(options.referenceImageUrl!);
     if (!retexture) {
     prompt = legnextDiffusionPrompt({
@@ -119,32 +123,43 @@ export async function generateLegnextImage(text: string, onAccepted: (id: string
       styleRefUrl: options.styleRef ? uploaded.get(options.styleRef) : undefined,
     });
     }
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("timed out"))
+      console.error("[generateLegnextImage] reference prepare timed out; paid request not sent");
     return { status: "error", message: "参考图暂时无法上传到模型可读取的位置，请稍后重试。本次没有提交图片任务。" };
   }
   if (prompt.length > LEGNEXT_MAX_PROMPT_CHARS) return { status: "error", message: "图片描述过长，请缩短后再试。" };
   await assertComputeRequestAccess();
   let receipt: string | undefined;
+  const submitTimeoutMs = Math.max(1, options.submitTimeoutMs ?? DEFAULT_SUBMIT_TIMEOUT_MS);
   try {
     // Exactly one POST. Network errors and malformed receipts are not permission to buy again.
+    // AbortSignal.timeout can fail to reject through the local HTTP proxy; a
+    // Promise.race deadline still returns to the client if fetch hangs.
     const request = retexture ? { url: `${BASE}/v1/retexture`, body: { imgUrl: baseImageUrl, remixPrompt: prompt } } : buildLegnextDiffusionRequest(prompt);
-    const response = await fetch(request.url, {
+    const submission = fetch(request.url, {
       method: "POST", headers: { "x-api-key": key, "content-type": "application/json" },
-      body: JSON.stringify(request.body), redirect: "error", signal: AbortSignal.timeout(45_000),
+      body: JSON.stringify(request.body), redirect: "error", signal: AbortSignal.timeout(submitTimeoutMs),
+    }).then(async response => {
+      const body = await response.json().catch(() => null);
+      const accepted = parseLegnextSubmit(body);
+      // A delayed response can arrive after the caller timed out. Persist its
+      // receipt against this same operation before allowing a status lookup.
+      if (accepted) {
+        receipt = accepted.receipt;
+        await onAccepted(accepted.receipt);
+      }
+      return { status: response.status, body, accepted };
     });
-    // Error responses can still contain a real job. Preserve that receipt before
-    // interpreting HTTP status, so recovery queries it instead of losing the task.
-    const body = await response.json().catch(() => null);
-    const accepted = parseLegnextSubmit(body);
-    if (!accepted) {
-      if ((LEGNEXT_REFUSAL_STATUSES as readonly number[]).includes(response.status)) {
-        const providerError = providerErrorFromBody("legnext", body, response.status);
+    const reply = await withDeadline(submission, submitTimeoutMs, "legnext submit timed out");
+    if (!reply.accepted) {
+      if ((LEGNEXT_REFUSAL_STATUSES as readonly number[]).includes(reply.status)) {
+        const providerError = providerErrorFromBody("legnext", reply.body, reply.status);
         return { status: "error", providerError, message: `MJ 供应商拒绝请求（${shortProviderReason(providerError)}），请联系管理员核对。` };
       }
       throw new Error("unknown");
     }
-    receipt = accepted.receipt;
-    await onAccepted(receipt); // Durable before the first poll.
+    receipt = reply.accepted.receipt;
     if (options.inlinePoll === false) return pending(receipt);
     const deadline = Date.now() + 90_000;
     for (let attempt = 0; attempt < 12 && Date.now() < deadline; attempt++) {
@@ -153,7 +168,9 @@ export async function generateLegnextImage(text: string, onAccepted: (id: string
       await new Promise(resolve => setTimeout(resolve, 5_000));
     }
     return pending(receipt);
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("timed out"))
+      console.error("[generateLegnextImage] paid submit timed out; receipt not confirmed");
     return receipt ? pending(receipt) : { status: "error", submissionUncertain: true, message: "图片提交结果暂未确认，请勿重复生成；请联系支持核对。" };
   }
 }

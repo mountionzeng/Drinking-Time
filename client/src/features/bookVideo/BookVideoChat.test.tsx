@@ -146,7 +146,8 @@ beforeEach(() => {
   api.activeStoryId = 1;
   api.propose.mockResolvedValue(record);
 });
-function render(onAdopt = vi.fn().mockResolvedValue(undefined)) {
+const directory = { host: {} as HTMLDivElement, dismiss: vi.fn() };
+function render(onAdopt = vi.fn().mockResolvedValue(undefined), target: typeof directory | null = directory) {
   api.cursor = 0;
   return renderToStaticMarkup(
     <BookVideoChat
@@ -154,13 +155,18 @@ function render(onAdopt = vi.fn().mockResolvedValue(undefined)) {
       accountId={9}
       epoch={1}
       session={null}
+      directory={target}
       handle={{ current: null }}
       onAdopt={onAdopt}
     />
   );
 }
-it("keeps the confirmation and conditions visible after discussion is closed", () => {
+it("shows saved versions and next actions only inside the directory", () => {
+  const closed = render(undefined, null);
+  expect(closed).not.toContain("打开方案与参数");
+  expect(closed).not.toContain("视频制作下一步");
   const html = render();
+  expect(html).toContain("打开方案与参数");
   expect(html).toContain("视频制作下一步");
   expect(html).toContain("确认方向，整理分镜");
   expect(html).toContain("5秒");
@@ -291,6 +297,7 @@ function openSession() {
         layout: record.layout,
       }}
       handle={handle}
+      directory={null}
       onAdopt={vi.fn()}
     />
   );
@@ -298,7 +305,10 @@ function openSession() {
   return handle.current!;
 }
 it("flushes live writing and checks the confirmed storyboard before proposing", async () => {
-  expect(await openSession().submit("把修伞的故事做成视频")).toBe(true);
+  const onReply = vi.fn();
+  expect(await openSession().submit("把修伞的故事做成视频", onReply)).toBe(true);
+  expect(onReply).toHaveBeenCalledOnce();
+  expect(onReply).toHaveBeenCalledWith(record);
   expect(api.flush).toHaveBeenCalledWith(1, 9);
   expect(api.workflow).toHaveBeenCalledWith({ storyId: 1 });
   expect(api.flush.mock.invocationCallOrder[0]).toBeLessThan(api.workflow.mock.invocationCallOrder[0]);
@@ -383,12 +393,20 @@ it("shows the latest review in the desktop video surface without generation or a
   expect(api.generate).not.toHaveBeenCalled();
   expect(api.adopt).not.toHaveBeenCalled();
 });
-it("the chat entry opens the same desktop review without purchasing or adopting", () => {
+it("closes the directory and keeps the chosen review after its history is hidden", () => {
   desktop();
+  api.records.push({ ...record, id: "record2", request: "另一版" });
   const ui = capture();
   try {
     ui.redraw();
-    ui.button("打开方案与参数").onClick();
+    const plans = ui.nodes.filter(node => node.type === "button" && node.children.includes("打开方案与参数"));
+    plans[1].props.onClick();
+    expect(directory.dismiss).toHaveBeenCalledOnce();
+    ui.nodes.length = 0;
+    expect(render(undefined, null)).not.toContain("打开方案与参数");
+    expect(ui.field("分镜方案版本").value).toBe("record1");
+    ui.redraw();
+    expect(ui.field("分镜方案版本").value).toBe("record1");
     expect(api.workspace.openReview).toHaveBeenCalledOnce();
     expect(api.generate).not.toHaveBeenCalled();
     expect(api.adopt).not.toHaveBeenCalled();

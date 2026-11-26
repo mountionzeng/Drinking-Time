@@ -123,6 +123,25 @@ it("gives different owners and projects independent zero-cost object readings ev
   }
   expect(keys.size).toBe(3); expect(scopes.size).toBe(3); expect(mocks.infer).not.toHaveBeenCalled();
 });
+
+it("reads the linked shot's picture field, skipping other headings, shots and old video context", async () => {
+  const scope = await fixture();
+  const {insertChapter} = await import("../repositories/chapters");
+  const {updateStory} = await import("../repositories/stories");
+  const lines = ["序章", "画面提示词", "第10秒，从合影直接切到城墙画面，缓缓推近。", "屏幕文字：九月", "音效提示词：风声", "另一镜", "画面提示词：雪山"];
+  const rows = lines.map((_, i) => ({ id: "row"+i, format: i===0 || i===5 ? "shot" as const : "text" as const,
+    lineCount:1, parentId: i===0 || i===5 ? null : i===6 ? "row5" : "row0", collapsed:false }));
+  const chapter = await insertChapter({...scope,content:{title:"合成场景",layout:null,blocks:{body:lines.join("\n"),writingStyle:rows,blockIds:rows.map(r=>r.id),
+    containsAiText:false, settings:null,coverKey:null,bodyTextureKey:null,images:{},illustrations:[]}}});
+  await updateStory(scope.storyId, scope.userId, {body:{shots:[{stableShotId:"stage",shotNo:1,subject:"旧码头",action:"旧船",wardrobeReference:"灰帽子",
+    publishingVideo:{draftShotId:"book-shot-"+chapter.id+"-row0",sourceModuleIds:rows.slice(0,5).map(r=>chapter.id+":"+r.id)}}]}});
+  expect(await sceneReadingBasis(scope)).toMatchObject({source:"城墙画面",shotText:"城墙画面",facts:"灰帽子"});
+  const quote = await quoteSceneReading(scope);
+  await analyzeShotScene({...scope,...quote});
+  const messages = JSON.stringify(mocks.infer.mock.calls[0][0].messages.at(-1));
+  expect(messages).toContain("城墙画面");
+  expect(messages).not.toMatch(/合影|序章|雪山|九月|风声|旧船|旧码头|推近|提示词/);
+});
 it("keeps failed or malformed readings out of render inputs and rejects replay of a spent quote", async () => {
   const scope = await fixture(); const quote = await quoteSceneReading(scope);
   mocks.infer.mockResolvedValueOnce({ result: { choices: [] } });
@@ -130,6 +149,11 @@ it("keeps failed or malformed readings out of render inputs and rejects replay o
   await expect(analyzeShotScene({ ...scope, ...quote })).rejects.toThrow("报价");
   expect(mocks.infer).toHaveBeenCalledTimes(1);
   expect((await sceneReadingBasis(scope)).confirmed).toBe("");
+  expect(await quoteSceneReading(scope)).toMatchObject({ unfinished: true });
+  const basis = await sceneReadingBasis(scope);
+  await confirmShotScene({ ...scope, basisKey: basis.basisKey, text: "阳台上的舞者向下面的骑行者挥手。" });
+  expect((await sceneReadingBasis(scope)).confirmed).toContain("舞者");
+  expect(await quoteSceneReading(scope)).toMatchObject({ unfinished: false });
   expect(prepareStoryBody({ shotSceneDirections: ["forged"] }, 1, {})).not.toHaveProperty("shotSceneDirections");
 });
 it("routes text alone to the priced multimodal model if the text chain is unpriced", async () => {
@@ -172,4 +196,40 @@ it("uses each source version once, including a re-opened image after a new direc
   mocks.price.mockReturnValue({ priced: true, yuanPer1kTokens: .04 });
   await expect(readSceneForRender(scope, { ...source, ...fresh })).rejects.toThrow("报价");
   expect(mocks.infer).toHaveBeenCalledTimes(2);
+});
+
+it("parses a layout even when the model prefixes a JSON number", async () => {
+  const scope = await fixture();
+  const req = { ...scope, imageId: 11 };
+  mocks.infer.mockResolvedValueOnce({ result: { choices: [{ message: { content:
+    "```json\n2\n```\n" + JSON.stringify(layout) } }] } });
+  const read = await analyzeShotScene({ ...req, ...await quoteSceneReading(req) });
+  expect(read).toMatchObject({ observed: layout.observed, people: layout.people });
+  expect(mocks.infer).toHaveBeenCalledTimes(1);
+});
+
+it("continues render from a confirmed schedule if analysis only returns a number", async () => {
+  const scope = await fixture();
+  mocks.infer.mockResolvedValueOnce({ result: { choices: [{ message: { content: "2" } }] } });
+  const failed = await quoteSceneReading(scope);
+  await expect(analyzeShotScene({ ...scope, ...failed })).rejects.toThrow("未完成");
+  const basis = await sceneReadingBasis(scope);
+  await confirmShotScene({ ...scope, basisKey: basis.basisKey, text: "阳台上的舞者向下面的骑行者挥手。" });
+  const quote = await quoteSceneReading(scope);
+  mocks.infer.mockResolvedValueOnce({ result: { choices: [{ message: { content: "2" } }] } });
+  const prompt = await readSceneForRender(scope, { ...scope, ...quote });
+  expect(prompt).toContain("舞者");
+  expect(prompt).toContain("striped coat");
+});
+it("keeps an upstream failure out of automatic text fallback", async () => {
+  const scope = await fixture();
+  const quote = await quoteSceneReading(scope);
+  mocks.infer.mockRejectedValueOnce(new Error("transport failure"));
+  await expect(readSceneForRender(scope, { ...scope, ...quote })).rejects.toThrow("图片尚未提交生成");
+});
+it("continues render from shot source text if a first analysis is only a number", async () => {
+  const scope = await fixture();
+  mocks.infer.mockResolvedValueOnce({ result: { choices: [{ message: { content: "2" } }] } });
+  const prompt = await readSceneForRender(scope, { ...scope, ...await quoteSceneReading(scope) });
+  expect(prompt).toContain("striped coat");
 });

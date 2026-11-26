@@ -66,7 +66,7 @@ it('undoes a cross-scene shot move with all children and classification in one s
  const draw=()=>nodes(render(()=>ChapterTextModules({value,writingStyle:style,onChange:next=>{value=next;},onFormattedChange:(next,s)=>{value=next;style=s;},disabled:false,selection:{current:null}}))).find(n=>n.type===BookBlockCanvas).props;
  let canvas=draw();canvas.onCommit(moveWritingBlock(canvas.blocks,'shot','s1','inside'),'shot',false);canvas=draw();
  expect(canvas.blocks.find((b:WritingBlock)=>b.id==='shot').parentId).toBe('s1');
- textField(canvas,0).onKeyDown({key:'z',ctrlKey:true,nativeEvent:{},currentTarget:{selectionStart:0,selectionEnd:0},preventDefault:vi.fn()});
+ textField(canvas,0).onKeyDown({key:'z',ctrlKey:true,nativeEvent:{},currentTarget:{dataset: {}, selectionStart:0,selectionEnd:0},preventDefault:vi.fn()});
  hooks.refs.forEach(ref=>{if(ref?.current?.start!==undefined)ref.current=null;});canvas=draw();
  expect(canvas.blocks).toEqual(initial);
 });
@@ -101,7 +101,7 @@ it('inserts multiple uploaded images at the captured cursor as one undoable edit
   tree = draw();
   expect(value).toBe('甲乙\n![图片](/api/images/a.png)\n![图片](/api/images/b.png)\n丙丁\n尾段');
   const canvas = tree.find(node => node.type === BookBlockCanvas).props;
-  textField(canvas, 0).onKeyDown({ key: 'z', ctrlKey: true, nativeEvent: {}, currentTarget: { selectionStart: 0, selectionEnd: 0 }, preventDefault: vi.fn() });
+  textField(canvas, 0).onKeyDown({ key: 'z', ctrlKey: true, nativeEvent: {}, currentTarget: { dataset: {}, selectionStart: 0, selectionEnd: 0 }, preventDefault: vi.fn() });
   hooks.refs.forEach(ref => { if (ref?.current?.start !== undefined) ref.current = null; });
   draw();
   expect(value).toBe('甲乙丙丁\n尾段');
@@ -120,7 +120,7 @@ it('applies a captured chat rewrite through the editor undo flow, not the later 
   canvas=draw();
   expect(value).toBe('前文\n新中文\nNew English\n后文');
   expect(()=>useBookModuleActions.getState().session!.replaceRewrite!(target,'重复')).toThrow('原文已变化');
-  textField(canvas,1).onKeyDown({key:'z',ctrlKey:true,nativeEvent:{},currentTarget:{selectionStart:0,selectionEnd:0},preventDefault:vi.fn()});
+  textField(canvas,1).onKeyDown({key:'z',ctrlKey:true,nativeEvent:{},currentTarget:{dataset: {}, selectionStart:0,selectionEnd:0},preventDefault:vi.fn()});
   hooks.refs.forEach(ref=>{if(ref?.current?.start!==undefined)ref.current=null;});
   draw();
   expect(value).toBe('前文\n中文原文\nEnglish original\n后文');
@@ -138,7 +138,7 @@ it('tracks focus, typing, Enter and canvas selection through the existing contex
   };
   let canvas = draw();
   const field = (index: number) => textField(canvas, index);
-  field(2).onFocus({ currentTarget: { selectionStart: 1, selectionEnd: 1 } });
+  field(2).onFocus({ currentTarget: { dataset: {}, selectionStart: 1, selectionEnd: 1 } });
   canvas = draw();
   expect(onContextChange.mock.lastCall?.[0]).toMatchObject({ text: '重复', line: { position: { index: 2 } } });
   const id = canvas.activeId;
@@ -146,12 +146,13 @@ it('tracks focus, typing, Enter and canvas selection through the existing contex
   canvas = draw();
   expect(onContextChange.mock.lastCall?.[0]).toMatchObject({ moduleId: id, text: '最新输入' });
   // Moving focus to chat does not call any deselection handler on the editor.
-  expect(field(2).onBlur).toBeUndefined();
+  field(2).onBlur(); canvas = draw();
+  expect(canvas.activeId).toBe(id);
   canvas.onSelect(canvas.blocks[0].id); canvas = draw();
   expect(onContextChange.mock.lastCall?.[0]?.text).toBe('第一段');
   canvas.onSelect(null); canvas = draw();
   expect(onContextChange.mock.lastCall?.[0]).toBeNull();
-  const blurredField = { selectionStart: 0, selectionEnd: 2, ownerDocument: { activeElement: null } };
+  const blurredField = { dataset: {}, selectionStart: 0, selectionEnd: 2, ownerDocument: { activeElement: null } };
   field(0).onSelect({ currentTarget: blurredField }); canvas = draw();
   expect(onContextChange.mock.lastCall?.[0]).toBeNull();
   expect(selection.current).toBeNull();
@@ -160,7 +161,7 @@ it('tracks focus, typing, Enter and canvas selection through the existing contex
   field(0).onSelect({ currentTarget: focusedField }); canvas = draw();
   expect(onContextChange.mock.lastCall?.[0]?.text).toBe('第一段');
   expect(selection.current).toEqual({ start: 0, end: 2 });
-  field(1).onKeyDown({ key: 'Enter', nativeEvent: {}, currentTarget: { selectionStart: 1, selectionEnd: 1 }, preventDefault: vi.fn() });
+  field(1).onKeyDown({ key: 'Enter', nativeEvent: {}, currentTarget: { dataset: {}, selectionStart: 1, selectionEnd: 1 }, preventDefault: vi.fn() });
   // Avoid DOM focus in the hook harness; the browser check covers real focus restoration.
   hooks.refs.forEach(ref => { if (ref?.current?.start !== undefined) ref.current = null; });
   canvas = draw();
@@ -206,7 +207,7 @@ it('keeps block identity, heading format, undo and chat target while editing bes
   expect(value).toBe('标题\n绿色纸船');
   expect(onContextChange.mock.lastCall?.[0]).toMatchObject({moduleId:id,text:'绿色纸船'});
   field = nodes(tree).find(node => node.type === 'textarea' && node.props['aria-label'] === '文字模块 2').props;
-  field.onKeyDown({key:'z',ctrlKey:true,nativeEvent:{},currentTarget:{selectionStart:4,selectionEnd:4},preventDefault:vi.fn()});
+  field.onKeyDown({key:'z',ctrlKey:true,nativeEvent:{},currentTarget:{dataset: {}, selectionStart:4,selectionEnd:4},preventDefault:vi.fn()});
   hooks.refs.forEach(ref => { if (ref?.current?.start !== undefined) ref.current = null; });
   compare = false; tree = draw();
   canvas = nodes(tree).find(node => node.type === BookBlockCanvas).props;
@@ -220,7 +221,7 @@ it('canvas format focus, drag and resize select the same block; blank paper clea
   const onSelect = vi.fn(), onCommit = vi.fn();
   const tree = render(() => BookBlockCanvas({ blocks: [block], disabled: false, activeId: block.id, onSelect, onCommit, children: () => null }));
   const all = nodes(tree);
-  all.find(node => node.props?.['data-book-block']).props.onFocusCapture();
+  all.find(node => node.props?.['data-book-block']).props.onFocusCapture({target:{dataset:{}}});
   expect(onSelect).toHaveBeenLastCalledWith(block.id);
   const button = all.find(node => node.props?.['aria-label'] === '模块 1 右下角缩放').props;
   const event = { button: 0, pointerId: 1, clientX: 10, clientY: 20, preventDefault: vi.fn(), stopPropagation: vi.fn(), currentTarget: { focus: vi.fn(), setPointerCapture: vi.fn() } };
@@ -266,7 +267,7 @@ it('marquee from the page gutter exposes a shared resize handle and reports the 
   const draw=()=>render(()=>BookBlockCanvas({blocks,disabled:false,activeId:null,onSelect:vi.fn(),onSelectionChange,onCommit,children:()=>null}));
   let tree=draw();
   let canvas=nodes(tree).find(node=>node.props?.['aria-label']==='书页');
-  canvas.props.ref.current={focus:vi.fn(),setPointerCapture:vi.fn(),getBoundingClientRect:()=>({left:0,top:0}),querySelectorAll:(selector:string)=>selector==='[data-book-math-preview]'?[]:blocks.map((block,i)=>({dataset:{bookBlock:block.id},getBoundingClientRect:()=>({left:20,right:200,top:50+i*70,bottom:100+i*70})}))};
+  canvas.props.ref.current={focus:vi.fn(),setPointerCapture:vi.fn(),getBoundingClientRect:()=>({left:0,top:0}),querySelectorAll:(selector:string)=>selector!=='[data-book-block]'?[]:blocks.map((block,i)=>({dataset:{bookBlock:block.id},getBoundingClientRect:()=>({left:20,right:200,top:50+i*70,bottom:100+i*70})}))};
   const event={button:0,pointerId:1,pointerType:'mouse',clientX:5,clientY:40,target:{closest:()=>null},preventDefault:vi.fn(),stopPropagation:vi.fn(),currentTarget:{focus:vi.fn()}};
   nodes(tree).find(node=>node.props?.['aria-label']==='文章缩放视图').props.onPointerDown(event);
   canvas.props.onPointerMove({...event,clientX:210,clientY:175}); canvas.props.onPointerUp(event);
@@ -287,7 +288,7 @@ it('forwards multiselection from canvas to the writing conversation and returns 
   expect(onContextChange.mock.lastCall?.[0].selection.count).toBe(2);
   expect(onContextChange.mock.lastCall?.[0].text).toContain('第二块');
   canvas=nodes(tree).find(node=>node.type===BookBlockCanvas).props;
-  textField(canvas,0).onFocus({currentTarget:{selectionStart:0,selectionEnd:0}});draw();
+  textField(canvas,0).onFocus({currentTarget:{dataset: {}, selectionStart:0,selectionEnd:0}});draw();
   expect(onContextChange.mock.lastCall?.[0].selection).toBeUndefined();
   expect(onContextChange.mock.lastCall?.[0].text).toBe('第一块');
 });
@@ -330,9 +331,9 @@ it('editing a merged multiline module preserves its boundary, context, saving an
  textField(canvas,0).onChange({currentTarget:{value:'甲改\n\n乙',selectionStart:2}});
  canvas=draw();expect(canvas.blocks).toHaveLength(2);expect(context.mock.lastCall?.[0].text).toBe('甲改\n\n乙');
  expect(restoreStyledBlocks(value,writingStyle).map(b=>b.text)).toEqual(['甲改\n\n乙','尾段']);
- textField(canvas,1).onFocus({currentTarget:{selectionStart:1,selectionEnd:1}});
+ textField(canvas,1).onFocus({currentTarget:{dataset: {}, selectionStart:1,selectionEnd:1}});
  expect(selection.current.start).toBe('甲改\n\n乙\n'.length+1);
- textField(canvas,0).onKeyDown({key:'z',ctrlKey:true,nativeEvent:{},currentTarget:{selectionStart:2,selectionEnd:2},preventDefault:vi.fn()});
+ textField(canvas,0).onKeyDown({key:'z',ctrlKey:true,nativeEvent:{},currentTarget:{dataset: {}, selectionStart:2,selectionEnd:2},preventDefault:vi.fn()});
  hooks.refs.forEach(ref=>{if(ref?.current?.start!==undefined)ref.current=null;});
  canvas=draw();expect(canvas.blocks.map((b:any)=>b.text)).toEqual(['甲\n\n乙','尾段']);
 });
@@ -420,7 +421,7 @@ it('adds text inside an opened imported chapter even if its saved fold flag was 
   let tree = draw();
   const canvas = nodes(tree).find(node => node.type === BookBlockCanvas).props;
   const field = textField(canvas, 0);
-  field.onKeyDown({ key: 'Enter', nativeEvent: {}, currentTarget: { selectionStart: 5, selectionEnd: 5 }, preventDefault: vi.fn() });
+  field.onKeyDown({ key: 'Enter', nativeEvent: {}, currentTarget: { dataset: {}, selectionStart: 5, selectionEnd: 5 }, preventDefault: vi.fn() });
   hooks.refs.forEach(ref => { if (ref?.current?.start !== undefined) ref.current = null; });
   tree = draw();
   const after = nodes(tree).find(node => node.type === BookBlockCanvas).props.blocks;
@@ -557,7 +558,7 @@ it('dragging the highlighted handle moves the entire selection without opening i
  const blocks=['一','二','三'].map(text=>newWritingBlock(text)),ids=blocks.slice(0,2).map(b=>b.id),commit=vi.fn();
  const draw=()=>nodes(render(()=>BookBlockCanvas({blocks,disabled:false,activeId:null,onSelect:vi.fn(),onCommit:commit,textSelectionIds:ids,children:()=>null})));
  draw();let tree=draw();const canvas=tree.find(n=>n.props?.['aria-label']==='书页');
- canvas.props.ref.current={setPointerCapture:vi.fn(),querySelectorAll:(selector:string)=>selector==='[data-book-math-preview]'?[]:blocks.map((b,i)=>({dataset:{bookBlock:b.id},getBoundingClientRect:()=>({left:20,right:200,top:50+i*70,bottom:100+i*70})}))};
+ canvas.props.ref.current={setPointerCapture:vi.fn(),querySelectorAll:(selector:string)=>selector!=='[data-book-block]'?[]:blocks.map((b,i)=>({dataset:{bookBlock:b.id},getBoundingClientRect:()=>({left:20,right:200,top:50+i*70,bottom:100+i*70})}))};
  const event={button:0,pointerId:1,clientX:30,clientY:60,preventDefault:vi.fn(),stopPropagation:vi.fn(),currentTarget:{focus:vi.fn()}};
  tree.find(n=>n.props?.['aria-label']==='拖动模块 1').props.onPointerDown(event);
  canvas.props.onPointerMove({...event,clientY:250});canvas.props.onPointerUp({...event,clientY:250});tree=draw();
@@ -575,6 +576,30 @@ it.each(['Delete','Backspace'])('deletes an active module with %s in one undoabl
  expect(commit.mock.calls[0][2]).toBe(false);
  expect(select).toHaveBeenLastCalledWith(null);
  expect(event.preventDefault).toHaveBeenCalled();expect(event.stopPropagation).toHaveBeenCalled();
+});
+
+it('selects the actual image from its shot thumbnail before keyboard deletion',()=>{
+ const shot = {...newWritingBlock('镜头'),format:'shot' as const};
+ const image = newWritingBlock('![图片](/api/images/a.png)',shot.id);
+ const prose = newWritingBlock('保留文字',shot.id);
+ const blocks = [shot,image,prose], commit = vi.fn(), select = vi.fn();
+ const draw = () => nodes(render(()=>BookBlockCanvas({blocks,disabled:false,activeId:shot.id,onSelect:select,onCommit:commit,children:()=>null})));
+ let tree = draw();
+ const thumb = tree.find(node=>node.props?.['data-book-image-ref']===image.id);
+ tree.find(node=>node.props?.['data-book-block']===shot.id).props.onFocusCapture({target:{dataset:{bookImageRef:thumb.props['data-book-image-ref']}}});
+ expect(select).toHaveBeenLastCalledWith(image.id);
+ tree = draw();
+ tree.find(node=>node.props?.['aria-label']==='书页').props.onKeyDown({key:'Backspace',nativeEvent:{},target:{closest:()=>null},preventDefault:vi.fn(),stopPropagation:vi.fn()});
+ expect(commit).toHaveBeenCalledOnce();
+ expect(commit.mock.calls[0][0]).toEqual([shot,prose]);
+});
+
+it.each([['Backspace',2,0],['Delete',0,2]] as const)('removes an adjacent inline image with %s and leaves both paragraphs intact',(key,index,cursor)=>{
+ const value='船头\n![图片](/api/images/a.png)\n船尾',change=vi.fn();
+ const canvas=nodes(render(()=>ChapterTextModules({value,onChange:change,disabled:false,selection:{current:null}}))).find(node=>node.type===BookBlockCanvas).props;
+ textField(canvas,index).onKeyDown({key,nativeEvent:{},currentTarget:{dataset:{},selectionStart:cursor,selectionEnd:cursor},preventDefault:vi.fn()});
+ expect(change).toHaveBeenCalledOnce();
+ expect(change).toHaveBeenCalledWith('船头\n船尾');
 });
 
 it.each([false,true])('deletes the selected group, preserving unselected modules or one empty module (all=%s)',all=>{
@@ -601,7 +626,7 @@ it('batch deletion restores every removed module with one undo',()=>{
  const draw=()=>nodes(render(()=>ChapterTextModules({value,onChange:next=>{value=next;},disabled:false,selection:{current:null}}))).find(n=>n.type===BookBlockCanvas).props;
  let canvas=draw();const next=deleteBookBlocks(canvas.blocks,canvas.blocks.slice(0,2).map((b:any)=>b.id));
  canvas.onCommit(next,next[0].id,false);canvas=draw();expect(value).toBe('末段');
- textField(canvas,0).onKeyDown({key:'z',ctrlKey:true,nativeEvent:{},currentTarget:{selectionStart:0,selectionEnd:0},preventDefault:vi.fn()});
+ textField(canvas,0).onKeyDown({key:'z',ctrlKey:true,nativeEvent:{},currentTarget:{dataset: {}, selectionStart:0,selectionEnd:0},preventDefault:vi.fn()});
  hooks.refs.forEach(ref=>{if(ref?.current?.start!==undefined)ref.current=null;});draw();expect(value).toBe(original);
 });
 

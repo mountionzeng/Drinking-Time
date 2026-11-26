@@ -6,6 +6,18 @@ vi.mock("./computeRequestAccess", () => ({ assertComputeRequestAccess: m.access 
 import { generateLegnextImage, legnextPrompt, legnextRetexturePrompt, isPlainAsciiPrompt, LEGNEXT_RETEXTURE_MAX_PROMPT_CHARS, resumeLegnextImage } from "./legnextImage";
 const id = "12345678-1234-1234-1234-123456789abc";
 const receipt = `legnext:${id}`;
+it("returns the existing receipt when a status body hangs without aborting", async () => {
+  vi.useFakeTimers();
+  try {
+    const fetcher = vi.fn().mockResolvedValue({ ok: true, json: () => new Promise(() => {}) });
+    vi.stubGlobal("fetch", fetcher);
+    const result = resumeLegnextImage(receipt);
+    await vi.advanceTimersByTimeAsync(15_001);
+    expect(await result).toMatchObject({ errorCode: "timeout_pending", providerTaskId: receipt });
+    expect(fetcher).toHaveBeenCalledOnce();
+    expect(fetcher.mock.calls[0][1].method).toBeUndefined();
+  } finally { vi.useRealTimers(); }
+});
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); vi.resetAllMocks(); });
 it("pins V7 Fast and strips switches that change price", () => {
   expect(legnextPrompt("boat --v 6 --turbo --draft --q 4 --ar 1:1")).toBe("boat --v 7 --fast --ar 3:4");
@@ -268,4 +280,29 @@ it("returns a final reference failure immediately during inline polling", async 
     expect(result.message).toContain("参考图片未能被供应商读取");
     expect(fetcher).toHaveBeenCalledTimes(2);
   } finally { vi.useRealTimers(); }
+});
+
+it("returns when a hanging paid POST ignores AbortSignal", async () => {
+  vi.stubEnv("LEGNEXT_API_KEY", "test");
+  const accepted = vi.fn();
+  const fetcher = vi.fn(() => new Promise(() => {}));
+  vi.stubGlobal("fetch", fetcher);
+  const started = Date.now();
+  const result = await generateLegnextImage("a quiet harbor at dusk", accepted, { submitTimeoutMs: 30, inlinePoll: false });
+  expect(Date.now() - started).toBeLessThan(1_000);
+  expect(result).toMatchObject({ status: "error", submissionUncertain: true });
+  expect(accepted).not.toHaveBeenCalled();
+  expect(fetcher).toHaveBeenCalledOnce();
+});
+it("saves a late receipt to the same operation after reporting an uncertain submit", async () => {
+  vi.stubEnv("LEGNEXT_API_KEY", "test");
+  let complete!: (response: Response) => void;
+  const fetcher = vi.fn(() => new Promise<Response>(resolve => { complete = resolve; }));
+  vi.stubGlobal("fetch", fetcher);
+  const accepted = vi.fn();
+  const result = await generateLegnextImage("harbor", accepted, { submitTimeoutMs: 20, inlinePoll: false });
+  expect(result.submissionUncertain).toBe(true);
+  complete(Response.json({ job_id: id }));
+  await vi.waitFor(() => expect(accepted).toHaveBeenCalledWith(receipt));
+  expect(fetcher).toHaveBeenCalledOnce();
 });

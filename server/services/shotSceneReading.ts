@@ -4,7 +4,7 @@ import { resolveTextPrice } from "../../shared/textComputePricing";
 import { runInference } from "../_core/inferenceOrchestrator";
 import { ENV } from "../_core/env";
 import type { Message } from "../_core/llm";
-import { parseJsonLoose } from "../_core/llmJson";
+import { parseJsonObjectLoose } from "../_core/llmJson";
 import { resolveComputeCandidates } from "../_core/textComputeProvider";
 import { toYuan } from "../../shared/computeMoney";
 import { sceneLayoutSchema, sceneLayoutText, sceneRecords, shotSceneFacts, type SceneAllowance, type SceneLayout, type ShotSceneRecord } from "../../shared/shotSceneDirection";
@@ -22,13 +22,28 @@ import { getImageTaskStore } from "../repositories/imageGenerationTasks";
 import { imageTaskAsyncSubmitEnabled } from "./imageGenerationTaskWorker";
 import { readPreviewResults } from "./artPreview";
 import { getChapter } from "../repositories/chapters";
-import { writingModuleTexts } from "../../shared/bookWritingStyle";
 import { readBookImage } from "../../shared/bookImageBlock";
+import { readBookAudio } from "../../shared/bookAudioBlock";
+import { readBookShotChapter, shotDirections, shotMediaDirections } from "../../shared/bookShotDocument";
 import { visualReadingCandidates } from "./visualEditUnderstanding";
 
 type Scope = { storyId: number; userId: number; stableShotId: string };
 type Input = Scope & { imageId?: number; adjustment?: string; localTargets?: string[] };
 const maxTokens = 2000;
+class InvalidSceneLayout extends Error {}
+
+function readLayout(content: unknown, hasImage: boolean) {
+  const raw = Array.isArray(content) ? content.map(part => typeof part?.text === "string" ? part.text : "").join("\n")
+    : typeof content === "string" ? content : JSON.stringify(content) ?? "";
+  try {
+    const layout = sceneLayoutSchema.parse(parseJsonObjectLoose(raw));
+    if (!layout.people.length && !layout.objects.length) throw new Error("empty-layout");
+    if (!hasImage) layout.observed = "";
+    return layout;
+  } catch (cause) {
+    throw new InvalidSceneLayout("本次分析未完成，请核对原图或手动填写调度。图片尚未提交生成。", { cause });
+  }
+}
 
 function shotSource(input: Scope, body: Record<string, unknown>) {
   const shot = (Array.isArray(body.shots) ? body.shots.map(creationRecord) : []).find(s => s.stableShotId === input.stableShotId);
@@ -44,21 +59,30 @@ async function readingContext(input: Scope) {
   const material = await getStoryMaterialState(input.storyId, input.userId);
   const target = material?.shots.find(s => s.stableShotId === input.stableShotId);
   if (!shot || !material || !target) throw new Error("未找到当前镜头，请重新打开。");
-  const bookSources = creationRecord(shot.publishingVideo).sourceModuleIds;
+  const link = creationRecord(shot.publishingVideo);
+  const bookSources = link.sourceModuleIds;
   const moduleIds = Array.isArray(bookSources) ? bookSources.filter((key): key is string => typeof key === "string") : [];
+  const chapterIds = [...new Set(moduleIds.map(key => Number(key.split(":")[0])).filter(id => Number.isSafeInteger(id) && id > 0))];
+  const chapters = await Promise.all(chapterIds.map(id => getChapter(id, input.userId)));
+  const documents = new Map(chapters.flatMap(chapter => chapter?.storyId === input.storyId
+    ? [[chapter.id, { chapter, doc: readBookShotChapter(chapter) }] as const] : []));
+  const bookShot = [...documents.values()].flatMap(({doc}) => doc.shots).find(s =>
+    s.id === link.draftShotId && s.sourceModuleIds.some(id => moduleIds.includes(id)));
   const modules = await Promise.all(moduleIds.map(async key => {
     const split = key.indexOf(":");
     if (split < 1 || !Number.isSafeInteger(Number(key.slice(0, split)))) return;
     const chapterId = Number(key.slice(0, split)), moduleId = key.slice(split + 1);
-    const chapter = await getChapter(chapterId, input.userId);
-    if (!chapter || chapter.storyId !== input.storyId) return;
+    const document = documents.get(chapterId);
+    if (!document) return;
+    const {chapter, doc} = document;
     const index = chapter.blocks.writingStyle?.findIndex(b => b.id === moduleId) ?? -1;
     if (index < 0) return;
-    const raw = writingModuleTexts(chapter.blocks.body, chapter.blocks.writingStyle)[index] ?? "";
+    const raw = doc.texts[index] ?? "";
     const legacy = moduleImageTasks(body).filter(t => t.chapterId === chapterId && t.moduleId === moduleId);
     const stored = imageTaskAsyncSubmitEnabled() ? await (await getImageTaskStore()).listForModule(input.userId, input.storyId, chapterId, moduleId) : [];
     const candidates = [...legacy, ...stored].flatMap(t => t.status === "succeeded" && Array.isArray(t.candidates) ? t.candidates : []);
-    return { text: readBookImage(raw) ? "" : stillVisualDescription(raw), candidates };
+    return { text: bookShot || readBookImage(raw) || readBookAudio(raw) || chapter.blocks.writingStyle?.[index].videoRole === "dialogue"
+      ? "" : stillVisualDescription(raw), candidates };
   }));
   const ids = new Set([...target.imageVersions, ...(target.imageGenerationReferences ?? [])].map(i => i.id));
   for (const m of modules) for (const c of m?.candidates ?? []) ids.add(c.imageId);
@@ -70,11 +94,12 @@ async function readingContext(input: Scope) {
     i.status !== "rejected" && i.availability !== "missing" && i.imageUrl)
     .map(i => ({ id: i.id, url: i.imageUrl, version: i.imageKey ?? i.imageUrl })).sort((a,b) => b.id-a.id);
   const current = sceneRecords(body).find(row => row.stableShotId === input.stableShotId);
-  const bookText = modules.flatMap(m => m?.text ? [m.text] : []).join("\n");
-  const source = bookText || shotText;
+  const bookText = bookShot ? shotMediaDirections(shotDirections(bookShot.notes), bookShot.title).picture :
+    modules.flatMap(m => m?.text ? [m.text] : []).join("\n");
+  const source = bookShot ? bookText : bookText || shotText;
   const basisKey = creationFingerprint([shotKey, bookText]);
-  return { sources: current?.sources, localSources: current?.localSources, basis: { basisKey, shotKey, source, shotText, facts,
-    subject: typeof shot.subject === "string" ? shot.subject : undefined, confirmed: current?.confirmed ?? "", reading: current?.reading, images,
+  return { sources: current?.sources, localSources: current?.localSources, basis: { basisKey, shotKey, source, shotText: bookShot ? source : shotText, facts,
+    subject: !bookShot && typeof shot.subject === "string" ? shot.subject : undefined, confirmed: current?.confirmed ?? "", reading: current?.reading, images,
     defaultImageId: target.currentImage?.selectionSource === "explicit" && images.some(i => i.id === target.currentImage?.id) ? target.currentImage.id : null } };
 }
 export async function sceneReadingBasis(input: Scope) {
@@ -205,19 +230,19 @@ export async function analyzeShotScene(input: Input & { key: string; estimatedCn
       messages: r.messages(url), maxTokens, responseFormat: { type: "json_object" }, reasoningEffort: "low",
       maxAttempts: 1, replaySafe: false, deadlineMs: 60_000, attemptTimeoutMs: 60_000 });
     const content = response.result.choices?.[0]?.message?.content;
-    const layout = sceneLayoutSchema.parse(parseJsonLoose(typeof content === "string" ? content : ""));
-    if (!url) layout.observed = "";
-    if (!layout.people.length && !layout.objects.length) throw new Error("分析未返回可用的本镜画面要素。");
+    const layout = readLayout(content, !!url);
     await replaceRecord(input, row => row.reading?.attempt === attempt ? { ...row,
       sources: [...(row.sources ?? []).filter(s => s.sourceKey !== r.sourceKey), { sourceKey: r.sourceKey, requestKey: r.key, quoteKey: r.quoteKey, layout }],
       reading: { ...row.reading, status: "ready", layout } } : row);
     return layout;
   } catch (e) {
+    console.warn("[analyzeShotScene]", e instanceof InvalidSceneLayout ? "invalid-layout" : "inference-or-save-failed");
     const attempts = creationRecord(e).attempts;
     const last = creationRecord(Array.isArray(attempts) ? attempts.at(-1) : undefined);
     const providerError = last.errorCode === "insufficient_quota" ? "insufficient_quota" as const : undefined;
     const authFailed = !providerError && (last.status === 401 || last.category === "auth");
     await replaceRecord(input, row => row.reading?.attempt === attempt ? { ...row, reading: { ...row.reading, status: "failed", authFailed, providerError } } : row);
+    if (e instanceof InvalidSceneLayout) throw e;
     if (providerError) throw new Error("识图服务商可用额度不足。请联系站点管理员查看供应商账户余额和令牌额度，恢复后可重新生成。尚未提交生图。", { cause: e });
     if (authFailed)
       throw new Error("识图服务鉴权失败，请联系站点管理员检查供应商令牌及模型权限。尚未提交生图。", { cause: e });
@@ -237,10 +262,25 @@ export async function readSceneForRender(scope: Scope, allowance: SceneAllowance
   }
   const r = await readingRequest(input);
   if ((r.quoteKey !== allowance.key && r.paidQuoteKey !== allowance.key) || r.estimatedCny > allowance.estimatedCny) throw new Error("首次分析或出图依据已变化，请重新查看合计报价。");
-  const layout = r.cached ?? await analyzeShotScene({ ...input, key: allowance.key, estimatedCny: allowance.estimatedCny });
-  if (!r.cached) {
-    const latest = await readingRequest(input);
-    if (latest.key !== r.key || !latest.cached) throw new Error("分析期间镜头或参考图已变化，请重新报价。");
+  let layout = r.cached;
+  if (!layout) {
+    try {
+      layout = await analyzeShotScene({ ...input, key: allowance.key, estimatedCny: allowance.estimatedCny });
+      const latest = await readingRequest(input);
+      if (latest.key !== r.key || !latest.cached) throw new Error("分析期间镜头或参考图已变化，请重新报价。");
+    } catch (error) {
+      if (!(error instanceof InvalidSceneLayout) || input.imageId) throw error;
+      const latest = await readingRequest(input);
+      if (latest.key !== r.key || latest.basis.reading?.status !== "failed") throw new Error("分析期间镜头或参考图已变化，请重新报价。");
+      const fallback = [latest.basis.confirmed, latest.basis.source, latest.basis.facts]
+        .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+        .join("\n");
+      if (fallback) {
+        console.warn("[readSceneForRender] analysis incomplete, continuing with confirmed or source text");
+        return [fallback, adjustment && `本轮调整优先：${adjustment}`].filter(Boolean).join("\n");
+      }
+      throw error;
+    }
   }
   // A different instruction can reuse pixel observations, never the previous target arrangement.
   const target = r.sameRequest ? sceneLayoutText(layout) : "";
@@ -251,6 +291,9 @@ export async function readSceneForRender(scope: Scope, allowance: SceneAllowance
 export async function confirmShotScene(input: Scope & { basisKey: string; text: string }) {
   const basis = await sceneReadingBasis(input);
   if (basis.basisKey !== input.basisKey) throw new Error("本镜依据已变化，请刷新后再确认。");
-  await replaceRecord(input, row => ({ ...row, confirmed: input.text.trim() }), basis.shotKey);
+  await replaceRecord(input, row => ({
+    ...row, confirmed: input.text.trim(),
+    ...(row.reading?.status === "failed" ? { reading: undefined } : {}),
+  }), basis.shotKey);
   return { saved: true };
 }

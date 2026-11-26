@@ -26,7 +26,9 @@ import {
   writingModuleTexts,
   type BookWritingStyle,
 } from "../../shared/bookWritingStyle";
-import { readBookImage } from "../../shared/bookImageBlock";
+import { inlineChatParts, hasInlineChatImages } from "../../shared/inlineChatImages";
+import { getStoryGeneratedImages } from "../repositories/images";
+import { bookImageText, readBookImage } from "../../shared/bookImageBlock";
 import { readBookAudio } from "../../shared/bookAudioBlock";
 import { getStoryById } from "../repositories/stories";
 import { listChapters } from "../repositories/chapters";
@@ -572,8 +574,26 @@ export async function proposeManuscriptConversion(
   }
 }
 
+/** Resolve only explicitly referenced warehouse images owned by this story. */
+async function chatImageText(input: Owner & FilmInput) {
+  const sources = [...input.conversation.filter(t => t.role === "user").map(t => t.content), input.request];
+  if (!sources.some(hasInlineChatImages)) return new Map<string, string>();
+  const owned = new Map((await getStoryGeneratedImages(input.storyId, input.userId)).map(image => [image.id, image]));
+  const result = new Map<string, string>();
+  for (const text of sources.filter(hasInlineChatImages)) {
+    const parts = inlineChatParts(text).map(part => {
+      if (!part.imageId) return part.text;
+      const image = owned.get(part.imageId);
+      if (!image?.imageUrl || !readBookImage(bookImageText(image.imageUrl))) return "";
+      return "\n" + bookImageText(image.imageUrl) + "\n";
+    });
+    result.set(text, parts.join("").trim());
+  }
+  return result;
+}
+
 /** Resolve the same source and intent for the free quote and the subsequent generation. */
-function filmSource(rows: Awaited<ReturnType<typeof listChapters>>, state: BookWorkflowState, input: FilmInput) {
+function filmSource(rows: Awaited<ReturnType<typeof listChapters>>, state: BookWorkflowState, input: FilmInput, chatText: Map<string, string>) {
   const live = rows.filter(row => !row.blocks.manuscriptArchived);
   if (input.chapterId && !live.some(row => row.id === input.chapterId)) throw conflict("当前书稿已变化，请重新打开后生成。");
   const storyboards = manuscriptRows(live, "storyboard");
@@ -584,6 +604,36 @@ function filmSource(rows: Awaited<ReturnType<typeof listChapters>>, state: BookW
   const current = currentManuscript(state, kind);
   const intent = current?.intent ?? { purpose: "根据这次聊天生成新版本", audience: "待确认", platform: "待确认" };
   const requestedIntent = { ...intent, purpose: input.request.trim().slice(0, 1000) || intent.purpose };
+  if (kind === "text" && active.length && chatText.size) {
+    const existing = new Set(active.flatMap(c => writingModuleTexts(c.blocks.body,c.blocks.writingStyle).map(line => readBookImage(line)?.url)));
+    const revised = active.map(chapter => {
+      let body = chapter.blocks.body;
+      const style = chapter.blocks.writingStyle ? [...chapter.blocks.writingStyle] : undefined;
+      const blockIds = [...chapter.blocks.blockIds];
+      for (const [words, resolved] of chatText) {
+        const caption = inlineChatParts(words).filter(p=>!p.imageId).map(p=>p.text).join("").trim();
+        const anchored = caption && body.includes(caption);
+        const selected = input.chapterId === chapter.id || (!input.chapterId && active.length === 1);
+        if (!anchored && !(selected && words === input.request)) continue;
+        for (const line of resolved.split("\n")) {
+          const image = readBookImage(line);
+          if (!image || existing.has(image.url)) continue;
+          const texts = writingModuleTexts(body,style);
+          const index = anchored ? texts.findIndex(text=>text.includes(caption)) : -1;
+          const at = index < 0 ? texts.length : index + 1;
+          const idAt = texts.slice(0,at).join("\n").split("\n").filter(t=>t.trim()).length;
+          const owner = style?.[at-1];
+          style?.splice(at,0,{id:randomUUID(),format:"text",parentId:owner && owner.format !== "text" ? owner.id : owner?.parentId ?? null,collapsed:false});
+          texts.splice(at,0,line);
+          blockIds.splice(idAt,0,randomUUID());
+          body = texts.join("\n");
+          existing.add(image.url);
+        }
+      }
+      return body === chapter.blocks.body ? chapter : {...chapter,blocks:{...chapter.blocks,body,blockIds,writingStyle:style}};
+    });
+    if (revised.some((c,i)=>c!==active[i])) return {kind,chapters:revised,selected:revised,current,intent,requestedIntent,fromChat:true};
+  }
   if (active.length) {
     const selected = kind === "storyboard" && (input.target ?? "storyboard") === "storyboard"
       ? bookProductionChapters(active, input.chapterId) : active;
@@ -592,8 +642,8 @@ function filmSource(rows: Awaited<ReturnType<typeof listChapters>>, state: BookW
   }
   const materialTurns = input.conversation.filter(turn => turn.role === "user" && turn.content.trim() &&
     turn.content.trim() !== input.request.trim() && !needsFilmSubject(turn.content));
-  const body = materialTurns.map(turn => turn.content).join("\n\n") ||
-    (needsFilmSubject(input.request) ? "" : input.request.trim());
+  const body = materialTurns.map(turn => chatText.get(turn.content) ?? turn.content).join("\n\n") ||
+    (needsFilmSubject(input.request) ? "" : chatText.get(input.request) ?? input.request.trim());
   if (!body || input.target === "text") throw bad("请先打开书稿，或告诉我想拍什么。");
   const material: ManuscriptContent = { title: "聊天原话", layout: null, blocks: {
     body, blockIds: body.split("\n").filter(line => line.trim()).map(() => randomUUID()), manuscriptKind: "text",
@@ -611,7 +661,7 @@ export async function quoteFilmManuscript(input: Owner & FilmInput) {
     return editor.freeQuote ?? quoteStoryboardCompute(editor.prompt);
   }
   const source = filmSource(await listChapters(input.storyId, input.userId, "all"),
-    readBookWorkflow((story.body as Record<string, unknown>)?.bookWorkflow), input);
+    readBookWorkflow((story.body as Record<string, unknown>)?.bookWorkflow), input, await chatImageText(input));
   return quoteStoryboardCompute(conversionPrompt(input.target ?? "storyboard", source.requestedIntent, input.request, input.conversation, source.selected));
 }
 
@@ -623,8 +673,9 @@ export async function generateFilmManuscript(input: ActorInput & FilmInput & { i
     if ((previous.entryChapterId !== undefined && previous.entryChapterId !== input.chapterId) || previous.target !== (input.target ?? "storyboard") || previous.request !== input.request || JSON.stringify(previous.conversation ?? []) !== JSON.stringify(input.conversation)) throw conflict();
     return previous;
   }
+  const chatText = await chatImageText(input);
   const source = await mutateBookWorkflow(input, ({ state, rows }) => {
-    const { kind, chapters, selected, current, requestedIntent, fromChat } = filmSource(rows, state, input);
+    const { kind, chapters, selected, current, requestedIntent, fromChat } = filmSource(rows, state, input, chatText);
     if (input.quoteFingerprint && quoteStoryboardCompute(conversionPrompt(input.target ?? "storyboard", requestedIntent, input.request, input.conversation, selected)).fingerprint !== input.quoteFingerprint)
       throw conflict("分镜内容或报价已变化，请重新查看费用。");
     if (!fromChat && current?.fingerprint === manuscriptFingerprint(chapters)) return { result: current };
@@ -697,7 +748,7 @@ export async function editConversionDraft(
   });
 }
 export async function adoptManuscriptConversion(
-  input: ActorInput & { id: string; revision: number }
+  input: ActorInput & { id: string; revision: number; preserveCurrentFingerprint?: string }
 ) {
   const before = (await getBookWorkflow(input)).state.conversions.find(d => d.id === input.id);
   return mutateBookWorkflow({ ...input, ...(before?.source.kind === "video" && before.status !== "adopted"
@@ -711,19 +762,23 @@ export async function adoptManuscriptConversion(
       draft.revision !== input.revision
     )
       throw conflict();
-    if (
+    const latestFingerprint = manuscriptFingerprint(manuscriptRows(rows, draft.target));
+    const preserveCurrent = Boolean(draft.trial && draft.source.kind === "storyboard" &&
+      draft.target === "storyboard" &&
+      input.preserveCurrentFingerprint === latestFingerprint);
+    if (!preserveCurrent && (
       (draft.source.kind !== "video" && manuscriptFingerprint(manuscriptRows(rows, draft.source.kind)) !==
         draft.sourceFingerprint) ||
       manuscriptFingerprint(manuscriptRows(rows, draft.target)) !==
         draft.targetFingerprint
-    )
+    ))
       throw conflict(
         "转换期间原稿或目标稿已更新，请重新转换；这份方案仍保留。"
       );
     const old = manuscriptRows(rows, draft.target),
       current = currentManuscript(state, draft.target);
     const hasPreviousContent = draft.source.kind!=="video" || old.some(c=>c.blocks.body.trim() || Object.keys(c.blocks.images??{}).length || (c.blocks.illustrations?.length??0)>0 || c.blocks.coverKey || c.blocks.bodyTextureKey || c.layout?.pages.some(p=>p.modules.length));
-    if (old.length && hasPreviousContent && current?.fingerprint !== draft.targetFingerprint)
+    if (old.length && hasPreviousContent && current?.fingerprint !== latestFingerprint)
       appendVersion(state, {
         id: randomUUID(),
         kind: draft.target,

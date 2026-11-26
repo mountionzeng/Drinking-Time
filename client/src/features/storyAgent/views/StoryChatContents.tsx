@@ -1,5 +1,5 @@
 import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
-import React, { useRef, useState } from "react";
+import React, { useCallback, useRef, useState } from "react";
 import { BookOpen, List, ArrowDown } from "lucide-react";
 import {
   Popover,
@@ -12,6 +12,8 @@ import type { ChatMessage } from "../types";
 import { stripAssistantReasoning } from "@shared/assistantReplyText";
 import { storyMemoryFilePath, storyMemoryMarkdown } from "@shared/storyMemoryDocument";
 import { useStorySpine } from "../spine/storySpine";
+
+export type ChatDirectoryTarget = { host: HTMLDivElement; dismiss: () => void };
 
 const visibleMessageText = (message: ChatMessage) => message.role === "assistant" ? stripAssistantReasoning(message.content) : message.content;
 
@@ -42,17 +44,25 @@ export default function StoryChatContents({
   onLocate,
   onLatest,
   disabled,
+  onVideoHistoryTarget,
 }: {
   messages: readonly ChatMessage[];
   onLocate: (id: string) => void;
   onLatest: () => void;
   disabled: boolean;
+  onVideoHistoryTarget?: (target: ChatDirectoryTarget | null) => void;
 }) {
   const _ui = useDesktopUiText();
   const storyId = useStorySpine(state => state.activeStoryId);
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const locating = useRef(false);
+  const mountVideoHistory = useCallback((host: HTMLDivElement | null) => {
+    onVideoHistoryTarget?.(host ? { host, dismiss: () => {
+      locating.current = true;
+      setOpen(false);
+    }} : null);
+  }, [onVideoHistoryTarget]);
   const query = search.trim();
   const visible = storyChatHistoryEntries(messages, query);
   return (
@@ -73,7 +83,7 @@ export default function StoryChatContents({
         </PopoverTrigger>
         <PopoverContent
           align="start"
-          className="w-80 max-w-[90vw] p-3"
+          className="flex max-h-[var(--radix-popover-content-available-height)] w-80 max-w-[90vw] flex-col overflow-y-auto p-3"
           onCloseAutoFocus={event => {
             if (locating.current) event.preventDefault();
             locating.current = false;
@@ -98,6 +108,7 @@ export default function StoryChatContents({
             onChange={event => setSearch(event.target.value)}
           />
           <div className="max-h-[45vh] overflow-y-auto">
+            <div ref={mountVideoHistory} hidden={Boolean(query)} />
             {visible.map(group => (
               <section
                 key={group.id}

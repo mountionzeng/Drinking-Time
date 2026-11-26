@@ -25,6 +25,19 @@ export function syncBookTextScroll(field: HTMLTextAreaElement) {
   });
 }
 
+// A cue label can sit above its textarea. Stored selections still address the full manuscript.
+export function bookFieldStart(field: HTMLTextAreaElement) { return Number(field.dataset.bookTextStart ?? 0); }
+function fieldEnd(field: HTMLTextAreaElement) { return bookFieldStart(field) + field.value.length; }
+function nativePoint(field: HTMLTextAreaElement, anchor: boolean) {
+  const backward = field.selectionDirection === 'backward';
+  const start = anchor ? !backward : backward;
+  return bookFieldStart(field) + (start ? field.selectionStart : field.selectionEnd);
+}
+export function selectBookOffsets(field: HTMLTextAreaElement, start: number, end = start) {
+  const prefix = bookFieldStart(field);
+  field.setSelectionRange(Math.max(0, start - prefix), Math.max(0, end - prefix));
+}
+
 function characterRect(field: HTMLTextAreaElement, offset: number) {
   const node = field.parentElement?.querySelector('[data-book-text-measure]')?.firstChild;
   if (!node) return field.getBoundingClientRect();
@@ -45,7 +58,7 @@ function pointAt(field: HTMLTextAreaElement, x: number, y: number): BookTextPoin
   }
   // A UTF-16 surrogate pair is a single visible character.
   if (low > 0 && /[\uDC00-\uDFFF]/.test(field.value[low] ?? '') && /[\uD800-\uDBFF]/.test(field.value[low - 1])) low++;
-  return { id: field.dataset.bookTextId!, offset: low };
+  return { id: field.dataset.bookTextId!, offset: bookFieldStart(field) + low };
 }
 
 function nearestField(fields: HTMLTextAreaElement[], x: number, y: number) {
@@ -104,14 +117,15 @@ export function useBookTextRange(options: Options) {
   }
   function focusPoint(point: BookTextPoint) {
     const field = fields().find(item => item.dataset.bookTextId === point.id);
-    field?.focus({ preventScroll: true }); field?.setSelectionRange(point.offset, point.offset);
+    field?.focus({ preventScroll: true }); if (field) selectBookOffsets(field,point.offset);
   }
   function settleNativeSelection() {
     if (!current.current) return;
     const first = bookTextRangeParts(latest.current.blocks, current.current)[0];
     if (!first) return;
     focusPoint({id:first.id,offset:first.start});
-    fields().find(field => field.dataset.bookTextId === first.id)?.setSelectionRange(first.start,first.end);
+    const field=fields().find(item => item.dataset.bookTextId === first.id);
+    if (field) selectBookOffsets(field, first.start, first.end);
   }
   function updateFromKeyboard(next: BookTextRange) {
     update(next);
@@ -192,7 +206,7 @@ export function useBookTextRange(options: Options) {
     flushSync(() => setDragging(true));
     const anchor = event.shiftKey && current.current ? current.current.anchor : pointAt(field,event.clientX,event.clientY);
     if (event.shiftKey) {
-      const prior = current.current?.anchor ?? { id:field.dataset.bookTextId!, offset:field.selectionDirection === 'backward' ? field.selectionEnd : field.selectionStart };
+      const prior = current.current?.anchor ?? { id:field.dataset.bookTextId!, offset:nativePoint(field,true) };
       event.preventDefault(); event.stopPropagation(); updateFromKeyboard({anchor:prior,focus:pointAt(field,event.clientX,event.clientY)});
       setDragging(false);
       return;
@@ -211,7 +225,7 @@ export function useBookTextRange(options: Options) {
       const all = fields();
       if (all.length) {
         event.preventDefault();
-        updateFromKeyboard({anchor:{id:all[0].dataset.bookTextId!,offset:0},focus:{id:all.at(-1)!.dataset.bookTextId!,offset:all.at(-1)!.value.length}});
+        updateFromKeyboard({anchor:{id:all[0].dataset.bookTextId!,offset:bookFieldStart(all[0])},focus:{id:all.at(-1)!.dataset.bookTextId!,offset:fieldEnd(all.at(-1)!)}});
       }
       return true;
     }
@@ -220,7 +234,7 @@ export function useBookTextRange(options: Options) {
       const target = fields().find(item => item.dataset.bookTextId === point.id);
       if (target) {
         event.preventDefault();
-        const next = {...point,offset:event.key === 'Home' ? 0 : target.value.length};
+        const next = {...point,offset:event.key === 'Home' ? bookFieldStart(target) : fieldEnd(target)};
         if (event.shiftKey) updateFromKeyboard({anchor:current.current.anchor,focus:next});
         else { clear(); focusPoint(next); }
       }
@@ -235,23 +249,24 @@ export function useBookTextRange(options: Options) {
       }
       if (event.shiftKey) {
         const all = fields();
-        const anchor = current.current?.anchor ?? {id:field.dataset.bookTextId!,offset:field.selectionDirection === 'backward' ? field.selectionEnd : field.selectionStart};
-        const point = current.current?.focus ?? {id:field.dataset.bookTextId!,offset:field.selectionDirection === 'backward' ? field.selectionStart : field.selectionEnd};
+        const anchor = current.current?.anchor ?? {id:field.dataset.bookTextId!,offset:nativePoint(field,true)};
+        const point = current.current?.focus ?? {id:field.dataset.bookTextId!,offset:nativePoint(field,false)};
         const index = all.findIndex(item => item.dataset.bookTextId === point.id), active = all[index];
         if (!active) return false;
         const direction = event.key === 'ArrowUp' || event.key === 'ArrowLeft' ? -1 : 1;
         let next: BookTextPoint | undefined;
         if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
           const offset = point.offset + direction;
-          if (offset < 0 || offset > active.value.length) {
+          if (offset < bookFieldStart(active) || offset > fieldEnd(active)) {
             const adjacent = all[index + direction];
-            if (adjacent) next = {id:adjacent.dataset.bookTextId!,offset:direction > 0 ? 0 : adjacent.value.length};
+            if (adjacent) next = {id:adjacent.dataset.bookTextId!,offset:direction > 0 ? bookFieldStart(adjacent) : fieldEnd(adjacent)};
           } else if (current.current) {
-            const step = direction > 0 ? [...active.value.slice(point.offset)][0]?.length ?? 1 : [...active.value.slice(0,point.offset)].at(-1)?.length ?? 1;
+            const cursor = point.offset - bookFieldStart(active);
+            const step = direction > 0 ? [...active.value.slice(cursor)][0]?.length ?? 1 : [...active.value.slice(0,cursor)].at(-1)?.length ?? 1;
             next = {...point,offset:point.offset + direction * step};
           }
         } else {
-          const caret = characterRect(active,point.offset);
+          const caret = characterRect(active,Math.max(0,point.offset-bookFieldStart(active)));
           const first = characterRect(active,0), last = characterRect(active,active.value.length);
           const y = (caret.top + caret.bottom) / 2 + direction * parseFloat(getComputedStyle(active).lineHeight);
           if (y < first.top || y >= last.bottom) {

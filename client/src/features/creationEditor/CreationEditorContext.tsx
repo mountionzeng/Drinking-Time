@@ -1181,6 +1181,7 @@ export function mergeShotsWithImages(
     const imageVersions = images
       .filter(image => {
         if (image.status === "rejected" || !image.imageUrl) return false;
+        if (shot.publishingVideo?.referenceImageIds?.includes(image.id)) return true;
         if (image.shotIdentity) {
           const imageIdentityKeys = hasUniqueShotNo
             ? shotIdentityMatchKeys(image.shotIdentity, image.shotNo)

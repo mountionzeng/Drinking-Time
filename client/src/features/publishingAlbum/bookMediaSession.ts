@@ -6,11 +6,13 @@ export type BookMediaSession = {
   storyId: number;
   chapterId: number;
   moduleId: string;
+  shotNo?: number;
   imageUrl: string;
+  motionPrompt?: string;
   prepare(): Promise<void>;
   replace(
     sourceUrl: string,
-    result: { imageUrl?: string; videoUrl?: string }
+    result: { imageUrl?: string; videoUrl?: string; cropped?: boolean }
   ): Promise<boolean>;
 };
 export const useBookMediaSession = create<{

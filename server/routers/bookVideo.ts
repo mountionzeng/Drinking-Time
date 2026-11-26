@@ -21,9 +21,15 @@ import { manuscriptFingerprint } from "../services/manuscriptSnapshot";
 import { bookVideoImportReview } from "../../shared/bookVideoImportReview";
 import { bookProductionChapters } from "../../shared/bookShotFormat";
 
+import { syncLinkedShots } from "../services/bookShotSync";
+
 const owner = z.object({ storyId: z.number().int().positive() });
 const record = owner.extend({ id: z.string().min(8).max(100) });
 export const bookVideoRouter = router({
+  syncLinkedShots: protectedProcedure.input(owner).mutation(async ({ctx,input}) => {
+    if (chapterEnabled()) await syncLinkedShots({...input,userId:ctx.user.id});
+    return {ok:true};
+  }),
   importReview: protectedProcedure.input(owner.extend({ chapterId: z.number().int().positive().optional() })).query(async ({ ctx, input }) => {
     if (!await getStoryById(input.storyId, ctx.user.id)) throw new TRPCError({ code: "NOT_FOUND" });
     const chapters = await listChapters(input.storyId, ctx.user.id, "storyboard");

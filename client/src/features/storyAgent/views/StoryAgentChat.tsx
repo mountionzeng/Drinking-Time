@@ -140,7 +140,7 @@ import StoryCoverThumbnail from "./StoryCoverThumbnail";
 import ChatAssistantAvatar from "./ChatAssistantAvatar";
 import { ChatCompanionStatus } from "./ChatCompanionStatus";
 import { scrollToLatestChatTurn } from "../chatMessageScroll";
-import StoryChatContents from "./StoryChatContents";
+import StoryChatContents, { type ChatDirectoryTarget } from "./StoryChatContents";
 import { useDesktopChatQueue } from "../useDesktopChatQueue";
 import { useDesktopWritingSession } from "@/features/writingCompanion/desktopWritingSession";
 import { layoutModuleLabel } from "@shared/layoutModuleContext";
@@ -450,6 +450,7 @@ export default function StoryAgentChat({
   const videoWorkspace = useBookVideoWorkspace();
   const discussingBookVideo = Boolean(bookVideo && (workspaceContext !== "video" || videoWorkspace?.reviewRequested));
   const bookVideoHandle=useRef<BookVideoChatHandle|null>(null);
+  const [videoDirectory, setVideoDirectory] = useState<ChatDirectoryTarget | null>(null);
   const videoProgressScope = `${accountId}:${activeStoryId}:${scopeEpoch}`;
   const [videoProgressState, setVideoProgressState] = useState({ scope: "", message: "" });
   const onVideoProgressChange = useCallback((message: string) => {
@@ -796,10 +797,25 @@ export default function StoryAgentChat({
       : undefined;
   const shotHistoryKey = selectedChatShot ? `${activeStoryId}:${selectedChatShot.stableShotId ?? selectedChatShot.shotIdentity}` : null;
   const showingShotHistory = Boolean(shotHistoryKey && closedShotHistory !== shotHistoryKey);
+  const bookFeedback=trpc.bookMedia.feedbackHistory.useQuery({storyId:activeStoryId ?? 0},{
+    enabled:workspaceContext!=="video" && Boolean(accountId && activeStoryId && activeStoryId>0),refetchOnWindowFocus:false,
+  });
+  const imageHistory = useMemo<ChatMessage[]>(() => {
+    const shown=messages;
+    const history=bookFeedback.data;
+    if (workspaceContext==="video" || history?.accountId!==accountId || history?.storyId!==activeStoryId || !history?.messages.length) return shown;
+    const available=shown.filter(row=>row.role==="user" && row.id.startsWith("book-image-request:"));
+    const recovered=history.messages.filter(old=>{
+      const found=available.findLastIndex(row=>row.content.trim()===old.content && row.timestamp<=old.timestamp && old.timestamp-row.timestamp<3600000);
+      if(found<0)return true;
+      available.splice(found,1);return false;
+    });
+    return recovered.length ? [...shown,...recovered].sort((a,b)=>a.timestamp-b.timestamp) : shown;
+  }, [messages,workspaceContext,bookFeedback.data,accountId,activeStoryId]);
   const startMessage = useVideoStartMessage(videoStartHost && accountId && activeStoryId &&
-    creationEditor?.materialState?.storyId === activeStoryId ? `dt:video-start:${accountId}:${activeStoryId}` : null, messages);
+    creationEditor?.materialState?.storyId === activeStoryId ? `dt:video-start:${accountId}:${activeStoryId}` : null, imageHistory);
   const conversationMessages = showingShotHistory && selectedChatShot && activeStoryId
-    ? shotConversationMessages(messages, activeStoryId, selectedChatShot.stableShotId ?? selectedChatShot.shotIdentity ?? "", selectedChatShot) : startMessage.history;
+    ? shotConversationMessages(imageHistory, activeStoryId, selectedChatShot.stableShotId ?? selectedChatShot.shotIdentity ?? "", selectedChatShot) : startMessage.history;
   const revisionSlots = chatRevisionSlots(conversationMessages, workspaceContext === "video" ?
     (frameImageRevisions.data ?? []).filter(revision => !showingShotHistory ||
       (revision.stableShotId === activeSelection?.stableShotId && !revision.decision && !revision.requestId.startsWith("image:"))) : []);
@@ -1871,11 +1887,40 @@ export default function StoryAgentChat({
       }
     }
     if (discussingBookVideo && text && !pendingMedia.length && !voice.isBusy && !isImportingMedia) {
-      if(await bookVideoHandle.current?.submit(text)){setInput("");resizeAndFocusInput()}
+      await bookVideoHandle.current?.submit(submittedInput, record => {
+        const scope = storySpineStore.getState();
+        if (!activeStoryId || scope.activeStoryId !== activeStoryId || scope.accountId !== accountId || scope.storyScopeEpoch !== scopeEpoch) return;
+        const user: ChatMessage = { id: "video-request:" + record.id, role: "user", content: submittedInput, timestamp: record.createdAt };
+        const brief = record.brief;
+        const content = brief
+          ? [record.parentId ? brief.changes : brief.purpose, brief.question].filter(Boolean).join("\n\n")
+          : record.error || _ui("正在整理创作方向…");
+        const reply: ChatMessage = { id: "reply:" + user.id, role: "assistant", content, timestamp: user.timestamp + 1 };
+        scope.setMessages(rows => [...rows.filter(row => row.id !== user.id && row.id !== reply.id), user, reply]);
+        void trialUtils.client.storyConversation.appendTurn.mutate({ storyId: activeStoryId,
+          userMessage: { clientMessageId: user.id, content: user.content },
+          assistantMessage: { clientMessageId: reply.id, content },
+        }).catch(() => {
+          const latest = storySpineStore.getState();
+          if (latest.activeStoryId === activeStoryId && latest.accountId === accountId && latest.storyScopeEpoch === scopeEpoch)
+            toast.info(_ui("视频方案已保留，本轮对话暂未同步。"));
+        });
+        setInput(current => current === submittedInput ? "" : current);
+        resizeAndFocusInput();
+      });
       return;
     }
     if (bookMedia && text && !pendingMedia.length && !voice.isBusy && !isImportingMedia) {
-      if (bookMediaHandle.current?.submit(text)) { setInput(""); resizeAndFocusInput(); }
+      const feedback=bookMediaHandle.current?.submit(submittedInput);
+      if (feedback && activeStoryId) {
+        const request:ChatMessage={id:"book-image-request:"+crypto.randomUUID(),role:"user",content:submittedInput,timestamp:Date.now()};
+        const reply:ChatMessage={id:"reply:"+request.id,role:"assistant",content:feedback,timestamp:request.timestamp+1};
+        storySpineStore.getState().setMessages(rows=>[...rows,request,reply]);
+        void trialUtils.client.storyConversation.appendTurn.mutate({storyId:activeStoryId,
+          userMessage:{clientMessageId:request.id,content:request.content},assistantMessage:{clientMessageId:reply.id,content:feedback},
+        }).catch(()=>{if(storySpineStore.getState().activeStoryId===activeStoryId) toast.info("改图反馈已保留在本机，暂未同步到故事聊天");});
+        setInput(""); resizeAndFocusInput();
+      }
       return;
     }
     if (text && creativeVersionIntent(text) && !isReplying && !voice.isBusy && !isImportingMedia && !pendingMedia.length) {
@@ -2629,6 +2674,7 @@ export default function StoryAgentChat({
       <StoryChatContents
         key={`${accountId}:${activeStoryId}`}
         messages={conversationMessages}
+        onVideoHistoryTarget={setVideoDirectory}
         disabled={creationBlocked}
         onLocate={id => {
           const node = messageNodes.current.get(id);
@@ -2649,7 +2695,7 @@ export default function StoryAgentChat({
         onLoadCapture={handleRevisionContentChange}
         onWheel={() => { readingHistory.current = true; }}
         onTouchMove={() => { readingHistory.current = true; }}
-        className={`monitor-panel-body story-chat-scroll-surface min-h-0 ${bookMedia ? "max-h-12 shrink-0" : "flex-1"} overflow-y-auto custom-scrollbar space-y-3 pr-1`}
+        className="monitor-panel-body story-chat-scroll-surface min-h-0 flex-1 overflow-y-auto custom-scrollbar space-y-3 pr-1"
       >
         {showingShotHistory && selectedChatShot && creationEditor && activeStoryId && (
           <ShotChatInspector key={`history:${shotHistoryKey}`}
@@ -2719,11 +2765,11 @@ export default function StoryAgentChat({
                     </button>
                   </div>
                 ) : null}
-                {m.role === "user" && m.photoUrl && (
+                {(m.role === "user" || m.id.startsWith("book-image-progress:")) && m.photoUrl && (
                   <img
                     src={m.photoUrl}
-                    alt={_ui("用户上传照片")}
-                    className={`h-28 max-w-full rounded-xl border border-white/20 object-cover ${
+                    alt={_ui(m.role === "user" ? "用户上传照片" : "本次书页改图")}
+                    className={`h-28 max-w-full rounded-xl border border-white/20 ${m.role === "user" ? "object-cover" : "object-contain"} ${
                       m.content.trim() ? "mb-1.5" : ""
                     }`}
                   />
@@ -3045,7 +3091,16 @@ export default function StoryAgentChat({
           ))}
         </AnimatePresence>
         {workspaceContext === "video" && activeStoryId != null && activeStoryId > 0 && <ArtPreviewGallery shotCode={id => { const shot = creationEditor?.shots.find(s => (s.stableShotId ?? s.shotIdentity) === id); return shot && displayShotCode(shot); }} key={`previews:${activeStoryId}`} storyId={activeStoryId} includePlans onReference={referenceChatImage} />}
-        {activeStoryId != null && activeStoryId > 0 && <BookVideoChat key={`${accountId}:${activeStoryId}:${scopeEpoch}`} storyId={activeStoryId} accountId={accountId} epoch={scopeEpoch} session={bookVideo} handle={bookVideoHandle} onProgressChange={onVideoProgressChange} onAdopt={async()=>{await loadStory(activeStoryId,{silent:true,expectedActiveStoryId:activeStoryId})}} />}
+        {activeStoryId != null && activeStoryId > 0 && <BookVideoChat
+          key={`${accountId}:${activeStoryId}:${scopeEpoch}`} storyId={activeStoryId}
+          accountId={accountId} epoch={scopeEpoch} session={bookVideo} handle={bookVideoHandle}
+          directory={videoDirectory} onProgressChange={onVideoProgressChange}
+          onContinueDiscussion={() => {
+            if (workspaceContext === "video") videoWorkspace?.openReview();
+            resizeAndFocusInput();
+          }}
+          onAdopt={async()=>{await loadStory(activeStoryId,{silent:true,expectedActiveStoryId:activeStoryId})}}
+        />}
         {activeStoryId != null && activeStoryId > 0 && <BookImageCompositionHistory key={`images:${accountId}:${activeStoryId}:${scopeEpoch}`} storyId={activeStoryId} session={composition} handle={compositionHandle} onContinue={()=>resizeAndFocusInput()} />}
 
 

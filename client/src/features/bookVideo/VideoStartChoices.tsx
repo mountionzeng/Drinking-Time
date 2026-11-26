@@ -25,7 +25,7 @@ export function VideoStartChoices({ storyId, material, cues, candidates, shotLab
   const [adjustment, setAdjustment] = useState("");
   const [approvedCoverId, setApprovedCoverId] = useState<number | null>(null);
   const basis = trpc.artSystems.previewArtBasis.useQuery({ storyId }, { enabled: choice === "images" });
-  const cover = basis.data?.coverImageId && material.warehouseImages?.find(image => image.id === basis.data?.coverImageId);
+  const cover = material.warehouseImages?.find(image => image.id === basis.data?.coverImageId);
   const [target, setTarget] = useState("");
   const [chosenSamples, setChosenSamples] = useState<string[] | null>(null);
   const [working, setWorking] = useState(false);
@@ -58,7 +58,8 @@ export function VideoStartChoices({ storyId, material, cues, candidates, shotLab
     setMessage("");
     try {
       const numbers = samples.map(s => s.shotNo).join("、");
-      const copyId = basis.data?.needsCoverCopy && cover && approvedCoverId === cover.id ? cover.id : undefined;
+      const styleCopyId = basis.data?.styleCopyImageId ?? (basis.data?.needsCoverCopy ? cover?.id : undefined);
+      const copyId = basis.data?.needsCoverCopy && styleCopyId && approvedCoverId === styleCopyId ? styleCopyId : undefined;
       setApprovedCoverId(null);
       const allowances = samples.flatMap(s => readings[s.stableShotId] ?? []);
       const result = await preview(storyId, `为第 ${numbers} 镜各生成四张基调示意图`, samples.map(s => s.stableShotId), adjustment.trim() || undefined, copyId, allowances);
@@ -88,6 +89,7 @@ export function VideoStartChoices({ storyId, material, cues, candidates, shotLab
           {cover && <img className="max-h-28 max-w-full rounded object-contain" src={cover.imageUrl} alt={basis.data.coverNote} />}
           <p>{[basis.data.coverNote, basis.data.styleName].filter(Boolean).join(" · ") || "当前还没有确认封面或画风。"}</p>
           {basis.data.filmStyleImageId && basis.data.coverImageId !== basis.data.filmStyleImageId && <p>全片画风参考 #{basis.data.filmStyleImageId}</p>}
+          {basis.data.styleError && <p role="alert">{basis.data.styleError}</p>}
           {basis.data.rules && <p className="whitespace-pre-line">{basis.data.rules}</p>}
           {basis.data.filmBrief && <details><summary>影片创作要求</summary><p>{basis.data.filmBrief}</p></details>}
         </section> : <p role="status">{basis.error ? "暂时读不到创作依据，请重新载入。" : "正在读取当前作品的创作依据…"}</p>}
@@ -106,13 +108,14 @@ export function VideoStartChoices({ storyId, material, cues, candidates, shotLab
           className="mt-1 w-full rounded border border-border bg-background px-2 py-1" placeholder="可留空，沿用当前要求" /></label>
         {samples.map(s => <ShotScenePreparation key={s.stableShotId} storyId={storyId} stableShotId={s.stableShotId}
           shotNo={s.shotNo} adjustment={adjustment} disabled={working} compact onReady={markReady} />)}
-        {basis.data?.needsCoverCopy && cover && <label className="flex items-start gap-2">
-          <input type="checkbox" className="mt-1" disabled={working} checked={approvedCoverId === cover.id}
-            onChange={e => setApprovedCoverId(e.target.checked ? cover.id : null)} />
-          <span>允许本轮发送封面 #{cover.id} 的缩图到 302，供 MJ 取图。查看报价时发送，原图留在本机。</span>
+        {basis.data?.needsCoverCopy && (basis.data.styleCopyImageId ?? cover?.id) && <label className="flex items-start gap-2">
+          <input type="checkbox" className="mt-1" disabled={working} checked={approvedCoverId === (basis.data.styleCopyImageId ?? cover?.id)}
+            onChange={e => setApprovedCoverId(e.target.checked ? (basis.data.styleCopyImageId ?? cover!.id) : null)} />
+          <span>允许本轮发送画风参考 #{basis.data.styleCopyImageId ?? cover?.id} 的缩图到 OSS 或 302，供 MJ 取图。查看报价时发送，持有链接的人也可查看缩图。</span>
         </label>}
         <button className={button} disabled={working || !samples.length || !basis.data || samples.some(s => !readyShots[s.stableShotId]) ||
-          (basis.data.needsCoverCopy && (!cover || approvedCoverId !== cover.id))} onClick={() => void sample()}>{working ? "正在处理…" : samples.length ? `查看 ${samples.length} 镜 · ${samples.length * 4} 张试图报价` : "先选试图镜头"}</button>
+          Boolean(basis.data.styleUnreadable) ||
+          (basis.data.needsCoverCopy && approvedCoverId !== (basis.data.styleCopyImageId ?? cover?.id))} onClick={() => void sample()}>{working ? "正在处理…" : samples.length ? `查看 ${samples.length} 镜 · ${samples.length * 4} 张试图报价` : "先选试图镜头"}</button>
         <div>查看本镜素材</div>
         <select aria-label="查看素材的镜头" value={shot.stableShotId} disabled={working} onChange={e => { setTarget(e.target.value); setMessage(""); }}>
           {material.shots.map(s => <option key={s.stableShotId} value={s.stableShotId}>第 {s.shotNo} 镜{s.cueCode ? ` · ${s.cueCode}` : ""}</option>)}

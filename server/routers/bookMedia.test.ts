@@ -4,7 +4,10 @@ const mocks = vi.hoisted(() => ({
   current: vi.fn(),
   start: vi.fn(),
   takes: vi.fn(),
+  story: vi.fn(), images: vi.fn(),
 }));
+vi.mock("../repositories/stories", async original => ({...await original<typeof import("../repositories/stories")>(),getStoryById:mocks.story}));
+vi.mock("../repositories/images", async original => ({...await original<typeof import("../repositories/images")>(),getStoryGeneratedImages:mocks.images}));
 vi.mock("../services/bookMediaTarget", () => ({
   bookMediaTargetIsCurrent: mocks.current,
 }));
@@ -34,6 +37,17 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.current.mockResolvedValue(true);
   mocks.start.mockResolvedValue({ status: "ok" });
+});
+it("reads historical feedback only from the owner's story and exact saved user instructions",async()=>{
+  mocks.story.mockResolvedValue(null);
+  await expect(caller.feedbackHistory({storyId:1})).rejects.toThrow();
+  expect(mocks.images).not.toHaveBeenCalled();
+  mocks.story.mockResolvedValue({id:1});
+  const content="裁掉左边",prompt="Compose one new image from the supplied reference images.\n图1 is the base: its aspect ratio and overall composition carry over unless the user asks otherwise.\nTake from each reference only what the user names below; do not borrow anything else from them.\n\n"+content+"\nCharacter continuity across all generated shots:\n【用户持续要求】"+content+"。这些要求必须完整落实。";
+  const image={id:8,createdAt:new Date(1234),userId:7,shotNo:null,generationType:"inpaint",prompt};
+  mocks.images.mockResolvedValue([image,{...image,userId:9},{...image,prompt:"普通图片"}]);
+  expect(await caller.feedbackHistory({storyId:1})).toEqual({storyId:1,accountId:7,messages:[{id:"book-image-history:8",role:"user",timestamp:1234,content}]});
+  expect(mocks.images).toHaveBeenCalledWith(1,7);
 });
 describe("book media video boundary", () => {
   it("rejects a replaced or foreign module before paid submission", async () => {

@@ -17,7 +17,7 @@ function setup(body: string) {
   const html = renderToStaticMarkup(<ChapterTextModules value={body} onChange={onChange} disabled={false} selection={{ current: null }} />);
   return { fields, onChange, html };
 }
-const key = (name: string, start: number, end = start, composing = false) => ({ key: name, currentTarget: { selectionStart: start, selectionEnd: end }, nativeEvent: { isComposing: composing }, preventDefault: vi.fn() });
+const key = (name: string, start: number, end = start, composing = false) => ({ key: name, currentTarget: { dataset: {}, selectionStart: start, selectionEnd: end }, nativeEvent: { isComposing: composing }, preventDefault: vi.fn() });
 describe('paragraph text modules', () => {
   it('renders formulas while keeping their exact editable source and adding no math button',()=>{
     const {html,fields}=setup(String.raw`能量 $E=mc^2$`);

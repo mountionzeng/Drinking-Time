@@ -222,6 +222,8 @@ function decodeQuote(token: string): NarrationQuoteClaims | null {
   }
 }
 
+import { shotActionHeading } from "../../shared/bookShotActions";
+
 async function resolveCue(input: {
   storyId: number;
   userId: number;
@@ -232,7 +234,10 @@ async function resolveCue(input: {
     const source=await resolveBookModuleSource({...input,...input.bookTarget});
     if(source.image || source.parts?.some(part=>part.image))throw new Error("请选择文字模块生成有声书");
     if(source.source.length>5000)throw new Error("每次有声书最多5000字，请减少所选文字或先拆分模块");
-    return {cue:{id:input.subtitleCueId,text:source.source,textRevision:input.bookTarget.wholeBook ? parseInt(source.fingerprint.slice(0, 12), 16) : 1,speechBindingId:null},timeline:null};
+    const heading = input.bookTarget.shotSpeech && shotActionHeading(source.source);
+    const text = heading && heading.kind === "voice" ? heading.inline : source.source;
+    if (!text.trim()) throw new Error("请先填写本镜台词");
+    return {cue:{id:input.subtitleCueId,text,textRevision:input.bookTarget.wholeBook ? parseInt(source.fingerprint.slice(0, 12), 16) : 1,speechBindingId:null},timeline:null};
   }
   const [story, timeline] = await Promise.all([
     loadOwnedStory({ storyId: input.storyId, userId: input.userId }),

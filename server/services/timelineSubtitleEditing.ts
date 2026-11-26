@@ -11,6 +11,9 @@
  * The client sends object identity + intent only: no `expectedVersion`, no full
  * `subtitleTracks`, no next Story body. The version lives here.
  */
+import { getChapter } from "../repositories/chapters";
+import { writingModuleTexts } from "../../shared/bookWritingStyle";
+import { shotOutputSource, shotCaptionSpans } from "../../shared/bookShotActions";
 import { createHash, randomUUID } from "node:crypto";
 import { buildTimelineLayout } from "../../shared/timelineLayout";
 import { generatedScreenTextTrack } from "../../shared/bookScreenText";
@@ -448,6 +451,36 @@ export function initializeGeneratedSubtitlesForStory(input: {
     },
     { initializeMissingTimeline: true, preserveExistingTrack: true }
   );
+}
+
+export function bookShotSubtitlesForStory(input:{storyId:number;userId:number;chapterId:number;moduleId:string;text:string;heading:string;operation:VisualEditOperationRef}) {
+  return runSubtitleCommand({...input,commandPayload:{kind:"book-shot-subtitles",chapterId:input.chapterId,moduleId:input.moduleId,text:input.text,heading:input.heading}},
+    async (state,ids,timeline)=>{
+      const [chapter,aggregate]=await Promise.all([getChapter(input.chapterId,input.userId),loadOwnedStoryVisualAggregate(input)]);
+      if (!aggregate || !chapter || chapter.storyId!==input.storyId || chapter.blocks.manuscriptArchived) return {status:"error",message:"分镜已变化，请重新打开"};
+      const texts=writingModuleTexts(chapter.blocks.body,chapter.blocks.writingStyle);
+      const rows=(chapter.blocks.writingStyle ?? []).map((r,i)=>({...r,text:texts[i]}));
+      const source=shotOutputSource(rows,rows.findIndex(r=>r.id===input.moduleId),"subtitle");
+      if (!source || source.moduleId!==input.moduleId || source.prompt!==input.text || source.label!==input.heading) return {status:"error",message:"台词已更新，请重新生成字幕"};
+      const body=aggregate.story.body as {shots?:{stableShotId?:string;publishingVideo?:{draftShotId?:string}}[]};
+      const target=body?.shots?.find(s=>s.publishingVideo?.draftShotId===`book-shot-${input.chapterId}-${source.owner.id}`)?.stableShotId;
+      const row=target && buildTimelineLayout(projectStoryTimelineDocument(aggregate.story,timeline).items.filter(i=>i.included!==false)).find(r=>r.item.stableShotId===target);
+      if (!target || !row) return {status:"error",message:"本镜还没有放入剪辑线。可先下载本镜字幕，或从书页将这版分镜放入视频。"};
+      if (!Object.hasOwn(timeline.extensions,"subtitleTracks") && projectLegacyTimelineMedia(aggregate.story.body).subtitleState.tracks.some(t=>t.cues.length)) return {status:"error",message:"剪辑线已在使用导入的字幕，可下载本镜字幕进行比较。"};
+      const trackId=source.label==="屏幕文字" ? "screen-text" : state.tracks.find(t=>t.id!=="screen-text")?.id ?? "subtitles";
+      const provenance={kind:source.label==="屏幕文字" ? "shot-screen-text" as const : "shot-dialogue" as const,stableShotId:target};
+      const spans=shotCaptionSpans(source.prompt,source.label,row.durationFrames);
+      if (!spans.length) return {status:"error",message:"开口时间超过剪辑镜头时长，请先调整时间。"};
+      const existing=state.tracks.flatMap(t=>t.cues).filter(c=>c.provenance.kind===provenance.kind && "stableShotId" in c.provenance && c.provenance.stableShotId===target);
+      if(existing.length) {
+        if (existing.map(c=>c.text).join("")===spans.map(s=>s.text).join("")) return {status:"ok",changed:false,state};
+        return {status:"error",message:"本镜已有另一版字幕，可在剪辑线编辑，或下载这版字幕。"};
+      }
+      const cues=spans.map(span=>({...span,id:ids.next(),startFrame:row.startFrame+span.startFrame,provenance,sourceTextRevision:chapter.version,textRevision:1,textEdited:false,timingEdited:false}));
+      const other=state.tracks.find(t=>t.id===trackId);
+      const track={...other,id:trackId,cues:[...(other?.cues ?? []),...cues].sort((a,b)=>a.startFrame-b.startFrame)};
+      return {status:"ok",changed:true,state:{tracks:other ? state.tracks.map(t=>t.id===trackId?track:t) : [...state.tracks,track]}};
+    },{initializeMissingTimeline:true});
 }
 
 export function initializeSubtitlesForStory(input: {

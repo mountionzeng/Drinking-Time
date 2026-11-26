@@ -105,6 +105,8 @@ const emptyBlocks = (body: string): StoredChapterBlocks => ({
   illustrations: [],
 });
 
+import { syncLinkedShots } from "../services/bookShotSync";
+
 export const chaptersRouter = router({
   /** The UI hides every chapter entry when this is false. */
   enabled: protectedProcedure.query(() => ({ enabled: chapterEnabled() })),
@@ -386,15 +388,17 @@ export const chaptersRouter = router({
         ...blocks.attribution, editorName: artworkAuthorName(ctx.user.name), editedAt: Date.now(), action: "edited",
         changeNote: input.changeNote || undefined,
       };
-      return view(
-        await saveChapterContent({
-          id: chapter.id,
-          userId: ctx.user.id,
-          expectedVersion: input.expectedVersion,
-          reason: input.autosave ? "autosave" : "edit",
-          content: { title, blocks, layout },
-        })
-      );
+      const saved = await saveChapterContent({
+        id:chapter.id,userId:ctx.user.id,expectedVersion:input.expectedVersion,
+        reason:input.autosave ? "autosave" : "edit",content:{ title,blocks,layout },
+      });
+      if (blocks.writingStyle?.some(row => row.format === "shot") &&
+          (blocks.body !== chapter.blocks.body || !isDeepStrictEqual(blocks.writingStyle, chapter.blocks.writingStyle))) {
+        // The chapter has already committed. Opening the editor retries a missed projection.
+        try { await syncLinkedShots({storyId:chapter.storyId,userId:ctx.user.id}); }
+        catch { console.warn("[bookVideo] Linked shots will refresh on opening the editor", chapter.id); }
+      }
+      return view(saved);
     }),
 
   reorder: protectedProcedure

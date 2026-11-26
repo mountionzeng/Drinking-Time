@@ -24,6 +24,8 @@ export const shotRenderReferencesSchema = z
     instructionMode: z.literal("composed").optional(),
     /** Confirmed film style version shown in the quote, or zero when disabled. */
     filmStyleVersion: z.number().int().nonnegative().optional(),
+    allowPublicHosting: z.literal(true).optional(),
+    filmStyleCopyImageId: z.number().int().positive().optional(),
     /** An established earlier frame supplies objects/materials/palette, not this shot's composition. */
     imagePurpose: z.literal("scene-style").optional(),
     assets: z

@@ -11,6 +11,22 @@ import {
   persistMemoryState,
 } from "./runtime";
 
+/** Auth context touches lastSignedIn on every tRPC request. Rewriting the
+ * whole local persist file that often blocks the event loop, so presence
+ * updates only flush after this interval. Name/email/role changes still flush immediately. */
+export const LAST_SIGNED_IN_PERSIST_INTERVAL_MS = 10 * 60_000;
+
+function isPresenceOnlyUpsert(existing: User, user: InsertUser): boolean {
+  const identity = ["name", "email", "loginMethod", "role", "sessionVersion"] as const;
+  for (const field of identity) {
+    if (user[field] !== undefined && user[field] !== existing[field]) return false;
+  }
+  const allowed = new Set<string>(["openId", "lastSignedIn", "updatedAt", "createdAt", ...identity]);
+  return Object.entries(user).every(
+    ([key, value]) => value === undefined || allowed.has(key)
+  );
+}
+
 export async function upsertUser(user: InsertUser): Promise<void> {
   if (!user.openId) {
     throw new Error("User openId is required for upsert");
@@ -20,6 +36,23 @@ export async function upsertUser(user: InsertUser): Promise<void> {
   if (!db) {
     const existing = memoryState.users.find(u => u.openId === user.openId);
     if (existing) {
+      if (isPresenceOnlyUpsert(existing, user) && user.lastSignedIn !== undefined) {
+        const previous = existing.lastSignedIn instanceof Date
+          ? existing.lastSignedIn.getTime()
+          : 0;
+        const next = (user.lastSignedIn as Date).getTime();
+        if (
+          Number.isFinite(previous) &&
+          Number.isFinite(next) &&
+          next - previous < LAST_SIGNED_IN_PERSIST_INTERVAL_MS
+        ) {
+          return;
+        }
+        existing.lastSignedIn = user.lastSignedIn as Date;
+        existing.updatedAt = now();
+        await persistMemoryState();
+        return;
+      }
       const patch = { ...user };
       delete patch.createdAt;
       applyDefinedValues(

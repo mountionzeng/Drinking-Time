@@ -1,4 +1,4 @@
-import { shotDirections } from "../../shared/bookShotDocument";
+import { shotDirections, shotMediaDirections } from "../../shared/bookShotDocument";
 import {
   buildPublishingArticleVideoPreview,
   type PublishingArticleVideoRow,
@@ -21,12 +21,12 @@ export function directBookStoryboardPreview(
     );
     const seconds = duration ? Number(duration[1]) : undefined;
     const subject = row.shotTitle?.trim() || lines[0] || row.text;
-    const visualNotes = [...directions.other, ...directions.picture].join("\n") || subject;
+    const media = shotMediaDirections(directions, subject);
     requirements.set(row.id, {
       subject,
-      action: directions.motion.join("\n") || visualNotes,
-      imageRequirement: directions.picture.join("\n") || visualNotes,
-      videoRequirement: row.text,
+      action: media.video || media.picture || subject,
+      imageRequirement: media.picture,
+      videoRequirement: media.video || media.picture,
       soundRequirement: [
         ...directions.sound,
         ...(audioByShot.get(row.id) ?? []),

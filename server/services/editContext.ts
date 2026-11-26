@@ -10,6 +10,7 @@ import {
   type SemanticAnnotation,
 } from '../db';
 import { computeDiff, isDiffEmpty, type ProjectState } from '../_core/editDiff';
+import { isDeepStrictEqual } from 'node:util';
 import { generateAnnotation } from './semanticAnnotation';
 
 export interface InlineCorrection {
@@ -62,8 +63,15 @@ export async function saveSnapshot(
     const previousState = previousSnapshot.state as ProjectState;
     diff = computeDiff(previousState, state);
 
-    // If diff is empty, still save snapshot but mark as no changes
+    // If diff is empty, still save snapshot but mark as no changes —
+    // except auto-saves, which must not rewrite the 20MB+ sidecar for no-ops.
     if (isDiffEmpty(diff)) {
+      if (autoSave && isDeepStrictEqual(previousState, state)) {
+        return {
+          snapshotId: previousSnapshot.id,
+          hasDiff: false,
+        };
+      }
       diff = null;
     }
   } else {

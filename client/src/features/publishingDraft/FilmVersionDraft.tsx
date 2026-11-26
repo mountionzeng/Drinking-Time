@@ -144,12 +144,16 @@ export function FilmVersionDraft({ storyId, request, blocked, onDone, target = "
     flushRef.current=flush;
     return ()=>{if(flushRef.current===flush) flushRef.current=null;};
   });
+  const latestFingerprint = query.data?.drafts.storyboard.fingerprint;
+  const preserveCurrent = Boolean(preview?.trial && preview.source.kind === "storyboard" &&
+    preview.target === "storyboard" && latestFingerprint &&
+    latestFingerprint !== preview.targetFingerprint);
   function continueFilm() {
     if (!preview || !(canApprove || canReopen)) return;
     void run(async () => {
       const reviewed = await saveEdits();
       if (!reviewed) return;
-      const version = acceptedVersion ?? await adopt.mutateAsync({ storyId, id: reviewed.id, revision: reviewed.revision });
+      const version = acceptedVersion ?? await adopt.mutateAsync({ storyId, id: reviewed.id, revision: reviewed.revision, ...(preserveCurrent ? { preserveCurrentFingerprint: latestFingerprint } : {}) }).catch(async cause => { await query.refetch(); throw cause; });
       current();
       await utils.chapters.list.invalidate({ storyId });
       const chapters = await utils.chapters.list.fetch({ storyId, kind: target });
@@ -173,7 +177,7 @@ export function FilmVersionDraft({ storyId, request, blocked, onDone, target = "
     });
   }
   useEffect(() => {
-    if (!approveRef || !canApprove) return;
+    if (!approveRef || !canApprove || preserveCurrent) return;
     approveRef.current = continueFilm;
     return () => { if (approveRef.current === continueFilm) approveRef.current = null; };
   });
@@ -207,7 +211,7 @@ export function FilmVersionDraft({ storyId, request, blocked, onDone, target = "
         <button type="button" className={button} disabled={busy} onClick={() => editing ? void run(async () => { await saveEdits(); await query.refetch(); }) :
           setEditing({ id: preview.id, revision: preview.revision, values: preview.chapters!.map(c => writingModuleTexts(c.blocks.body, c.blocks.writingStyle)) })}>
           {ui(editing ? "保存预览修改" : "编辑文字")}</button>
-        <button type="button" className={button} disabled={!canApprove} onClick={continueFilm}>{ui(writingOnly || readingId || trialBase ? "采用为分镜工作稿" : target === "text" ? "确认文字新版本" : "确认分镜，进入视频")}</button>
+        <button type="button" className={button} disabled={!canApprove} onClick={continueFilm}>{ui(preserveCurrent ? "保留当前工作稿，采用此试稿" : writingOnly || readingId || trialBase ? "采用为分镜工作稿" : target === "text" ? "确认文字新版本" : "确认分镜，进入视频")}</button>
       </>}
     </div>
     <Dialog open={Boolean(quote)} onOpenChange={open => { if (!open) setQuote(null); }}>

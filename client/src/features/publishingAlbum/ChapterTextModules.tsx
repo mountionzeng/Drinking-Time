@@ -13,6 +13,7 @@ import { readBookAudio } from "@shared/bookAudioBlock";
 import { BookMusicInsert } from "./BookMusicInsert";
 import { normalizeWritingColumns } from '@shared/bookWritingStyle';
 import { useBookMediaSession } from "./bookMediaSession";
+import { bookBlockNumbers } from "@shared/bookBlockNumbering";
 import { storySpineStore } from "@/features/storyAgent/spine/storySpine";
 import type { BookWritingStyle } from '@shared/bookWritingStyle';
 import { blockAncestors, writingStyleOf, restoreStyledBlocks } from './chapterBlockTree';
@@ -23,7 +24,8 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperti
 import { type TextPosition } from './moduleTextEditing';
 import { writingBlockOffset, writingBlockPosition, splitWritingBlock, insertBlockText, blockBody, mergeWritingBlocks, restoreWritingBlocks, newWritingBlock, blockSubtreeEnd, isHeading, type WritingBlock } from './chapterBlockTree';
 import { BookBlockCanvas } from './BookBlockCanvas';
-import { BookTextRangeOverlay, syncBookTextScroll, useBookTextRange } from './useBookTextRange';
+import { deleteBookBlock } from './bookBlockLayout';
+import { BookTextRangeOverlay, bookFieldStart, selectBookOffsets, syncBookTextScroll, useBookTextRange } from './useBookTextRange';
 import { BookMathText } from './BookMathText';
 import { BookDialogueText } from './BookDialogueText';
 import { insideBookLatex, splitBookTextModules } from './bookLatex';
@@ -38,8 +40,13 @@ import type { LayoutModuleContext } from '@shared/layoutModuleContext';
 import { BookImageImportBoundary } from './BookImageImportBoundary';
 import { insertBookImages } from './bookImageInsert';
 
+import { ShotSubtitlePreview } from "./ShotSubtitlePreview";
+import { motionEditTarget, motionTextPrefix, readMotionDraft } from "./bookShotMotion";
+import { shotActionHeading, shotOutputLabels, shotOutputSource, type ShotOutput } from "@shared/bookShotActions";
+
 type Snapshot = TextPosition & { blocks: WritingBlock[] };
-export function ChapterTextModules({ showScenes, shotTarget, onShotFocused, reviewMedia, precedingShots, footerActions, importedChapterIds, prepareMedia, writingStyle, onFormattedChange, imageInsert, value, onChange, disabled, selection, formatScope, contextSource, onContextChange, comparison }: {
+export function ChapterTextModules({ storyboard=false, showScenes, shotTarget, onShotFocused, reviewMedia, precedingShots, footerActions, importedChapterIds, prepareMedia, writingStyle, onFormattedChange, imageInsert, value, onChange, disabled, selection, formatScope, contextSource, onContextChange, comparison }: {
+  storyboard?:boolean;
   showScenes?: boolean;
   reviewMedia?: boolean;
   shotTarget?: BookShotEditTarget | null; onShotFocused?(): void;
@@ -82,6 +89,67 @@ export function ChapterTextModules({ showScenes, shotTarget, onShotFocused, revi
   }, [writingStyle, value, blocks, onFormattedChange]);
   const [conversion,setConversion]=useState<ModuleConversion|null>(null);
   useEffect(()=>setConversion(null),[formatScope]);
+  const motion = useRef<{id: string; prompt: string} | null>(null);
+  const [editingHeading, setEditingHeading] = useState<string | null>(null);
+  const pendingMotion = useRef(0);
+  const [captions,setCaptions] = useState<{moduleId:string; title:string; text:string; heading:string; seconds:number}|null>(null);
+  function editShotMenu(index:number, kind:ShotOutput) {
+    if (kind !== "video" || bookImageUrl(blocks[index].text)) return produceShot(index,kind);
+    const source = shotOutputSource(blocks,index,kind);
+    if (!source || disabled) return;
+    try {
+      const target = motionEditTarget(blocks,source.owner.id,blocks[index].id);
+      const at = target.blocks.findIndex(b => b.id === target.id);
+      const heading = shotActionHeading(target.blocks[at].text);
+      // A mixed legacy block may hold this cue further down its raw manuscript.
+      setEditingHeading(heading && !motionTextPrefix(target.blocks[at].text) ? target.id : null);
+      if (target.blocks !== blocks) commit(target.blocks,writingBlockOffset(target.blocks,at) + target.cursor,false);
+      requestAnimationFrame(() => {
+        const field = fields.current.find(el => el?.dataset.bookTextId === target.id);
+        if (!field) return;
+        field.focus(); selectBookOffsets(field,target.cursor); field.scrollIntoView({block:"nearest"});
+      });
+    } catch (error) { toast.error(error instanceof Error ? error.message : _ui("无法打开本镜。")); }
+  }
+  async function prepareShotVideo(shotId:string, selectedImage?:string) {
+    const scope = mountedScope.current, request = ++pendingMotion.current;
+    const latest = mediaLatest.current;
+    if (!scope || latest.disabled || !latest.prepareMedia) return;
+    const promptOf = (rows:WritingBlock[]) => readMotionDraft(rows,shotId).values.map(s=>s.trim()).filter(Boolean).join("\n\n");
+    const prompt = promptOf(latest.blocks);
+    const images = latest.blocks.filter(b => b.parentId === shotId && bookImageUrl(b.text));
+    const image = selectedImage ? images.find(b=>b.id===selectedImage) : images.length===1 ? images[0] : undefined;
+    if (!prompt) { toast.info(_ui("请补充运镜要求。")); return; }
+    if (prompt.length > 2000) { toast.info(_ui("渲染一次最多使用 2000 字运镜要求。")); return; }
+    if (!images.length) { toast.info(_ui("本镜还缺起始画面。请从「画面描述」生成一张图，或在本镜插入图片。")); return; }
+    if (!image) { toast.info(_ui("请在要用作起始画面的图片菜单中选择「视频」。")); return; }
+    await latest.prepareMedia();
+    if (mountedScope.current !== scope || request !== pendingMotion.current || mediaLatest.current.disabled) return;
+    const current = mediaLatest.current.blocks;
+    if (promptOf(current) !== prompt || !current.some(b=>b.parentId===shotId && b.id===image.id && b.text===image.text)) {
+      toast.info(_ui("本镜已变化，请重新选择。")); return;
+    }
+    motion.current={id:image.id,prompt}; setSelectedModuleIds([]); setActiveId(image.id); setMediaSelection(n=>n+1);
+  }
+  function produceShot(index:number,kind:ShotOutput) {
+    const source=shotOutputSource(blocks,index,kind);
+    if(!source)return;
+    if(kind==="video") {
+      void prepareShotVideo(source.owner.id,bookImageUrl(blocks[index].text)?blocks[index].id:undefined)
+        .catch(error=>toast.error(error instanceof Error ? error.message : _ui("准备视频失败，请重试。")));
+      return;
+    }
+    if(!source.prompt) {toast.info(_ui("请先填写本镜的{0}",[_ui(shotOutputLabels[kind].name)]));return;}
+    if(kind==="subtitle") {
+      const children=blocks.filter(b=>b.parentId===source.owner.id);
+      const duration=children.map(b=>b.text.match(/^(?:时长[：:]\s*)?(\d+(?:\.\d+)?)\s*秒/)).find(Boolean);
+      const lastSecond=Number(source.label.match(/第\s*(\d+(?:\.\d+)?)\s*秒(?:前)?\s*(?:收住|结束|停止)/)?.[1]);
+      setCaptions({moduleId:source.moduleId,title:source.owner.text,text:source.prompt,heading:source.label,
+        seconds:Number(duration?.[1])||Math.max(lastSecond||0,5)});return;
+    }
+    const parts=source.parts.map(({id,text})=>({id,text}));
+    setConversion({...parts[0],kind,heading:_ui(shotOutputLabels[kind].name)+(shotActionHeading(source.label)?.detail ?? ""),prompt:source.prompt,...(parts.length>1?{parts}:{})});
+  }
   const [activeId, setActiveId] = useState<string | null>(null);
   const [selectedModuleIds, setSelectedModuleIds] = useState<string[]>([]);
   const textRange = useBookTextRange({ blocks, disabled: disabled || Boolean(comparison), scope: formatScope, selection, commit });
@@ -245,9 +313,12 @@ export function ChapterTextModules({ showScenes, shotTarget, onShotFocused, revi
       return;
     }
     const spine = storySpineStore.getState();
-    const key = `${formatScope}:${block.id}`;
+    const motionPrompt = motion.current?.id === block.id ? motion.current.prompt : undefined;
+    const shotNumbers = bookBlockNumbers(writingStyleOf(blocks),precedingShots);
+    const shotNo = blockAncestors(blocks,block.id).map(id=>shotNumbers.get(id)?.shotNumber).find(n=>n !== undefined);
+    const key = `${formatScope}:${block.id}${motionPrompt ? ":motion:" + mediaSelection : ""}`;
     useBookMediaSession.getState().setSession({
-      key, accountId: spine.accountId, epoch: spine.storyScopeEpoch,
+      key, motionPrompt, shotNo, accountId: spine.accountId, epoch: spine.storyScopeEpoch,
       storyId: contextSource.storyId, chapterId: Number(contextSource.chapterId), moduleId: block.id, imageUrl: media.url,
       prepare: () => mediaLatest.current.prepareMedia!(),
       replace: async (sourceUrl, result) => {
@@ -258,7 +329,8 @@ export function ChapterTextModules({ showScenes, shotTarget, onShotFocused, revi
         const original = index >= 0 && readBookImage(latest.blocks[index].text);
         if (!original || original.url !== sourceUrl) return false;
         const next = latest.blocks.map((item, i) => i === index ? { ...item,
-          text: bookImageText(result.imageUrl ?? original.url, original.crop, original.scale, original.frame, result.videoUrl),
+          text: result.cropped && result.imageUrl ? bookImageText(result.imageUrl,undefined,original.scale)
+            : bookImageText(result.imageUrl ?? original.url, original.crop, original.scale, original.frame, result.videoUrl),
         } : item);
         commitLatest.current(next, writingBlockOffset(next, index), false);
         await mediaLatest.current.prepareMedia!();
@@ -266,7 +338,7 @@ export function ChapterTextModules({ showScenes, shotTarget, onShotFocused, revi
       },
     });
     return () => { if (useBookMediaSession.getState().session?.key === key) useBookMediaSession.getState().setSession(null); };
-  }, [activeId, selectedModuleIds, mediaSelection, blocks, contextSource?.scope, formatScope]);
+  }, [activeId, selectedModuleIds, mediaSelection, blocks, contextSource?.scope, formatScope, precedingShots]);
   const fields = useRef<Array<HTMLTextAreaElement | null>>([]);
   const focus = useRef<TextPosition | null>(null);
   const history = useRef<{ past: Snapshot[]; future: Snapshot[] }>({ past: [], future: [] });
@@ -282,7 +354,7 @@ export function ChapterTextModules({ showScenes, shotTarget, onShotFocused, revi
       const field = fields.current[index];
       setActiveId(shotTarget.moduleId);
       field?.focus();
-      field?.setSelectionRange(shotTarget.offset, shotTarget.offset);
+      if (field) selectBookOffsets(field,shotTarget.offset);
       field?.scrollIntoView({ block: "center" });
     }
     onShotFocused?.();
@@ -304,7 +376,7 @@ export function ChapterTextModules({ showScenes, shotTarget, onShotFocused, revi
     if (focus.current) {
       const start = writingBlockPosition(blocks, focus.current.start), end = writingBlockPosition(blocks, focus.current.end);
       const field = fields.current[start.index];
-      field?.focus(); field?.setSelectionRange(start.cursor, end.index === start.index ? end.cursor : start.cursor);
+      field?.focus(); if (field) selectBookOffsets(field,start.cursor, end.index === start.index ? end.cursor : start.cursor);
       focus.current = null;
     }
   }, [value, blocks]);
@@ -312,7 +384,7 @@ export function ChapterTextModules({ showScenes, shotTarget, onShotFocused, revi
     if (textRange.active()) return;
     setSelectedModuleIds([]);
     setActiveId(blocks[index].id);
-    const offset = writingBlockOffset(blocks, index);
+    const offset = writingBlockOffset(blocks, index) + bookFieldStart(field);
     selection.current = { start: offset + field.selectionStart, end: offset + field.selectionEnd };
     window.dispatchEvent(new Event('dt:writing-selection-change'));
   }
@@ -362,9 +434,16 @@ export function ChapterTextModules({ showScenes, shotTarget, onShotFocused, revi
     const imageUrl = bookImageUrl(block.text);
     if (imageUrl) return <div key={block.id} role="button" tabIndex={disabled ? -1 : 0} aria-label={_ui("图片模块 {0}", [index + 1])} aria-disabled={disabled} className="block h-full w-full text-left" onKeyDown={event => {
       if(disabled || event.target !== event.currentTarget) return;
+      if (comparison && ['Delete','Backspace'].includes(event.key) && !event.repeat && !event.defaultPrevented && !event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229 && !event.metaKey && !event.ctrlKey && !event.altKey) {
+        event.preventDefault();
+        const next = deleteBookBlock(blocks, block.id);
+        commit(next, writingBlockOffset(next, Math.min(index, next.length - 1)));
+        return;
+      }
       if(event.key === 'Enter') { event.preventDefault(); const next = [...blocks]; next.splice(index+1,0,newWritingBlock('',block.parentId)); commit(next,writingBlockOffset(next,index+1)); }
     }} onClick={() => {
       if (disabled) return;
+      motion.current = null;
       setMediaSelection(value => value + 1);
       setActiveId(block.id);
       const start = writingBlockOffset(blocks,index); selection.current = {start,end:start};
@@ -375,11 +454,15 @@ export function ChapterTextModules({ showScenes, shotTarget, onShotFocused, revi
       return <BookSentenceReview style={style} proposal={review.proposal} onResolve={() => sentenceReview?.resolve(review.id)} />;
     }
     const range = textRange.byId.get(block.id);
-    const field = <textarea ref={element => { fields.current[index] = element; }} rows={1} aria-label={_ui("文字模块 {0}", [index + 1])} value={block.text}
+    const heading = !comparison && block.format === "text" && contextSource && prepareMedia && block.parentId && blocks.some(b => b.id === block.parentId && b.format === "shot") && shotActionHeading(block.text);
+    const prefix = heading && heading.output === "video" && block.videoRole !== "dialogue" && editingHeading !== block.id ? motionTextPrefix(block.text) : "";
+    const visibleText = block.text.slice(prefix.length);
+    const field = <textarea ref={element => { fields.current[index] = element; }} rows={1} aria-label={prefix ? _ui("运镜要求") : _ui("文字模块 {0}", [index + 1])} value={visibleText}
+              data-book-text-start={prefix ? Math.min(prefix.length,block.text.length) : undefined}
               data-book-text-id={comparison ? undefined : block.id}
               disabled={disabled} maxLength={200000} placeholder={_ui("写下这一段…")} style={{ ...style, overflowWrap: 'anywhere', ...(range ? { color: 'transparent', caretColor: 'transparent' } : {}) }}
               className={comparison ? "col-start-1 row-start-1 block h-full min-h-[1.6em] w-full resize-none overflow-hidden border-0 bg-transparent px-1 py-0 text-transparent caret-foreground outline-none selection:bg-blue-200/50" : "block h-full w-full resize-none overflow-auto border-0 bg-transparent px-1 py-0 outline-none"}
-              onFocus={event => selected(index, event.currentTarget)} onSelect={event => {
+              onBlur={() => setEditingHeading(null)} onFocus={event => selected(index, event.currentTarget)} onSelect={event => {
                 // Browsers can deliver a pending selection event after Escape/blank-page blur.
                 // Only the focused field may establish a new writing target.
                 if (event.currentTarget.ownerDocument.activeElement === event.currentTarget) selected(index, event.currentTarget);
@@ -390,13 +473,13 @@ export function ChapterTextModules({ showScenes, shotTarget, onShotFocused, revi
                 if (textRange.active()) {
                   const data = (event.nativeEvent as InputEvent).data;
                   let start = 0, end = 0;
-                  while (start < block.text.length && start < field.value.length && block.text[start] === field.value[start]) start++;
-                  while (end < block.text.length - start && end < field.value.length - start && block.text[block.text.length - end - 1] === field.value[field.value.length - end - 1]) end++;
+                  while (start < visibleText.length && start < field.value.length && visibleText[start] === field.value[start]) start++;
+                  while (end < visibleText.length - start && end < field.value.length - start && visibleText[visibleText.length - end - 1] === field.value[field.value.length - end - 1]) end++;
                   textRange.replace(data ?? field.value.slice(start, field.value.length - end));
                   return;
                 }
                 // Preserve the existing paste-to-modules behavior for ordinary single-line blocks.
-                if(!block.text.includes('\n') && field.value.includes('\n')) {
+                if(!prefix && !block.text.includes('\n') && field.value.includes('\n')) {
                   const result=insertBlockText(editableBlocks(block.id),index,field.value);
                   const pieces=splitBookTextModules(field.value);
                   let offset=field.value.slice(0,field.selectionStart).replace(/\r\n?/g,'\n').length, piece=0;
@@ -406,8 +489,8 @@ export function ChapterTextModules({ showScenes, shotTarget, onShotFocused, revi
                   return;
                 }
                 // Existing internal line breaks belong to this module; only Enter splits it.
-                const next=blocks.map((item,i)=>i===index?{...item,text:field.value}:item);
-                commit(next,writingBlockOffset(next,index)+field.selectionStart,false);
+                const next=blocks.map((item,i)=>i===index?{...item,text:prefix + field.value}:item);
+                commit(next,writingBlockOffset(next,index)+prefix.length+field.selectionStart,false);
               }}
               onKeyDown={event => {
                 if (textRange.onKeyDown(event)) return;
@@ -416,7 +499,20 @@ export function ChapterTextModules({ showScenes, shotTarget, onShotFocused, revi
                 if ((event.metaKey || event.ctrlKey) && !event.altKey && ['z', 'y'].includes(event.key.toLowerCase())) {
                   event.preventDefault(); travel(event.shiftKey || event.key.toLowerCase() === 'y'); return;
                 }
+                const adjacent = field.selectionStart !== field.selectionEnd ? undefined
+                  : event.key === 'Backspace' && field.selectionStart === 0 ? blocks[index - 1]
+                  : event.key === 'Delete' && field.selectionEnd === visibleText.length ? blocks[index + 1] : undefined;
+                const image = adjacent && readBookImage(adjacent.text);
+                if (adjacent && image) {
+                  event.preventDefault();
+                  if (event.repeat || event.metaKey || event.ctrlKey || event.altKey || image.videoUrl || adjacent.parentId !== block.parentId) return;
+                  const next = deleteBookBlock(blocks, adjacent.id);
+                  const start = writingBlockOffset(next, next.findIndex(item => item.id === block.id));
+                  commit(next, start + prefix.length + field.selectionStart);
+                  return;
+                }
                 if (event.key === 'Enter') {
+                  if (prefix) return; // Keep multiline camera instructions in the same cue.
                   event.preventDefault();
                   if (insideBookLatex(block.text,field.selectionStart)) {
                     const text=block.text.slice(0,field.selectionStart)+'\n'+block.text.slice(field.selectionEnd);
@@ -427,15 +523,39 @@ export function ChapterTextModules({ showScenes, shotTarget, onShotFocused, revi
                   commit(result.blocks, writingBlockOffset(result.blocks, result.insertedIndex));
                 } else if (event.key === 'Backspace' && !field.selectionStart && !field.selectionEnd && index > 0) {
                   event.preventDefault();
+                  if (prefix) return;
                   if (bookImageUrl(blocks[index-1].text) || readBookAudio(blocks[index-1].text)) return;
                   const next = mergeWritingBlocks(blocks, index - 1);
                   commit(next, writingBlockOffset(blocks, index) - 1);
-                } else if (event.key === 'Delete' && field.selectionStart === block.text.length && field.selectionEnd === block.text.length && index < blocks.length - 1) {
+                } else if (!prefix && event.key === 'Delete' && field.selectionStart === block.text.length && field.selectionEnd === block.text.length && index < blocks.length - 1) {
                   event.preventDefault();
                   if (bookImageUrl(blocks[index+1].text) || readBookAudio(blocks[index+1].text)) return;
                   commit(mergeWritingBlocks(blocks, index), writingBlockOffset(blocks, index) + block.text.length);
                 }
               }} />;
+    if (heading && (block.videoRole!=="dialogue" || heading.kind==="voice") && editingHeading !== block.id) {
+      const {name,hint}=shotOutputLabels[heading.output];
+      return <div className="h-full overflow-auto"><div data-book-prompt-preview={block.id} className="break-words px-1">
+      <button type="button" disabled={disabled} aria-label={_ui(name)+heading.detail} aria-description={_ui(hint)}
+        className="group/cue inline-flex max-w-full items-baseline rounded-sm text-xs font-medium text-muted-foreground hover:text-foreground focus-visible:text-foreground"
+        onClick={event=>{event.stopPropagation();produceShot(index,heading.output);}}>
+        <span aria-hidden="true" className="inline-grid text-left">
+          <span className="col-start-1 row-start-1 group-hover/cue:invisible group-focus-visible/cue:invisible">{_ui(name)}</span>
+          <span className="invisible col-start-1 row-start-1 underline underline-offset-2 group-hover/cue:visible group-focus-visible/cue:visible">{_ui(hint)}</span>
+        </span>{heading.detail}
+      </button>
+      {prefix ? <div className="relative" style={style}>
+        <div aria-hidden="true" className="invisible whitespace-pre-wrap break-words px-1">{visibleText + "\u200b"}</div>
+        <div className="absolute inset-0">
+          <BookTextRangeOverlay text={visibleText} range={range && {start:Math.max(0,range.start-prefix.length),end:Math.max(0,range.end-prefix.length)}} style={style}/>
+          {field}
+        </div>
+      </div> : <>
+        <button type="button" disabled={disabled} aria-label={_ui("编辑原文")} className="ml-2 text-xs text-muted-foreground opacity-0 hover:opacity-100 focus:opacity-100" onClick={() => { setEditingHeading(block.id); requestAnimationFrame(() => fields.current[index]?.focus()); }}>✎</button>
+        {heading.inline && <div className="whitespace-pre-wrap" style={style} onClick={() => { setEditingHeading(block.id); requestAnimationFrame(() => fields.current[index]?.focus()); }}>{heading.inline}</div>}
+      </>}
+    </div></div>;
+    }
     if (!comparison) return <BookDialogueText dialogue={block.videoRole === 'dialogue'} style={style}><BookMathText text={block.text} id={block.id} style={style} sourceVisible={textRange.dragging||textRange.byId.size>0}><div className="relative h-full w-full" style={style}>
       <BookTextRangeOverlay text={block.text} range={range} style={style} />
       {field}
@@ -468,7 +588,7 @@ export function ChapterTextModules({ showScenes, shotTarget, onShotFocused, revi
           <div className="space-y-0">{blocks.map((block, index) => renderField(block, index, { fontSize: 16, lineHeight: 1.6, overflowWrap: 'anywhere' }))}</div>
         </article>
       </div>
-    </div> : <BookBlockCanvas inlineReviewKey={inlineReviews && [...inlineReviews.values()].map(review => review.id).join()} showScenes={showScenes} precedingShots={precedingShots} importedChapterIds={importedChapterIds} onConvertSelection={contextSource && prepareMedia ? (ids,kind) => {
+    </div> : <BookBlockCanvas shotMenu={storyboard && contextSource && prepareMedia ? editShotMenu : undefined} inlineReviewKey={inlineReviews && [...inlineReviews.values()].map(review => review.id).join()} showScenes={showScenes} precedingShots={precedingShots} importedChapterIds={importedChapterIds} onConvertSelection={contextSource && prepareMedia ? (ids,kind) => {
       const parts = blocks.filter(block => ids.includes(block.id) && (kind !== 'narration' || (!bookImageUrl(block.text) && !readBookAudio(block.text) && block.text.trim()))).map(({id,text}) => ({id,text}));
       if(parts.length < (kind === 'narration' ? 1 : 2)) return;
       if(parts.some(part => readBookAudio(part.text))) { toast.error('音乐模块暂不支持转换，请选择文字或图片模块'); return; }
@@ -476,6 +596,7 @@ export function ChapterTextModules({ showScenes, shotTarget, onShotFocused, revi
     } : undefined} onComposeImage={contextSource && prepareMedia ? ids => { void composeImage('', ids).catch(e => toast.error(e instanceof Error ? e.message : '未能整理素材')); } : undefined} onConvert={contextSource && prepareMedia ? (id,kind)=>{
       const block=blocks.find(b=>b.id===id);if(block)setConversion({id,text:block.text,kind});
     }:undefined} textSelectionIds={textRange.selectionRequest} onSelectionChange={setSelectedModuleIds} activeId={activeId} onSelect={id => {
+      motion.current = null;
       if (!id) { selection.current = null; textRange.clear(); setSelectedModuleIds([]); }
       if (id && bookImageUrl(blocks.find(block => block.id === id)?.text ?? "")) setMediaSelection(value => value + 1);
       setActiveId(id);
@@ -488,6 +609,7 @@ export function ChapterTextModules({ showScenes, shotTarget, onShotFocused, revi
       commit(next, writingBlockOffset(next, Math.max(0, next.findIndex(block => block.id === id))), restoreFocus);
     }}>{renderField}
     </BookBlockCanvas>}
+    {captions && contextSource && prepareMedia && <ShotSubtitlePreview {...captions} storyId={contextSource.storyId} chapterId={Number(contextSource.chapterId)} prepare={prepareMedia} close={()=>setCaptions(null)}/>}
     {conversion && contextSource && prepareMedia && <BookModuleConvert key={`${formatScope}:${conversion.id}:${conversion.kind}`} source={conversion} reviewMedia={reviewMedia} storyId={contextSource.storyId} chapterId={Number(contextSource.chapterId)} onClose={()=>setConversion(null)} prepare={async()=>{
       const assertSource=()=>{
         const latest=mediaLatest.current;

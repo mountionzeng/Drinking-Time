@@ -94,6 +94,7 @@ export function ShotScenePreparation({ storyId, stableShotId, shotNo, adjustment
       placeholder={ui("人物数量与装束、谁在哪里、谁向谁做动作、必要物件")}
       className="mt-1 w-full rounded border bg-transparent p-2" onChange={e => edit(e.target.value)} /></label>
     {!value && current.source && <details><summary>{ui("查看本镜原文")}</summary><p className="whitespace-pre-wrap">{current.source}</p></details>}
+    {draft !== undefined && <p role="status">{ui("请先确认本镜调度，再生成图片。")}</p>}
     <button type="button" className="underline" onClick={async () => {
       if (lock.current) return;
       const text = [(value || current.source).trim(), review.direction].filter(Boolean).join("\n");

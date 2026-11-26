@@ -4,7 +4,7 @@ import { splitBookVoiceLine } from "./bookSound";
 import { validWritingStyle, writingModuleTexts, type BookWritingStyle } from "./bookWritingStyle";
 
 const shotHeadings = ["时长", "画面提示词", "运镜提示词", "旁白", "音效提示词", "出处与创作处理"];
-export const shotFormatGuide = `所有故事的分镜沿用统一镜头制作单。每镜用简短标题，栏目依次为${shotHeadings.join("、")}。只填写有依据的内容。画面可注明开场、结束、屏幕文字和参考素材，声音可注明配乐。旁白或台词的朗读原句单列，开口时间、语气和留白写在标题或时长说明里。默认只按镜号组织，地点和环境写进画面说明。只有作者明确要求分场时才给出场号与标题。镜数和风格按本故事决定。整理已有整片稿时，按当前主稿逐镜保留数量、顺序、台词和素材；单镜候选须经作者采用才并入。事实、作者原话和创作建议分别标清，缺少的制作信息标待定。`;
+export const shotFormatGuide = `所有故事的分镜沿用统一镜头制作单。每镜用简短标题，栏目依次为${shotHeadings.join("、")}。只填写有依据的内容。画面提示词只写一帧里能看见的主体、动作姿态、位置、构图和光色。切镜、推拉和镜头起止写入运镜。字幕单列为屏幕文字，时间安排另写。台词只写要说的话，配乐和环境音效各自注明。旁白或台词的朗读原句单列，开口时间、语气和留白写在标题或时长说明里。默认只按镜号组织，地点和环境写进画面说明。只有作者明确要求分场时才给出场号与标题。镜数和风格按本故事决定。整理已有整片稿时，按当前主稿逐镜保留数量、顺序、台词和素材；单镜候选须经作者采用才并入。事实、作者原话和创作建议分别标清，缺少的制作信息标待定。`;
 /** Read outline choices only from author instructions. A setting or a transition is ordinary shot content. */
 export function requestedSceneGrouping(instruction: string): boolean | undefined {
   const clauses = instruction.replace(/[“「『"][^”」』"]*[”」』"]/gu, "").split(/[，,。；;！!\n]+/u);
@@ -47,15 +47,15 @@ export function isBlankShotTemplate(body: string) {
 const shotHeading = /^(?:#{1,6}\s*)?(?:\*\*)?(?:第\s*[〇零一二三四五六七八九十百\d]+\s*镜(?:头)?|镜头\s*[〇零一二三四五六七八九十百\d]+)(?:\s*[｜|·:：、—-]\s*|\s+|$)/u;
 export type ShotField = "picture" | "motion" | "voice" | "sound" | "source" | "timing";
 const fields: Array<[ShotField, RegExp]> = [
-  ["picture", /^(开场画面|结束画面|画面|画面与素材|屏幕文字|素材待准备|参考画面|参考素材)(提示词|要求|描述|说明|建议)?$/],
-  ["motion", /^(画面运动|运镜|镜头运动|动作|运动|相机运动)(提示词|要求|说明|建议)?$/],
+  ["picture", /^(开场画面|结束画面|画面|画面与素材|屏幕文字|字幕|素材待准备|参考画面|参考素材)(提示词|要求|描述|说明|建议)?$/],
+  ["motion", /^(视频|画面运动|运镜|镜头运动|动作|运动|相机运动)(提示词|要求|说明|建议)?$/],
   ["sound", /^(声音|音乐|音效|配乐|环境声|背景音|背景音乐|声效)(提示词|要求|说明|建议|设计)?$/],
   ["voice", /^(旁白|台词|画外音|对白|台词或旁白|台词\s*[/／]\s*旁白)$/],
   ["source", /^(出处(?:与|和|及)?(?:创作)?处理|出处|史料依据|资料来源|创作处理)$/],
   ["timing", /^(时长|时间范围|节奏与时长|时长与节奏)$/],
 ];
 export function readShotField(raw: string) {
-  const line = raw.trim().replace(/^#{1,6}\s+/, "").replace(/\*\*/g, "");
+  const line = raw.trim().replace(/\\$/, "").trimEnd().replace(/^#{1,6}\s+/, "").replace(/\*\*/g, "");
   const colon = line.search(/[：:]/);
   const label = (colon < 0 ? line : line.slice(0, colon)).split(/[｜|]/)[0].replace(/[（(].*?[）)]$/, "").trim();
   const kind = fields.find(([, pattern]) => pattern.test(label))?.[0];

@@ -16,6 +16,7 @@ import { persistPreparedStoryBody } from "./storyBodyPersistence";
 import { runJsonAgent } from "./agentRuntime";
 import { previewArtBasis } from "./previewArtBasis";
 import { isWechatImportImage, privateReferenceOrigin, wechatProviderReference } from "./wechatVideoImage";
+import { FILM_STYLE_UNREADABLE, inspectFilmStyleImage, styleCopyTarget } from "./filmStyleReference";
 import { preparePreviewCoverCopy } from "./previewCoverCopy";
 import { failedPreviewSource, previewRetryToken } from "./reviewedImageRetry";
 import { stillVisualDescription } from "./confirmedStoryboardImagePrompt";
@@ -62,17 +63,37 @@ async function source(storyId: number, userId: number) {
     sourceHash: creationFingerprint({ shots, audio, music,
     art: artSystemPrompt(owned.body), subtitles: record(material.timeline.extensions).subtitleTracks }) };
 }
+
+async function currentStyleCopy(current: Awaited<ReturnType<typeof source>>) {
+  const images: { id: number; imageUrl: string }[] = [...(current.material.warehouseImages ?? [])];
+  if (current.filmStyle?.imageId && !images.some(i => i.id === current.filmStyle!.imageId)) {
+    const style = await getGeneratedImageById(current.filmStyle.imageId);
+    if (style?.imageUrl && style.userId === current.story.userId && style.storyId === current.story.id)
+      images.push({ id: style.id, imageUrl: style.imageUrl });
+  }
+  return styleCopyTarget({
+    filmStyleImageId: current.filmStyle?.imageId, coverImageId: current.artBasis.coverImageId,
+    defaultReferenceId: current.material.artSystemReference?.image.id ?? current.artBasis.coverImageId,
+    images,
+  });
+}
+
 export async function readPreviewArtBasis(storyId: number, userId: number) {
   const current = await source(storyId, userId);
   const cover = current.material.warehouseImages?.find(i => i.id === current.artBasis.coverImageId);
-  const defaultReferenceId = current.material.artSystemReference?.image.id ?? cover?.id;
+  const copy = await currentStyleCopy(current);
+  const inspection = copy ? await inspectFilmStyleImage({
+    storyId, userId, imageId: copy.imageId, imageUrl: copy.imageUrl,
+  }) : { needsCopy: false, readable: true as const };
   return { ...current.artBasis, filmStyleImageId: current.filmStyle?.imageId ?? null,
     basisKey: creationFingerprint([current.sourceHash, current.artBasisHash]),
     privateCover: !!cover?.imageUrl && isWechatImportImage(cover.imageUrl) && !privateReferenceOrigin(),
-    needsCoverCopy: !!cover?.imageUrl && (current.filmStyle ? current.filmStyle.imageId === cover.id : defaultReferenceId === cover.id) &&
-      isWechatImportImage(cover.imageUrl) && !privateReferenceOrigin() };
+    needsCoverCopy: Boolean(copy?.needsCopy),
+    styleCopyImageId: copy?.needsCopy ? copy.imageId : null,
+    styleUnreadable: Boolean(copy && !inspection.readable),
+    styleError: copy && !inspection.readable ? inspection.error ?? FILM_STYLE_UNREADABLE : undefined };
 }
-export async function retryPreviewPlan(input: { storyId: number; userId: number; editorName: string; failedId: string; basisKey: string; coverCopyImageId?: number }) {
+export async function retryPreviewPlan(input: { storyId: number; userId: number; editorName: string; failedId: string; basisKey: string; allowPublicHosting?: boolean; coverCopyImageId?: number }) {
   const { body } = await ownedCreationStory(input);
   const source = failedPreviewSource(body, input.failedId);
   if (!source) throw new Error("原任务状态或镜头已变化，请刷新仓库查看最新结果。");
@@ -88,7 +109,7 @@ export async function retryPreviewPlan(input: { storyId: number; userId: number;
     instruction: source.batch.instruction, sampleShotIds: [source.shot.stableShotId], adjustment: source.batch.adjustment, sceneAllowances,
     imageId: source.batch.explicitBaseline ? source.batch.baselineImageId ?? undefined : undefined });
 }
-export async function planArtPreviews(input: { storyId: number; userId: number; editorName: string; instruction: string; operationToken: string; imageId?: number; sampleShotId?: string; sampleShotIds?: string[]; sceneAllowances?: SceneAllowance[]; adjustment?: string; coverCopyImageId?: number; retryOf?: string; basisKey?: string }) {
+export async function planArtPreviews(input: { storyId: number; userId: number; editorName: string; instruction: string; operationToken: string; imageId?: number; sampleShotId?: string; sampleShotIds?: string[]; sceneAllowances?: SceneAllowance[]; adjustment?: string; allowPublicHosting?: boolean; coverCopyImageId?: number; retryOf?: string; basisKey?: string }) {
   if (input.sampleShotId && input.sampleShotIds) throw new Error("请选择一种试图镜头范围");
   const samples = input.sampleShotIds ?? (input.sampleShotId ? [input.sampleShotId] : undefined);
   const current = await source(input.storyId, input.userId);
@@ -184,9 +205,22 @@ export async function planArtPreviews(input: { storyId: number; userId: number; 
   if (latest.sourceHash !== current.sourceHash || latest.artBasisHash !== current.artBasisHash) throw new Error("整理期间创作依据已变化，请重新整理示意方案");
   const referenceIds = new Set([current.filmStyle?.imageId, ...batch.shots.flatMap(s =>
     previewRenderReferences(batch, s, current.material)?.imageIds ?? [])].filter(Boolean));
-  if (input.coverCopyImageId && (input.coverCopyImageId !== current.artBasis.coverImageId || !referenceIds.has(input.coverCopyImageId)))
+  const copy = await currentStyleCopy(current);
+  const allowedCopyIds = new Set([copy?.imageId, current.artBasis.coverImageId].filter((id): id is number => typeof id === "number"));
+  if (input.coverCopyImageId && (!allowedCopyIds.has(input.coverCopyImageId) || !referenceIds.has(input.coverCopyImageId)))
     throw new Error("封面已更换，请重新选择本轮要发送的封面缩图。");
+  if (copy) {
+    const inspection = await inspectFilmStyleImage({
+      storyId: input.storyId, userId: input.userId, imageId: copy.imageId, imageUrl: copy.imageUrl,
+    });
+    if (!inspection.readable) throw new Error(inspection.error ?? FILM_STYLE_UNREADABLE);
+    if (copy.needsCopy && input.coverCopyImageId !== copy.imageId)
+      throw new Error(copy.imageId === current.artBasis.coverImageId
+        ? "MJ 无法直接读取本机私有封面。请在试图对话中勾选发送本轮封面缩图，再查看报价。"
+        : `MJ 无法直接读取本机的画风参考 #${copy.imageId}。请勾选发送本轮画风参考缩图，再查看报价。`);
+  }
   for (const id of referenceIds) {
+    if (id === copy?.imageId || id === input.coverCopyImageId) continue;
     const image = current.material.warehouseImages?.find(i => i.id === id);
     if (image?.imageUrl && isWechatImportImage(image.imageUrl) && id !== input.coverCopyImageId) {
       if (!privateReferenceOrigin()) throw new Error(id === current.artBasis.coverImageId
@@ -197,7 +231,7 @@ export async function planArtPreviews(input: { storyId: number; userId: number; 
   }
   if (input.coverCopyImageId) {
     batch.coverCopy = { imageId: input.coverCopyImageId, receipt: await preparePreviewCoverCopy({
-      storyId: input.storyId, userId: input.userId, imageId: input.coverCopyImageId, roundId: batch.id }) };
+      storyId: input.storyId, userId: input.userId, imageId: input.coverCopyImageId, allowPublicHosting: input.allowPublicHosting, roundId: batch.id }) };
   }
   const next = { ...current.body, artPreviewBatches: [...batches, batch] };
   await persistPreparedStoryBody({ ...input, expectedRevision: current.revision, body: prepareStoryBody(next, current.revision + 1, next) });
@@ -247,11 +281,12 @@ export async function artPreviewGenerationInput(storyId: number, userId: number,
   const renderReferences = previewRenderReferences(batch, shot, current.material);
   const currentImageId = current.material.shots.find(s => s.stableShotId === shot.stableShotId)?.currentImage?.id ?? null;
   const basis = batch.artBasis;
-  const legacyPrompt = !batch.baselineImageId ? `镜头基调试图：${shot.brief}` : `跨镜头美术示意图：只迁移参考图的视觉效果，按本镜内容重新安排构图，不复制上一镜的事件。\n${shot.brief}\n迁移意图：${shot.adaptation}`;
+  const picture = stillVisualDescription(shot.brief);
+  const legacyPrompt = !batch.baselineImageId ? picture : `跨镜头美术示意图：只迁移参考图的视觉效果，按本镜内容重新安排构图，不复制上一镜的事件。\n${picture}\n迁移意图：${shot.adaptation}`;
   const sceneFacts = current.sceneFacts[current.shots.findIndex(s => s.stableShotId === shot.stableShotId)];
   if (sceneFacts && !batch.artBasisHash) throw new Error("本镜新增了画面调度，请重新查看试图报价。");
   const confirmed = confirmedShotScene(current.body, shot);
-  const prompt = basis ? [batch.adjustment && `本轮调整（与旧要求冲突时以本轮为准）：${batch.adjustment}`, !shot.sceneAllowance && sceneFacts, !shot.sceneAllowance && !confirmed && (stillVisualDescription(shot.brief) || shot.brief),
+  const prompt = basis ? [batch.adjustment && `本轮调整（与旧要求冲突时以本轮为准）：${batch.adjustment}`, !shot.sceneAllowance && sceneFacts, !shot.sceneAllowance && !confirmed && picture,
     shot.monochrome && "Black and white throughout the frame. Black ink and gray values on neutral paper.",
     basis.direction, !shot.sceneAllowance && shot.frameNotes, !batch.sampleShotId && !batch.sampleShotIds && shot.adaptation,
     shot.previousChoice?.adjustments.length && `本镜此前已采用的调整：${shot.previousChoice.adjustments.join("；")}`,
@@ -260,7 +295,7 @@ export async function artPreviewGenerationInput(storyId: number, userId: number,
   ].filter(Boolean).join("\n") : legacyPrompt;
   const quotedFrame = shot.currentFrameId !== undefined ? shot.currentFrameId : shot.previousChoice?.imageId;
   const priorFrameChanged = quotedFrame !== undefined && currentImageId !== quotedFrame;
-  return { batch, shot, prompt, renderReferences, priorFrameChanged, requiresNewStyleQuote: batch.filmStyle === undefined && !!current.filmStyle };
+  return { batch, shot, prompt, hasFrameDescription: Boolean(picture || sceneFacts || shot.sceneAllowance?.imageId || batch.explicitBaseline), renderReferences, priorFrameChanged, requiresNewStyleQuote: batch.filmStyle === undefined && !!current.filmStyle };
 }
 
 export async function chooseArtPreview(input: { storyId: number; userId: number; shotNo: number; ordinal: number; version?: number }) {

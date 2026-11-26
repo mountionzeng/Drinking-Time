@@ -3,7 +3,20 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 const mocks = vi.hoisted(() => ({ oss: vi.fn(), upload: vi.fn(), storage: vi.fn() }));
-vi.mock("./publicReferenceHost", () => ({ putPublicReference: mocks.oss, publicReferenceKey: () => "refs/test.png" }));
+vi.mock("./publicReferenceHost", async original => {
+  const actual = await original<typeof import("./publicReferenceHost")>();
+  return {
+    ...actual,
+    publicReferenceKey: () => "refs/test.png",
+    putPublicReference: mocks.oss,
+    hostPublicReferenceBytes: async (input: { bytes: Buffer; fileName: string; contentType: string }) => {
+      const ossUrl = await mocks.oss(input);
+      if (typeof ossUrl === "string" && /^https:\/\//i.test(ossUrl)) return ossUrl;
+      const publicUrl = await mocks.upload({ fileName: input.fileName, bytes: input.bytes, contentType: input.contentType });
+      return typeof publicUrl === "string" && /^https:\/\//i.test(publicUrl) ? publicUrl : undefined;
+    },
+  };
+});
 vi.mock("./videoTransition302", () => ({ uploadFileTo302: mocks.upload }));
 vi.mock("../storage", () => ({ storagePut: mocks.storage }));
 import { toPublicImageUrl } from "./imageGen";

@@ -20,6 +20,7 @@ import {
   deleteSubtitleCueForStory,
   editSubtitleTextForStory,
   initializeSubtitlesForStory,
+  bookShotSubtitlesForStory,
   mergeSubtitleCueForStory,
   moveSubtitleCueForStory,
   splitSubtitleCueForStory,
@@ -112,6 +113,9 @@ export const timelineMediaRouter = router({
   restoreVersion: protectedProcedure.input(z.object({ storyId, operation: operationInput,
     kind: z.enum(VIDEO_MEDIA_KINDS), versionId: z.string().min(1).max(100), expectedCurrentId: z.string().max(100).nullable() }))
     .mutation(({ ctx, input }) => restoreVideoMediaVersion({ ...input, userId: ctx.user.id })),
+  bookShotSubtitles: protectedProcedure.input(z.object({storyId, chapterId:z.number().int().positive(),
+    moduleId:z.string().min(1).max(200), text:z.string().min(1).max(30000), heading:z.string().max(1000), operation:operationInput}))
+    .mutation(({ctx,input})=>bookShotSubtitlesForStory({...input,userId:ctx.user.id})),
   /** Seed the subtitle track from upstream candidates. No-op once cues exist. */
   initializeSubtitles: protectedProcedure
     .input(

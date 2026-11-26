@@ -15,6 +15,9 @@ import { protectedProcedure, router } from "../_core/trpc";
 import { bookMediaTargetIsCurrent } from "../services/bookMediaTarget";
 import { getStoryImageAssets } from "../services/imageAssets";
 import { getChapter } from "../repositories/chapters";
+import { getStoryGeneratedImages } from "../repositories/images";
+import { getStoryById } from "../repositories/stories";
+import { historicalBookImageFeedback } from "../../shared/bookImageFeedback";
 import { readBookImage } from "../../shared/bookImageBlock";
 import { estimateShotVideoCost } from "../../shared/shotDirector";
 import { getShotVideoProviderStatus } from "../services/videoGen";
@@ -29,6 +32,16 @@ const videoIdentity = (chapterId: number, moduleId: string) =>
   `book:${chapterId}:${createHash("sha256").update(moduleId).digest("hex").slice(0, 32)}`;
 const compositionTarget = z.object({ storyId: z.number().int().positive(), chapterId: z.number().int().positive(), moduleIds: z.array(z.string().min(1).max(100)).min(1).max(200) });
 export const bookMediaRouter = router({
+  feedbackHistory: protectedProcedure.input(z.object({storyId:z.number().int().positive()})).query(async ({ctx,input})=>{
+    if (!await getStoryById(input.storyId,ctx.user.id)) throw new TRPCError({code:"NOT_FOUND"});
+    const images=await getStoryGeneratedImages(input.storyId,ctx.user.id);
+    const messages=images.flatMap(image=>{
+      if (image.userId!==ctx.user.id || image.generationType!=="inpaint" || image.shotNo!=null || !image.prompt) return [];
+      const content=historicalBookImageFeedback(image.prompt);
+      return content ? [{id:"book-image-history:"+image.id,role:"user" as const,content,timestamp:new Date(image.createdAt).getTime()}] : [];
+    });
+    return {storyId:input.storyId,accountId:ctx.user.id,messages};
+  }),
   compositionHistory: protectedProcedure.input(z.object({storyId:z.number().int().positive()})).query(({ctx,input})=>listBookImageCompositions({...input,userId:ctx.user.id})),
   composition: protectedProcedure.input(compositionTarget).query(({ ctx, input }) => readBookImageComposition({ ...input, userId: ctx.user.id })),
   refreshComposition: protectedProcedure.input(compositionTarget).mutation(({ ctx, input }) => refreshBookImageComposition({ ...input, userId: ctx.user.id })),
@@ -47,10 +60,11 @@ export const bookMediaRouter = router({
     return { text: source.source, fingerprint: source.fingerprint, segments: narrationSegments(source.source) };
   }),
   quoteNarration: protectedProcedure.input(target.extend({
+    shotSpeech:z.literal(true).optional(),
     wholeBook: wholeBookSoundSchema.optional(),
     moduleIds:z.array(z.string().min(1).max(100)).min(2).max(50).optional(),
     voiceGender: z.enum(["female", "male"]).default("female"),
-  })).mutation(({ctx,input})=>quoteStoryNarration({storyId:input.storyId,userId:ctx.user.id,voiceGender:input.voiceGender,subtitleCueId:input.wholeBook ? `whole-book:${input.storyId}:${input.wholeBook.kind}:${input.wholeBook.segment ?? 0}` : videoIdentity(input.chapterId,input.moduleId),bookTarget:{chapterId:input.chapterId,moduleId:input.moduleId,...(input.wholeBook ? { wholeBook: input.wholeBook } : {}),...(input.moduleIds ? {moduleIds:input.moduleIds} : {})}})),
+  })).mutation(({ctx,input})=>quoteStoryNarration({storyId:input.storyId,userId:ctx.user.id,voiceGender:input.voiceGender,subtitleCueId:input.wholeBook ? `whole-book:${input.storyId}:${input.wholeBook.kind}:${input.wholeBook.segment ?? 0}` : videoIdentity(input.chapterId,input.moduleId),bookTarget:{chapterId:input.chapterId,moduleId:input.moduleId,...(input.shotSpeech ? {shotSpeech:true} : {}),...(input.wholeBook ? { wholeBook: input.wholeBook } : {}),...(input.moduleIds ? {moduleIds:input.moduleIds} : {})}})),
   describe: protectedProcedure.input(target.extend({moduleIds:z.array(z.string().min(1).max(100)).min(2).max(50).optional()})).mutation(async ({ctx,input}) => {
     const source = await resolveBookModuleSource({...input,userId:ctx.user.id});
     const text = await describeBookModule(source);
@@ -78,7 +92,9 @@ export const bookMediaRouter = router({
     if (!asset) return { image: null, videoCost: null };
     const motion = getShotVideoProviderStatus().motion;
     return {
-      image: { id: asset.id, url: asset.imageUrl },
+      image: { id: asset.id, url: asset.imageUrl, noteOwnerId: ctx.user.id,
+        editNote: asset.storyId === input.storyId && asset.userId === ctx.user.id && asset.generationType === "initial" &&
+          asset.rawShotNo == null && asset.prompt && asset.prompt.length <= 2000 ? asset.prompt : null },
       videoCost: estimateShotVideoCost({ durationSec: 5, motion, priceProfile: shotVideoPriceProfile(getShotVideoProviderStatus().submitPath) }).estimatedCny,
     };
   }),

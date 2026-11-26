@@ -16,7 +16,7 @@ beforeEach(() => {
 });
 async function fixture(userId = 1) {
   const story = await createStory({ userId, title: "test", body: { _revision: 1, custom: "preserved", shots: [1,2].map(n => ({ stableShotId: `s${n}`, shotNo: n, dialogue: `line ${n}`, promptDraft: `frame ${n}`, durationMs: 4000 })) } });
-  const image = await createGeneratedImage({ storyId: story.id, userId, imageUrl: "/baseline.png", prompt: "baseline", isCurrent: false });
+  const image = await createGeneratedImage({ storyId: story.id, userId, imageUrl: "https://storage.example/baseline.png", prompt: "baseline", isCurrent: false });
   return { storyId: story.id, userId, imageId: image.id, editorName: "作者", instruction: "迁移这一效果生成示意图", operationToken: crypto.randomUUID() };
 }
 it("includes only this shot's confirmed staging and rejects a quote after its staging changes", async () => {
@@ -174,7 +174,7 @@ const direction = (version: number, imageId: number) => ({
 it.each(["storage key", "warehouse URL"])("quotes the adopted manuscript's cover by %s and carries the art rules to the render", async source => {
   const input = await fixture();
   const key = source === "storage key" ? `chapters/1/${"a".repeat(64)}.jpg` : "generated/paper.png";
-  const url = "/api/images/paper.png";
+  const url = "https://storage.example/paper.png";
   const groupId = "publishing-group-v1-current";
   const manuscript = { id: "source", kind: "storyboard", number: 3, chapters: [{ blocks: { coverKey: source === "storage key" ? key : url } }] };
   const workflow = { schemaVersion: 1, revision: 3, current: { storyboard: "other" }, conversions: [], versions: [manuscript] };

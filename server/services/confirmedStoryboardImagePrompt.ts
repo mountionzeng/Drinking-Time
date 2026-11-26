@@ -1,4 +1,3 @@
-import { stripExplicitScreenText } from "../../shared/bookScreenText";
 import { stillVisualDescription } from "../../shared/stillVisualDescription";
 export { stillVisualDescription } from "../../shared/stillVisualDescription";
 import { confirmedShotScene, shotSceneFacts } from "../../shared/shotSceneDirection";
@@ -55,7 +54,7 @@ export function confirmedStoryboardImagePrompt(input: {
   const staging = shotSceneFacts(input.body, shot);
   const confirmed = confirmedShotScene(input.body, shot);
   if (!staging && !systemPrompt && (!text(provenance.groupId) || !text(provenance.draftShotId))) return null;
-  const requirement = stripExplicitScreenText(text(input.instruction) || text(shot.promptDraft));
+  const requirement = stillVisualDescription(text(input.instruction) || text(shot.promptDraft));
   if (!requirement && !staging) return null;
   const shots = Array.isArray(input.body.shots) ? input.body.shots.map(record) : [];
   const index = shots.findIndex(s => s.stableShotId === shot.stableShotId && s.shotNo === shot.shotNo);
@@ -66,10 +65,10 @@ export function confirmedStoryboardImagePrompt(input: {
   const direction = [brief.purpose, brief.audience, brief.tone].map(text).filter(Boolean).join("；");
   const style = text(shot.styleRef) === "故事级封面风格参考（如有）" ? "" : text(shot.styleRef);
   const visualFacts = [!confirmed && shot.subject, !confirmed && shot.action, shot.location, shot.timeLight, shot.mood, style, shot.colorPalette, shot.materialTexture]
-    .map(value => stripExplicitScreenText(text(value))).filter(Boolean).join("；");
+    .map(value => stillVisualDescription(text(value))).filter(Boolean).join("；");
   const adjacent = [index > 0 ? shots[index - 1] : undefined, index >= 0 ? shots[index + 1] : undefined]
     .filter((s): s is Record<string, unknown> => Boolean(s))
-    .map(s => `镜头 ${s.shotNo}：${[s.subject, s.action].map(value => stripExplicitScreenText(text(value))).filter(Boolean).join("；").slice(0, 250)}`);
+    .map(s => `镜头 ${s.shotNo}：${[s.subject, s.action].map(value => stillVisualDescription(text(value))).filter(Boolean).join("；").slice(0, 250)}`);
   const interfaceShot = /界面|对话框|网页|应用屏幕|\b(?:interface|UI|webpage|app screen)\b/i.test([requirement, visualFacts].join(" "));
   return [
     staging,

@@ -1,7 +1,7 @@
 /**
  * Shared helpers for parsing loose / fenced JSON from LLM responses.
  *
- * Only `parseJsonLoose` is exported; the rest are module-private utilities.
+ * Scene analysis needs an object even when prose or other JSON values precede it.
  */
 
 function stripJson(raw: string): string {
@@ -120,19 +120,44 @@ function extractBalancedJsonObjects(raw: string): string[] {
 }
 
 export function parseJsonLoose<T>(raw: string): T {
-  const candidates = [
-    ...extractFencedJsonBlocks(raw),
-    stripJson(raw),
-    ...extractBalancedJsonObjects(raw),
-  ];
+  for (const value of parseJsonValues(raw)) return value as T;
+  throw new Error("Non-JSON response");
+}
 
-  for (const candidate of candidates) {
+function* jsonCandidates(raw: string) {
+  yield* extractFencedJsonBlocks(raw);
+  yield stripJson(raw);
+  yield* extractBalancedJsonObjects(raw);
+}
+
+function* parseJsonValues(raw: string) {
+  for (const candidate of jsonCandidates(raw)) {
     try {
-      return JSON.parse(sanitizeJsonCandidate(candidate)) as T;
+      yield JSON.parse(sanitizeJsonCandidate(candidate)) as unknown;
     } catch {
       // Try the next possible JSON span.
     }
   }
+}
 
-  throw new Error("Non-JSON response");
+function asPlainObject(value: unknown): Record<string, unknown> | undefined {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return undefined;
+}
+
+/** Prefer a JSON object even if an earlier fence or prefix parsed as a number/array. */
+export function parseJsonObjectLoose(raw: string): Record<string, unknown> {
+  let first: Record<string, unknown> | undefined;
+  for (const value of parseJsonValues(raw)) {
+    const rec = asPlainObject(value);
+    if (!rec) continue;
+    first ??= rec;
+    for (const item of [rec, asPlainObject(rec.data)]) {
+      if (item && ("people" in item || "objects" in item || "observed" in item)) return item;
+    }
+  }
+  if (!first) throw new Error("Non-JSON object response");
+  return first;
 }

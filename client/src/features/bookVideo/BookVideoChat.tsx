@@ -13,6 +13,7 @@ import {
   prepareMountedBook,
 } from "./bookPreparation";
 import { storySpineStore } from "@/features/storyAgent/spine/storySpine";
+import type { ChatDirectoryTarget } from "@/features/storyAgent/views/StoryChatContents";
 import { useEffect, useRef, useState, type MutableRefObject } from "react";
 import { trpc } from "@/lib/trpc";
 import {
@@ -28,7 +29,9 @@ import {
 } from "@shared/bookVideoCreation";
 import { useBookVideoSession, type BookVideoSession } from "./bookVideoSession";
 import { isPersistedStoryId } from "@shared/persistedStoryId";
-export type BookVideoChatHandle = { submit(text: string): Promise<boolean> };
+export type BookVideoChatHandle = {
+  submit(text: string, onReply?: (record: BookVideoRecord) => void): Promise<boolean>;
+};
 const button = "rounded-md border px-2 py-1 text-xs disabled:opacity-40";
 const labels = {
   purpose: "用途",
@@ -49,6 +52,8 @@ export function BookVideoChat({
   handle,
   onAdopt,
   onProgressChange,
+  directory,
+  onContinueDiscussion,
 }: {
   storyId: number;
   accountId: number | null;
@@ -57,6 +62,8 @@ export function BookVideoChat({
   handle: MutableRefObject<BookVideoChatHandle | null>;
   onAdopt: () => Promise<void>;
   onProgressChange?: (message: string) => void;
+  directory: ChatDirectoryTarget | null;
+  onContinueDiscussion?: () => void;
 }) {
   const _ui = useDesktopUiText();
   const utils = trpc.useUtils();
@@ -186,7 +193,8 @@ export function BookVideoChat({
   function nextStep(
     record: BookVideoRecord,
     reviewed = false,
-    compact = false
+    compact = false,
+    onAction?: () => void
   ) {
     if (record.status === "planning")
       return (
@@ -199,7 +207,7 @@ export function BookVideoChat({
           <button
             className={button}
             disabled={busy}
-            onClick={() => resume(record)}
+            onClick={() => { onAction?.(); resume(record); }}
           >
             {_ui("继续确认制作条件")}
           </button>
@@ -215,7 +223,7 @@ export function BookVideoChat({
         <button
           className="rounded-md bg-[var(--nayin-accent)] px-3 py-2 text-sm font-medium text-white disabled:opacity-40"
           disabled={busy || Boolean(draft)}
-          onClick={() => void confirmAndOpen(record, reviewed)}
+          onClick={() => { onAction?.(); void confirmAndOpen(record, reviewed); }}
         >
           {busy
             ? _ui("正在准备视频表格…")
@@ -277,7 +285,7 @@ export function BookVideoChat({
   }
   useEffect(() => {
     handle.current = {
-      async submit(text) {
+      async submit(text, onReply) {
         if (!session) return false;
         if (lock.current) return false;
         if (draft) {
@@ -327,6 +335,7 @@ export function BookVideoChat({
           assertScope();
           setSelected(r.id);
           setOpened(r.id);
+          onReply?.(r);
         });
       },
     };
@@ -373,7 +382,7 @@ export function BookVideoChat({
   function resume(r: BookVideoRecord) {
     if (draft) return;
     setSelected(r.id);
-    if (!workspace) setOpened(null);
+    setOpened(workspace ? r.id : null);
     workspace?.discuss();
     setDraft(undefined);
     useBookVideoSession.getState().setSession({
@@ -384,6 +393,7 @@ export function BookVideoChat({
       layout: r.layout,
       onAdopt,
     });
+    onContinueDiscussion?.();
   }
   const reviewContent = detail ? (
     <div className={workspace ? "flex h-full min-h-0 flex-col" : "space-y-4"}>
@@ -809,144 +819,97 @@ export function BookVideoChat({
     </div>
   );
   return (
-    <section aria-label={_ui("视频创作对话")} className="space-y-2 text-xs">
-      {records.map(r => (
-        <article key={r.id} className="rounded-lg border bg-background/70 p-2">
-          <div className="flex items-center justify-between">
-            <strong>
-              {r.status === "adopted"
-                ? _ui("视频 V{0} · 已确认", [versionLabel(r)])
-                : r.status === "ready"
-                  ? _ui("视频素材表 · 待确认")
-                  : r.status === "failed"
-                    ? _ui("视频创作 · 未完成")
-                    : _ui("视频创作方案")}
-            </strong>
-            <span className="text-[10px] text-muted-foreground">
-              {new Date(r.createdAt).toLocaleString()}
-            </span>
+    <section aria-label={_ui("视频创作对话")} className="space-y-2 text-xs empty:hidden">
+      {directory && records.length > 0 && createPortal(
+        <details className="border-b border-border/50 py-2 text-xs">
+          <summary className="cursor-pointer rounded py-1 text-sm font-medium focus-visible:outline-primary">
+            {_ui("视频方案")} · {records.length}
+          </summary>
+          <div className="space-y-2 py-2">
+            {nextRecord && (
+              <div
+                className="rounded-lg border p-3 space-y-2"
+                aria-label={_ui("视频制作下一步")}
+              >
+                <strong>{_ui("下一步：进入视频制作")}</strong>
+                {nextRecord.brief && nextRecord.status !== "adopted" && (
+                  <dl className="space-y-1">
+                    {Object.entries(labels).map(([key, label]) => (
+                      <div key={key}>
+                        <dt className="inline text-muted-foreground">
+                          {_ui(label)}：
+                        </dt>
+                        <dd className="inline">
+                          {nextRecord.brief![key as keyof typeof labels]}
+                        </dd>
+                      </div>
+                    ))}
+                  </dl>
+                )}
+                {nextStep(nextRecord, false, false, directory.dismiss)}
+              </div>
+            )}
+            {records.slice().reverse().map(r => (
+              <article key={r.id} className="rounded-lg border bg-background/70 p-2">
+                <div className="flex items-center justify-between">
+                  <strong>
+                    {r.status === "adopted"
+                      ? _ui("视频 V{0} · 已确认", [versionLabel(r)])
+                      : r.status === "ready"
+                        ? _ui("视频素材表 · 待确认")
+                        : r.status === "failed"
+                          ? _ui("视频创作 · 未完成")
+                          : _ui("视频创作方案")}
+                  </strong>
+                  <span className="text-[10px] text-muted-foreground">
+                    {new Date(r.createdAt).toLocaleString()}
+                  </span>
+                </div>
+                <p className="mt-1 whitespace-pre-wrap line-clamp-2">{r.request}</p>
+                <p className="mt-1 text-muted-foreground line-clamp-2">
+                  {r.status === "planning"
+                    ? _ui("正在整理创作方向…")
+                    : r.status === "failed"
+                      ? r.error
+                      : r.brief?.purpose}
+                </p>
+                <div className="mt-2 flex gap-2">
+                  <button
+                    className={button}
+                    disabled={busy || (Boolean(draft) && detail?.id !== r.id)}
+                    onClick={() => { directory.dismiss(); openReview(r); }}
+                  >
+                    {_ui("打开方案与参数")}
+                  </button>
+                  <button
+                    className={button}
+                    disabled={busy || Boolean(draft)}
+                    onClick={() => { directory.dismiss(); resume(r); }}
+                  >
+                    {_ui("继续讨论")}
+                  </button>
+                </div>
+              </article>
+            ))}
           </div>
-          <p className="mt-1 whitespace-pre-wrap line-clamp-2">{r.request}</p>
-          <p className="mt-1 text-muted-foreground line-clamp-2">
-            {r.status === "planning"
-              ? _ui("正在整理创作方向…")
-              : r.status === "failed"
-                ? r.error
-                : r.brief?.purpose}
-          </p>
-          <div className="mt-2 flex gap-2">
-            <button
-              className={button}
-              disabled={busy || (Boolean(draft) && detail?.id !== r.id)}
-              onClick={() => openReview(r)}
-            >
-              {_ui("打开方案与参数")}
-            </button>
-            <button
-              className={button}
-              disabled={busy || Boolean(draft)}
-              onClick={() => resume(r)}
-            >
-              {_ui("继续讨论")}
-            </button>
-          </div>
-        </article>
-      ))}
+        </details>,
+        directory.host
+      )}
       {session && (
-        <div
-          className="rounded-lg border p-2 space-y-2"
-          aria-label={_ui("当前视频创作")}
-        >
-          <div className="flex items-center justify-between">
-            <strong>{_ui("把书做成视频")}</strong>
-            <button
-              className={button}
-              disabled={busy}
-              onClick={() => useBookVideoSession.getState().setSession(null)}
-            >
+        <div className="space-y-1" aria-label={_ui("当前视频创作")}>
+          {!current && <p>{BOOK_VIDEO_QUESTION}</p>}
+          {!current && session.preferredDuration && <p className="text-muted-foreground">
+            {_ui("参考时长：")}{session.preferredDuration}
+          </p>}
+          <div className="flex items-center gap-2">
+            {!current && session.onAlbum && <button className={button} onClick={session.onAlbum}>
+              {_ui("制作静态画册")}
+            </button>}
+            <button className="text-xs text-muted-foreground underline" disabled={busy}
+              onClick={() => useBookVideoSession.getState().setSession(null)}>
               {_ui("暂时收起")}
             </button>
           </div>
-          {!current ? (
-            <div className="space-y-2">
-              <p>{BOOK_VIDEO_QUESTION}</p>
-              {session.preferredDuration && (
-                <p>
-                  {_ui("参考时长：")}
-                  {session.preferredDuration}
-                  {_ui("，也可以在描述里调整。")}
-                </p>
-              )}
-              <p className="text-muted-foreground">
-                {_ui(
-                  "我会结合书稿，帮你确认时长、氛围和用途。确认后再安排画面、台词与音乐。"
-                )}
-              </p>
-            </div>
-          ) : current.brief ? (
-            <>
-              <p>
-                {current.briefConfirmedAt
-                  ? _ui("本版制作条件已确认，可以继续讨论下一版本。")
-                  : current.brief.question ||
-                    _ui(
-                      "这是根据你的想法整理的方向，可以继续在下方补充或修改。"
-                    )}
-              </p>
-              <p className="font-medium">
-                {current.briefConfirmedAt
-                  ? _ui("已确认的制作条件")
-                  : _ui("请确认这些制作条件")}
-              </p>
-              <dl className="space-y-1">
-                {Object.entries(labels).map(([key, label]) => (
-                  <div key={key}>
-                    <dt className="inline text-muted-foreground">
-                      {_ui(label)}：
-                    </dt>
-                    <dd className="inline">
-                      {current.brief![key as keyof typeof labels]}
-                    </dd>
-                  </div>
-                ))}
-              </dl>
-              {nextStep(current)}
-            </>
-          ) : (
-            <p>{current.error || _ui("正在整理创作方向…")}</p>
-          )}
-          <p className="text-xs text-muted-foreground">视频依据已确认的分镜版制作。文字版请先在书页转换并确认；修改书稿后可建立新的视频版本。</p>
-          {!current && session.onAlbum && (
-            <button className={button} onClick={session.onAlbum}>
-              {_ui("制作静态画册")}
-            </button>
-          )}
-          <p className="text-[10px] text-muted-foreground">
-            {_ui("此步只整理文字方案，不购买图片、配音或视频。")}
-          </p>
-        </div>
-      )}
-      {!session && nextRecord && (
-        <div
-          className="rounded-lg border p-3 space-y-2"
-          aria-label={_ui("视频制作下一步")}
-        >
-          <strong>{_ui("下一步：进入视频制作")}</strong>
-          {nextRecord.brief && nextRecord.status !== "adopted" && (
-            <dl className="space-y-1">
-              {Object.entries(labels).map(([key, label]) => (
-                <div key={key}>
-                  <dt className="inline text-muted-foreground">
-                    {_ui(label)}：
-                  </dt>
-                  <dd className="inline">
-                    {nextRecord.brief![key as keyof typeof labels]}
-                  </dd>
-                </div>
-              ))}
-            </dl>
-          )}
-          {nextStep(nextRecord)}
         </div>
       )}
       {busy && !onProgressChange && (

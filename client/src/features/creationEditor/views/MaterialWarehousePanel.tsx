@@ -6,7 +6,7 @@ import { WarehouseVideoThumbnail } from "./WarehouseVideoThumbnail";
 import { WAREHOUSE_CONVERSATION_FOCUS, type WarehouseConversationFocus, resolveWarehouseConversationGroup } from "../warehouseConversationFocus";
 import { SHOT_CHAT_FOCUS_EVENT } from "@/features/storyAgent/shotChatFocus";
 import { PAUSED_FRAME_SHORTCUT_EVENT } from "../frameNavigation";
-import { WarehouseRenderCards } from "./WarehouseRenderCards";
+import { WarehouseReceiptStatus, WarehouseRenderCards } from "./WarehouseRenderCards";
 import { mergeImageAttempts, type WarehouseRenderJob } from "../warehouseRenderActivity";
 import { WarehouseShotGroups, WarehouseShotMenu, useWarehouseShotGroups, warehouseMediaName } from "./WarehouseShotGroups";
 import { OPEN_SHOT_WAREHOUSE, UNASSIGNED_MEDIA, type WarehouseMedia, type WarehouseShotGroup } from "../warehouseShotMedia";
@@ -1320,12 +1320,17 @@ export default function MaterialWarehousePanel({
   };
 
   if (variant === "drawer") {
-    const visibleJobs = mergeImageAttempts(renderJobs, attempts.data ?? []).filter(job => job.storyId === activeStoryId &&
+    const matchingJobs = mergeImageAttempts(renderJobs, attempts.data ?? []).filter(job => job.storyId === activeStoryId &&
       (drawerTab === "shots" ? (job.shotId ?? UNASSIGNED_MEDIA) === activeGroupId
         : job.kind === (drawerTab === "music" ? "audio" : drawerTab === "videos" ? "video" : "image")) &&
       // Archived results use their ordinary, chronologically sorted tiles.
       !(job.kind === "image" && job.state === "ready" && imageItems.some(item => item.image.id === job.assetId)) &&
       !(job.kind === "video" && videoItems.some(item => item.take.id === job.takeId)));
+    const startOfToday = new Date().setHours(0, 0, 0, 0);
+    const earlierFailure = (job: WarehouseRenderJob) =>
+      job.state === "failed" && job.startedAt > 0 && job.startedAt < startOfToday;
+    const historyJobs = matchingJobs.filter(earlierFailure);
+    const visibleJobs = matchingJobs.filter(job => job.state !== "unknown" && !earlierFailure(job));
     const renderCards = visibleJobs.length ? <WarehouseRenderCards onReference={referenceGeneratedImage} jobs={visibleJobs} shots={shots} inline /> : undefined;
     const drawerItems =
       drawerTab === "images" ? imageItems : drawerTab === "videos" ? videoItems : [];
@@ -1453,6 +1458,25 @@ export default function MaterialWarehousePanel({
           {panelError ? <div role="alert" className="mb-2 text-xs text-destructive">{panelError}</div> : null}
           <WarehouseConnectionStatus error={error ?? grouped.error}
             retry={() => { refetch(); grouped.refetch(); }} />
+          <WarehouseReceiptStatus jobs={matchingJobs} />
+          {historyJobs.length > 0 && (
+            <details key={`${activeStoryId}:${drawerTab}:${activeGroupId}`} className="mb-1">
+              <summary className="cursor-pointer text-xs text-muted-foreground">
+                {sequenceUi(`以往的生成失败记录（${historyJobs.length}）`, `Earlier failed renders (${historyJobs.length})`)}
+              </summary>
+              <div className="flex gap-1.5 overflow-x-auto py-1 custom-scrollbar">
+                {historyJobs.map(job => (
+                  <div key={job.id} className="shrink-0">
+                    <time className="text-[11px] text-muted-foreground" dateTime={new Date(job.startedAt).toISOString()}>
+                      {new Date(job.startedAt).toLocaleString(warehouseLanguage === "en" ? "en-GB" : "zh-CN",
+                        { year: "numeric", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                    </time>
+                    <WarehouseRenderCards jobs={[job]} shots={shots} inline />
+                  </div>
+                ))}
+              </div>
+            </details>
+          )}
           {pendingImports.length > 0 ? importQueue : drawerTab === "shots" ? <WarehouseShotGroups
             key={`${activeStoryId}:${warehouseOpenRevision}`}
             leading={renderCards} storyId={activeStoryId ?? 0} focusedKeys={conversationFocus?.mediaKeys}

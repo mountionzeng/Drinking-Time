@@ -3,10 +3,25 @@ import { useState } from "react";
 import { FeedbackDialog } from "@/features/computeAccount/FeedbackDialog";
 import { WarehousePreviewRetry } from "./WarehousePreviewRetry";
 import { Check, CircleAlert, Image, Loader2, Music2, Video } from "lucide-react";
-import { useUiText } from "@/features/uiLanguage/UiLanguage";
+import { useUiLanguage, useUiText } from "@/features/uiLanguage/UiLanguage";
 import type { WarehouseRenderJob } from "../warehouseRenderActivity";
 import type { CreationEditorShot } from "../types";
 import { displayShotCode } from "@shared/shotIdentity";
+
+export function WarehouseReceiptStatus({ jobs }: { jobs: readonly WarehouseRenderJob[] }) {
+  const { language } = useUiLanguage();
+  const unknown = jobs.filter(job => job.state === "unknown");
+  if (!unknown.length) return null;
+  const en = language === "en";
+  const unlinked = unknown.every(job => !(job.requestId || job.imageTaskId || job.takeId || job.compositionId || job.mediaTaskId || job.assetId));
+  const times = unknown.map(job => new Date(job.startedAt).toLocaleString(en ? "en-GB" : "zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }));
+  const status = unlinked
+    ? (en ? `${unknown.length} requests have no tracking ID. Check saved media below.` : `${unknown.length} 条请求缺少任务编号，可在下方查看已入库的素材。`)
+    : (en ? `Awaiting results for ${unknown.length} render requests. Saved media appear below.` : `${unknown.length} 条生成请求的结果待核实。已入库的素材显示在下方。`);
+  return <p role="status" title={times.join(" · ")} className="mb-1 text-[11px] text-muted-foreground">
+    {status}
+  </p>;
+}
 
 export function WarehouseRenderCards({ jobs, shots, inline = false, onReference }: {
   jobs: readonly WarehouseRenderJob[];

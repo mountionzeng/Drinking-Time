@@ -37,6 +37,13 @@ it("serializes simultaneous claims so only one request can buy an image", async 
   expect(generate).toHaveBeenCalledTimes(1);
   expect(await readModuleImageTask(scope)).toMatchObject({ status: "unknown" });
 });
+it("preserves an unknown submission after an interrupted generator instead of showing a preparing task forever", async () => {
+  await runModuleImageTask(scope, async () => { throw new Error("interrupted"); });
+  expect(await readModuleImageTask(scope)).toMatchObject({ status: "unknown" });
+  const replay = vi.fn();
+  await runModuleImageTask({ ...scope, requestId: randomUUID() }, replay);
+  expect(replay).not.toHaveBeenCalled();
+});
 it("does not hold the persistence lock during generation or block a different module", async () => {
   m.chapter.blocks.body = "纸船\n灯塔";
   m.chapter.blocks.writingStyle.push({ id: "text-2", format: "text", lineCount: 1 });

@@ -1,6 +1,6 @@
 import type { ShotVideoPriceProfile, ShotVideoRenderMode } from "@shared/shotDirector";
 import type { StoryboardEditFrameSource } from "@/features/creationEditor/storyboardEditRow";
-import { videoTakeAffordance } from "@/features/creationEditor/videoAssetViewModel";
+import { adoptedVideoTake } from "@/features/creationEditor/previewPlaybackModel";
 import { estimateViduQ2TransitionCny } from "@shared/videoRenderCost";
 import { quoteShotImages } from "@shared/shotImageRender";
 /** Pure rules for the storyboard review workspace. */
@@ -56,12 +56,7 @@ export function storyboardPrimaryFrameSource(
       reverse: edit.effects.reverse,
     };
   }
-  const take = [shot.selectedVideoTake, ...(shot.videoTakes ?? [])].find(
-    candidate =>
-      Boolean(candidate?.videoUrl) &&
-      candidate != null &&
-      videoTakeAffordance(candidate.status).canPlay
-  );
+  const take = adoptedVideoTake(shot);
   if (!take) return null;
   const range =
     take.selectedSelectionType === "range" && take.selectedRangeId != null

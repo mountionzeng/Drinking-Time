@@ -53,6 +53,15 @@ describe("selected-image provider routing", () => {
     expect(await Promise.all(images.map(image => image.text()))).toEqual(["original-pixels", "reference-pixels"]);
   });
 
+  it("preserves an explicitly square edit even when the default is landscape", async () => {
+    ENV.image302GptSize = "1536x1024";
+    const fetcher = vi.fn().mockResolvedValue(response({ data: [{ b64_json: "b3V0cHV0" }] }));
+    const result = await editImage(source, "调色", {provider:"gpt-image", preferStructuralEdit:true, aspectRatio:"1:1", fetcher});
+    expect(result.status).toBe("ok");
+    expect((fetcher.mock.calls[0][1].body as FormData).get("size")).toBe("1024x1024");
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
   it("sends the exact selected image and revision prompt to MJ, retaining all returned candidates", async () => {
     ENV.image302MjAuthHeader = "mj-api-secret";
     const fetcher = vi.fn()

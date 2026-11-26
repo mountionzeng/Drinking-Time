@@ -665,6 +665,14 @@ it("continues a named reading in chat, retaining both endings, original modules 
   await expect(service.generateFilmManuscript({...next,id:randomUUID(),quoteFingerprint:"model-quote"})).rejects.toThrow("指定镜头");
   compute.mockResolvedValue({parsed:{changes:[{shot:2,index:5,text:"不该改的旁白"}]}});
   await expect(service.generateFilmManuscript({...next,id:randomUUID(),quoteFingerprint:"model-quote"})).rejects.toThrow("保留的旁白");
+  await chapters.saveChapterContent({id:original.id,userId:actor.userId,expectedVersion:original.version,content:{title:"试稿之后的编辑"},reason:"autosave"});
+  const adoption={...owner,id:second.id,revision:second.revision};
+  await expect(service.adoptManuscriptConversion({...adoption,preserveCurrentFingerprint:fingerprint})).rejects.toMatchObject({code:"CONFLICT"});
+  const latest=(await service.getBookWorkflow(owner)).drafts.storyboard.fingerprint;
+  const adopted=await service.adoptManuscriptConversion({...adoption,preserveCurrentFingerprint:latest});
+  expect(adopted.chapters[0].blocks.body).toContain("我记得那一下。");
+  expect((await service.getBookWorkflow(owner)).state.versions.some(v=>v.fingerprint===latest && v.chapters[0].title==="试稿之后的编辑")).toBe(true);
+
 });
 
 it("keeps the author's visual and timing notes when a provider returns extra edits alongside the requested camera cue",async()=>{
@@ -697,4 +705,35 @@ it("edits only the last picture and keeps its subtitle, timing, sound, dialogue 
   const author=trialEditor([chapter],"最后一个镜头的画面换成“雨中的路灯。”，旁白照旧。",[]);
   expect(author.freeQuote?.estimatedCny).toBe(0);
   expect(author.apply(author.exact).chapters[0].blocks.body).toBe(expected);
+});
+
+it("carries an existing shot image into a reordered reading by shot identity", async () => {
+  const { importedReading } = await import("./storyboardTrial");
+  const { readBookShotChapter } = await import("../../shared/bookShotDocument");
+  const base = { ...source, blocks: { ...source.blocks, body:"原镜头\n图片说明\n![图片](/api/images/photo.jpg)",
+    writingStyle:[{id:"shot",format:"shot" as const,parentId:null,collapsed:false},
+      {id:"caption",format:"text" as const,parentId:"shot",collapsed:false},
+      {id:"photo",format:"text" as const,parentId:"caption",collapsed:false}] } };
+  const next = importedReading(base,{label:"新稿",sourceLabel:"作者",shots:[
+    {title:"新增镜头",paragraphs:[{text:"无图"}]},
+    {title:"改名后的镜头",shotModuleId:"shot",paragraphs:[{text:"保留合影"}]}]});
+  const shots=readBookShotChapter({id:1,blocks:next.blocks}).shots;
+  expect(shots.map(s=>s.images.map(i=>i.url))).toEqual([[],["/api/images/photo.jpg"]]);
+});
+
+it.each([false,true])("keeps the chat photo in the source and corresponding video shot (existing text=%s)", async existing => {
+  const story = await createStory({userId:actor.userId,title:"合影",body:{}});
+  const owner={storyId:story.id,userId:actor.userId,actor};
+  const {createGeneratedImage}=await import("../repositories/images");
+  const picture=await createGeneratedImage({...owner,imageUrl:"/api/images/group.jpg",generationType:"initial"});
+  const caption="认出照片两端的人。";
+  if(existing) await chapters.insertChapter({...owner,content:{...source,blocks:{...source.blocks,body:caption,writingStyle:undefined,blockIds:[randomUUID()],manuscriptKind:"text"},layout:null}});
+  const input={...owner,id:randomUUID(),request:"把这个故事做成视频",conversation:[{role:"user" as const,content:caption+"[[ref:image%3A"+picture.id+"]]"}]};
+  quote.mockReturnValue({fingerprint:"photo",estimatedCny:0.01});
+  await service.quoteFilmManuscript(input);
+  compute.mockResolvedValueOnce({parsed:{chapters:[{title:"开场",modules:[{format:"shot",text:"合影",parent:null},{format:"text",text:"",parent:0,media:0}]}]}});
+  const next=await service.generateFilmManuscript({...input,quoteFingerprint:"photo"});
+  expect((await chapters.listChapters(story.id,actor.userId,"text"))[0].blocks.body).toContain(picture.imageUrl);
+  const {readBookShotChapter}=await import("../../shared/bookShotDocument");
+  expect(readBookShotChapter({id:1,blocks:next.chapters![0].blocks}).shots[0].images[0].url).toBe(picture.imageUrl);
 });

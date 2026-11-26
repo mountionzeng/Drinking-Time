@@ -245,7 +245,7 @@ it("cancelled reading quote incurs no model calls", async () => {
 it("explains the independent film style in chat before purchase and binds that version to submission", async () => {
   const {withMediaChatSession,answerMediaChatQuestion,mediaChatQuestionStore}=await import("../mediaChatSession");
   const {api,input}=setup();
-  input.material.filmStyleReference = {version:4,name:"Ink",imageId:21,image:{id:21,imageUrl:"/style.png"} as any};
+  input.material.filmStyleReference = {version:4,name:"Ink",imageId:21,image:{id:21,imageUrl:"https://cdn.example.com/style.png"} as any};
   const pending=withMediaChatSession(7,()=>api.render({...input,revisionInstruction:undefined,settings:{count:4,references:{imageIds:[],assets:{}}}}));
   await vi.waitFor(() => expect(mediaChatQuestionStore.getState().question?.text).toContain("本次全片画风参考：图片 #21"));
   expect(mediaChatQuestionStore.getState().question?.text).toContain("本次没有选择人物参考图");

@@ -331,6 +331,10 @@ const SHRINK_RATIO = 0.4;
 // 新内容 < 原文件 40% 视为骤减
 let lastBackupAt = 0;
 
+/** Last successfully written main-state JSON. Unchanged payloads skip rewrite/backup. */
+let lastWrittenMainPayload: string | null = null;
+let lastWrittenEditSnapshotsPayload: string | null = null;
+
 let testWriteBlockedWarned = false;
 
 // vitest 会自动设 VITEST=true；NODE_ENV=test 兜底。运行时读，避免模块加载快照过期。
@@ -793,9 +797,11 @@ async function persistLocalEditSnapshotsToDisk(next: EditSnapshot[]) {
   // 紧凑序列化：这份文件曾到 24MB+，缩进只服务于人眼但每次写都要多付 ~1/3 的
   // 序列化时间和磁盘 IO。要看内容用 `jq .` 即可。
   const payload = JSON.stringify(normalizeLoadedEditSnapshots(next));
+  if (payload === lastWrittenEditSnapshotsPayload) return;
   const tmpPath = localTempPath(LOCAL_EDIT_SNAPSHOTS_PATH);
   await writeFile(tmpPath, payload, "utf-8");
   await rename(tmpPath, LOCAL_EDIT_SNAPSHOTS_PATH);
+  lastWrittenEditSnapshotsPayload = payload;
 }
 
 export async function ensureMemoryLoaded() {
@@ -921,48 +927,17 @@ export class LocalPersistenceWriteError extends Error {
 export async function persistMemoryStateToDisk(
   state: MemoryState = memoryState
 ) {
-  // ① 测试防误写：测试环境下，绝不往默认真文件写——哪怕 vitest.setup.ts 被删/没生效。
-  //    要在测试里持久化，必须在导入前显式设 LOCAL_PERSIST_PATH（指向临时文件）。
-  if (isTestEnv() && LOCAL_PERSIST_PATH === DEFAULT_LOCAL_PERSIST_PATH) {
-    if (!testWriteBlockedWarned) {
-      console.warn(
-        "[LocalPersist] 测试环境拒绝写入真文件（未设 LOCAL_PERSIST_PATH）。如需在测试里持久化，请在导入前设置该环境变量指向临时文件。"
-      );
-      testWriteBlockedWarned = true;
-    }
-    return;
-  }
   // Capture this batch synchronously, before the first filesystem await. A
   // later caller may mutate memoryState while mkdir/backup/write is pending;
   // that mutation belongs to the next coalescer batch and must not hitchhike
-  // into this batch's durable payload.
+  // into this batch's durable payload. Edit snapshots and prompt lineage live
+  // in sidecar files and must not be cloned or rewritten here.
   const {
     promptLineage: _promptLineage,
     editSnapshots: _editSnapshots,
     ...mainState
   } = state;
-  const payload = JSON.stringify(mainState);
-  const nextBytes = Buffer.byteLength(payload, "utf-8");
-  let tmpPathWritten: string | null = null;
-  try {
-    const dir = path.dirname(LOCAL_PERSIST_PATH);
-    await mkdir(dir, { recursive: true });
-    // ② 写前滚动备份 + 骤减告警（自身失败不影响主写入，backupBeforeWrite 内部已吞错误）
-    await backupBeforeWrite(nextBytes);
-    const tmpPath = localTempPath(LOCAL_PERSIST_PATH);
-    await writeFile(tmpPath, payload, "utf-8");
-    tmpPathWritten = tmpPath;
-    await rename(tmpPath, LOCAL_PERSIST_PATH);
-  } catch (error) {
-    // rename 失败时 tmp 文件已经写完但没被消费掉，best-effort 清理一下，
-    // 避免每次失败都在磁盘上留一个孤儿文件；清理本身失败不能盖过原始错误。
-    if (tmpPathWritten) {
-      await unlink(tmpPathWritten).catch(() => {});
-    }
-    const wrapped = new LocalPersistenceWriteError(LOCAL_PERSIST_PATH, error);
-    console.error("[LocalPersist]", wrapped.message);
-    throw wrapped;
-  }
+  await persistCapturedMainPayload(JSON.stringify(mainState));
 }
 
 type PendingWrite = {
@@ -1088,11 +1063,49 @@ export function frozenMemoryStateSnapshot(state: MemoryState): MemoryState {
 }
 
 export const persistMemoryState = createWriteCoalescer(() => {
-  // Freeze at batch creation, before waiting for the disk queue. Otherwise a
-  // later optimistic mutation could hitchhike into an earlier durable batch.
-  const snapshot = frozenMemoryStateSnapshot(memoryState);
-  return enqueueLocalPersistenceWrite(() => persistMemoryStateToDisk(snapshot));
+  // Capture only the main-state JSON at batch creation. structuredClone of the
+  // whole memoryState also walked the 20MB+ edit-snapshot sidecar and blocked
+  // the event loop on every auth-touch persist.
+  const {
+    promptLineage: _promptLineage,
+    editSnapshots: _editSnapshots,
+    ...mainState
+  } = memoryState;
+  const payload = JSON.stringify(mainState);
+  return enqueueLocalPersistenceWrite(() => persistCapturedMainPayload(payload));
 });
+
+async function persistCapturedMainPayload(payload: string) {
+  if (isTestEnv() && LOCAL_PERSIST_PATH === DEFAULT_LOCAL_PERSIST_PATH) {
+    if (!testWriteBlockedWarned) {
+      console.warn(
+        "[LocalPersist] 测试环境拒绝写入真文件（未设 LOCAL_PERSIST_PATH）。如需在测试里持久化，请在导入前设置该环境变量指向临时文件。"
+      );
+      testWriteBlockedWarned = true;
+    }
+    return;
+  }
+  if (payload === lastWrittenMainPayload) return;
+  const nextBytes = Buffer.byteLength(payload, "utf-8");
+  let tmpPathWritten: string | null = null;
+  try {
+    const dir = path.dirname(LOCAL_PERSIST_PATH);
+    await mkdir(dir, { recursive: true });
+    await backupBeforeWrite(nextBytes);
+    const tmpPath = localTempPath(LOCAL_PERSIST_PATH);
+    await writeFile(tmpPath, payload, "utf-8");
+    tmpPathWritten = tmpPath;
+    await rename(tmpPath, LOCAL_PERSIST_PATH);
+    lastWrittenMainPayload = payload;
+  } catch (error) {
+    if (tmpPathWritten) {
+      await unlink(tmpPathWritten).catch(() => {});
+    }
+    const wrapped = new LocalPersistenceWriteError(LOCAL_PERSIST_PATH, error);
+    console.error("[LocalPersist]", wrapped.message);
+    throw wrapped;
+  }
+}
 
 let localAggregateMutationTail: Promise<void> = Promise.resolve();
 
@@ -1322,6 +1335,9 @@ export const timelineFrameExtractionMemoryLock =
 
 export function resetMemoryStateForTesting(): void {
   Object.assign(memoryState, createEmptyMemoryState());
+  lastWrittenMainPayload = null;
+  lastWrittenEditSnapshotsPayload = null;
+  lastBackupAt = 0;
   promptLineageLoaded = true;
   promptLineageLoadFallback = undefined;
   editSnapshotsLoaded = true;

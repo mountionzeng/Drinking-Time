@@ -3,6 +3,7 @@ import { readShotField, sceneSetting, type ShotField } from "./bookShotFormat";
 import { readBookImage } from "./bookImageBlock";
 import { spokenBookDialogue } from "./bookSound";
 import { writingModuleTexts, type BookWritingStyle } from "./bookWritingStyle";
+import { pictureDirections } from "./stillVisualDescription";
 
 export type BookShotChapter = { id: number; blocks: { body: string; storyboardScenes?: boolean; writingStyle?: BookWritingStyle } };
 type MediaAudio = NonNullable<ReturnType<typeof readBookAudio>>;
@@ -28,7 +29,7 @@ export function readBookShotChapter(chapter: BookShotChapter, showScenes = chapt
   const shots = new Map<string, Shot>();
   const wholeAudio: MediaAudio[] = [];
   const context: { scene?: string; text: string }[] = [];
-  const owned = new Map<string, { content: string[]; notes: string[]; dialogue: string[]; pendingField?: ShotField }>();
+  const owned = new Map<string, { content: string[]; notes: string[]; dialogue: string[]; voiceSection?: boolean; pendingField?: ShotField }>();
   modules.forEach(({ row, text, audio, image, dialogue }) => {
     if (!row) { if (audio) wholeAudio.push(audio); return; }
     const parent = row.parentId ? nodes.get(row.parentId) : undefined;
@@ -72,8 +73,25 @@ export function readBookShotChapter(chapter: BookShotChapter, showScenes = chapt
           start += line.length + 1;
         }
       }
-      if (dialogue !== undefined) part.dialogue.push(dialogue);
-      else if (row.format !== "shot" && text.trim()) part.notes.push(text);
+      if (row.format !== "shot") {
+        for (const line of text.split("\n")) {
+          const field = readShotField(line);
+          // Explicit dialogue classification wins, including lines like “音乐：我记得那天。”
+          if (dialogue !== undefined && field?.kind !== "voice") {
+            if (line.trim()) part.dialogue.push(spokenBookDialogue(line));
+          } else if (field?.kind === "voice") {
+            part.voiceSection = !field.inline;
+            const heading = line.split(/[：:]/,1)[0].replace(/\*\*/g,"").trim();
+            if (/[｜|（(]/.test(heading)) part.notes.push(heading);
+            if (field.inline) part.dialogue.push(spokenBookDialogue(line) === line ? field.inline : spokenBookDialogue(line));
+          } else if (!field && part.voiceSection && line.trim() && !/^\s*(?:#|\*\*)/.test(line)) {
+            part.dialogue.push(line);
+          } else {
+            if (line.trim()) part.voiceSection = false;
+            part.notes.push(line);
+          }
+        }
+      } else if (dialogue !== undefined) part.dialogue.push(dialogue);
     }
   });
   for (const shot of shots.values()) {
@@ -93,7 +111,7 @@ export function shotDirections(notes: string) {
   let continuation: keyof typeof sections = "other";
   for (const raw of notes.split("\n")) {
     const line = raw.trim();
-    if (!line) { continuation = "other"; continue; }
+    if (!line) { if (continuation !== "motion") continuation = "other"; continue; }
     const clean = line.replace(/^#{1,6}\s+/, "").replace(/\*\*/g, "");
     const colon = clean.search(/[：:]/);
     const field = readShotField(raw);
@@ -101,8 +119,15 @@ export function shotDirections(notes: string) {
     const section: keyof typeof sections = field?.kind === "voice" || timeLine ? "timing" : field?.kind ?? "other";
     if (section !== "other" || colon !== -1 || /^#|^\*\*/.test(line)) continuation = "other";
     const heading = field && !field.inline;
-    if (!heading || /[｜|（(]/.test(clean)) sections[section === "other" ? continuation : section].push(field ? clean : line);
-    if (heading) continuation = section;
+    if (!heading || section === "picture" || /[｜|（(]/.test(clean)) sections[section === "other" ? continuation : section].push(field ? clean : line);
+    if (heading || field?.kind === "motion") continuation = section;
   }
   return sections;
+}
+
+export function shotMediaDirections(dirs: ReturnType<typeof shotDirections>, title: string) {
+  const pictureField = dirs.picture.length > 0;
+  const visualLines = pictureField ? dirs.picture.filter(line => !/^(?:素材待准备|参考素材|屏幕文字|字幕)\s*[：:]\s*\S/u.test(line)) : dirs.other;
+  const directions = pictureDirections(visualLines.join("\n") || (pictureField ? "" : title));
+  return { picture: directions.picture, video: dirs.motion.join("\n") || directions.motion };
 }

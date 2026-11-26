@@ -30,7 +30,7 @@ export function useArtPreviewChat() {
           const state = storySpineStore.getState();
           return state.activeStoryId === storyId && state.storyScopeEpoch === scope.storyScopeEpoch && state.storyLoadEpoch === scope.storyLoadEpoch;
         };
-        const batch = await plan.mutateAsync({ storyId, instruction, sampleShotIds, adjustment, coverCopyImageId, sceneAllowances, imageId: command.imageId, operationToken: crypto.randomUUID() });
+        const batch = await plan.mutateAsync({ storyId, instruction, sampleShotIds, adjustment, coverCopyImageId, allowPublicHosting: coverCopyImageId ? true : undefined, sceneAllowances, imageId: command.imageId, operationToken: crypto.randomUUID() });
         await utils.artSystems.previewRead.invalidate({ storyId });
         if (!current()) return "示意方案已保存到原故事，尚未提交图片。";
         const accepted = await askMediaChatConfirmation({ storyId, kind: "cost",

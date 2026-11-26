@@ -3,6 +3,7 @@ import type { ImageGenerationDraft } from "./imageGenerationDraft";
 import { useUiText as useDesktopUiText, useUiLanguage } from "@/features/uiLanguage/UiLanguage";
 import { trpc } from "@/lib/trpc";
 import { PendingShotImageError } from "@shared/shotImageRender";
+import { needsProviderImageCopy } from "@shared/providerImageUrl";
 import { canResumeStoryboardImage, pollStoryboardImage } from "./pollStoryboardImage";
 import { askMediaChatConfirmation, cancelMediaChatSession, hasMediaChatSession } from "../mediaChatSession";
 import { formatComputeQuote } from "@shared/computeMoney";
@@ -211,8 +212,9 @@ export function useShotImageRender(
     const isGptRevision = provider === "gpt-image";
     const retexture = conversationRevision && provider === "midjourney";
     const filmStyle = !isRevision && provider === "midjourney" && !settings.references.assets.style ? material?.filmStyleReference : undefined;
-    let references = !isRevision && provider === "midjourney"
-      ? { ...settings.references, filmStyleVersion: filmStyle?.version ?? 0 } : settings.references;
+    const { filmStyleCopyImageId: _oldConsent, allowPublicHosting: _oldHostingConsent, ...selection } = settings.references;
+    let references: typeof settings.references = !isRevision && provider === "midjourney"
+      ? { ...selection, filmStyleVersion: filmStyle?.version ?? 0 } : selection;
     const choices = material ? shotRenderReferenceOptions(material) : [];
     const chosen = selectedReferenceKeys(settings.references).map(key =>
       choices.find(choice => choice.key === key)
@@ -255,7 +257,9 @@ export function useShotImageRender(
       } catch { return { status: "error" as const, message: "暂时无法核对读图费用，尚未读图或生成。" }; }
     }
     const continuityNotice = !isRevision && material ? shotImageContinuityNotice(material, settings.references, language) : "";
-    const editable = !isRevision && provider === "midjourney" && !input.skipCostConfirmation && !(storyId && hasMediaChatSession(storyId));
+    const needsStyleConsent = !!filmStyle?.image && needsProviderImageCopy(filmStyle.image.imageUrl);
+    const editable = !isRevision && provider === "midjourney" && (needsStyleConsent ||
+      (!input.skipCostConfirmation && !(storyId && hasMediaChatSession(storyId))));
     const edited = editable ? await composeImage({ label, instruction, references, material: material!, estimatedCny, language }) : null;
     if (editable && !edited) return { status: "cancelled" as const, message: "已取消，未提交生成" };
     if (edited) { instruction = edited.instruction; references = edited.references; }

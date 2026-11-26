@@ -1,7 +1,7 @@
 import { shotConversationSelection } from "../shotConversation";
 import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { Clapperboard, ImagePlus, Loader2 } from "lucide-react";
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 
 import { StoryboardReviewBoard } from "./StoryboardReviewBoard";
@@ -10,7 +10,9 @@ import {
   useStoryCardsBoardSlice,
 } from "@/features/storyAgent/spine/selectors";
 import { useStoryAgentActions } from "@/features/storyAgent/StoryAgentContext";
-import { useCreationEditor } from "@/features/creationEditor/CreationEditorContext";
+import { trpc } from "@/lib/trpc";
+import { storySpineStore } from "../spine/storySpine";
+import { normalizeStoryShots, useCreationEditor } from "@/features/creationEditor/CreationEditorContext";
 import type { CreationEditorShot } from "@/features/creationEditor/types";
 import { useStorySpine } from "@/features/storyAgent/spine/storySpine";
 import type { GeneratedImageItem } from "@/features/storyAgent/storyTypes";
@@ -155,6 +157,41 @@ export default function StoryboardPanel({
     rejectPromptCandidate,
     imageProviderStatus,
   } = useCreationEditor();
+  const linked = creationShots.some(s => s.publishingVideo?.referenceImageIds !== undefined);
+  const chapters = trpc.chapters.list.useQuery({storyId:activeStoryId ?? 0,kind:"storyboard"}, {
+    enabled:Boolean(activeStoryId && linked), retry:false, refetchInterval:linked ? 10000 : false,
+  });
+  const sourceRevision = chapters.data?.map(c => [c.id,c.version,c.updatedAt].join(":")).join(",");
+  const utils = trpc.useUtils();
+  const {mutateAsync: syncBook} = trpc.bookVideo.syncLinkedShots.useMutation();
+  useEffect(() => {
+    if (!activeStoryId || !linked || !sourceRevision) return;
+    let active = true;
+    const {accountId,storyScopeEpoch} = storySpineStore.getState();
+    const current = () => active && storySpineStore.getState().accountId === accountId && storySpineStore.getState().storyScopeEpoch === storyScopeEpoch;
+    let timer: ReturnType<typeof setTimeout>;
+    async function refresh(storyId:number) {
+      try {
+        await syncBook({storyId});
+        if (!current()) return;
+        await Promise.all([utils.storyAgent.storyGet.invalidate({id:storyId}), utils.storyAgent.storyMaterialState.invalidate({storyId})]);
+        const fresh = await utils.storyAgent.storyGet.fetch({id:storyId});
+        if (!current() || !fresh || fresh.revision < storySpineStore.getState().serverRevision) return;
+        const saved = new Map(normalizeStoryShots(fresh.body).map(s=>[s.stableShotId,s]));
+        setStoryShots(rows => rows.map(row=>{
+          const match = saved.get(row.stableShotId);
+          if (!match?.publishingVideo?.referenceImageIds) return row;
+          return {...row, promptDraft:match.promptDraft,videoPrompt:match.videoPrompt,cameraMove:match.cameraMove,
+            scriptText:match.scriptText,sound:match.sound,dialogue:match.dialogue,
+            publishingVideo:match.publishingVideo,generationParams:match.generationParams};
+        }));
+      } catch {
+        if (current()) timer = setTimeout(() => void refresh(storyId), 10000);
+      }
+    }
+    void refresh(activeStoryId);
+    return () => {active=false;clearTimeout(timer);};
+  },[activeStoryId,linked,sourceRevision,syncBook,utils,setStoryShots]);
   const candidatesByShot = useMemo(
     () => summarizeShotCandidates(promptProjection),
     [promptProjection]

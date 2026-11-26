@@ -109,6 +109,30 @@ describe('editContext service', () => {
       expect(result.diffSummary).toBeUndefined();
     });
 
+    it('does not create another snapshot for an unchanged auto-save', async () => {
+      const state: ProjectState = {
+        cards: [{ id: '1', title: 'Card 1', content: 'Content' }],
+      };
+      const first = await saveSnapshot({
+        userId: 1,
+        projectId: 31,
+        sessionId: 'session-autosave',
+        state,
+      });
+      const second = await saveSnapshot({
+        userId: 1,
+        projectId: 31,
+        sessionId: 'session-autosave',
+        state,
+        autoSave: true,
+      });
+      expect(second.snapshotId).toBe(first.snapshotId);
+      expect(second.hasDiff).toBe(false);
+      const changed = await saveSnapshot({ userId: 1, projectId: 31, sessionId: 'session-autosave',
+        state: { ...state, visualPreference: 'watercolor' }, autoSave: true });
+      expect(changed.snapshotId).not.toBe(first.snapshotId);
+    });
+
     it('should handle empty state', async () => {
       const state: ProjectState = {
         cards: [],

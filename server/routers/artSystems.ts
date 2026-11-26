@@ -16,11 +16,11 @@ export const artSystemsRouter = router({
     .mutation(({ ctx, input }) => analyzeShotScene({ ...input, userId: ctx.user.id })),
   sceneConfirm: protectedProcedure.input(sceneScope.extend({ basisKey: z.string().length(64), text: z.string().trim().max(2600) }))
     .mutation(({ ctx, input }) => confirmShotScene({ ...input, userId: ctx.user.id })),
-  previewRetryPlan: protectedProcedure.input(z.object({ storyId: z.number().int().positive(), failedId: z.string().uuid(), basisKey: z.string().min(1).max(128), coverCopyImageId: z.number().int().positive().optional() }).strict())
+  previewRetryPlan: protectedProcedure.input(z.object({ storyId: z.number().int().positive(), failedId: z.string().uuid(), basisKey: z.string().min(1).max(128), allowPublicHosting: z.literal(true).optional(), coverCopyImageId: z.number().int().positive().optional() }).strict())
     .mutation(({ input, ctx }) => retryPreviewPlan({ ...input, userId: ctx.user.id, editorName: ctx.user.name || String(ctx.user.id) })),
   previewArtBasis: protectedProcedure.input(z.object({ storyId: z.number().int().positive() }))
     .query(({ input, ctx }) => readPreviewArtBasis(input.storyId, ctx.user.id)),
-  previewPlan: protectedProcedure.input(z.object({ storyId: z.number().int().positive(), instruction: z.string().trim().min(1).max(8000), operationToken: z.string().uuid(), sampleShotId: z.string().min(1).max(128).optional(), sampleShotIds: sampleShotIdsSchema.optional(), sceneAllowances: z.array(sceneAllowanceSchema).max(3).optional(), imageId: z.number().int().positive().optional(), adjustment: z.string().trim().min(1).max(600).optional(), coverCopyImageId: z.number().int().positive().optional() }).strict())
+  previewPlan: protectedProcedure.input(z.object({ storyId: z.number().int().positive(), instruction: z.string().trim().min(1).max(8000), operationToken: z.string().uuid(), sampleShotId: z.string().min(1).max(128).optional(), sampleShotIds: sampleShotIdsSchema.optional(), sceneAllowances: z.array(sceneAllowanceSchema).max(3).optional(), imageId: z.number().int().positive().optional(), adjustment: z.string().trim().min(1).max(600).optional(), allowPublicHosting: z.literal(true).optional(), coverCopyImageId: z.number().int().positive().optional() }).strict())
     .mutation(({ input, ctx }) => planArtPreviews({ ...input, userId: ctx.user.id, editorName: ctx.user.name || String(ctx.user.id) })),
   previewRead: protectedProcedure.input(z.object({ storyId: z.number().int().positive() }))
     .query(({ input, ctx }) => readArtPreviews(input.storyId, ctx.user.id)),

@@ -1,4 +1,13 @@
 {
+  "画面描述": {"en": "Image description", "fr": "Description de l’image"},
+  "渲染成图片": {"en": "Render as an image", "fr": "Générer une image"},
+  "渲染成视频": {"en": "Render as a video", "fr": "Générer une vidéo"},
+  "渲染成音效": {"en": "Render as a sound effect", "fr": "Générer un effet sonore"},
+  "渲染成音乐": {"en": "Render as music", "fr": "Générer une musique"},
+  "生成字幕": {"en": "Generate subtitles", "fr": "Générer des sous-titres"},
+  "生成配音": {"en": "Generate voice-over", "fr": "Générer une voix off"},
+  "请先填写本镜的{0}": {"en": "Add {0} for this shot first.", "fr": "Renseignez d’abord ce champ pour ce plan : {0}."},
+
   "等待正文…": {"en": "Waiting for the first words…", "fr": "En attente des premiers mots…"},
   "正在写第 {0} 镜": {"en": "Writing shot {0}", "fr": "Rédaction du plan {0}"},
   "正在写正文": {"en": "Writing the draft", "fr": "Rédaction en cours"},

@@ -95,6 +95,15 @@ export function importedReading(
 ) {
   const previous =
     base.blocks.writingStyle?.filter(r => r.format === "shot") ?? [];
+  const { nodes } = readBookShotChapter({id: 0, blocks: base.blocks});
+  const imagesByShot = new Map<string, Module[]>();
+  for (const {row, text, image} of bookManuscriptModules(base.blocks)) {
+    const owner = row && nodes.get(row.id)?.shot;
+    if (!row || !image || !owner) continue;
+    const images = imagesByShot.get(owner) ?? [];
+    images.push({row: {...row, parentId: owner}, text});
+    imagesByShot.set(owner, images);
+  }
   const modules: Module[] = [];
   for (const shot of input.shots) {
     checkText(shot.title);
@@ -105,6 +114,7 @@ export function importedReading(
       row: { id, format: "shot", parentId: null, collapsed: false },
       text: shot.title,
     });
+    modules.push(...(imagesByShot.get(id) ?? []));
     for (const p of shot.paragraphs) {
       checkText(p.text);
       modules.push({

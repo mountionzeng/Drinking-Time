@@ -460,7 +460,7 @@ export function ChapterWorkspace({
         }} chapters={productionChapters.map(chapter =>
         chapter.id === active.id && liveDraft ? { id: chapter.id, blocks: liveDraft } : chapter
       )} />}
-      {active?.blocks.shotTextOrigin && reader ? <details className="text-sm"><summary className="cursor-pointer">{_ui("查看镜头试稿与参考")}</summary>{reader}</details> : reader}
+      {!active && reader}
       {(state.error || state.queryError) && (
         <p role="alert" className="text-sm text-destructive">
           {state.error || state.queryError}{_ui("。本机草稿仍保留。")}<button
@@ -492,6 +492,7 @@ export function ChapterWorkspace({
             <button className={button} onClick={() => { if (window.dispatchEvent(new CustomEvent(OPEN_STORY_MAILBOX, { cancelable: true, detail: { section: "legacy" } }))) setDeliveryPanel("inbox"); }}>{_ui("查看来稿")}</button>
           </div>}
           {historyOpen && <section aria-label={_ui("版本列表")} className="space-y-3 border-y py-3">
+            {reader && <details className="text-sm"><summary className="cursor-pointer">{_ui("镜头试稿与参考")}</summary>{reader}</details>}
             {workflow.data && <>
               {displayMode !== "text" && <label className="text-sm">{_ui("稿件")} <select aria-label={_ui("查看稿件版本")} className="rounded border bg-transparent p-1" value={state.selectedKind ?? workflow.data.preferredKind} onChange={event => { const kind = event.target.value as ManuscriptKind; void run(async () => setManuscriptKind(kind)); }}>
                 {(["text", "storyboard"] as const).filter(kind => workflow.data.drafts[kind].count > 0).map(kind => <option key={kind} value={kind}>{kind === "text" ? _ui("文字版") : _ui("分镜版")}</option>)}
@@ -587,7 +588,7 @@ export function ChapterWorkspace({
       {!active && editorControls()}
       {active && (<>
           <div hidden={displayMode !== "text" || Boolean(selectedTrial)} className="space-y-3">
-            {displayMode === "text" && <ChapterWriting showScenes={showScenes} key={`${active.id}:${state.epoch}`} chapter={active} precedingShots={shotOffset + precedingBookShots(productionChapters, active.id)}
+            {displayMode === "text" && <ChapterWriting storyboard={state.selectedKind === "storyboard"} showScenes={showScenes} key={`${active.id}:${state.epoch}`} chapter={active} precedingShots={shotOffset + precedingBookShots(productionChapters, active.id)}
               shotTarget={shotTarget?.chapterId === active.id ? shotTarget : null} onShotFocused={() => setShotTarget(null)}
               titleEditor={active.blocks.chatDocument ? undefined : titleEditor}
               renderHeader={editorControls}

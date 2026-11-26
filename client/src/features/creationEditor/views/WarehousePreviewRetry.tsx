@@ -22,16 +22,18 @@ export function WarehousePreviewRetry({ job, label, onClose, onReport }: {
   const locked = useRef(false);
   const mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
-  const copyId = basis.data?.privateCover && (basis.data.needsCoverCopy || previewRetry?.referenceId === basis.data.coverImageId)
-    ? basis.data.coverImageId : null;
+  const copyId = basis.data?.needsCoverCopy
+    ? basis.data.styleCopyImageId ?? ((basis.data.privateCover && previewRetry?.referenceId === basis.data.coverImageId) ? basis.data.coverImageId : null)
+    : (basis.data?.privateCover && previewRetry?.referenceId === basis.data.coverImageId ? basis.data.coverImageId : null);
   const price = estimateStoryboardImageCost().estimatedCny;
   async function submit() {
     const scope = storySpineStore.getState();
     if (locked.current || !previewRetry || scope.activeStoryId !== storyId || !basis.data || basis.isFetching || (copyId && consent !== copyId)) return;
     locked.current = true;
+    setConsent(undefined);
     setBusy(true); setError("");
     try {
-      const batch = await plan.mutateAsync({ storyId, failedId: previewRetry.failedId, basisKey: basis.data.basisKey, coverCopyImageId: copyId ?? undefined });
+      const batch = await plan.mutateAsync({ storyId, failedId: previewRetry.failedId, basisKey: basis.data.basisKey, coverCopyImageId: copyId ?? undefined, allowPublicHosting: copyId ? true : undefined });
       const current = storySpineStore.getState();
       if (!mounted.current || current.accountId !== scope.accountId || current.activeStoryId !== storyId || current.storyScopeEpoch !== scope.storyScopeEpoch) return;
       const [shot] = batch.shots;
@@ -56,7 +58,7 @@ export function WarehousePreviewRetry({ job, label, onClose, onReport }: {
         <DialogDescription>{ui("沿用原试图要求和当前镜头画风，生成 4 张候选。")}</DialogDescription></DialogHeader>
       {basis.data && <p className="text-sm">{basis.data.styleName}</p>}
       {copyId && <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={consent === copyId} disabled={busy}
-        onChange={e => setConsent(e.target.checked ? copyId : undefined)} />{ui("允许本轮发送封面 #{0} 的缩图给图片服务", [copyId])}</label>}
+        onChange={e => setConsent(e.target.checked ? copyId : undefined)} />{ui("允许本轮将 #{0} 的缩图上传至 OSS 或 302，供图片服务读取。持有链接的人也可查看缩图。", [copyId])}</label>}
       {(error || basis.error) && <p role="alert" className="text-sm">{error || basis.error?.message} <button className="underline" onClick={onReport}>{ui("反馈问题")}</button></p>}
       <div className="flex justify-end gap-2"><button type="button" className="rounded-md border px-3 py-2 text-sm" disabled={busy} onClick={onClose}>{ui("取消")}</button>
         <button type="button" className="rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground disabled:opacity-50"

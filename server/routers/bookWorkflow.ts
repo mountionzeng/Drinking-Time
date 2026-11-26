@@ -103,7 +103,7 @@ export const bookWorkflowRouter = router({
       })
     ),
   adopt: protectedProcedure
-    .input(record.extend({ revision: z.number().int().positive() }))
+    .input(record.extend({ revision: z.number().int().positive(), preserveCurrentFingerprint: z.string().length(64).optional() }))
     .mutation(({ ctx, input }) =>
       adoptManuscriptConversion({
         ...input,

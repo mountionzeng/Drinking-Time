@@ -5,6 +5,7 @@ vi.mock('@/lib/trpc', () => ({ trpc: {
   timelineMedia: { audioAssetLibrary: { useQuery: () => ({ data: [] }) } },
 } }));
 import React from 'react';
+import type { WarehouseRenderJob } from '../warehouseRenderActivity';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 const mock = vi.hoisted(() => ({ select: vi.fn(), images: undefined as Array<{id:number;storyId:number;imageUrl:string;createdAt?:string}> | undefined }));
@@ -35,6 +36,31 @@ function draw(videoActions: boolean, insertIntoLayout = false) {
   const html = renderToStaticMarkup(<MaterialWarehousePanel variant="drawer" videoActions={videoActions} insertIntoLayout={insertIntoLayout} onClose={close} />);
   return { html, close, select: () => select!(), edit: () => edit!({preventDefault: vi.fn()}), preview: () => preview!(), hover: () => hover!({pointerType:"mouse"}) };
 }
+
+it('keeps dated failures in history while showing saved images, current failures and pending jobs', () => {
+  const midnight = new Date().setHours(0, 0, 0, 0);
+  const base: WarehouseRenderJob = { id: 'old', kind: 'image', storyId: 7, startedAt: midnight - 1, state: 'failed', error: '旧失败' };
+  const jobs: WarehouseRenderJob[] = [base,
+    { ...base, id: 'today', startedAt: midnight, error: '今天失败' },
+    { ...base, id: 'pending', state: 'rendering' },
+    { ...base, id: 'unknown', state: 'unknown' },
+    { ...base, id: 'foreign', storyId: 8, error: '其他作品' }];
+  const html = renderToStaticMarkup(<MaterialWarehousePanel variant="drawer" videoActions={false} renderJobs={jobs} />);
+  const history = html.match(/<details\b[^>]*>[\s\S]*?<\/details>/)?.[0];
+  expect(history).toBeDefined();
+  expect(history).not.toMatch(/<details[^>]*\bopen\b/);
+  expect(history).toContain('以往的生成失败记录（1）');
+  expect(history).toContain(new Date(base.startedAt).toISOString());
+  expect(history).toContain('旧失败');
+  expect(history).toContain('反馈问题');
+  const current = html.replace(history!, '');
+  expect(current).not.toContain('旧失败');
+  expect(current).toContain('今天失败');
+  expect(current).toContain('data-render-state="rendering"');
+  expect(current).toContain('缺少任务编号');
+  expect(current).toContain('预览图片 19');
+  expect(html).not.toContain('其他作品');
+});
 
 it('puts newest images at the left, with missing dates last and stable ties', () => {
   mock.images = [

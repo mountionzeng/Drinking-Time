@@ -6,8 +6,7 @@ import path from "node:path";
 import sharp from "sharp";
 import { ENV } from "../_core/env";
 import {
-  publicReferenceKey,
-  putPublicReference,
+  hostPublicReferenceBytes,
 } from "./publicReferenceHost";
 import { storagePut } from "../storage";
 import {
@@ -404,6 +403,7 @@ function compactForPrompt(value: string, maxLength: number): string {
 }
 
 function gptImageSizeFor(aspectRatio?: string): string {
+  if (aspectRatio === "1:1") return "1024x1024";
   if (aspectRatio === "16:9" || aspectRatio === "3:2") return "1536x1024";
   if (aspectRatio === "9:16") return "1024x1536";
   return ENV.image302GptSize || "1024x1024";
@@ -696,27 +696,11 @@ export async function toPublicImageUrl(
         : lower.endsWith(".webp")
           ? "image/webp"
           : "image/png";
-    // 优先走自己的对象存储：MJ 要的是「匿名可拉取」，和「异地备份」是两件事。
-    // 原先两者共用 storagePut（BUILT_IN_FORGE_API_URL → api.302ai.cn），
-    // 那条路 2026-08-22 起持续 503（存储端点回「当前无可用模型」，说明根本没路由），
-    // 于是「绑定资产 → 出图」整条链路被一个备份服务拖死。
-    const ossUrl = await putPublicReference({
-      key: publicReferenceKey(match[1], buf),
-      bytes: buf,
-      contentType: mime,
+    // OSS first, then 302 file hosting. Do not hand MJ a broken storage-proxy URL.
+    const publicUrl = await hostPublicReferenceBytes({
+      fileName: match[1], bytes: buf, contentType: mime,
     });
-    if (ossUrl) {
-      publicUrlCache.set(url, ossUrl);
-      return ossUrl;
-    }
-    // 302's storage proxy is not its file-upload API. Local MJ references
-    // need an anonymous HTTPS file URL even when generation uses Legnext.
-    const publicUrl = ENV.api302Key
-      ? await (await import("./videoTransition302")).uploadFileTo302({
-          fileName: match[1], bytes: buf, contentType: mime,
-        })
-      : (await storagePut(`character-refs/${match[1]}`, buf, mime)).url;
-    if (!/^https:\/\//i.test(publicUrl)) return undefined;
+    if (!publicUrl) return undefined;
     publicUrlCache.set(url, publicUrl);
     return publicUrl;
   } catch (err) {

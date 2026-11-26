@@ -90,3 +90,60 @@ describe("local persistence write coalescing", () => {
     }
   });
 });
+
+  it("does not rewrite the persist file when state is unchanged", async () => {
+    await db.createStory({
+      userId: 1,
+      title: "once",
+      body: { _revision: 1, shots: [] },
+    });
+    const writes = vi.mocked(fs.writeFile).mock.calls.length;
+    expect(writes).toBeGreaterThan(0);
+    const { persistMemoryState, flushLocalPersistence } = await import("./repositories/runtime");
+    await persistMemoryState();
+    await flushLocalPersistence();
+    expect(vi.mocked(fs.writeFile).mock.calls.length).toBe(writes);
+  });
+
+  it("throttles lastSignedIn-only upserts so auth polling does not rewrite the whole file", async () => {
+    const first = new Date("2026-11-26T09:00:00.000Z");
+    await db.upsertUser({
+      openId: "email:author@example.invalid",
+      name: "Author",
+      loginMethod: "guest",
+      lastSignedIn: first,
+    });
+    const writes = vi.mocked(fs.writeFile).mock.calls.length;
+    await db.upsertUser({
+      openId: "email:author@example.invalid",
+      lastSignedIn: new Date("2026-11-26T09:01:00.000Z"),
+    });
+    expect(vi.mocked(fs.writeFile).mock.calls.length).toBe(writes);
+    // Disabled-auth context repeats the unchanged name/loginMethod on every request.
+    await db.upsertUser({
+      openId: "email:author@example.invalid",
+      name: "Author",
+      loginMethod: "guest",
+      lastSignedIn: new Date("2026-11-26T09:02:00.000Z"),
+    });
+    expect(vi.mocked(fs.writeFile).mock.calls.length).toBe(writes);
+    await db.upsertUser({
+      openId: "email:author@example.invalid",
+      lastSignedIn: new Date("2026-11-26T09:20:00.000Z"),
+    });
+    expect(vi.mocked(fs.writeFile).mock.calls.length).toBeGreaterThan(writes);
+  });
+  it("still persists profile field changes inside the lastSignedIn throttle window", async () => {
+    await db.upsertUser({
+      openId: "email:author@example.invalid",
+      name: "Author",
+      lastSignedIn: new Date("2026-11-26T09:00:00.000Z"),
+    });
+    const writes = vi.mocked(fs.writeFile).mock.calls.length;
+    await db.upsertUser({
+      openId: "email:author@example.invalid",
+      name: "Author Renamed",
+      lastSignedIn: new Date("2026-11-26T09:01:00.000Z"),
+    });
+    expect(vi.mocked(fs.writeFile).mock.calls.length).toBeGreaterThan(writes);
+  });

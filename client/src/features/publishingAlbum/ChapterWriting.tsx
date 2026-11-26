@@ -21,7 +21,8 @@ type Draft = ChapterWritingDraft;
 export type ChapterWritingHandle = { prepare(): Promise<void>; insertImage(url: string): void; snapshot(): Draft; releaseCleanDraft(latest: Chapter): boolean };
 
 /** Comparison keeps this editor mounted; view switches save before opening the other editor. */
-export function ChapterWriting({ showScenes = false, shotTarget, onShotFocused, precedingShots, chapter, scope, handle, save, onChange, disabled, comparison, reviewedVersion, titleEditor, renderHeader, footerActions }: {
+export function ChapterWriting({ storyboard = false, showScenes = false, shotTarget, onShotFocused, precedingShots, chapter, scope, handle, save, onChange, disabled, comparison, reviewedVersion, titleEditor, renderHeader, footerActions }: {
+  storyboard?: boolean;
   showScenes?: boolean;
   shotTarget?: BookShotEditTarget | null; onShotFocused?(): void;
   precedingShots?: number;
@@ -180,7 +181,7 @@ export function ChapterWriting({ showScenes = false, shotTarget, onShotFocused, 
       update({ ...draftRef.current, body: blockBody(blocks), writingStyle: writingStyleOf(blocks) });
       await prepare();
     }} />}
-    <ChapterTextModules showScenes={showScenes} shotTarget={shotTarget} onShotFocused={onShotFocused} reviewMedia={Boolean(chapter.blocks.shotTextOrigin)} precedingShots={precedingShots} footerActions={footerActions} importedChapterIds={chapter.blocks.wechatImport?.modules.filter(module => !module.sourceBlockId).map(module => module.id)} prepareMedia={() => prepare()} writingStyle={draft.writingStyle} onFormattedChange={(body,writingStyle)=>update({...draftRef.current,body,writingStyle})} imageInsert={insertImage} comparison={comparison} contextSource={{ storyId: chapter.storyId, scope: contextScope, chapterId: String(chapter.id) }} onContextChange={onContextChange} formatScope={`${scope}:${chapter.id}`} value={draft.body} selection={selection} disabled={disabled} onChange={body => update({ ...draft, body })} />
+    <ChapterTextModules storyboard={storyboard} showScenes={showScenes} shotTarget={shotTarget} onShotFocused={onShotFocused} reviewMedia={Boolean(chapter.blocks.shotTextOrigin)} precedingShots={precedingShots} footerActions={footerActions} importedChapterIds={chapter.blocks.wechatImport?.modules.filter(module => !module.sourceBlockId).map(module => module.id)} prepareMedia={() => prepare()} writingStyle={draft.writingStyle} onFormattedChange={(body,writingStyle)=>update({...draftRef.current,body,writingStyle})} imageInsert={insertImage} comparison={comparison} contextSource={{ storyId: chapter.storyId, scope: contextScope, chapterId: String(chapter.id) }} onContextChange={onContextChange} formatScope={`${scope}:${chapter.id}`} value={draft.body} selection={selection} disabled={disabled} onChange={body => update({ ...draft, body })} />
     {!renderHeader && changeNote}
     {(error || backupError) && <p role="alert" className="text-sm text-destructive">{error || backupError} <button type="button" className="underline" onClick={()=>void prepare().catch(cause=>setError(cause instanceof Error ? cause.message : '保存失败'))}>{_ui("重试保存")}</button></p>}
 

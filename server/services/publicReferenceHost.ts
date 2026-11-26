@@ -146,3 +146,27 @@ export function publicReferenceKey(fileName: string, bytes: Buffer): string {
     .replace(/^\.+/, "");
   return `visual-asset-refs/${digest}-${safeName || "ref"}`;
 }
+
+/** Upload reference bytes for Midjourney: OSS first, then 302 file hosting. */
+export async function hostPublicReferenceBytes(input: {
+  bytes: Buffer;
+  fileName: string;
+  contentType: string;
+}): Promise<string | undefined> {
+  try {
+    const ossUrl = await putPublicReference({
+      key: publicReferenceKey(input.fileName, input.bytes),
+      bytes: input.bytes,
+      contentType: input.contentType,
+    }).catch(() => undefined);
+    if (ossUrl && /^https:\/\//i.test(ossUrl)) return ossUrl;
+    if (!ENV.api302Key) return undefined;
+    const { uploadFileTo302 } = await import("./videoTransition302");
+    const publicUrl = await uploadFileTo302({
+      fileName: input.fileName, bytes: input.bytes, contentType: input.contentType,
+    });
+    return /^https:\/\//i.test(publicUrl) ? publicUrl : undefined;
+  } catch {
+    return undefined;
+  }
+}

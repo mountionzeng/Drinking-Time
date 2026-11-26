@@ -1,13 +1,33 @@
 import React from 'react';
 import {beforeEach,expect,it,vi} from 'vitest';
-const m=vi.hoisted(()=>({translate:vi.fn(),describe:vi.fn(),image:vi.fn(),recover:vi.fn(),refetch:vi.fn(),task:null as any,taskLoading:false,taskError:null as unknown,music:vi.fn(),price:vi.fn(),invalidate:vi.fn(),states:[] as any[],index:0,refs:[] as any[],ref:0,basis:null as any,updatedAt:1,queryOptions:null as any}));
+const m=vi.hoisted(()=>({refChoices:[] as any[],translate:vi.fn(),describe:vi.fn(),image:vi.fn(),recover:vi.fn(),refetch:vi.fn(),task:null as any,taskLoading:false,taskError:null as unknown,music:vi.fn(),price:vi.fn(),invalidate:vi.fn(),states:[] as any[],index:0,refs:[] as any[],ref:0,basis:null as any,updatedAt:1,queryOptions:null as any}));
 vi.mock('react',async()=>({...await vi.importActual<typeof import('react')>('react'),useCallback:(fn:any)=>fn,useEffect:(fn:any)=>fn(),useRef:(v:any)=>m.refs[m.ref++]??(m.refs[m.ref-1]={current:v}),useState:(v:any)=>{const i=m.index++;if(!(i in m.states))m.states[i]=typeof v==='function'?v():v;return [m.states[i],(n:any)=>m.states[i]=n];}}));
-vi.mock('@/lib/trpc',()=>({trpc:{bookMedia:{translate:{useMutation:()=>({mutateAsync:m.translate})},quoteNarration:{useMutation:()=>({mutateAsync:m.price})},describe:{useMutation:()=>({mutateAsync:m.describe})}},storyAgent:{generateForMobile:{useMutation:()=>({mutateAsync:m.image})},bookModuleVisualBasis:{useQuery:()=>({data:m.basis})},bookModuleImageTask:{useQuery:(_i:any,o:any)=>(m.queryOptions=o,{data:m.task,isFetchedAfterMount:!m.taskLoading,dataUpdatedAt:m.updatedAt,isLoading:m.taskLoading,isFetching:false,error:m.taskError,refetch:m.refetch})},recoverBookModuleImage:{useMutation:()=>({mutateAsync:m.recover})}},timelineMedia:{generateNarrationCandidate:{useMutation:()=>({mutateAsync:m.music})},quoteSceneAudio:{useMutation:()=>({mutateAsync:m.price})},generateSceneAudio:{useMutation:()=>({mutateAsync:m.music})}},useUtils:()=>({memoryWarehouse:{forStory:{invalidate:m.invalidate}},storyAgent:{storyMaterialState:{invalidate:m.invalidate}},timelineMedia:{audioAssetLibrary:{invalidate:m.invalidate}}})}}));
+vi.mock('@/lib/trpc',()=>({trpc:{bookMedia:{translate:{useMutation:()=>({mutateAsync:m.translate})},quoteNarration:{useMutation:()=>({mutateAsync:m.price})},describe:{useMutation:()=>({mutateAsync:m.describe})}},storyAgent:{generateForMobile:{useMutation:()=>({mutateAsync:m.image})},bookModuleReferenceImages:{useQuery:()=>({data:m.refChoices})},bookModuleVisualBasis:{useQuery:()=>({data:m.basis})},bookModuleImageTask:{useQuery:(_i:any,o:any)=>(m.queryOptions=o,{data:m.task,isFetchedAfterMount:!m.taskLoading,dataUpdatedAt:m.updatedAt,isLoading:m.taskLoading,isFetching:false,error:m.taskError,refetch:m.refetch})},recoverBookModuleImage:{useMutation:()=>({mutateAsync:m.recover})}},timelineMedia:{generateNarrationCandidate:{useMutation:()=>({mutateAsync:m.music})},quoteSceneAudio:{useMutation:()=>({mutateAsync:m.price})},generateSceneAudio:{useMutation:()=>({mutateAsync:m.music})}},useUtils:()=>({memoryWarehouse:{forStory:{invalidate:m.invalidate}},storyAgent:{storyMaterialState:{invalidate:m.invalidate}},timelineMedia:{audioAssetLibrary:{invalidate:m.invalidate}}})}}));
+import {useBookRenderReference} from "./BookRenderReferencePicker";
 import {BookModuleConvert} from './BookModuleConvert';
 import {TextSceneIntentReview} from '../bookVideo/TextSceneIntent';
 function nodes(n:any):any[]{return !n||typeof n!=='object'?[]:Array.isArray(n)?n.flatMap(nodes):[n,...nodes(n.props?.children)];}
-beforeEach(()=>{vi.clearAllMocks();m.states=[];m.refs=[];m.index=0;m.ref=0;m.task=null;m.basis=null;m.updatedAt=1;m.recover.mockReset().mockResolvedValue({status:"error",pending:true});m.taskLoading=false;m.taskError=null;vi.stubGlobal('React',React);m.invalidate.mockResolvedValue(undefined);m.refetch.mockResolvedValue(undefined);});
+beforeEach(()=>{vi.clearAllMocks();m.refChoices=[];m.states=[];m.refs=[];m.index=0;m.ref=0;m.task=null;m.basis=null;m.updatedAt=1;m.recover.mockReset().mockResolvedValue({status:"error",pending:true});m.taskLoading=false;m.taskError=null;vi.stubGlobal('React',React);m.invalidate.mockResolvedValue(undefined);m.refetch.mockResolvedValue(undefined);});
 async function settle(){for(let i=0;i<15;i++)await Promise.resolve();}
+it("preselects continuity for a new viewpoint of the referenced shot and keeps thumbnail consent specific to the chosen use",()=>{
+ m.refChoices=[{imageId:2,kind:"page",fingerprint:"a".repeat(64),needsCopy:true}];
+ const render=()=>{m.index=m.ref=0;return useBookRenderReference({storyId:1,chapterId:4,moduleId:"three"},true,"沿用02的色调，亮一点，从城墙里面看");};
+ let model=render(); expect(model.use).toBe("continuity"); expect(model.blocked).toBe(true);
+ model.allow(true); model=render(); expect(model.reference).toMatchObject({source:2,imageId:2,use:"continuity",sendThumbnail:true});
+ model.chooseRole("style"); model=render(); expect(model.use).toBe("style"); expect(model.blocked).toBe(true);
+});
+it("requires choosing among warehouse candidates and renews thumbnail consent when the use changes",()=>{
+ const fingerprint="2".repeat(64);
+ m.refChoices=[{imageId:2,kind:"candidate",fingerprint,needsCopy:true},{imageId:3,kind:"candidate",fingerprint:"3".repeat(64),needsCopy:true}];
+ const render=()=>{m.index=m.ref=0; return useBookRenderReference({storyId:1,chapterId:4,moduleId:"three"},true,"沿用02的色调");};
+ let model=render();
+ expect(model.selected).toBeUndefined(); expect(model.blocked).toBe(true);
+ model.chooseImage(fingerprint); model=render();
+ expect(model.reference).toMatchObject({imageId:2,use:"style",sendThumbnail:false}); expect(model.blocked).toBe(true);
+ model.allow(true); model=render(); expect(model.blocked).toBe(false);
+ model.chooseRole("scene"); model=render(); expect(model.blocked).toBe(true); expect(model.reference?.sendThumbnail).toBe(false);
+ model.chooseSource("none"); model=render(); expect(model.reference).toBeUndefined(); expect(model.blocked).toBe(false);
+});
 it.each(['text','music'] as const)('sends all selected IDs for %s conversion without starting paid music',async kind=>{
  m.describe.mockResolvedValue({text:'整合结果'});m.price.mockResolvedValue({quoteToken:'signed',estimatedCny:1});
  const props={source:{id:'a',text:'首段',kind,parts:[{id:'a',text:'首段'},{id:'b',text:'第二段'}]},storyId:1,chapterId:2,prepare:vi.fn(),onInsert:vi.fn(),onClose:vi.fn()};
@@ -338,4 +358,25 @@ it('discovers a round submitted elsewhere without inserting into the watching ma
  m.index=m.ref=0;const tree=nodes(BookModuleConvert(props));
  expect(tree.some(n=>n.type==='img'&&n.props.src==='/remote-result.png')).toBe(true);
  expect(props.onInsert).not.toHaveBeenCalled();expect(m.image).not.toHaveBeenCalled();
+});
+
+it('lets the author retry after a style or analysis rejection that never submitted generation',async()=>{
+ const props=imgProps();
+ m.basis={fingerprint:'owned',needsCopy:true,shotNumbers:[8],aspectRatio:'16:9',styleName:'Ink',styleImageId:19};
+ m.task={id:'old',status:'succeeded',sourceChanged:false,inserted:false,candidates:[{imageUrl:'/api/images/old.png'}]};
+ m.image.mockResolvedValue({status:'error',error:'全片画风参考图片无法读取，请在对话中更换或停用；本次未提交生成'});
+ const draw=(tree:any[])=>tree.find(n=>n.type==='button'&&String(n.props.children).includes('再生成四张'));
+ const alertText=(tree:any[])=>JSON.stringify(tree.find(n=>n.props?.role==='alert')?.props?.children??'');
+ let tree=nodes(BookModuleConvert(props));
+ tree.find(n=>n.type==='input'&&n.props.type==='checkbox').props.onChange({target:{checked:true}});
+ m.index=m.ref=0;tree=nodes(BookModuleConvert(props));
+ draw(tree).props.onClick();await settle();
+ m.index=m.ref=0;tree=nodes(BookModuleConvert(props));
+ expect(alertText(tree)).toContain('无法读取');
+ expect(alertText(tree)).not.toContain('暂勿重复提交');
+ expect(draw(tree)).toBeTruthy();
+ expect(draw(tree).props.disabled).toBe(true);
+ tree.find(n=>n.type==='input'&&n.props.type==='checkbox').props.onChange({target:{checked:true}});
+ m.index=m.ref=0;tree=nodes(BookModuleConvert(props));
+ expect(draw(tree).props.disabled).toBe(false);
 });

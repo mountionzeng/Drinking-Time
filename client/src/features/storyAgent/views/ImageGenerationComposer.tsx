@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { formatComputeQuote } from '@shared/computeMoney';
+import { needsProviderImageCopy } from '@shared/providerImageUrl';
 import { requestsStrictReferenceFidelity, type ShotRenderReferences } from '@shared/shotImageRender';
 import type { StoryMaterialState } from '@shared/storyMaterial';
 import { InlineImagePrompt, type InlineImagePromptHandle } from './InlineImagePrompt';
@@ -22,6 +23,7 @@ export function ImageGenerationComposer({ request, onResolve }: {
   const [document, setDocument] = useState(() => initialImagePrompt(request.instruction, request.references));
   const [search, setSearch] = useState('');
   const [feedback, setFeedback] = useState('');
+  const [copyConsent, setCopyConsent] = useState(false);
   const [preview, setPreview] = useState<{ image: ComposerImage; anchor?: DOMRect } | null>(null);
   const [dimensions, setDimensions] = useState('');
   const editor = useRef<InlineImagePromptHandle>(null);
@@ -48,6 +50,20 @@ export function ImageGenerationComposer({ request, onResolve }: {
   const showPreview = (image: ComposerImage | null, anchor?: DOMRect) => { setDimensions(''); setPreview(image ? { image, anchor } : null); };
   const visible = images.filter(image => `${image.label} ${image.image?.prompt ?? ''}`.toLowerCase().includes(search.toLowerCase()));
   const style = request.material.filmStyleReference;
+  const needsCopy = !!style?.image && !refs?.assets.style && needsProviderImageCopy(style.image.imageUrl);
+  const submit = () => {
+    if (!draft) return;
+    const value = compileImageDraft(editor.current!.read(), images, request.references);
+    if (style?.image && !value.references.assets.style) {
+      value.references.filmStyleVersion = style.version;
+      if (needsProviderImageCopy(style.image.imageUrl)) {
+        if (!copyConsent) return;
+        value.references.filmStyleCopyImageId = style.imageId;
+        value.references.allowPublicHosting = true;
+      }
+    }
+    settle(value);
+  };
   return <Dialog open onOpenChange={open => { if (!open) settle(null); }}>
     <DialogContent onOpenAutoFocus={event => { event.preventDefault(); editor.current?.focus(); }} className="z-[160] max-h-[92dvh] overflow-hidden sm:max-w-5xl flex flex-col gap-5 bg-background">
       <DialogHeader>
@@ -64,6 +80,8 @@ export function ImageGenerationComposer({ request, onResolve }: {
             <div className="text-xs leading-5"><p className="font-medium">{t('全片画风参考', 'Film style reference')} · V{style.version}</p><p className="text-muted-foreground">{t('独立保留笔触、色彩和材质；可在对话中更换或停用。', 'Keeps drawing style, colors and textures. Change or disable it in chat.')}</p></div>
           </div>}
           {notice && <p className="text-xs leading-5 whitespace-pre-line text-muted-foreground">{notice}</p>}
+          {needsCopy && <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={copyConsent}
+            onChange={event => setCopyConsent(event.target.checked)} />{t('允许本轮将缩图上传至 OSS 或 302，供图片服务读取。持有链接的人也可查看缩图。', 'Upload the thumbnail to OSS or 302 for this request. Anyone with its link can view it.')}</label>}
           {draft && requestsStrictReferenceFidelity(draft.instruction) && count > 0 && <p className="text-xs text-amber-700">{t('MJ 会重绘参考图，细节不保证完全一致；请检查候选再采用。', 'MJ redraws references, so details may change. Review candidates before adopting.')}</p>}
           {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
           <p role="status" className="text-xs text-muted-foreground min-h-4">{feedback}</p>
@@ -84,7 +102,7 @@ export function ImageGenerationComposer({ request, onResolve }: {
       <DialogFooter className="items-center border-t pt-4 sm:justify-between shrink-0">
         <p className="text-sm mr-auto">{t('生成 4 张候选 · 预计 ', '4 candidates · Estimated ')}<strong>{zh ? formatComputeQuote(request.estimatedCny) : formatComputeQuote(request.estimatedCny).replace('算力', ' credits')}</strong><span className="block text-xs text-muted-foreground mt-1">{t('最终以实际扣费为准；候选不会自动替换原图。', 'Final cost follows actual usage. Candidates do not replace the original.')}</span></p>
         <div className="flex gap-2"><button type="button" className="rounded-md border px-4 py-2 text-sm" onClick={() => settle(null)}>{t('取消', 'Cancel')}</button>
-          <button type="button" disabled={!draft} className="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground disabled:opacity-40" onClick={() => { try { settle(compileImageDraft(editor.current!.read(), images, request.references)); } catch { /* validation is shown beside the editor */ } }}>{t('确认费用并生成', 'Confirm cost & generate')}</button></div>
+          <button type="button" disabled={!draft || (needsCopy && !copyConsent)} className="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground disabled:opacity-40" onClick={submit}>{t('确认费用并生成', 'Confirm cost & generate')}</button></div>
       </DialogFooter>
     </DialogContent>
     {preview && typeof window !== 'undefined' && createPortal(<div role="tooltip" className="fixed z-[200] pointer-events-none w-64 rounded-lg border bg-popover p-3 text-popover-foreground shadow-xl" style={{ left: Math.min(Math.max(8, (preview.anchor?.left ?? 20) - 100), window.innerWidth - 272), top: Math.max(8, Math.min((preview.anchor?.bottom ?? 20) + 8, window.innerHeight - 340)) }}>
