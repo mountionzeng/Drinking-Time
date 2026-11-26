@@ -36,7 +36,7 @@ export function BookBlockCanvas({ shotMenu, showScenes = false, inlineReviewKey,
   onConvert?(id:string,kind:"text"|"image"|"music"|"sfx"|"narration"|"translate-en"|"translate-zh"):void;
   onSelectionChange?(ids: string[]): void;
   activeId: string | null; onSelect(id: string | null): void;
-  onCommit(next: WritingBlock[], focusId: string, focus?: boolean): void;
+  onCommit(next: WritingBlock[], focusId: string, focus?: boolean, cursorOffset?: number): void;
   children(block: WritingBlock, index: number, style: CSSProperties): ReactNode;
 }) {
   const _ui = useDesktopUiText();
@@ -59,7 +59,7 @@ export function BookBlockCanvas({ shotMenu, showScenes = false, inlineReviewKey,
   const [width, setWidth] = useState(900);
   const [matchTarget, setMatchTarget] = useState<string | null>(null);
   const [matchError, setMatchError] = useState(false);
-  const [mergeMenu,setMergeMenu]=useState<{x:number;y:number}|null>(null);
+  const [mergeMenu,setMergeMenu]=useState<{x:number;y:number;imageId?:string}|null>(null);
   const [menuId, setMenuId] = useState<string | null>(null);
   const [preview, setPreview] = useState<WritingBlock[] | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -70,9 +70,9 @@ export function BookBlockCanvas({ shotMenu, showScenes = false, inlineReviewKey,
   const selectedTextBlocks = blocks.filter(block => selected.has(block.id) && !bookImageUrl(block.text) && !readBookAudio(block.text));
   const groupMenu = useRef<HTMLDivElement>(null);
   useEffect(() => { if (mergeMenu) groupMenu.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus(); }, [mergeMenu]);
-  function openGroupMenu(x: number, y: number) {
+  function openContextMenu(x: number, y: number, imageId?: string) {
     setMenuId(null);
-    setMergeMenu({x:Math.max(8,Math.min(x,window.innerWidth-208)),y:Math.max(8,Math.min(y,window.innerHeight-370))});
+    setMergeMenu({x:Math.max(8,Math.min(x,window.innerWidth-208)),y:Math.max(8,Math.min(y,window.innerHeight-(imageId ? 64 : 370))),imageId});
   }
   useLayoutEffect(() => { onSelectionChange?.([...selected]); }, [selectedIds, blocks, onSelectionChange]);
   const [marquee, setMarquee] = useState<SelectionBox | null>(null);
@@ -206,6 +206,17 @@ export function BookBlockCanvas({ shotMenu, showScenes = false, inlineReviewKey,
     if (disabled || next === blocks) return;
     setMenuId(null); onCommit(next, id, focus);
   }
+  function removeImage(id: string) {
+    const index = blocks.findIndex(block => block.id === id && bookImageUrl(block.text));
+    if (disabled || index < 0) return;
+    const next = deleteBookBlock(blocks, id);
+    const neighbour = next[Math.min(index, next.length - 1)];
+    const hasCaret = blocks.length === 1 || Boolean(root.current?.querySelector(`textarea[data-book-text-id="${CSS.escape(neighbour.id)}"]`));
+    setMenuId(null); setMergeMenu(null); setSelectedIds([]); setSelecting(false);
+    root.current?.focus({preventScroll:true});
+    onCommit(next, neighbour.id, hasCaret, index === next.length ? neighbour.text.length : 0);
+    if (!hasCaret) onSelect(null);
+  }
   function start(event: PointerEvent<HTMLButtonElement | HTMLDivElement>, id: string, placement: BookPlacement, handle: ModuleHandle, imageGesture = false) {
     if (disabled || event.button !== 0 || gesture.current) return;
     const explicitIds = selected.has(id) && selected.size > 1 ? [...selected] : [id];
@@ -213,7 +224,10 @@ export function BookBlockCanvas({ shotMenu, showScenes = false, inlineReviewKey,
     const column = ids.length === 1 && ['nw','ne','sw','se'].includes(handle) ? blockColumn(id) : null;
     setSelectedIds(ids);
     event.preventDefault(); event.stopPropagation(); if (ids.length === 1) onSelect(id); setMenuId(null);
-    event.currentTarget.focus({ preventScroll: true }); (root.current ?? event.currentTarget).setPointerCapture(event.pointerId);
+    const imageButton = imageGesture && handle === 'move'
+      ? event.currentTarget.querySelector<HTMLElement>('[data-book-inline-image]') : null;
+    (imageButton ?? event.currentTarget).focus({ preventScroll: true });
+    (imageButton ?? root.current ?? event.currentTarget).setPointerCapture(event.pointerId);
     const block = blocks.find(item=>item.id===id)!;
     const baseX = 24 + Math.min(blockAncestors(blocks,id).length,4)*BOOK_BLOCK_INDENT;
     const imageFactor = layouts.find(item => item.block.id === id)?.imageFactor ?? Math.min((884-baseX)/900,1104/1200);
@@ -286,7 +300,7 @@ export function BookBlockCanvas({ shotMenu, showScenes = false, inlineReviewKey,
     if (cancelled || current.source !== blocksRef.current) return;
     if (current.handle === 'move' && !current.image) {
       if (Math.hypot(event.clientX-current.x,event.clientY-current.y)<4 && !current.drop) {
-        if(current.ids.length>1) openGroupMenu(event.clientX,event.clientY); else setMenuId(current.id);
+        if(current.ids.length>1) openContextMenu(event.clientX,event.clientY); else setMenuId(current.id);
         return;
       }
       if (current.drop) apply(moveBookSelection(blocks, current.ids, current.drop), current.id, false);
@@ -300,17 +314,30 @@ export function BookBlockCanvas({ shotMenu, showScenes = false, inlineReviewKey,
   </div>}<div ref={viewport} aria-label={_ui("文章缩放视图")} data-book-zoom={zoom} onPointerDown={beginSelection} className="-ml-11 -mr-2 -mt-8 min-w-0 overflow-x-auto pl-11 pr-2 pt-8" style={{ touchAction: 'pan-x pan-y' }}>
   {shotCount > 0 && <p data-book-outline-total className="px-6 text-sm text-muted-foreground">{showScenes && sceneParents.size ? _ui("{0} 场戏 · {1} 个镜头", [sceneParents.size, shotCount]) : _ui("{0} 个镜头", [shotCount])}</p>}
   <div ref={root} data-book-selecting={selecting || undefined} onContextMenu={event=>{
-    if(disabled || selected.size<2)return;
-    event.preventDefault();openGroupMenu(event.clientX,event.clientY);
+    if (disabled) return;
+    const target = event.target as Element;
+    if (target?.closest('video,audio')) return;
+    const id = target?.closest<HTMLElement>('[data-book-image-ref]')?.dataset.bookImageRef
+      ?? target?.closest<HTMLElement>('[data-book-block]')?.dataset.bookBlock;
+    if (id && (selected.size < 2 || !selected.has(id)) && blocks.some(b => b.id === id && bookImageUrl(b.text))) {
+      event.preventDefault(); setSelectedIds([id]); onSelect(id);
+      openContextMenu(event.clientX,event.clientY,id);
+    } else if (selected.size > 1) {
+      event.preventDefault(); openContextMenu(event.clientX,event.clientY);
+    }
   }} aria-label={_ui("书页")} className="relative flex flex-col" tabIndex={-1} onKeyDown={event => {
     if (event.key === 'Escape') { setMergeMenu(null); setMatchTarget(null); selectionGesture.current = null; gesture.current = null; setMarquee(null); setSelectedIds([]); setPreview(null); setDrop(null); root.current?.focus({preventScroll:true}); onSelect(null); }
     if (!['Delete', 'Backspace'].includes(event.key) || disabled || event.defaultPrevented || event.repeat || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229 || event.metaKey || event.ctrlKey || event.altKey) return;
     const target = event.target as HTMLElement;
     if (target.closest('textarea,input,select,[role="textbox"]') || target.isContentEditable) return;
-    const ids = selected.size ? [...selected] : activeId ? [activeId] : [];
+    const focusedImage = target.closest<HTMLElement>('[data-book-inline-image], [data-book-image-ref]');
+    const imageId = mergeMenu?.imageId ?? focusedImage?.dataset.bookInlineImage ?? focusedImage?.dataset.bookImageRef;
+    const ids = imageId && !(selected.size > 1 && selected.has(imageId)) ? [imageId]
+      : selected.size ? [...selected] : activeId ? [activeId] : [];
     const first = blocks.findIndex(block => ids.includes(block.id));
     if (first < 0 || gesture.current || selectionGesture.current) return;
     event.preventDefault(); event.stopPropagation();
+    if (ids.length === 1 && bookImageUrl(blocks[first].text)) { removeImage(blocks[first].id); return; }
     const next = deleteBookBlocks(blocks, ids);
     apply(next, next[Math.min(first, next.length - 1)].id, false);
     setMergeMenu(null); setSelectedIds([]); setSelecting(false); onSelect(null);
@@ -323,6 +350,7 @@ export function BookBlockCanvas({ shotMenu, showScenes = false, inlineReviewKey,
       {layouts.filter(item => item.placement.page === page).map(({ block, index, placement }) => {
         const number = numbers.get(block.id);
         const audio = readBookAudio(block.text);
+        const inShotMenu = shotMenu && (block.format === 'shot' || blockAncestors(blocks,block.id).some(id=>blocks.find(b=>b.id===id)?.format==='shot'));
         const isImportedChapter = chapterIds.has(block.id) && block.format === 'heading1';
         const chapterLabel = !number ? '' : language === 'zh' ? chineseBookNumber(number.number) : number.number;
         const numberLabel = number ? bookBlockNumberLabel(number, language) : '';
@@ -388,7 +416,7 @@ export function BookBlockCanvas({ shotMenu, showScenes = false, inlineReviewKey,
                 {audio ? _ui(audio.label) : bookImageUrl(block.text) ? _ui("图片") : block.videoRole==='dialogue' ? _ui("台词/字幕") : block.format === 'text' ? _ui("正文") : block.format === 'scene' ? _ui("场") : block.format === 'shot' ? _ui("镜头") : block.format === 'heading1' ? _ui("章") : _ui("节")}<span className="hidden [@media(pointer:coarse)]:inline"> {_ui("· 操作")}</span> ▾
               </button></PopoverTrigger>
               <PopoverContent align="start" className="max-h-[var(--radix-popover-content-available-height)] w-48 overflow-y-auto p-1" onCloseAutoFocus={event => event.preventDefault()} aria-label={_ui("模块 {0} 设置", [index + 1])}>
-                {shotMenu && (block.format==="shot" || blockAncestors(blocks,block.id).some(id=>blocks.find(b=>b.id===id)?.format==="shot")) ?
+                {inShotMenu ?
                   shotMenuOutputs(block.format==="text" && !block.videoRole && shotActionHeading(block.text)?.output==="sfx" ? "sfx" : "music").map(kind=><button key={kind} type="button" className={action} disabled={disabled} onClick={()=>{setMenuId(null);shotMenu(index,kind);}}>{_ui(shotOutputLabels[kind].name)}</button>) : <>
                 <p hidden={!bookImageUrl(block.text)} className="px-3 py-2 text-xs text-muted-foreground">{_ui("拖图片移动 · 四角缩放 · 四边裁切")}</p>
                 <div hidden={Boolean(bookImageUrl(block.text) || readBookAudio(block.text))} role="group" aria-label={_ui("格式")}>{formats.filter(([format]) => format !== 'scene' || showScenes).map(([value, label]) => <button key={value} type="button" disabled={disabled || !canSetBlockFormat(blocks, index, value)} className={action}
@@ -410,10 +438,13 @@ export function BookBlockCanvas({ shotMenu, showScenes = false, inlineReviewKey,
                 {(['normal', 'bright'] as const).map(value => <button type="button" key={value} disabled={disabled} className={action}
                   aria-pressed={(block.emphasis ?? 'normal') === value} onClick={() => patch({ emphasis: value })}>{(block.emphasis ?? 'normal') === value ? '✓ ' : ''}{value === 'normal' ? _ui("正常") : _ui("加粗提亮")}</button>)}
                 <button type="button" disabled={disabled} className={action} aria-pressed={block.backdrop ?? false} onClick={() => patch({ backdrop: !block.backdrop })}>{block.backdrop ? '✓ ' : ''}{_ui("半透明底色")}</button>
-                <div className="my-1 border-t" />
-                <button type="button" disabled={disabled} className={`${action} text-destructive`} onClick={() => {
-                  const next = deleteBookBlock(blocks, block.id); apply(next, next[Math.min(index, next.length - 1)].id);
-                }}>{readBookAudio(block.text) ? _ui("删除音乐模块") : bookImageUrl(block.text) ? _ui("删除图片模块") : _ui("删除文字模块")}</button>
+                </>}
+                {(!inShotMenu || bookImageUrl(block.text)) && <>
+                  <div className="my-1 border-t" />
+                  <button type="button" disabled={disabled} className={`${action} text-destructive`} onClick={() => {
+                    if (bookImageUrl(block.text)) { removeImage(block.id); return; }
+                    const next = deleteBookBlock(blocks, block.id); apply(next, next[Math.min(index, next.length - 1)].id);
+                  }}>{audio ? _ui("删除音乐模块") : bookImageUrl(block.text) ? _ui("删除图片模块") : _ui("删除文字模块")}</button>
                 </>}
               </PopoverContent>
             </Popover>
@@ -424,7 +455,7 @@ export function BookBlockCanvas({ shotMenu, showScenes = false, inlineReviewKey,
             onKeyDown={event => {
               if (['Enter',' '].includes(event.key)) {
                 event.preventDefault(); event.stopPropagation();
-                if(grouped) { const rect=event.currentTarget.getBoundingClientRect(); openGroupMenu(rect.right,rect.bottom); }
+                if(grouped) { const rect=event.currentTarget.getBoundingClientRect(); openContextMenu(rect.right,rect.bottom); }
                 else {onSelect(block.id);setMenuId(block.id);} return;
               }
               if (!['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(event.key) || disabled) return;
@@ -499,7 +530,7 @@ export function BookBlockCanvas({ shotMenu, showScenes = false, inlineReviewKey,
       })}
       <span className="pointer-events-none absolute bottom-2 left-0 w-full text-center text-xs text-muted-foreground">{page + 1}</span>
     </section>)}
-    {mergeMenu && selected.size>1 && !disabled && <div className="fixed inset-0 z-50" onPointerDown={event=>{event.stopPropagation();setMergeMenu(null);}}><div ref={groupMenu} role="menu" aria-label={_ui("多选模块操作")} className="fixed max-h-[calc(100vh-16px)] w-48 overflow-y-auto rounded border bg-background p-1 shadow-lg" style={{left:mergeMenu.x,top:mergeMenu.y}} onPointerDown={event=>event.stopPropagation()} onKeyDown={event=>{
+    {mergeMenu && (mergeMenu.imageId || selected.size>1) && !disabled && <div className="fixed inset-0 z-50" onPointerDown={event=>{event.stopPropagation();setMergeMenu(null);}}><div ref={groupMenu} role="menu" aria-label={mergeMenu.imageId ? _ui("图片操作") : _ui("多选模块操作")} className="fixed max-h-[calc(100vh-16px)] w-48 overflow-y-auto rounded border bg-background p-1 shadow-lg" style={{left:mergeMenu.x,top:mergeMenu.y}} onPointerDown={event=>event.stopPropagation()} onKeyDown={event=>{
       if(event.key==='Escape') { event.preventDefault(); event.stopPropagation(); setMergeMenu(null); root.current?.focus({preventScroll:true}); }
       if(['ArrowUp','ArrowDown','Home','End'].includes(event.key)) {
         event.preventDefault(); event.stopPropagation();
@@ -509,6 +540,7 @@ export function BookBlockCanvas({ shotMenu, showScenes = false, inlineReviewKey,
         items[next]?.focus();
       }
     }}>
+      {mergeMenu.imageId ? <button type="button" role="menuitem" className={`${action} text-destructive`} onClick={()=>removeImage(mergeMenu.imageId!)}>{_ui("删除图片模块")}</button> : <>
       <p className="px-3 py-1 text-xs text-muted-foreground">{_ui("已选")}{" "}{selected.size} {_ui("个模块")}</p>
       <button type="button" role="menuitem" className={action} disabled={hasSelectedAudio || (!onConvertSelection && mergeBookText(blocks,[...selected])===blocks)} onClick={()=>{
         const next=mergeBookText(blocks,[...selected]),first=blocks.find(b=>selected.has(b.id));
@@ -532,7 +564,7 @@ export function BookBlockCanvas({ shotMenu, showScenes = false, inlineReviewKey,
       <button type="button" role="menuitem" className={`${action} border-t text-destructive`} onClick={()=>{
         const first=blocks.findIndex(block=>selected.has(block.id)),next=deleteBookBlocks(blocks,[...selected]);
         setMergeMenu(null);setSelectedIds([]);setSelecting(false);onSelect(null);apply(next,next[Math.min(first,next.length-1)].id);
-      }}>{_ui("删除所选模块")}</button>
+      }}>{_ui("删除所选模块")}</button></>}
     </div></div>}
     {matchTarget && <div role="status" className="sticky bottom-2 z-40 flex items-center gap-2 rounded bg-[var(--nayin-surface)] px-3 py-2 text-sm shadow-sm" onKeyDown={event => { if (event.key === 'Escape') setMatchTarget(null); }}>
       <span>{matchError ? _ui("这段字号超过当前模块上限，请选择另一段文字") : _ui("点击另一段文字，匹配它的大小")}</span>

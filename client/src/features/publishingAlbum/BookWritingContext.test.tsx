@@ -594,12 +594,45 @@ it('selects the actual image from its shot thumbnail before keyboard deletion',(
  expect(commit.mock.calls[0][0]).toEqual([shot,prose]);
 });
 
+it('offers single-image deletion in the storyboard production menu and the thumbnail context menu',()=>{
+ const shot = {...newWritingBlock('镜头'),format:'shot' as const};
+ const image = newWritingBlock('![图片](/api/images/a.png)',shot.id);
+ const prose = newWritingBlock('旁白',shot.id);
+ const blocks = [shot,image,prose], commit = vi.fn(), produce = vi.fn();
+ const draw = () => nodes(render(()=>BookBlockCanvas({blocks,disabled:false,activeId:shot.id,shotMenu:produce,onSelect:vi.fn(),onCommit:commit,children:()=>null})));
+ let tree = draw();
+ const menu = tree.find(n=>n.props?.['aria-label']==='模块 2 设置');
+ const actions = nodes(menu).filter(n=>n.type==='button');
+ expect(actions.map(n=>n.props.children)).toEqual(['画面描述','视频','字幕','台词','音乐','删除图片模块']);
+ actions.at(-1)!.props.onClick();
+ expect(commit.mock.calls[0][0]).toEqual([shot,prose]);
+ const target = {closest:(selector:string)=>selector==='[data-book-image-ref]' ? {dataset:{bookImageRef:image.id}} : null};
+ tree.find(n=>n.props?.['aria-label']==='书页').props.onContextMenu({target,preventDefault:vi.fn(),clientX:120,clientY:200});
+ tree=draw();
+ tree.find(n=>n.props?.role==='menuitem'&&n.props.children==='删除图片模块').props.onClick();
+ expect(commit.mock.calls[1][0]).toEqual([shot,prose]);
+ expect(produce).not.toHaveBeenCalled();
+});
+
 it.each([['Backspace',2,0],['Delete',0,2]] as const)('removes an adjacent inline image with %s and leaves both paragraphs intact',(key,index,cursor)=>{
  const value='船头\n![图片](/api/images/a.png)\n船尾',change=vi.fn();
  const canvas=nodes(render(()=>ChapterTextModules({value,onChange:change,disabled:false,selection:{current:null}}))).find(node=>node.type===BookBlockCanvas).props;
  textField(canvas,index).onKeyDown({key,nativeEvent:{},currentTarget:{dataset:{},selectionStart:cursor,selectionEnd:cursor},preventDefault:vi.fn()});
  expect(change).toHaveBeenCalledOnce();
  expect(change).toHaveBeenCalledWith('船头\n船尾');
+});
+
+it.each([true,false])('backspaces from the next shot title only if the preceding shot image is visible (visible=%s)',visible=>{
+ const first={...newWritingBlock('第一镜'),format:'shot' as const,collapsed:!visible};
+ const image=newWritingBlock('![图片](/api/images/one.png)',first.id);
+ const second={...newWritingBlock('第二镜'),format:'shot' as const};
+ const blocks=[first,image,second],save=vi.fn();
+ const tree=nodes(render(()=>ChapterTextModules({value:blockBody(blocks),writingStyle:writingStyleOf(blocks),onFormattedChange:save,onChange:vi.fn(),disabled:false,selection:{current:null}})));
+ const canvas=tree.find(n=>n.type===BookBlockCanvas).props;
+ tree.find(n=>n.props?.['aria-label']==='书正文').props.ref.current={querySelectorAll:()=>visible?[{dataset:{bookInlineImage:image.id}}]:[]};
+ textField(canvas,2).onKeyDown({key:'Backspace',nativeEvent:{},currentTarget:{dataset:{},selectionStart:0,selectionEnd:0},preventDefault:vi.fn()});
+ if (visible) expect(save).toHaveBeenCalledWith(blockBody([first,second]),writingStyleOf([first,second]));
+ else expect(save).not.toHaveBeenCalled();
 });
 
 it.each([false,true])('deletes the selected group, preserving unselected modules or one empty module (all=%s)',all=>{

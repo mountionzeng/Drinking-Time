@@ -432,7 +432,7 @@ export function ChapterTextModules({ storyboard=false, showScenes, shotTarget, o
       <p className="truncate text-sm">♫ {audio.title}</p><MediaPlayer kind="audio" aria-label={audio.title} controls preload="none" src={audio.url} className="h-10 w-full" />
     </div>;
     const imageUrl = bookImageUrl(block.text);
-    if (imageUrl) return <div key={block.id} role="button" tabIndex={disabled ? -1 : 0} aria-label={_ui("图片模块 {0}", [index + 1])} aria-disabled={disabled} className="block h-full w-full text-left" onKeyDown={event => {
+    if (imageUrl) return <div key={block.id} role="button" tabIndex={disabled ? -1 : 0} aria-label={_ui("图片模块 {0}", [index + 1])} data-book-inline-image={block.id} aria-keyshortcuts="Backspace Delete" aria-disabled={disabled} className="block h-full w-full text-left focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary" onKeyDown={event => {
       if(disabled || event.target !== event.currentTarget) return;
       if (comparison && ['Delete','Backspace'].includes(event.key) && !event.repeat && !event.defaultPrevented && !event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229 && !event.metaKey && !event.ctrlKey && !event.altKey) {
         event.preventDefault();
@@ -441,8 +441,9 @@ export function ChapterTextModules({ storyboard=false, showScenes, shotTarget, o
         return;
       }
       if(event.key === 'Enter') { event.preventDefault(); const next = [...blocks]; next.splice(index+1,0,newWritingBlock('',block.parentId)); commit(next,writingBlockOffset(next,index+1)); }
-    }} onClick={() => {
-      if (disabled) return;
+    }} onClick={event => {
+      if (disabled || (event.target as Element).closest('video')) return;
+      event.currentTarget.focus({preventScroll:true});
       motion.current = null;
       setMediaSelection(value => value + 1);
       setActiveId(block.id);
@@ -505,7 +506,11 @@ export function ChapterTextModules({ storyboard=false, showScenes, shotTarget, o
                 const image = adjacent && readBookImage(adjacent.text);
                 if (adjacent && image) {
                   event.preventDefault();
-                  if (event.repeat || event.metaKey || event.ctrlKey || event.altKey || image.videoUrl || adjacent.parentId !== block.parentId) return;
+                  if (event.repeat || event.metaKey || event.ctrlKey || event.altKey || image.videoUrl) return;
+                  // A shot boundary can sit between two visible neighbours. A collapsed shot's last image cannot.
+                  if (adjacent.parentId !== block.parentId && !Array.from(
+                    textRange.root.current?.querySelectorAll<HTMLElement>('[data-book-inline-image]') ?? []
+                  ).some(node => node.dataset.bookInlineImage === adjacent.id)) return;
                   const next = deleteBookBlock(blocks, adjacent.id);
                   const start = writingBlockOffset(next, next.findIndex(item => item.id === block.id));
                   commit(next, start + prefix.length + field.selectionStart);
@@ -605,8 +610,8 @@ export function ChapterTextModules({ storyboard=false, showScenes, shotTarget, o
         const start = writingBlockOffset(blocks, index);
         selection.current = { start, end: start };
       }
-    }} blocks={blocks} disabled={disabled} onCommit={(next, id, restoreFocus = true) => {
-      commit(next, writingBlockOffset(next, Math.max(0, next.findIndex(block => block.id === id))), restoreFocus);
+    }} blocks={blocks} disabled={disabled} onCommit={(next, id, restoreFocus = true, cursorOffset = 0) => {
+      commit(next, writingBlockOffset(next, Math.max(0, next.findIndex(block => block.id === id))) + cursorOffset, restoreFocus);
     }}>{renderField}
     </BookBlockCanvas>}
     {captions && contextSource && prepareMedia && <ShotSubtitlePreview {...captions} storyId={contextSource.storyId} chapterId={Number(contextSource.chapterId)} prepare={prepareMedia} close={()=>setCaptions(null)}/>}
