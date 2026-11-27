@@ -10,6 +10,9 @@ import { STUDIO_CREATE_EVENT, type StudioCreateRequest } from "./StudioCreateMen
 import { saveStudioCreateHandoff } from "./studioCreateHandoff";
 import type { ConversionDraft } from "@shared/bookWorkflow";
 import { formatComputeQuote } from "@shared/computeMoney";
+import { pictureSourcePages } from "@shared/pictureSourcePages";
+import { shotActionHeading, shotOutputLabels } from "@shared/bookShotActions";
+import { PictureSourceLinks } from "../publishingAlbum/PictureSourceLinks";
 import { writingModuleTexts } from "@shared/bookWritingStyle";
 import { readBookImage } from "@shared/bookImageBlock";
 import { readBookAudio } from "@shared/bookAudioBlock";
@@ -185,7 +188,7 @@ export function FilmVersionDraft({ storyId, request, blocked, onDone, target = "
   return <div className="space-y-3">
     {readingId ? <p className="text-xs text-muted-foreground">{ui("待采用试稿")}{preview?.trial && (preview.trial.base==="import" ? " · "+preview.trial.sourceLabel : " · "+ui("从《{0}》续改",[conversions.find(d=>d.id===preview.trial?.base)?.trial?.label ?? ui("本地分镜工作稿")]))}</p> : chatTurnId ? <p className="font-medium">{ui("分镜版")} · {ui(preview?.status === "adopted" ? "已确认" : "文字预览")}</p> :
       <p className="text-sm text-muted-foreground">{ui(target === "text" ? "将分镜改写成文字，原分镜和旧版本会保留。" : "先把书稿和聊天整理成可拍摄的分镜，确认后继续编排视频素材。旧版本会保留。")}</p>}
-    {readingId && chapters && !editing ? <BookShotDocument initiallyOpen showScenes={showScenes} chapters={chapters.map((c,i)=>({id:preview?.revisedChapters?.[i]?.id ?? i+1,blocks:c.blocks}))} /> : chapters && <div className="max-h-72 space-y-3 overflow-y-auto rounded-md border p-3" aria-label={ui(target === "text" ? "文字预览" : "分镜预览")}>
+    {readingId && chapters && !editing ? <BookShotDocument initiallyOpen sourceStoryId={storyId} showScenes={showScenes} chapters={chapters.map((c,i)=>({id:preview?.revisedChapters?.[i]?.id ?? i+1,blocks:c.blocks}))} /> : chapters && <div className="max-h-72 space-y-3 overflow-y-auto rounded-md border p-3" aria-label={ui(target === "text" ? "文字预览" : "分镜预览")}>
       {chapters.map((c, i) => <section key={i}><h3 className="font-medium">{c.title}</h3>
         {writingModuleTexts(c.blocks.body, c.blocks.writingStyle).map((text, j) => {
           const media = readBookImage(text) ? ui("沿用原图") : readBookAudio(text) ? ui("沿用原声音素材") : null;
@@ -193,6 +196,19 @@ export function FilmVersionDraft({ storyId, request, blocked, onDone, target = "
           if (module?.format === "scene" && !showScenes) return null;
           const label = module?.format === "shot" ? ui("第 {0} 镜", [String(++shotNumber).padStart(2, "0")]) :
             module?.format === "scene" ? ui("第 {0} 场", [++sceneNumber]) : undefined;
+          const raw = editing?.values[i]?.[j] ?? text;
+          const cue = target === "storyboard" && !media && module?.format !== "shot" && module?.videoRole !== "dialogue" ? shotActionHeading(raw) : undefined;
+          if (cue?.output === "image") {
+            const body = raw.slice(cue.prefix.length);
+            const citation = pictureSourcePages(body);
+            const prefix = cue.prefix + body.slice(0, citation.leading);
+            return <div key={module?.id ?? j} className="space-y-1 py-1">
+              <div className="flex flex-wrap items-baseline gap-x-2 text-xs text-muted-foreground"><span>{ui(shotOutputLabels.image.name)}{cue.detail}</span><PictureSourceLinks storyId={storyId} pages={citation.pages}/></div>
+              {editing ? <textarea disabled={busy} aria-label={ui("修改稿件文字") + " " + (i+1) + "." + (j+1)} className="my-1 w-full rounded border p-2"
+                value={raw.slice(prefix.length)} onChange={e => setEditing({ ...editing, values: editing.values.map((row, a) => a === i ? row.map((v, b) => b === j ? prefix + e.target.value : v) : row) })}/>
+                : <p className="whitespace-pre-wrap text-sm">{citation.text}</p>}
+            </div>;
+          }
           return editing && !media
             ? <textarea key={module?.id ?? j} disabled={busy} aria-label={ui("修改稿件文字") + " " + (i+1) + "." + (j+1)} className="my-1 w-full rounded border p-2" value={editing.values[i][j]}
                 onChange={e => setEditing({ ...editing, values: editing.values.map((row, a) => a === i ? row.map((v, b) => b === j ? e.target.value : v) : row) })} />

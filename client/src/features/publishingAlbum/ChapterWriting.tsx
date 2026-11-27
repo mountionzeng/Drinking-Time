@@ -17,11 +17,13 @@ import type { LayoutModuleContext } from "@shared/layoutModuleContext";
 import type { WritingComparison } from "./WritingComparison";
 import { restoreChapterWritingDraft, draftNeedsVersionReview, type ChapterWritingDraft } from './chapterWritingDraft';
 
+import { matchesSavedPictureSource, type PictureSelection } from "./savedPictureSource";
+
 type Draft = ChapterWritingDraft;
-export type ChapterWritingHandle = { prepare(): Promise<void>; insertImage(url: string): void; snapshot(): Draft; releaseCleanDraft(latest: Chapter): boolean };
+export type ChapterWritingHandle = { prepare(allowReviewed?: boolean): Promise<void>; insertImage(url: string): void; snapshot(): Draft; releaseCleanDraft(latest: Chapter): boolean };
 
 /** Comparison keeps this editor mounted; view switches save before opening the other editor. */
-export function ChapterWriting({ storyboard = false, showScenes = false, shotTarget, onShotFocused, precedingShots, chapter, scope, handle, save, onChange, disabled, comparison, reviewedVersion, titleEditor, renderHeader, footerActions }: {
+export function ChapterWriting({ storyboard = false, showScenes = false, shotTarget, onShotFocused, precedingShots, chapter, scope, handle, save, readLatest, readBase, onChange, disabled, comparison, reviewedVersion, titleEditor, renderHeader, footerActions }: {
   storyboard?: boolean;
   showScenes?: boolean;
   shotTarget?: BookShotEditTarget | null; onShotFocused?(): void;
@@ -32,6 +34,8 @@ export function ChapterWriting({ storyboard = false, showScenes = false, shotTar
   comparison?: WritingComparison;
   reviewedVersion?: number;
   chapter: Chapter; scope: string; handle: MutableRefObject<ChapterWritingHandle | null>;
+  readBase?(version: number): Promise<Pick<Chapter,"title" | "blocks">>;
+  readLatest?(): Promise<Chapter>;
   save(draft: Omit<Draft, 'baseVersion'> & { autosave?: boolean }): Promise<unknown>; onChange(draft: Draft): void; disabled: boolean;
 }) {
   const _ui = useDesktopUiText();
@@ -66,15 +70,41 @@ export function ChapterWriting({ storyboard = false, showScenes = false, shotTar
   if (chapter.version > acknowledged.current.version) acknowledged.current = chapter;
   const pending = useRef<Promise<void> | null>(null);
   const draftRef = useRef(draft); draftRef.current = draft;
+  // On opening an editor, a local copy that is provably an already-saved revision
+  // has no pending edits. A later update to an open editor still requires review.
+  useEffect(() => {
+    const cached = draftRef.current;
+    const saved = { title: chapter.title, body: chapter.blocks.body, version: chapter.version, writingStyle: chapter.blocks.writingStyle };
+    if (!readBase || !cached.baseVersion || cached.baseVersion >= saved.version || cached.changeNote?.trim() ||
+        !draftNeedsVersionReview(cached, saved)) return;
+    let active = true;
+    void readBase(cached.baseVersion).then(base => {
+      if (!active || draftRef.current !== cached || pending.current || acknowledged.current.version !== saved.version ||
+          base.title !== cached.title || base.blocks.body !== cached.body || !sameWritingStyle(base.blocks.writingStyle, cached.writingStyle)) return;
+      const fresh = restoreChapterWritingDraft(null, saved);
+      draftRef.current = fresh;
+      setDraft(fresh);
+    }).catch(() => { /* Missing history leaves the recoverable draft in review. */ });
+    return () => { active = false; };
+  }, [chapter.id, scope]);
   useEffect(() => registerDraftRecovery(() => ({ scope, chapterId: chapter.id, storyId: chapter.storyId, raw: JSON.stringify(draftRef.current) })), [scope, chapter.id, chapter.storyId]);
   const dirty = draft.title !== chapter.title || draft.body !== chapter.blocks.body || !sameWritingStyle(draft.writingStyle,chapter.blocks.writingStyle) || Boolean(draft.changeNote?.trim());
   useStudioDraftState(chapter.storyId, dirty || saving || Boolean(error));
-  function prepare(autosave = false): Promise<void> {
-    if (pending.current) return pending.current.then(() => prepare(autosave));
+  function prepare(autosave = false, picture?: PictureSelection, allowReviewed = false): Promise<void> {
+    if (pending.current) return pending.current.then(() => prepare(autosave, picture, allowReviewed));
     const current = draftRef.current;
     const saved = acknowledged.current;
     if (current.title === saved.title && current.body === saved.blocks.body && sameWritingStyle(current.writingStyle,saved.blocks.writingStyle) && !current.changeNote?.trim()) return Promise.resolve();
-    if (draftNeedsVersionReview(current, {title:saved.title,body:saved.blocks.body,version:saved.version,writingStyle:saved.blocks.writingStyle}) && !(reviewedVersion !== undefined && reviewedVersion >= saved.version)) {
+    if (picture && readLatest && draftNeedsVersionReview(current, {
+      title: saved.title, body: saved.blocks.body, version: saved.version, writingStyle: saved.blocks.writingStyle,
+    })) {
+      return readLatest().then(latest => {
+        if (latest.id !== chapter.id || latest.storyId !== chapter.storyId ||
+            !matchesSavedPictureSource(picture, draftRef.current, latest.blocks))
+          throw new Error('这段画面描述与已保存的文章不同。请关闭出图窗口，点「查看并接收」对照两稿。');
+      });
+    }
+    if (draftNeedsVersionReview(current, {title:saved.title,body:saved.blocks.body,version:saved.version,writingStyle:saved.blocks.writingStyle}) && !(allowReviewed && reviewedVersion !== undefined && reviewedVersion >= saved.version)) {
       return Promise.reject(new Error('这份本机草稿来自较早或未知版本。请打开“版本”与最新稿对照，再保存；两份内容都还保留着。'));
     }
     const recoveryAtSave = readRecoveredDraft(scope, chapter.id);
@@ -123,7 +153,7 @@ export function ChapterWriting({ storyboard = false, showScenes = false, shotTar
     } catch { /* Legacy cache remains optional; the server manuscript is never replaced here. */ }
   },[chapter.id,chapter.blocks.writingStyle,draft.body,draft.writingStyle,scope]);
   const insertImage = useRef<((url: string) => void) | null>(null);
-  useEffect(() => { handle.current = { prepare, insertImage: url => insertImage.current?.(url), snapshot: () => draftRef.current, releaseCleanDraft: latest => {
+  useEffect(() => { handle.current = { prepare: (allowReviewed = false) => prepare(false, undefined, allowReviewed), insertImage: url => insertImage.current?.(url), snapshot: () => draftRef.current, releaseCleanDraft: latest => {
     const current = draftRef.current;
     const matches = (saved: Chapter) => current.title === saved.title && current.body === saved.blocks.body && sameWritingStyle(current.writingStyle,saved.blocks.writingStyle);
     if (pending.current || (!matches(chapter) && !matches(latest)) || current.changeNote?.trim()) return false;
@@ -181,7 +211,7 @@ export function ChapterWriting({ storyboard = false, showScenes = false, shotTar
       update({ ...draftRef.current, body: blockBody(blocks), writingStyle: writingStyleOf(blocks) });
       await prepare();
     }} />}
-    <ChapterTextModules storyboard={storyboard} showScenes={showScenes} shotTarget={shotTarget} onShotFocused={onShotFocused} reviewMedia={Boolean(chapter.blocks.shotTextOrigin)} precedingShots={precedingShots} footerActions={footerActions} importedChapterIds={chapter.blocks.wechatImport?.modules.filter(module => !module.sourceBlockId).map(module => module.id)} prepareMedia={() => prepare()} writingStyle={draft.writingStyle} onFormattedChange={(body,writingStyle)=>update({...draftRef.current,body,writingStyle})} imageInsert={insertImage} comparison={comparison} contextSource={{ storyId: chapter.storyId, scope: contextScope, chapterId: String(chapter.id) }} onContextChange={onContextChange} formatScope={`${scope}:${chapter.id}`} value={draft.body} selection={selection} disabled={disabled} onChange={body => update({ ...draft, body })} />
+    <ChapterTextModules storyboard={storyboard} showScenes={showScenes} shotTarget={shotTarget} onShotFocused={onShotFocused} reviewMedia={Boolean(chapter.blocks.shotTextOrigin)} precedingShots={precedingShots} footerActions={footerActions} importedChapterIds={chapter.blocks.wechatImport?.modules.filter(module => !module.sourceBlockId).map(module => module.id)} prepareMedia={picture => prepare(false, picture)} writingStyle={draft.writingStyle} onFormattedChange={(body,writingStyle)=>update({...draftRef.current,body,writingStyle})} imageInsert={insertImage} comparison={comparison} contextSource={{ storyId: chapter.storyId, scope: contextScope, chapterId: String(chapter.id) }} onContextChange={onContextChange} formatScope={`${scope}:${chapter.id}`} value={draft.body} selection={selection} disabled={disabled} onChange={body => update({ ...draft, body })} />
     {!renderHeader && changeNote}
     {(error || backupError) && <p role="alert" className="text-sm text-destructive">{error || backupError} <button type="button" className="underline" onClick={()=>void prepare().catch(cause=>setError(cause instanceof Error ? cause.message : '保存失败'))}>{_ui("重试保存")}</button></p>}
 

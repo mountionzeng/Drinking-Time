@@ -539,6 +539,28 @@ export async function readMemoryBook(owner: number, storyId: number) {
     throw new TRPCError({ code: "NOT_FOUND", message: "故事不存在或无权访问" });
   return projectMemoryStory(story).reading;
 }
+/** Only an explicit image interaction writes this account preference. Reading it never creates a row. */
+export async function openedAccountImages(owner: number): Promise<Set<number>> {
+  const db = await getDb();
+  const row = db ? (await db.select({ state: accountMemorySpaces.state }).from(accountMemorySpaces)
+    .where(eq(accountMemorySpaces.userId, owner)).limit(1))[0] : memoryState.accountMemorySpaces.find(s => s.userId === owner);
+  return new Set(row?.state.openedImageIds ?? []);
+}
+
+export async function markAccountImageOpened(owner: number, imageId: number) {
+  const { getGeneratedImageById } = await import("./images");
+  const image = await getGeneratedImageById(imageId);
+  const story = image?.storyId ? await getStoryById(image.storyId, owner) : null;
+  if (!image || (image.userId != null && image.userId !== owner) || (image.storyId != null ? !story : image.userId !== owner))
+    throw new TRPCError({code:"NOT_FOUND", message:"图片不存在或不可访问"});
+  await editSpace(owner, state => {
+    if (image.storyId && Object.hasOwn(state.trashedStories, image.storyId)) return;
+    const ids = state.openedImageIds ?? [];
+    if (!ids.includes(imageId)) state.openedImageIds = [...ids.slice(-4999), imageId];
+  }, false);
+  return { saved: true };
+}
+
 export async function markMemoryBookSeen(
   owner: number,
   storyId: number,

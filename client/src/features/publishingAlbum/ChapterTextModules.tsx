@@ -1,3 +1,5 @@
+import { readBookShotChapter } from "@shared/bookShotDocument";
+import { BookPageOrImage, BookPageCatalog } from "./BookPageExcerpt";
 import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { MediaPlayer } from "@/components/ui/media-player";
 import { useBookModuleActions } from "./bookModuleActions";
@@ -40,13 +42,27 @@ import type { LayoutModuleContext } from '@shared/layoutModuleContext';
 import { BookImageImportBoundary } from './BookImageImportBoundary';
 import { insertBookImages } from './bookImageInsert';
 
-import { continuesShotHeading } from "./bookShotParagraph";
+import { pictureSourcePages } from "@shared/pictureSourcePages";
+import { PictureSourceLinks } from "./PictureSourceLinks";
+import { continuesShotHeading, shotParagraphs } from "./bookShotParagraph";
 import { readShotField } from "@shared/bookShotFormat";
 import { ShotSubtitlePreview } from "./ShotSubtitlePreview";
-import { motionEditTarget, motionTextPrefix, readMotionDraft } from "./bookShotMotion";
+import { selectedReading } from "../publishingDraft/readingTrialSelection";
+import { askProductionQuestion, clearProductionQuestion } from "./bookProductionChat";
+import { answeredSeconds, productionTurnHint, productionLabels, readProductionSeconds } from "@shared/bookShotProduction";
+import { motionTextPrefix, readMotionDraft } from "./bookShotMotion";
 import { requestsSilentTrack, shotActionHeading, shotOutputLabels, shotOutputSource, type ShotOutput } from "@shared/bookShotActions";
 
+import { matchesPictureScene, type PictureSelection } from "./savedPictureSource";
+import { ShotCueButton } from "./ShotCueButton";
+import { shotCueSourceKey } from "./savedShotCue";
+
 type Snapshot = TextPosition & { blocks: WritingBlock[] };
+function readEditorShots(blocks: WritingBlock[], chapterId: number, showScenes?: boolean, preceding?: number) {
+  return readBookShotChapter({ id: chapterId, blocks: {
+    body: blockBody(blocks), writingStyle: writingStyleOf(blocks),
+  } }, showScenes, preceding).shots;
+}
 export function ChapterTextModules({ storyboard=false, showScenes, shotTarget, onShotFocused, reviewMedia, precedingShots, footerActions, importedChapterIds, prepareMedia, writingStyle, onFormattedChange, imageInsert, value, onChange, disabled, selection, formatScope, contextSource, onContextChange, comparison }: {
   storyboard?:boolean;
   showScenes?: boolean;
@@ -55,7 +71,7 @@ export function ChapterTextModules({ storyboard=false, showScenes, shotTarget, o
   precedingShots?: number;
   footerActions?: ReactNode;
   importedChapterIds?: readonly string[];
-  prepareMedia?(): Promise<void>;
+  prepareMedia?(picture?: PictureSelection): Promise<void>;
   writingStyle?: BookWritingStyle;
   onFormattedChange?(body:string,style:BookWritingStyle):void;
   imageInsert?: MutableRefObject<((url: string) => void) | null>;
@@ -83,75 +99,142 @@ export function ChapterTextModules({ storyboard=false, showScenes, shotTarget, o
   const inlineReviews = !comparison && !disabled && sentenceReview
     ? new Map([...sentenceReview.pending].filter(([, review]) => reviewStillMatches(blocks, review.proposal)))
     : undefined;
+  const shotRelations = useMemo(() => storyboard
+    ? readEditorShots(blocks, Number(contextSource?.chapterId ?? 0), showScenes, precedingShots)
+    : [], [storyboard, blocks, contextSource?.chapterId, showScenes, precedingShots]);
+  function goToLinkedShot(id:string) {
+    const index=blocks.findIndex(b=>b.id===id);
+    if(index<0) return;
+    const ancestors=blockAncestors(blocks,id);
+    if(blocks.some(b=>ancestors.includes(b.id) && b.collapsed)) commit(blocks.map(b=>ancestors.includes(b.id)?{...b,collapsed:false}:b),writingBlockOffset(blocks,index),false);
+    setActiveId(id);
+    requestAnimationFrame(()=>{const field=fields.current[index];field?.focus({preventScroll:true});field?.scrollIntoView({block:"center"});});
+  }
+  const storyboardParagraphs = useMemo(() => storyboard ? shotParagraphs(blocks) : undefined, [storyboard, blocks]);
   // Legacy plain-text chapters have no stable module IDs on the server yet.
   // Persist the same IDs rendered here before media preparation can quote them.
   useLayoutEffect(() => {
     if (!writingStyle && onFormattedChange && blockBody(blocks) === value)
       onFormattedChange(value, writingStyleOf(blocks));
   }, [writingStyle, value, blocks, onFormattedChange]);
-  const [conversion,setConversion]=useState<ModuleConversion|null>(null);
-  useEffect(()=>setConversion(null),[formatScope]);
-  const motion = useRef<{id: string; prompt: string} | null>(null);
+  const [conversion,setConversion]=useState<(ModuleConversion & { fromSavedVersion?: boolean }) | null>(null);
+  // Reset the old chapter before a pending cue opens its dialog in the new chapter.
+  useLayoutEffect(()=>setConversion(null),[formatScope]);
+  const motion = useRef<{id: string; prompt: string; durationSec: number} | null>(null);
   const [editingHeading, setEditingHeading] = useState<string | null>(null);
   const pendingMotion = useRef(0);
   const [captions,setCaptions] = useState<{moduleId:string; title:string; text:string; heading:string; seconds:number}|null>(null);
-  function editShotMenu(index:number, kind:ShotOutput) {
-    if (kind !== "video" || bookImageUrl(blocks[index].text)) return produceShot(index,kind);
-    const source = shotOutputSource(blocks,index,kind);
-    if (!source || disabled) return;
-    try {
-      const target = motionEditTarget(blocks,source.owner.id,blocks[index].id);
-      const at = target.blocks.findIndex(b => b.id === target.id);
-      const heading = shotActionHeading(target.blocks[at].text);
-      // A mixed legacy block may hold this cue further down its raw manuscript.
-      setEditingHeading(heading && !motionTextPrefix(target.blocks[at].text) ? target.id : null);
-      if (target.blocks !== blocks) commit(target.blocks,writingBlockOffset(target.blocks,at) + target.cursor,false);
-      requestAnimationFrame(() => {
-        const field = fields.current.find(el => el?.dataset.bookTextId === target.id);
-        if (!field) return;
-        field.focus(); selectBookOffsets(field,target.cursor); field.scrollIntoView({block:"nearest"});
-      });
-    } catch (error) { toast.error(error instanceof Error ? error.message : _ui("无法打开本镜。")); }
-  }
-  async function prepareShotVideo(shotId:string, selectedImage?:string) {
+  const questionOwner = useRef<string | null>(null);
+  useEffect(() => () => clearProductionQuestion(formatScope), [formatScope]);
+  const shotSeconds = (rows: WritingBlock[], id: string) => readProductionSeconds(rows.filter(b=>b.parentId===id).map(b=>b.text));
+  async function prepareShotVideo(shotId:string, prompt:string, durationSec:number, image:WritingBlock) {
     const scope = mountedScope.current, request = ++pendingMotion.current;
     const latest = mediaLatest.current;
     if (!scope || latest.disabled || !latest.prepareMedia) return;
-    const promptOf = (rows:WritingBlock[]) => readMotionDraft(rows,shotId).values.map(s=>s.trim()).filter(Boolean).join("\n\n");
-    const prompt = promptOf(latest.blocks);
-    const images = latest.blocks.filter(b => b.parentId === shotId && bookImageUrl(b.text));
-    const image = selectedImage ? images.find(b=>b.id===selectedImage) : images.length===1 ? images[0] : undefined;
-    if (!prompt) { toast.info(_ui("请补充运镜要求。")); return; }
-    if (prompt.length > 2000) { toast.info(_ui("渲染一次最多使用 2000 字运镜要求。")); return; }
-    if (!images.length) { toast.info(_ui("本镜还缺起始画面。请从「画面描述」生成一张图，或在本镜插入图片。")); return; }
-    if (!image) { toast.info(_ui("请在要用作起始画面的图片菜单中选择「视频」。")); return; }
+    if (prompt.length > 2000) throw Error("渲染一次最多使用 2000 字运镜要求。");
     await latest.prepareMedia();
     if (mountedScope.current !== scope || request !== pendingMotion.current || mediaLatest.current.disabled) return;
     const current = mediaLatest.current.blocks;
-    if (promptOf(current) !== prompt || !current.some(b=>b.parentId===shotId && b.id===image.id && b.text===image.text)) {
-      toast.info(_ui("本镜已变化，请重新选择。")); return;
-    }
-    motion.current={id:image.id,prompt}; setSelectedModuleIds([]); setActiveId(image.id); setMediaSelection(n=>n+1);
+    if (readMotionDraft(current,shotId).values.map(s=>s.trim()).filter(Boolean).join("\n\n") !== prompt ||
+        shotSeconds(current,shotId) !== durationSec || !current.some(b=>b.parentId===shotId && b.id===image.id && b.text===image.text))
+      throw Error("本镜已变化，请重新选择。");
+    motion.current={id:image.id,prompt,durationSec}; setSelectedModuleIds([]); setActiveId(image.id); setMediaSelection(n=>n+1);
   }
-  function produceShot(index:number,kind:ShotOutput) {
-    const source=shotOutputSource(blocks,index,kind);
-    if(!source)return;
+  function produceShot(index:number,kind:ShotOutput,selectedImage?:string,fromSavedVersion=false) {
+    const rows = mediaLatest.current.blocks;
+    const source=shotOutputSource(rows,index,kind);
+    if(!source || !contextSource || disabled || comparison)return;
+    clearProductionQuestion(formatScope);
+    questionOwner.current = source.owner.id;
+    const {id:ownerId} = source.owner;
+    const scope = contextSource.scope, spine = storySpineStore.getState(), storyId = contextSource.storyId;
+    const shotNo = bookBlockNumbers(writingStyleOf(rows),precedingShots).get(ownerId)?.shotNumber ?? 1;
+    const title = "第 " + String(shotNo).padStart(2,"0") + " 镜";
+    const reading = selectedReading(spine.accountId,storyId);
+    const sameScope = () => {
+      const now = storySpineStore.getState();
+      return mountedScope.current===scope && !mediaLatest.current.disabled && now.activeStoryId===storyId &&
+        now.accountId===spine.accountId && now.storyScopeEpoch===spine.storyScopeEpoch && selectedReading(now.accountId,storyId)===reading;
+    };
+    const fingerprint = (items:WritingBlock[])=>JSON.stringify(items.filter(b=>b.id===ownerId || b.parentId===ownerId).map(b=>[b.id,b.text,b.videoRole]));
+    const original = fingerprint(rows);
+    const current = () => sameScope() && fingerprint(mediaLatest.current.blocks)===original;
+    const ask = (prompt:string, answer:(text:string)=>Promise<string>)=>{
+      askProductionQuestion({storyId,scope:formatScope ?? scope,current,answer},title+" · "+prompt,"制作"+title+"的"+(kind==="sfx"||kind==="subtitle"?shotOutputLabels[kind].name:productionLabels[kind]));
+      window.dispatchEvent(new CustomEvent("dt:open-creation-chat",{detail:{focusComposer:true,preserveSelection:true}}));
+    };
+    const appendCue = async(label:string,value:string)=>{
+      if (!current()) throw Error("本镜内容已变化，请重新点选。");
+      const latest = mediaLatest.current.blocks, at = blockSubtreeEnd(latest,latest.findIndex(b=>b.id===ownerId));
+      const field = newWritingBlock(label+"："+value,ownerId);
+      const next=[...latest.slice(0,at),field,...latest.slice(at)];
+      if (blockBody(next).length>200000) throw Error("文章过长，无法保存本次补充。");
+      commitLatest.current(next,writingBlockOffset(next,at),false);
+      await new Promise(resolve => requestAnimationFrame(resolve));
+      if (!sameScope() || !mediaLatest.current.blocks.some(b=>b.id===field.id && b.text===field.text)) throw Error("本镜已切换，请重新打开。");
+      await mediaLatest.current.prepareMedia?.();
+      if (sameScope()) produceShot(mediaLatest.current.blocks.findIndex(b=>b.id===ownerId),kind,selectedImage);
+    };
+    function collect(field:"image"|"video"|"music"|"narration"|"sfx"|"subtitle"|"duration",question:string) {
+      const label=field==="duration" ? "已确认视频时长" : field==="sfx" || field==="subtitle" ? shotOutputLabels[field].name : productionLabels[field];
+      const hint=field!=="sfx" && field!=="subtitle" && !reading && !reviewMedia ? productionTurnHint(spine.messages,shotNo,field) : "";
+      const useAnswer=async(text:string) => {
+        const seconds=field==="duration" ? answeredSeconds(text) : undefined;
+        if (field==="duration" && !seconds) { ask("请告诉我本镜总长，填 1–10 之间的整秒数。",useAnswer); return ""; }
+        if (text.length>2000) { ask("单项最多 2000 字，请缩短这条要求。",useAnswer); return ""; }
+        await appendCue(label,seconds ? seconds+"秒" : text);
+        return "";
+      };
+      if (hint && (field!=="duration" || answeredSeconds(hint))) { void useAnswer(hint).catch(err=>toast.error(err.message)); return; }
+      ask(question,useAnswer);
+    }
     if(kind==="video") {
-      void prepareShotVideo(source.owner.id,bookImageUrl(blocks[index].text)?blocks[index].id:undefined)
-        .catch(error=>toast.error(error instanceof Error ? error.message : _ui("准备视频失败，请重试。")));
+      const prompt=readMotionDraft(rows,ownerId).values.map(s=>s.trim()).filter(Boolean).join("\n\n");
+      if (!prompt) {collect("video","这段视频里，主体或镜头要怎样动？也可以说「固定机位」。");return;}
+      const seconds=shotSeconds(rows,ownerId);
+      if (seconds===undefined) { collect("duration","这段视频总共几秒？当前可制作 1–10 秒。");return; }
+      if (!Number.isInteger(seconds) || seconds<1 || seconds>10) {toast.info("当前只支持 1–10 整秒，请在原文调整视频时长。");return;}
+      const chosen = selectedImage ?? (bookImageUrl(rows[index].text) ? rows[index].id : undefined);
+      const image = chosen ? source.images.find(b=>b.id===chosen) : source.images.length===1 ? source.images[0] : undefined;
+      if (!image) {
+        const options = source.images;
+        const question=options.length ? "本镜有 "+options.length+" 张图片。按正文顺序，用第几张做起始画面？" : "本镜还缺起始图。回复「先做画面」准备一张，或将已有图片插入本镜。";
+        const choose=async(text:string):Promise<string>=>{
+          const result=text.match(/^(?:用|选)?第?\s*(\d+)\s*(?:张|幅)?[。！!]?$/u);
+          const choice=result && options[Number(result[1])-1];
+          const at=mediaLatest.current.blocks.findIndex(b=>b.id===ownerId);
+          if (choice) produceShot(at,"video",choice.id);
+          else if (/^(?:先做画面|先出图|生成图片)[。！!]?$/u.test(text)) produceShot(at,"image");
+          else ask(question,choose);
+          return "";
+        };
+        ask(question,choose);return;
+      }
+      void prepareShotVideo(ownerId,prompt,seconds,image as WritingBlock).catch(error=>toast.error(error.message));
       return;
     }
-    if(!source.prompt && kind !== "music") {toast.info(_ui("请先填写本镜的{0}",[_ui(shotOutputLabels[kind].name)]));return;}
+    if(!source.prompt) {
+      const missing={image:"希望这张静帧里能看到什么？",music:"这段希望听到什么配乐？也可以说「不加配乐」。",narration:"这段实际要说哪句话？也可以说「无旁白」。",subtitle:"希望屏幕显示哪些字？",sfx:"本镜需要听到什么现场声音？"};
+      collect(kind,missing[kind]);return;
+    }
     if(requestsSilentTrack(kind, source.prompt)) {toast.info(_ui("本镜已标明留白，可以直接继续。"));return;}
     if(kind==="subtitle") {
-      const children=blocks.filter(b=>b.parentId===source.owner.id);
+      const children=rows.filter(b=>b.parentId===source.owner.id);
       const duration=children.map(b=>b.text.match(/^(?:时长[：:]\s*)?(\d+(?:\.\d+)?)\s*秒/)).find(Boolean);
       const lastSecond=Number(source.label.match(/第\s*(\d+(?:\.\d+)?)\s*秒(?:前)?\s*(?:收住|结束|停止)/)?.[1]);
       setCaptions({moduleId:source.moduleId,title:source.owner.text,text:source.prompt,heading:source.label,
-        seconds:Number(duration?.[1])||Math.max(lastSecond||0,5)});return;
+        seconds:shotSeconds(rows,ownerId)||Number(duration?.[1])||Math.max(lastSecond||0,5)});return;
     }
     const parts=source.parts.map(({id,text})=>({id,text}));
-    setConversion({...parts[0],kind,heading:_ui(shotOutputLabels[kind].name)+(shotActionHeading(source.label)?.detail ?? ""),prompt:source.prompt,...(parts.length>1?{parts}:{})});
+    const linkPicture = kind === "image" && storyboard;
+    const sceneLink = linkPicture ? (rows === blocks ? shotRelations :
+      readEditorShots(rows, Number(contextSource.chapterId), showScenes, precedingShots)).find(s => s.moduleId === ownerId)?.link : undefined;
+    setConversion({
+      ...parts[0], kind, selectionId: rows[index].id, prompt: source.prompt, fromSavedVersion,
+      heading: _ui(shotOutputLabels[kind].name) + (shotActionHeading(source.label)?.detail ?? ""),
+      ...(linkPicture ? { shotOwner: ownerId, precedingShots, sceneLink: sceneLink?.reason === "同一场景" ? sceneLink : undefined } : {}),
+      ...(parts.length > 1 ? { parts } : {}),
+    });
   }
   const [activeId, setActiveId] = useState<string | null>(null);
   const [selectedModuleIds, setSelectedModuleIds] = useState<string[]>([]);
@@ -319,9 +402,15 @@ export function ChapterTextModules({ storyboard=false, showScenes, shotTarget, o
     const motionPrompt = motion.current?.id === block.id ? motion.current.prompt : undefined;
     const shotNumbers = bookBlockNumbers(writingStyleOf(blocks),precedingShots);
     const shotNo = blockAncestors(blocks,block.id).map(id=>shotNumbers.get(id)?.shotNumber).find(n=>n !== undefined);
-    const key = `${formatScope}:${block.id}${motionPrompt ? ":motion:" + mediaSelection : ""}`;
+    const owner = blocks.find(b=>b.id===block.parentId && b.format==="shot");
+    const durationSec = owner ? shotSeconds(blocks,owner.id) : undefined;
+    const currentPrompt = owner && motionPrompt ? readMotionDraft(blocks,owner.id).values.map(s=>s.trim()).filter(Boolean).join("\n\n") : undefined;
+    if (motionPrompt && (currentPrompt!==motionPrompt || durationSec!==motion.current?.durationSec)) {
+      motion.current=null; useBookMediaSession.getState().setSession(null); return;
+    }
+    const key = `${formatScope}:${block.id}:${durationSec??""}${motionPrompt ? ":motion:" + mediaSelection : ""}`;
     useBookMediaSession.getState().setSession({
-      key, motionPrompt, shotNo, accountId: spine.accountId, epoch: spine.storyScopeEpoch,
+      key, motionPrompt, durationSec, startShotVideo: owner && !motionPrompt ? () => produceShot(blocks.indexOf(block),"video",block.id) : undefined, shotNo, accountId: spine.accountId, epoch: spine.storyScopeEpoch,
       storyId: contextSource.storyId, chapterId: Number(contextSource.chapterId), moduleId: block.id, imageUrl: media.url,
       prepare: () => mediaLatest.current.prepareMedia!(),
       replace: async (sourceUrl, result) => {
@@ -331,10 +420,15 @@ export function ChapterTextModules({ storyboard=false, showScenes, shotTarget, o
         const index = latest.blocks.findIndex(item => item.id === block.id);
         const original = index >= 0 && readBookImage(latest.blocks[index].text);
         if (!original || original.url !== sourceUrl) return false;
-        const next = latest.blocks.map((item, i) => i === index ? { ...item,
-          text: result.cropped && result.imageUrl ? bookImageText(result.imageUrl,undefined,original.scale)
-            : bookImageText(result.imageUrl ?? original.url, original.crop, original.scale, original.frame, result.videoUrl),
-        } : item);
+        const next = latest.blocks.map((item, i) => {
+          const picture = readBookImage(item.text);
+          if (!picture || picture.url !== sourceUrl || (i !== index && !result.imageUrl)) return item;
+          return { ...item,
+            ...(result.imageUrl && result.imageUrl !== sourceUrl ? {revisedBookImageFrom: sourceUrl} : {}),
+            text: bookImageText(result.imageUrl ?? sourceUrl, result.cropped ? undefined : picture.crop,
+              picture.scale, picture.frame, result.videoUrl),
+          };
+        });
         commitLatest.current(next, writingBlockOffset(next, index), false);
         await mediaLatest.current.prepareMedia!();
         return true;
@@ -349,7 +443,13 @@ export function ChapterTextModules({ storyboard=false, showScenes, shotTarget, o
   useLayoutEffect(() => {
     if (!shotTarget || disabled || comparison) return;
     const index = blocks.findIndex(block => block.id === shotTarget.moduleId);
+    if (shotTarget.output && shotTarget.savedSourceKey && shotCueSourceKey(blocks, index, shotTarget.output) !== shotTarget.savedSourceKey) {
+      toast.info(_ui("这版的制作要求与工作稿已不同。请先在版本对比中核对要制作的内容。"));
+      onShotFocused?.();
+      return;
+    }
     if (index < 0) { onShotFocused?.(); return; }
+    if (shotTarget.output) { produceShot(index,shotTarget.output,undefined,Boolean(shotTarget.savedSourceKey)); onShotFocused?.(); return; }
     const open = new Set([...blockAncestors(blocks, shotTarget.moduleId), shotTarget.moduleId]);
     if (blocks.some(b => open.has(b.id) && b.collapsed)) {
       commit(blocks.map(b => open.has(b.id) ? { ...b, collapsed: false } : b), writingBlockOffset(blocks, index) + shotTarget.offset);
@@ -385,6 +485,7 @@ export function ChapterTextModules({ storyboard=false, showScenes, shotTarget, o
   }, [value, blocks]);
   function selected(index: number, field: HTMLTextAreaElement) {
     if (textRange.active()) return;
+    if (questionOwner.current && blocks[index].parentId!==questionOwner.current && blocks[index].id!==questionOwner.current) clearProductionQuestion(formatScope);
     setSelectedModuleIds([]);
     setActiveId(blocks[index].id);
     const offset = writingBlockOffset(blocks, index) + bookFieldStart(field);
@@ -435,7 +536,7 @@ export function ChapterTextModules({ storyboard=false, showScenes, shotTarget, o
       <p className="truncate text-sm">♫ {audio.title}</p><MediaPlayer kind="audio" aria-label={audio.title} controls preload="none" src={audio.url} className="h-10 w-full" />
     </div>;
     const imageUrl = bookImageUrl(block.text);
-    if (imageUrl) return <div key={block.id} role="button" tabIndex={disabled ? -1 : 0} aria-label={_ui("图片模块 {0}", [index + 1])} data-book-inline-image={block.id} aria-keyshortcuts="Backspace Delete" aria-disabled={disabled} className="block h-full w-full text-left focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary" onKeyDown={event => {
+    if (imageUrl) return <BookPageOrImage key={block.id} blockId={block.id} url={imageUrl} videoUrl={readBookImage(block.text)?.videoUrl} context={blocks.find(b=>b.id===block.parentId)?.text}><div key={block.id} role="button" tabIndex={disabled ? -1 : 0} aria-label={_ui("图片模块 {0}", [index + 1])} data-book-inline-image={block.id} aria-keyshortcuts="Backspace Delete" aria-disabled={disabled} className="block h-full w-full text-left focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary" onKeyDown={event => {
       if(disabled || event.target !== event.currentTarget) return;
       if (comparison && ['Delete','Backspace'].includes(event.key) && !event.repeat && !event.defaultPrevented && !event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229 && !event.metaKey && !event.ctrlKey && !event.altKey) {
         event.preventDefault();
@@ -452,7 +553,7 @@ export function ChapterTextModules({ storyboard=false, showScenes, shotTarget, o
       setActiveId(block.id);
       const start = writingBlockOffset(blocks,index); selection.current = {start,end:start};
       window.dispatchEvent(new Event('dt:writing-selection-change'));
-    }}><BookInlineImage text={block.text}/></div>;
+    }}><BookInlineImage text={block.text}/></div></BookPageOrImage>;
     const review = inlineReviews?.get(block.id);
     if (review) {
       return <BookSentenceReview style={style} proposal={review.proposal} onResolve={() => sentenceReview?.resolve(review.id)} />;
@@ -461,9 +562,13 @@ export function ChapterTextModules({ storyboard=false, showScenes, shotTarget, o
     const hasShot = block.parentId && blocks.some(b => b.id === block.parentId && b.format === "shot");
     const parsed = !comparison && block.format === "text" && (storyboard || hasShot && contextSource && prepareMedia) && shotActionHeading(block.text);
     const heading = parsed && (block.videoRole !== "dialogue" || parsed.output === "narration") && parsed;
-    const prefix = heading && editingHeading !== block.id
+    const headingPrefix = heading && editingHeading !== block.id
       ? storyboard ? heading.prefix : heading.output === "video" ? motionTextPrefix(block.text) : ""
       : "";
+    const authoredText = block.text.slice(headingPrefix.length);
+    const pageSource = !comparison && storyboardParagraphs?.get(block.id)?.output === "image" && authoredText.includes("页")
+      ? pictureSourcePages(authoredText) : undefined;
+    const prefix = headingPrefix + authoredText.slice(0, pageSource?.leading ?? 0);
     const nextBlock = blocks[index + 1];
     const joinedHeading = storyboard && heading && continuesShotHeading(blocks[index - 1], block);
     const separateBody = storyboard && heading && !heading.inline && nextBlock?.parentId === block.parentId &&
@@ -551,16 +656,20 @@ export function ChapterTextModules({ storyboard=false, showScenes, shotTarget, o
                 }
               }} />;
     if (heading && (block.videoRole!=="dialogue" || heading.kind==="voice") && editingHeading !== block.id) {
-      const {name,hint}=shotOutputLabels[heading.output];
+      const {name}=shotOutputLabels[heading.output];
       return <div className="h-full overflow-auto"><div data-book-prompt-preview={block.id} className="break-words px-1">
-      {!joinedHeading && <button type="button" disabled={disabled || !hasShot || !prepareMedia || !contextSource} aria-label={_ui(name)+heading.detail} aria-description={_ui(hint)}
-        className="group/cue inline-flex max-w-full items-baseline rounded-sm text-xs font-medium text-muted-foreground hover:text-foreground focus-visible:text-foreground"
-        onClick={event=>{event.stopPropagation();produceShot(index,heading.output);}}>
-        <span aria-hidden="true" className="inline-grid text-left">
-          <span className="col-start-1 row-start-1 group-hover/cue:invisible group-focus-visible/cue:invisible">{_ui(name)}</span>
-          <span className="invisible col-start-1 row-start-1 underline underline-offset-2 group-hover/cue:visible group-focus-visible/cue:visible">{_ui(hint)}</span>
-        </span>{heading.detail}
-      </button>}
+      {!joinedHeading && <ShotCueButton label={name} detail={heading.detail} output={heading.output}
+        disabled={disabled || !hasShot || !prepareMedia || !contextSource} onClick={() => produceShot(index,heading.output)}/>}
+      {heading.output==="image" && block.parentId && shotRelations.flatMap((shot,i)=>{
+        const outgoing=shot.moduleId===block.parentId ? shot.link : undefined;
+        const incoming=shot.link?.sourceId===block.parentId;
+        if (!outgoing && !incoming) return [];
+        const target=outgoing?.sourceId ?? shot.moduleId, number=outgoing?.sourceNumber ?? (precedingShots ?? 0)+i+1;
+        const label = shot.link?.reason === "同一画面素材" ? "与第 {0} 镜共用图"
+          : shot.link?.reason === "同一分场" ? "与第 {0} 镜同场" : outgoing ? "承接第 {0} 镜" : "接到第 {0} 镜";
+        return [<button key={target} type="button" className="ml-2 text-xs text-muted-foreground underline decoration-dotted underline-offset-2" title={shot.link?.reason} onClick={e=>{e.stopPropagation();goToLinkedShot(target);}}>{_ui(label,[String(number).padStart(2,"0")])}</button>];
+      })}
+      {contextSource && pageSource && <PictureSourceLinks storyId={contextSource.storyId} pages={pageSource.pages} />}
       {separateBody ? null : prefix ? <div className="relative" style={style}>
         <div aria-hidden="true" className="invisible whitespace-pre-wrap break-words px-1">{visibleText + "\u200b"}</div>
         <div className="absolute inset-0">
@@ -573,6 +682,11 @@ export function ChapterTextModules({ storyboard=false, showScenes, shotTarget, o
       </>}
     </div></div>;
     }
+    if (contextSource && pageSource?.pages.length) return <div className="h-full overflow-auto">
+      <div data-book-prompt-preview={block.id}><PictureSourceLinks storyId={contextSource.storyId} pages={pageSource.pages}/>
+        <div className="relative" style={style}><div aria-hidden="true" className="invisible whitespace-pre-wrap break-words px-1">{visibleText + "\u200b"}</div>
+          <div className="absolute inset-0"><BookTextRangeOverlay text={visibleText} range={range && {start:Math.max(0,range.start-prefix.length),end:Math.max(0,range.end-prefix.length)}} style={style}/>{field}</div>
+        </div></div></div>;
     if (!comparison) return <BookDialogueText dialogue={block.videoRole === 'dialogue'} style={style}><BookMathText text={block.text} id={block.id} style={style} sourceVisible={textRange.dragging||textRange.byId.size>0}><div className="relative h-full w-full" style={style}>
       <BookTextRangeOverlay text={block.text} range={range} style={style} />
       {field}
@@ -605,7 +719,7 @@ export function ChapterTextModules({ storyboard=false, showScenes, shotTarget, o
           <div className="space-y-0">{blocks.map((block, index) => renderField(block, index, { fontSize: 16, lineHeight: 1.6, overflowWrap: 'anywhere' }))}</div>
         </article>
       </div>
-    </div> : <BookBlockCanvas storyboard={storyboard} shotMenu={storyboard && contextSource && prepareMedia ? editShotMenu : undefined} inlineReviewKey={inlineReviews && [...inlineReviews.values()].map(review => review.id).join()} showScenes={showScenes} precedingShots={precedingShots} importedChapterIds={importedChapterIds} onConvertSelection={contextSource && prepareMedia ? (ids,kind) => {
+    </div> : <BookBlockCanvas sourceStoryId={storyboard ? contextSource?.storyId : undefined} storyboard={storyboard} shotMenu={storyboard && contextSource && prepareMedia ? produceShot : undefined} inlineReviewKey={inlineReviews && [...inlineReviews.values()].map(review => review.id).join()} showScenes={showScenes} precedingShots={precedingShots} importedChapterIds={importedChapterIds} onConvertSelection={contextSource && prepareMedia ? (ids,kind) => {
       const parts = blocks.filter(block => ids.includes(block.id) && (kind !== 'narration' || (!bookImageUrl(block.text) && !readBookAudio(block.text) && block.text.trim()))).map(({id,text}) => ({id,text}));
       if(parts.length < (kind === 'narration' ? 1 : 2)) return;
       if(parts.some(part => readBookAudio(part.text))) { toast.error('音乐模块暂不支持转换，请选择文字或图片模块'); return; }
@@ -613,6 +727,7 @@ export function ChapterTextModules({ storyboard=false, showScenes, shotTarget, o
     } : undefined} onComposeImage={contextSource && prepareMedia ? ids => { void composeImage('', ids).catch(e => toast.error(e instanceof Error ? e.message : '未能整理素材')); } : undefined} onConvert={contextSource && prepareMedia ? (id,kind)=>{
       const block=blocks.find(b=>b.id===id);if(block)setConversion({id,text:block.text,kind});
     }:undefined} textSelectionIds={textRange.selectionRequest} onSelectionChange={setSelectedModuleIds} activeId={activeId} onSelect={id => {
+      if (questionOwner.current && id!==questionOwner.current && blocks.find(b=>b.id===id)?.parentId!==questionOwner.current) clearProductionQuestion(formatScope);
       motion.current = null;
       if (!id) { selection.current = null; textRange.clear(); setSelectedModuleIds([]); }
       if (id && bookImageUrl(blocks.find(block => block.id === id)?.text ?? "")) setMediaSelection(value => value + 1);
@@ -627,12 +742,14 @@ export function ChapterTextModules({ storyboard=false, showScenes, shotTarget, o
     }}>{renderField}
     </BookBlockCanvas>}
     {captions && contextSource && prepareMedia && <ShotSubtitlePreview {...captions} storyId={contextSource.storyId} chapterId={Number(contextSource.chapterId)} prepare={prepareMedia} close={()=>setCaptions(null)}/>}
-    {conversion && contextSource && prepareMedia && <BookModuleConvert key={`${formatScope}:${conversion.id}:${conversion.kind}`} source={conversion} reviewMedia={reviewMedia} storyId={contextSource.storyId} chapterId={Number(contextSource.chapterId)} onClose={()=>setConversion(null)} prepare={async()=>{
+    {conversion && contextSource && prepareMedia && <BookModuleConvert key={`${formatScope}:${conversion.id}:${conversion.kind}`} source={conversion} reviewMedia={reviewMedia || conversion.fromSavedVersion} storyId={contextSource.storyId} chapterId={Number(contextSource.chapterId)} onClose={()=>setConversion(null)} prepare={async()=>{
       const assertSource=()=>{
         const latest=mediaLatest.current;
-        if(latest.disabled || (conversion.parts ?? [conversion]).some(part=>latest.blocks.find(b=>b.id===part.id)?.text!==part.text))throw new Error('原模块已变化，请重新选择');
+        if (conversion.shotOwner && !matchesPictureScene(conversion, {body:blockBody(latest.blocks),writingStyle:writingStyleOf(latest.blocks)}))
+          throw new Error("关联镜头已变化，请重新打开画面描述。");
+        if(mountedScope.current !== contextSource.scope || latest.disabled || (conversion.parts ?? [conversion]).some(part=>latest.blocks.find(b=>b.id===part.id)?.text!==part.text))throw new Error('原模块已变化，请重新选择');
       };
-      assertSource(); await mediaLatest.current.prepareMedia!(); assertSource();
+      assertSource(); await mediaLatest.current.prepareMedia!(conversion.kind === 'image' ? conversion : undefined); assertSource();
     }} onInsert={text=>{
       const latest=mediaLatest.current, parts=conversion.parts ?? [conversion];
       const index=latest.blocks.findLastIndex(b=>parts.some(part=>part.id===b.id));
@@ -651,10 +768,11 @@ export function ChapterTextModules({ storyboard=false, showScenes, shotTarget, o
     }}/></div>}
     {cacheError && <p role="alert" className="text-xs text-destructive">{_ui("本机无法保存模块格式，请暂时不要关闭页面。")}</p>}
   </section>;
+  const readingContent = storyboard && contextSource ? <BookPageCatalog storyId={contextSource.storyId} urls={blocks.flatMap(block=>{const img=readBookImage(block.text);return img && !img.videoUrl ? [img.url] : []})}>{content}</BookPageCatalog> : content;
   return contextSource && !comparison ? <BookImageImportBoundary storyId={contextSource.storyId} scope={contextSource.scope}
     disabled={disabled} blocks={blocks} activeId={activeId} onInsert={(anchor, urls) => {
       const result = insertBookImages(blocks, anchor, urls);
       textRange.clear(); setSelectedModuleIds([]);
       commit(result.blocks, writingBlockOffset(result.blocks, result.blocks.findIndex(block => block.id === result.firstId)), false);
-    }}>{content}</BookImageImportBoundary> : content;
+    }}>{readingContent}</BookImageImportBoundary> : readingContent;
 }

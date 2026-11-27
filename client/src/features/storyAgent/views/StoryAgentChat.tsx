@@ -14,6 +14,8 @@ import { resolveShotImageMentions } from "./shotImageNames";
 import { composerImages } from "./imageGenerationDraft";
 import { ChatImageReferenceChip } from "./ChatImageReferenceChip";
 import { ChatPhotoPreview } from "./ChatPhotoPreview";
+import { StoryPictureReply } from "./StoryPictureReply";
+import { asksForStoryPictures } from "@shared/pictureRecall";
 import { ChatVideoCuePlan } from "./ChatVideoCuePlan";
 import { cueReplyId, cueReferences, cueTarget, currentCueTurn, requestsVideoCues, reviewTakeId, priorObjectOrigin, originLine } from "../videoCueDraft";
 import { NextShotDraftButton } from "./NextShotDraftButton";
@@ -73,6 +75,8 @@ import { findReviewImageFrame, frameLocationLabel } from "../frameRegionPresenta
 import { focusWarehouseConversation, useWarehouseConversationFocus } from "@/features/creationEditor/warehouseConversationFocus";
 import { BookVideoChat, type BookVideoChatHandle } from "@/features/bookVideo/BookVideoChat";
 import { useBookVideoSession } from "@/features/bookVideo/bookVideoSession";
+import { bookImageRatioRequest } from "@shared/bookImageFrame";
+import { answerProductionQuestion, listenForProductionTurns } from "../../publishingAlbum/bookProductionChat";
 import { BookMediaChat, type BookMediaChatHandle } from "@/features/publishingAlbum/BookMediaChat";
 import { useBookMediaSession } from "@/features/publishingAlbum/bookMediaSession";
 import { useBookModuleActions } from '@/features/publishingAlbum/bookModuleActions';
@@ -1228,6 +1232,13 @@ export default function StoryAgentChat({
   const feedbackPreview = canLocateFeedback && feedbackDraft && feedbackClock.snapshot && !hasInlineChatImages(feedbackDraft)
     ? locateTimelineFeedback(feedbackDraft, feedbackClock.snapshot, previousFeedback) : null;
   const trialUtils = trpc.useUtils();
+  useEffect(()=>listenForProductionTurns(activeStoryId,({storyId,user,reply})=>{
+    void trialUtils.client.storyConversation.appendTurn.mutate({storyId,
+      userMessage:{clientMessageId:user.id,content:user.content},
+      assistantMessage:{clientMessageId:reply.id,content:reply.content}
+    }).catch(()=>toast.error(_ui("这条制作问答保存在当前浏览器，暂未同步。")));
+  }),[activeStoryId,trialUtils.client,_ui]);
+
   function chatWritingSnapshot() {
     const storyId = remoteStoryId ?? activeStoryId;
     const reading = workspaceContext === "book" && storyId ? selectedReading(accountId, storyId) : undefined;
@@ -1265,6 +1276,56 @@ export default function StoryAgentChat({
     draftEpoch.current++;
     const submittedInput = input;
     const filmRequest = submittedInput.trim();
+    if (workspaceContext === "book" && !pendingMedia.length && !hasInlineChatImages(filmRequest) &&
+        await answerProductionQuestion(activeStoryId, filmRequest)) {
+      setInput(current => current === submittedInput ? "" : current); resizeAndFocusInput(); return;
+    }
+    const frame = workspaceContext === "book" && !bookMedia && !composition && !pendingMedia.length &&
+      !voice.isBusy && !hasInlineChatImages(filmRequest) && bookImageRatioRequest(filmRequest);
+    if (frame && accountId && activeStoryId && !isReplying && !isImportingMedia) {
+      const state = storySpineStore.getState();
+      const current = () => storySpineStore.getState().storyScopeEpoch === state.storyScopeEpoch &&
+        storySpineStore.getState().accountId === accountId && storySpineStore.getState().activeStoryId === activeStoryId;
+      const user: ChatMessage = {id:crypto.randomUUID(),role:"user",content:filmRequest,timestamp:Date.now()};
+      state.setMessages(rows => [...rows,user]);
+      setInput(""); resizeAndFocusInput();
+      const modules = useBookModuleActions.getState().session;
+      const page = new URLSearchParams(location.search);
+      const pageChapter = page.get("storyId") === String(activeStoryId) ? Number(page.get("chapterId")) || undefined : undefined;
+      const chapterId = (modules?.storyId === activeStoryId ? modules.chapterId : undefined) ?? pageChapter;
+      const moduleId = frame.current ? writingSession?.getSnapshot().module?.moduleId : undefined;
+      let content: string;
+      try {
+        if (frame.current && !moduleId) throw Error("请带上镜号，例如“第 2 镜图片改成 " + frame.ratio + "”。");
+        await trialUtils.client.storyAgent.setBookImageFrame.mutate({storyId:activeStoryId, ratio:frame.ratio,
+          ...(frame.shotNo || moduleId ? {chapterId, moduleId, shotNo:frame.shotNo} : {})});
+        await trialUtils.storyAgent.bookModuleVisualBasis.invalidate({storyId:activeStoryId});
+        const scope = frame.shotNo ? "第 " + frame.shotNo + " 镜" : frame.current ? "本镜" : "这部作品";
+        content = scope + "的新图片将按 " + frame.ratio + " 生成。";
+      } catch (error) { content = error instanceof Error ? error.message : "图片画幅暂未保存，请重试。"; }
+      const reply: ChatMessage = {id:crypto.randomUUID(),role:"assistant",content,timestamp:Date.now()};
+      if (current()) state.setMessages(rows => [...rows,reply]);
+      await trialUtils.client.storyConversation.appendTurn.mutate({storyId:activeStoryId,
+        userMessage:{clientMessageId:user.id,content:user.content},assistantMessage:{clientMessageId:reply.id,content}}).catch(() => {
+          if (current()) toast.info("这次调整的聊天记录暂未同步。");
+        });
+      return;
+    }
+    if (accountId && activeStoryId && !pendingMedia.length && !composition && !bookMedia && !voice.isBusy &&
+        !isReplying && !isImportingMedia && !hasInlineChatImages(filmRequest) && asksForStoryPictures(filmRequest)) {
+      const scope = storySpineStore.getState(), userId = crypto.randomUUID();
+      const user: ChatMessage = {id:userId, role:"user", content:filmRequest, timestamp:Date.now()};
+      const reply: ChatMessage = {id:`picture-search:${accountId}:${activeStoryId}:${userId}`, role:"assistant", content:"已按来源整理相关图片。", interfaceAction:true, timestamp:user.timestamp+1};
+      scope.setMessages(rows=>[...rows,user,reply]);
+      setInput(""); resizeAndFocusInput();
+      try {
+        await trialUtils.client.storyConversation.appendTurn.mutate({storyId:activeStoryId,
+          userMessage:{clientMessageId:user.id,content:user.content},assistantMessage:{clientMessageId:reply.id,content:reply.content}});
+      } catch {
+        if(storySpineStore.getState().storyScopeEpoch===scope.storyScopeEpoch) toast.info("找图记录已留在当前聊天，云端暂未同步。");
+      }
+      return;
+    }
     const filmReply = isPurposeReply(filmRequest, messages) && requestsStoryFilm(messages.at(-2)?.content ?? "");
     const listShots = listsWholeStoryboard(filmRequest);
     const wholeStory = listShots || /整个故事|整部|整本|全片|这(?:个|段)故事|书稿|whole (?:story|book)/iu.test(filmRequest);
@@ -2777,7 +2838,9 @@ export default function StoryAgentChat({
                 {latestCue && m.id!==cueTurn?.reply.id && m.id.startsWith("video-cues:") && m.role==="assistant" && m.selectionQuote?.storyId===activeStoryId &&
                   <button type="button" className="mb-1 text-xs underline" aria-label={"继续此视频对话："+(messages.find(row=>cueReplyId(row.id)===m.id)?.content??"").slice(0,55)}
                     onClick={()=>setOpenedCue({id:m.id,latest:latestCue.reply.id,openedAt:Date.now()})}>继续此视频对话</button>}
-                {m.role==="assistant" && m.id.startsWith("reading-open:") && activeStoryId ? <button className="text-left underline" onClick={()=>{openReading(accountId,activeStoryId,m.id.split(":")[1]);onOpenPublishingWorkspace?.();}}>{m.content}</button> : m.role === "assistant" && (m.id.startsWith("film-manuscript:") || m.id.startsWith("reading-new:") || m.id.startsWith("reading-write:") || m.id.startsWith("reading-answer:")) && (remoteStoryId ?? activeStoryId ?? 0) > 0 ? (() => {
+                {accountId && activeStoryId && m.role==="assistant" && m.id.startsWith(`picture-search:${accountId}:${activeStoryId}:`) ?
+                  <StoryPictureReply accountId={accountId} storyId={activeStoryId} query={messages.find(row=>row.id===m.id.split(":").at(-1) && row.role==="user")?.content ?? ""} />
+                  : m.role==="assistant" && m.id.startsWith("reading-open:") && activeStoryId ? <button className="text-left underline" onClick={()=>{openReading(accountId,activeStoryId,m.id.split(":")[1]);onOpenPublishingWorkspace?.();}}>{m.content}</button> : m.role === "assistant" && (m.id.startsWith("film-manuscript:") || m.id.startsWith("reading-new:") || m.id.startsWith("reading-write:") || m.id.startsWith("reading-answer:")) && (remoteStoryId ?? activeStoryId ?? 0) > 0 ? (() => {
                   const answer = m.id.startsWith("reading-answer:");
                   const base = m.id.startsWith("reading-write:") || answer ? m.id.split(":")[1] : undefined;
                   const turn = messages.find(row => row.id === m.id.split(":").at(-1) && row.role === "user");

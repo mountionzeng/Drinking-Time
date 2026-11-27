@@ -12,6 +12,11 @@ export const bookRenderReference = z.object({
 });
 export type BookRenderReference = z.infer<typeof bookRenderReference>;
 
+/** Only an explicit style/continuity selection takes the place of the film swatch. */
+export function useSeparateFilmStyle(reference: Pick<BookRenderReference, "use" | "imageId"> | undefined, filmImageId?: number | null) {
+  return !reference || (reference.use === "scene" && reference.imageId !== filmImageId);
+}
+
 /** Only interpret a reference instruction, never a shot number mentioned in ordinary scene prose. */
 export function bookReferenceIntent(text: string): { source: BookReferenceSource; use: BookRenderReference["use"] } | undefined {
   const commands = /(?:参考|沿用|参照|借用|照着|对齐)\s*(?:(?:第\s*)?(\d{1,4})\s*(?:镜头?|的(?:图|色调|画风|色彩|配色|风格))|(上一?个?镜头?)|上图|上(?:面|方|一张)(?:的|那张|这张|一张)?图)/g;

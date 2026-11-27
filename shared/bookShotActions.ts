@@ -15,9 +15,6 @@ export const shotOutputLabels = {
   sfx: {name:"音效", hint:"渲染成音效"},
 } as const;
 export type ShotOutput = keyof typeof shotOutputLabels;
-export function shotMenuOutputs(audio: "music" | "sfx" = "music"): ShotOutput[] {
-  return ["image","video","subtitle","narration",audio];
-}
 
 function firstCue(text: string) {
   const first = text.split("\n", 1)[0];
@@ -169,12 +166,6 @@ function readOutputSource(rows:Row[], index:number, kind:ShotOutput) {
     parts.push(...screen);
     if (screen.length) label="屏幕文字";
   }
-  if (!parts.length && kind === "music") {
-    const target = scoped ? rows[index] : owner;
-    const unlabelled = !children.some(r => readShotField(r.text.split("\n")[0]));
-    parts.push({ ...target, content: unlabelled && !scoped ? owner.text : "" });
-  }
-  if (!parts.length && !scoped && kind==="image" && !children.some(r=>readShotField(r.text.split("\n")[0])?.kind==="picture")) parts.push({...owner,content:owner.text});
   const images = children.filter(r=>readBookImage(r.text));
   const content = parts.map(p=>p.content).join("\n\n").trim();
   if ((kind === "narration" || (kind === "subtitle" && label !== "屏幕文字")) && !/第\s*\d+\s*秒/.test(label)) {
@@ -188,6 +179,7 @@ function readOutputSource(rows:Row[], index:number, kind:ShotOutput) {
 
 export function requestsSilentTrack(kind: ShotOutput, prompt: string) {
   const text = prompt.trim().replace(/[。.!！]+$/u, "");
+  if (kind === "narration") return /^(?:本镜|全程)?(?:无旁白|无台词|没有旁白|无人声|留白|静音)$/u.test(text);
   if (kind !== "music" && kind !== "sfx") return false;
   if (/^(?:本镜|全程|整镜)?(?:留白|静音|无声|保持安静|无)$/u.test(text)) return true;
   return kind === "music"

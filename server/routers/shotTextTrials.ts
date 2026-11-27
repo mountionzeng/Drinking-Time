@@ -3,6 +3,7 @@ import { protectedProcedure, router } from "../_core/trpc";
 import {
   attachTrial,
   openTrial,
+  readPicturePage,
   trialList,
   trialManuscript,
   trialQuote,
@@ -12,6 +13,9 @@ const owner = z.object({ storyId: z.number().int().positive() });
 const scope = owner.extend({ shotId: z.string().min(1).max(200) });
 const draft = scope.extend({ id: z.string().uuid() });
 export const shotTextTrialsRouter = router({
+  sourcePage: protectedProcedure
+    .input(owner.extend({ page: z.string().min(1).max(24), title: z.string().min(1).max(100).optional() }))
+    .query(({ ctx, input }) => readPicturePage({ ...input, userId: ctx.user.id })),
   manuscript: protectedProcedure
     .input(owner)
     .query(({ ctx, input }) =>

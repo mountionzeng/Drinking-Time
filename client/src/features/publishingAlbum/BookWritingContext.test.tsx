@@ -9,6 +9,7 @@ vi.mock('react', async () => ({
   useLayoutEffect: (fn: () => void) => { hooks.effects.push(fn); },
 }));
 vi.mock('./BookSentenceReview', () => ({ useBookSentenceReview: () => null }));
+vi.mock('./BookPageExcerpt',async()=>({...await vi.importActual<typeof import('./BookPageExcerpt')>('./BookPageExcerpt'),useBookPageReadings:()=>new Map()}));
 import { ChapterTextModules } from './ChapterTextModules';
 import { BookBlockCanvas } from './BookBlockCanvas';
 import { ChapterWriting } from './ChapterWriting';
@@ -603,7 +604,7 @@ it('offers single-image deletion in the storyboard production menu and the thumb
  let tree = draw();
  const menu = tree.find(n=>n.props?.['aria-label']==='模块 2 设置');
  const actions = nodes(menu).filter(n=>n.type==='button');
- expect(actions.map(n=>n.props.children)).toEqual(['画面描述','视频','字幕','台词','音乐','删除图片模块']);
+ expect(actions.map(n=>n.props.children)).toEqual(['画面','视频','音乐','旁白','删除图片模块']);
  actions.at(-1)!.props.onClick();
  expect(commit.mock.calls[0][0]).toEqual([shot,prose]);
  const target = {closest:(selector:string)=>selector==='[data-book-image-ref]' ? {dataset:{bookImageRef:image.id}} : null};

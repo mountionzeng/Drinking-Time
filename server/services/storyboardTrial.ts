@@ -9,6 +9,7 @@ import {
   bookManuscriptModules,
   readBookShotChapter,
 } from "../../shared/bookShotDocument";
+import { routeStoryboardCues } from "../../shared/routeStoryboardCues";
 import { readShotField, shotFormatGuide } from "../../shared/bookShotFormat";
 import type { storyboardEmotionBrief } from "../../shared/creationEmotion";
 import { justNamesTrial, requestedShots, shotOrdinal, trialInstruction } from "../../shared/storyboardTrial";
@@ -83,6 +84,25 @@ function pack(ch: ManuscriptContent, modules: Module[]) {
     },
   };
 }
+export function organizeChapterCues(chapter: ManuscriptContent) {
+  const style = chapter.blocks.writingStyle;
+  if (!style || !validWritingStyle(chapter.blocks.body, style) || !style.some(row => row.format === "shot"))
+    throw invalid("请先选择含有镜头的分镜工作稿。");
+  const routed = routeStoryboardCues(chapter.blocks.body, style, randomUUID);
+  if (routed.body === chapter.blocks.body) return chapter;
+  const texts = routed.body.split("\n");
+  let at = 0;
+  const modules = routed.writingStyle.map(row => {
+    const count = row.lineCount ?? 1;
+    const text = texts.slice(at, at + count).join("\n");
+    at += count;
+    return { row, text };
+  });
+  const result = pack(chapter, modules);
+  result.blocks.containsAiText = chapter.blocks.containsAiText;
+  return result;
+}
+
 export function editTrialTexts(chapter: ManuscriptContent, texts: string[]) {
   return pack(
     chapter,

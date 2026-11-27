@@ -17,7 +17,7 @@ beforeEach(()=>{
   vi.stubGlobal('window',new EventTarget());
 });
 afterEach(()=>{cleanups.forEach(fn=>fn());vi.restoreAllMocks();vi.useRealTimers();vi.unstubAllGlobals();});
-function mount(save:any,reviewedVersion?:number){
+function mount(save:any,reviewedVersion?:number,readBase?: (version:number)=>Promise<Pick<Chapter,"title"|"blocks">>){
   const handle={current:null as ChapterWritingHandle|null};
   let change!:(e:any)=>void;
   const create=React.createElement;
@@ -25,7 +25,7 @@ function mount(save:any,reviewedVersion?:number){
     if(type==='textarea' && props['aria-label']==='正文') change=props.onChange;
     return create(type,props,...children);
   }) as typeof React.createElement);
-  const html=renderToStaticMarkup(<ChapterWriting chapter={chapter} scope="account9:story1" handle={handle} save={save} onChange={vi.fn()} disabled={false} reviewedVersion={reviewedVersion}/>);
+  const html=renderToStaticMarkup(<ChapterWriting chapter={chapter} scope="account9:story1" handle={handle} save={save} onChange={vi.fn()} disabled={false} readBase={readBase} reviewedVersion={reviewedVersion}/>);
   cleanups=effects.list.map(effect=>effect()).filter((fn):fn is ()=>void=>typeof fn==='function');
   return {html,handle,change:(value:string)=>change({currentTarget:{value}})};
 }
@@ -66,7 +66,11 @@ it('saves reviewed old text only through the explicit prepare action',async()=>{
   cache.set(key,JSON.stringify({title:'标题',body:'对比后保留的文字',baseVersion:3}));
   const save=vi.fn().mockResolvedValue({...chapter,version:5,blocks:{body:'对比后保留的文字'}});
   const {handle}=mount(save,4);await vi.advanceTimersByTimeAsync(2000);expect(save).not.toHaveBeenCalled();
-  await handle.current!.prepare();expect(save).toHaveBeenCalledWith({title:'标题',body:'对比后保留的文字'});
+  await expect(handle.current!.prepare()).rejects.toThrow('较早或未知版本');
+  window.dispatchEvent(new Event('online'));
+  await vi.advanceTimersByTimeAsync(0);
+  expect(save).not.toHaveBeenCalled();
+  await handle.current!.prepare(true);expect(save).toHaveBeenCalledWith({title:'标题',body:'对比后保留的文字'});
 });
 
 it('automatically saves formatting even when the text is unchanged',async()=>{
@@ -129,10 +133,23 @@ it('restores an update-recovery snapshot ahead of shared cache and preserves for
   const save=vi.fn().mockResolvedValue({...chapter,version:5,blocks:{body:'更新前的本页正文',writingStyle:style}});
   const {handle}=mount(save,4);
   expect(handle.current!.snapshot()).toMatchObject({body:'更新前的本页正文',writingStyle:style,baseVersion:3});
-  await handle.current!.prepare();
+  await handle.current!.prepare(true);
   expect(save).toHaveBeenCalledWith({title:chapter.title,body:'更新前的本页正文',writingStyle:style});
   expect(cache.get(key)).toContain('另一页草稿');
   expect(readRecoveredDraft('account9:story1',2)).toBeNull();
   await expect(handle.current!.prepare()).resolves.toBeUndefined();
   expect(save).toHaveBeenCalledTimes(1);
+});
+
+it.each([true,false])('reopens the saved chapter only if the recovery is a confirmed clean historical copy (%s)', async clean => {
+  const raw=JSON.stringify({title:'标题',body:'旧图',baseVersion:3});
+  cache.set(key,raw);
+  const readBase=vi.fn().mockResolvedValue({...chapter,blocks:{body:clean?'旧图':'真正的旧底稿'}});
+  const save=vi.fn();
+  const {handle}=mount(save,undefined,readBase);
+  await vi.advanceTimersByTimeAsync(0);
+  expect(readBase).toHaveBeenCalledWith(3);
+  expect(handle.current!.snapshot().body).toBe(clean?chapter.blocks.body:'旧图');
+  expect(cache.get(key)).toBe(raw);
+  expect(save).not.toHaveBeenCalled();
 });

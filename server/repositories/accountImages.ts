@@ -1,7 +1,17 @@
-import { and, desc, eq, isNull, lt, or, max, notInArray } from "drizzle-orm";
-import { generatedImages, stories } from "../../drizzle/schema";
-import { ensureMemoryLoaded, getDb, memoryState } from "./runtime";
+import { and, desc, eq, isNull, like, lt, or, max, notInArray } from "drizzle-orm";
+import { generatedImages, stories, storyConversationMessages } from "../../drizzle/schema";
+import { ensureLocalPromptLineageLoaded, ensureMemoryLoaded, getDb, memoryState } from "./runtime";
 import { readTrashedStories } from "./storyTrashState";
+
+/** Read authored references without loading unrelated conversation text or assistant turns. */
+export async function authoredPictureMentions(storyId:number,userId:number) {
+  const db=await getDb(), rows=storyConversationMessages;
+  if(db) return db.select({content:rows.content}).from(rows).where(and(eq(rows.storyId,storyId),eq(rows.userId,userId),
+    eq(rows.role,"user"),like(rows.content,"%[[ref:%"))).orderBy(desc(rows.id));
+  await ensureLocalPromptLineageLoaded();
+  return memoryState.promptLineage.messages.filter(m=>m.storyId===storyId && m.userId===userId && m.role==="user" && m.content.includes("[[ref:"))
+    .sort((a,b)=>b.id-a.id).map(m=>({content:m.content}));
+}
 
 /** 账号只读图库：包含历史候选，按 ID 游标分页，不限制故事数量。 */
 export async function listAccountImages(

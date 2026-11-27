@@ -133,7 +133,8 @@ export function decideVideoRenderStrategy(
       localMotion: null,
     };
   }
-  if (!SIMPLE_CAMERA_PATTERN.test(cameraText)) {
+  const staticZoom = /^(?:镜头|画面)?\s*(?:缓缓|缓慢|慢慢|轻轻|轻微)?\s*(?:推近|拉远)[。.!！\s]*$/u.test(cameraText);
+  if (!staticZoom && !SIMPLE_CAMERA_PATTERN.test(cameraText)) {
     return {
       strategy: "paid-302",
       reason: "镜头意图不只是明确的缩放、平移或定格，保留 302 生成。",

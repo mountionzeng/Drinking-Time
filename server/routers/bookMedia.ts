@@ -1,3 +1,6 @@
+import { resolveVideoExportAspectRatio } from "../services/videoExport";
+import { getStoryMaterialState } from "../services/storyMaterials";
+import { decideVideoRenderStrategy } from "../../shared/videoMotionPolicy";
 import { wholeBookSoundSchema, narrationSegments } from "../../shared/bookSound";
 import { translateBookModule } from "../services/bookModuleTranslation";
 import { generateBookImageComposition, readBookImageComposition, refreshBookImageComposition, listBookImageCompositions } from '../services/bookImageComposition';
@@ -33,6 +36,27 @@ const target = z.object({
 const videoIdentity = (chapterId: number, moduleId: string) =>
   `book:${chapterId}:${createHash("sha256").update(moduleId).digest("hex").slice(0, 32)}`;
 const compositionTarget = z.object({ storyId: z.number().int().positive(), chapterId: z.number().int().positive(), moduleIds: z.array(z.string().min(1).max(100)).min(1).max(200) });
+const durationInput = z.number().int().min(1).max(10).optional();
+function bookVideoQuote(prompt: string | undefined, seconds: number | undefined) {
+  const durationSec = seconds ?? 5;
+  const renderMode = durationSec !== 5 ? "economy" as const : undefined;
+  const provider = getShotVideoProviderStatus(renderMode);
+  const local = seconds !== undefined && prompt && decideVideoRenderStrategy({ videoPrompt: prompt }).strategy === "local-transform";
+  const estimatedCny = local ? 0 : estimateShotVideoCost({
+    durationSec, motion: provider.motion, priceProfile: renderMode ? "vidu-economy" : shotVideoPriceProfile(provider.submitPath),
+  }).estimatedCny;
+  return { durationSec, renderMode, motion: provider.motion, estimatedCny };
+}
+async function videoTerms(scope: {storyId:number; chapterId:number; moduleId:string}, userId:number, imageId:number, prompt:string, seconds:number|undefined, revision:number) {
+  const video=bookVideoQuote(prompt,seconds);
+  if (seconds===undefined) return {...video,aspectRatio:undefined,quoteFingerprint:undefined};
+  const material=await getStoryMaterialState(scope.storyId,userId);
+  if (!material) throw new TRPCError({code:"NOT_FOUND",message:"无法读取本片画幅。"});
+  const aspectRatio=resolveVideoExportAspectRatio(material);
+  const quoteFingerprint=createHash("sha256").update(JSON.stringify([userId,scope.storyId,scope.chapterId,scope.moduleId,revision,
+    imageId,prompt.trim(),seconds,video.renderMode,video.motion,video.estimatedCny,aspectRatio])).digest("hex");
+  return {...video,aspectRatio,quoteFingerprint};
+}
 export const bookMediaRouter = router({
   feedbackHistory: protectedProcedure.input(z.object({storyId:z.number().int().positive()})).query(async ({ctx,input})=>{
     if (!await getStoryById(input.storyId,ctx.user.id)) throw new TRPCError({code:"NOT_FOUND"});
@@ -73,7 +97,7 @@ export const bookMediaRouter = router({
     const card = await insertMemoryCard(ctx.user.id,{id:randomUUID(),title:"图片生成的文字",content:text,kind:"thought",origin:"assistant",sourceStoryId:input.storyId});
     return {text, fingerprint:source.fingerprint,cardId:card.id};
   }),
-  resolve: protectedProcedure.input(target).query(async ({ ctx, input }) => {
+  resolve: protectedProcedure.input(target.extend({durationSec:durationInput,videoPrompt:z.string().max(2000).optional()})).query(async ({ ctx, input }) => {
     const chapter = await getChapter(input.chapterId, ctx.user.id);
     if (!chapter || chapter.storyId !== input.storyId)
       throw new TRPCError({ code: "NOT_FOUND" });
@@ -97,13 +121,14 @@ export const bookMediaRouter = router({
     const motionCues = brief?.at(-1)?.beats.flatMap(beat =>
       beat.suggestions.video ? [{ text: beat.text, motion: beat.suggestions.video }] : []);
 
-    const motion = getShotVideoProviderStatus().motion;
+    const video = await videoTerms(input,ctx.user.id,asset.id,input.videoPrompt ?? "",input.durationSec,chapter.version);
     return {
       image: { id: asset.id, url: asset.imageUrl, noteOwnerId: ctx.user.id,
         editNote: asset.storyId === input.storyId && asset.userId === ctx.user.id && asset.generationType === "initial" &&
           asset.rawShotNo == null && asset.prompt && asset.prompt.length <= 2000 ? asset.prompt : null },
       ...(motionCues?.length ? { motionCues } : {}),
-      videoCost: estimateShotVideoCost({ durationSec: 5, motion, priceProfile: shotVideoPriceProfile(getShotVideoProviderStatus().submitPath) }).estimatedCny,
+      videoCost: video.estimatedCny,
+      videoDurationSec: video.durationSec, videoQuoteFingerprint:video.quoteFingerprint, videoAspectRatio:video.aspectRatio,
     };
   }),
   latestVideo: protectedProcedure
@@ -125,6 +150,8 @@ export const bookMediaRouter = router({
       target.extend({
         imageId: z.number().int().positive(),
         prompt: z.string().trim().min(1).max(2000),
+        durationSec: durationInput,
+        quoteFingerprint:z.string().length(64).optional(),
         operationToken: z.string().min(8).max(128),
         estimatedCny: z.number().nonnegative(),
       })
@@ -135,12 +162,11 @@ export const bookMediaRouter = router({
           code: "CONFLICT",
           message: "这张图片已变化，请重新点选",
         });
-      const motion = getShotVideoProviderStatus().motion;
-      const cost = estimateShotVideoCost({
-        durationSec: 5,
-        motion,
-        priceProfile: shotVideoPriceProfile(getShotVideoProviderStatus().submitPath),
-      }).estimatedCny;
+      const chapter = input.durationSec!==undefined ? await getChapter(input.chapterId,ctx.user.id) : undefined;
+      if (input.durationSec!==undefined && chapter?.storyId!==input.storyId) throw new TRPCError({code:"NOT_FOUND"});
+      const {durationSec,renderMode,motion,estimatedCny:cost,aspectRatio,quoteFingerprint} = await videoTerms(input,ctx.user.id,input.imageId,input.prompt,input.durationSec,chapter?.version ?? 0);
+      if (quoteFingerprint!==input.quoteFingerprint)
+        throw new TRPCError({code:"CONFLICT",message:"本镜要求或报价已变化，请重新确认。"});
       if (Math.abs(cost - input.estimatedCny) > 0.001)
         throw new TRPCError({
           code: "BAD_REQUEST",
@@ -154,7 +180,9 @@ export const bookMediaRouter = router({
           bookTarget: { chapterId: input.chapterId, moduleId: input.moduleId },
           imageId: input.imageId,
           prompt: input.prompt,
-          durationSec: 5,
+          durationSec,
+          aspectRatio,
+          renderMode,
           motion,
           directorPromptApproved: true,
           rerenderRequestId: input.operationToken,

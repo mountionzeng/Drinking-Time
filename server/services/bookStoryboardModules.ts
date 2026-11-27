@@ -28,7 +28,7 @@ export function bookStoryboardModules(
     if (!chapter.blocks.body.trim() && !rows?.some(r => r.format === "shot")) continue;
     if (!rows || !validWritingStyle(chapter.blocks.body, rows))
       invalid("镜头格式未完整保存，请先保存书稿再转视频。");
-    const { shots, nodes, texts } = readBookShotChapter(chapter);
+    const { shots, nodes, texts } = readBookShotChapter(chapter,undefined,result.length);
     if (!shots.length) invalid("请为该章节设置镜头后再转视频。");
     const occupiedScenes = new Set<string>();
     const parents = new Map(rows.map(row => [row.id, row.parentId]));
@@ -55,7 +55,9 @@ export function bookStoryboardModules(
       });
       result.push({
         id: shot.id, sourceKind: "shot", sourceModuleIds: shot.sourceModuleIds,
-        shotTitle: shot.title, productionNotes: shot.notes,
+        shotTitle: shot.title,
+        productionNotes: shot.link?.reason === "同一场景" && shot.link.sourcePicture
+          ? "画面：延续此前的环境（" + shot.link.sourcePicture + "）。这一帧按以下构图呈现。\n" + shot.notes : shot.notes,
         text: shot.text || (chapter.blocks.storyboardScenes ? bookBlockNumberLabel(numbers.get(shot.moduleId)!) : `第 ${numbers.get(shot.moduleId)!.shotNumber} 镜`),
         dialogueText: shot.dialogueText, referenceImageIds: [...new Set(referenceImageIds)],
       });

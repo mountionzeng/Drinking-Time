@@ -100,26 +100,41 @@ it("quotes a chat-only story without saving or spending, then edits and adopts t
   expect(chapter.blocks.writingStyle?.[1]).toMatchObject({ videoRole: "dialogue", parentId: chapter.blocks.writingStyle?.[0].id });
 });
 
-it("uses the same saved emotion beats when quoting and writing the full storyboard", async () => {
-  const story = await createStory({userId:actor.userId,title:"纸船",body:{}});
-  const owner = {userId:actor.userId,storyId:story.id};
-  const {saveCreationEmotion} = await import("./creationEmotion");
-  const set = (raw:string, expectedRevision:number) => saveCreationEmotion({...owner,expectedRevision,scope:{kind:"story"},intent:{raw}});
-  await set("开头紧张，最后放松。",0);
-  quote.mockImplementation(prompt=>({fingerprint:JSON.stringify(prompt.context),estimatedCny:0.01}));
-  const input = {...owner,id:randomUUID(),actor,request:"生成整片分镜",conversation:[{role:"user" as const, content:"窗台上放着一只纸船。"}]};
-  const first = await service.quoteFilmManuscript(input);
-  await set("开头不安，最后释怀。",1);
-  await expect(service.generateFilmManuscript({...input,quoteFingerprint:first.fingerprint})).rejects.toThrow("报价已变化");
+it("uses matching provided images in the film quote while ignoring untouched or merely opened candidates",async()=>{
+  const userId=actor.userId, story=await createStory({userId,title:"港口",body:{}});
+  const chapter=await chapters.insertChapter({storyId:story.id,userId,content:source});
+  const {createGeneratedImage}=await import("../repositories/images");
+  const {markAccountImageOpened}=await import("../repositories/memorySpace");
+  for (const [name,origin] of [["原照","user_import"],["候选","generation"],["看过","generation"]] as const) {
+    const row=await createGeneratedImage({userId,storyId:story.id,imageUrl:"/api/images/"+name+".png",prompt:"港口港湾",isCurrent:false},origin);
+    if(name==="看过") await markAccountImageOpened(userId,row.id);
+  }
+  quote.mockReturnValue({fingerprint:"quoted",estimatedCny:0.01});
+  await service.quoteFilmManuscript({userId,storyId:story.id,chapterId:chapter.id,target:"storyboard",request:"写分镜，沿用港口照片",
+    conversation:[{role:"user",content:"上次提过一幅不在这章的图 [[ref:image%3A999999]]"}]});
+  const sources=quote.mock.calls.at(-1)![0].context.source;
+  expect(sources[0].media).toEqual(["![图片](/api/images/original.png)","![图片](/api/images/原照.png)"]);
   expect(compute).not.toHaveBeenCalled();
-  const price = await service.quoteFilmManuscript(input);
-  compute.mockResolvedValueOnce({parsed:{chapters:[{title:"纸船",modules:[{format:"shot",text:"窗台",parent:null}]}]}});
-  await service.generateFilmManuscript({...input,quoteFingerprint:price.fingerprint});
-  const request = compute.mock.calls[0][0];
-  expect(JSON.stringify(request.context)).toBe(price.fingerprint);
-  const brief = request.context.作品情绪与声画试排建议[0];
-  expect(brief.beats.map((beat:{stage:string})=>beat.stage)).toEqual(["opening","ending"]);
-  expect(brief.beats[0].suggestions).toMatchObject({picture:expect.any(String),video:expect.any(String),music:expect.any(String),sound:expect.any(String)});
+});
+
+it("quotes and writes the same latest book photo once, keeping the archived source image intact",async()=>{
+  const userId=actor.userId,story=await createStory({userId,title:"家人的相册",body:{}});
+  const {createGeneratedImage,createImageSignal}=await import("../repositories/images");
+  const base={userId,storyId:story.id,isCurrent:false,prompt:"全家合影"};
+  const original=await createGeneratedImage({...base,imageUrl:"/uploads/my-scan.jpg"},"user_import");
+  const revision=await createGeneratedImage({...base,imageUrl:"/uploads/my-photo.jpg"});
+  await createImageSignal({...base,action:"edit_complete",imageId:revision.id,metadata:{source:"book_image_revision",parentImageId:original.id}});
+  const originalBody="我们都在照片里。\n![图片](/uploads/my-scan.jpg)";
+  const chapter=await chapters.insertChapter({userId,storyId:story.id,content:{...source,blocks:{...source.blocks,body:originalBody}}});
+  const input={userId,storyId:story.id,chapterId:chapter.id,target:"storyboard" as const,request:"继承之前的合影照片，做分镜",conversation:[]};
+  quote.mockReturnValue({fingerprint:"photo",estimatedCny:0.01});
+  await service.quoteFilmManuscript(input);
+  const media=quote.mock.calls.at(-1)![0].context.source[0].media;
+  expect(media).toEqual(["![图片](/uploads/my-photo.jpg)"]);
+  const written=await service.generateFilmManuscript({...input,id:randomUUID(),actor,quoteFingerprint:"photo"});
+  expect(compute.mock.calls.at(-1)![0].context.source[0].media).toEqual(media);
+  expect(written.chapters?.[0].blocks.body).toContain(media[0]);
+  expect((await chapters.getChapter(chapter.id,userId))?.blocks.body).toBe(originalBody);
 });
 
 async function fixture() {
@@ -656,6 +671,25 @@ it.each(["text", "storyboard"] as const)("preserves the original after failure t
   expect((await chapters.listChapters(input.storyId, 61, target))[0].blocks.body).toContain("/api/images/original.png");
 });
 
+it("organizes a new reading from the current storyboard without inference or replacing the working chapter", async () => {
+  const owner = await fixture();
+  const { importedReading } = await import("./storyboardTrial");
+  const base = importedReading(source, {label:"底稿",sourceLabel:"作者",shots:[{title:"空房间",paragraphs:[
+    {text:"画面描述：第2秒，从窗户切到门，缓慢推近。"},{text:"请坐。",dialogue:true}
+  ]}]});
+  const chapter = await chapters.insertChapter({...owner,content:base});
+  const before = await service.getBookWorkflow(owner);
+  const input = {...owner,id:randomUUID(),expectedFingerprint:before.drafts.storyboard.fingerprint};
+  await expect(service.organizeStoryboardReading({...input,expectedFingerprint:"0".repeat(64)})).rejects.toMatchObject({code:"CONFLICT"});
+  await expect(service.organizeStoryboardReading({...input,userId:owner.userId+20})).rejects.toThrow();
+  const draft = await service.organizeStoryboardReading(input);
+  expect(draft.chapters?.[0].blocks.body).toContain("画面描述：门\n");
+  expect(draft.chapters?.[0].blocks.body).toContain("视频：第2秒，从窗户切到门，缓慢推近。");
+  expect((await service.organizeStoryboardReading(input)).id).toBe(draft.id);
+  expect((await chapters.listChapters(owner.storyId,owner.userId,"storyboard"))[0]).toEqual(chapter);
+  expect(compute).not.toHaveBeenCalled();
+});
+
 it("continues a named reading in chat, retaining both endings, original modules and chapter revisions",async()=>{
   const owner=await fixture();
   const original=await chapters.insertChapter({...owner,content:{...source,blocks:{...source.blocks,manuscriptKind:"storyboard"}}});
@@ -758,4 +792,48 @@ it.each([false,true])("keeps the chat photo in the source and corresponding vide
   expect((await chapters.listChapters(story.id,actor.userId,"text"))[0].blocks.body).toContain(picture.imageUrl);
   const {readBookShotChapter}=await import("../../shared/bookShotDocument");
   expect(readBookShotChapter({id:1,blocks:next.chapters![0].blocks}).shots[0].images[0].url).toBe(picture.imageUrl);
+});
+
+it("passes a scanned book as documented text at both quote and writing time, retaining the original chapter",async()=>{
+  const userId=actor.userId, url="/api/images/botany-page.png";
+  const story=await createStory({userId,title:"树下",body:{shotTextTrials:[{id:"citation",source:"《花期》",state:"source",text:"第32页：同学们记录了第一朵桂花开放的日期。"}]}});
+  const {createGeneratedImage}=await import("../repositories/images");
+  await createGeneratedImage({storyId:story.id,userId,imageUrl:url,prompt:"《花期》第32页",isCurrent:false},"user_import");
+  const original="我们在校园里观察桂花。\n![图片]("+url+")";
+  const chapter=await chapters.insertChapter({storyId:story.id,userId,content:{...source,blocks:{...source.blocks,body:original}}});
+  const input={storyId:story.id,userId,chapterId:chapter.id,target:"storyboard" as const,request:"把本章改编成分镜",conversation:[]};
+  quote.mockReturnValue({fingerprint:"page",estimatedCny:0.01});
+  await service.quoteFilmManuscript(input);
+  const prepared=quote.mock.calls.at(-1)![0];
+  expect(prepared.context.source[0].media).toEqual([]);
+  expect(prepared.context.source[0].modules.join(" ")).toContain("同学们记录了第一朵桂花开放的日期");
+  expect(prepared.systemPrompt).toContain("书页资料");
+  expect(prepared.systemPrompt).toContain("书名、页码、图注和引文归查证资料");
+  expect(prepared.systemPrompt).toContain("旁白用讲述者自己的口吻接住画面");
+  compute.mockResolvedValueOnce({parsed:{chapters:[{title:"树下",modules:[{format:"shot",text:"第一朵花",parent:null},{format:"text",text:"枝头开了淡黄色的小花。",parent:0}]}]}});
+  await service.generateFilmManuscript({...input,id:randomUUID(),actor,quoteFingerprint:"page"});
+  expect(compute.mock.calls.at(-1)![0].context.source).toEqual(prepared.context.source);
+  expect((await chapters.listChapters(story.id,userId,"text"))[0].blocks.body).toBe(original);
+});
+
+it("uses the same saved emotion beats when quoting and writing the full storyboard", async () => {
+  const story = await createStory({userId:actor.userId,title:"纸船",body:{}});
+  const owner = {userId:actor.userId,storyId:story.id};
+  const {saveCreationEmotion} = await import("./creationEmotion");
+  const set = (raw:string, expectedRevision:number) => saveCreationEmotion({...owner,expectedRevision,scope:{kind:"story"},intent:{raw}});
+  await set("开头紧张，最后放松。",0);
+  quote.mockImplementation(prompt=>({fingerprint:JSON.stringify(prompt.context),estimatedCny:0.01}));
+  const input = {...owner,id:randomUUID(),actor,request:"生成整片分镜",conversation:[{role:"user" as const, content:"窗台上放着一只纸船。"}]};
+  const first = await service.quoteFilmManuscript(input);
+  await set("开头不安，最后释怀。",1);
+  await expect(service.generateFilmManuscript({...input,quoteFingerprint:first.fingerprint})).rejects.toThrow("报价已变化");
+  expect(compute).not.toHaveBeenCalled();
+  const price = await service.quoteFilmManuscript(input);
+  compute.mockResolvedValueOnce({parsed:{chapters:[{title:"纸船",modules:[{format:"shot",text:"窗台",parent:null}]}]}});
+  await service.generateFilmManuscript({...input,quoteFingerprint:price.fingerprint});
+  const request = compute.mock.calls[0][0];
+  expect(JSON.stringify(request.context)).toBe(price.fingerprint);
+  const brief = request.context.作品情绪与声画试排建议[0];
+  expect(brief.beats.map((beat:{stage:string})=>beat.stage)).toEqual(["opening","ending"]);
+  expect(brief.beats[0].suggestions).toMatchObject({picture:expect.any(String),video:expect.any(String),music:expect.any(String),sound:expect.any(String)});
 });

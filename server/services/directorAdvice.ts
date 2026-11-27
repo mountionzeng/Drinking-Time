@@ -14,6 +14,8 @@ import {
 import { canonicalizeShotNo } from "../../shared/imageAsset";
 import { parseJsonLoose } from "../_core/llmJson";
 import { getStoryMaterialState } from "./storyMaterials";
+import { storyPictures } from "./storyPictureRecall";
+import { openedAccountImages } from "../repositories/memorySpace";
 import { getStoryRevision, prepareStoryBody } from "./storySync";
 import {
   persistPreparedStoryBody,
@@ -136,17 +138,17 @@ export async function adviseStoryImages(params: {
   const material = await getStoryMaterialState(params.storyId, params.userId);
   if (!material) return { status: "error", message: "故事不存在或无权访问" };
 
-  const wanted = params.imageIds?.length
-    ? new Set(params.imageIds)
-    : null;
+  const story = await getStoryById(params.storyId,params.userId);
+  const eligible = !params.imageIds?.length && story ? await storyPictures(params.userId, story, await openedAccountImages(params.userId)) : [];
+  const wanted = new Set(params.imageIds?.length ? params.imageIds : eligible.flatMap(p=>p.imageId && !p.reading ? [p.imageId] : []));
   const candidates = material.unassignedImages
     .filter(image => Boolean(image.imageUrl))
-    .filter(image => (wanted ? wanted.has(image.id) : true))
+    .filter(image => wanted.has(image.id))
     .slice(0, params.maxImages ?? MAX_IMAGES_DEFAULT);
   if (candidates.length === 0) {
     return {
       status: "error",
-      message: "素材仓库里没有待安排的图片：先把图片导入进来（可拖拽），再来问导演。",
+      message: "还没有适合自动整理的图片。可以在仓库点开想用的图，再来安排镜头。",
     };
   }
 
@@ -160,7 +162,6 @@ export async function adviseStoryImages(params: {
     return parts.join("｜");
   });
   // 镜头内容从故事正文取（materialState 不带 subject/dialogue）。
-  const story = await getStoryById(params.storyId, params.userId);
   const body =
     story?.body && typeof story.body === "object"
       ? (story.body as Record<string, unknown>)

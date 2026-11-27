@@ -1,4 +1,7 @@
 import { z } from "zod";
+import { findStoryPictures, storyPageReadings } from "../services/storyPictureRecall";
+import { latestBookPicture } from "../services/bookPictureVersions";
+import { markAccountImageOpened } from "../repositories/memorySpace";
 import { protectedProcedure, router } from "../_core/trpc";
 import { memorySpaceOperationSchema } from "../../shared/memorySpace";
 import {
@@ -13,6 +16,14 @@ import {
 } from "../repositories/memorySpace";
 const storyInput = z.object({ storyId: z.number().int().positive() });
 export const memorySpaceRouter = router({
+  bookPageReadings: protectedProcedure.input(storyInput.extend({urls:z.array(z.string().min(1).max(2048)).max(100)})).query(({ctx,input})=>
+    storyPageReadings(ctx.user.id,input.storyId,input.urls)),
+  latestBookPicture: protectedProcedure.input(storyInput.extend({imageId:z.number().int().positive()})).query(({ctx,input})=>
+    latestBookPicture(ctx.user.id,input.storyId,input.imageId)),
+  imageOpened: protectedProcedure.input(z.object({imageId:z.number().int().positive()})).mutation(({ctx,input}) =>
+    markAccountImageOpened(ctx.user.id, input.imageId)),
+  findPictures: protectedProcedure.input(storyInput.extend({ accountId:z.number().int().positive().optional(),query:z.string().trim().min(1).max(1000) })).query(({ctx,input}) =>
+    input.accountId!==undefined && input.accountId!==ctx.user.id ? [] : findStoryPictures(ctx.user.id, input.storyId, input.query)),
   trashList: protectedProcedure.query(({ ctx }) => listTrashedMemoryStories(ctx.user.id)),
   trash: protectedProcedure.input(storyInput).mutation(({ ctx, input }) => trashMemoryStory(ctx.user.id, input.storyId)),
   restore: protectedProcedure.input(storyInput).mutation(({ ctx, input }) => restoreMemoryStory(ctx.user.id, input.storyId)),

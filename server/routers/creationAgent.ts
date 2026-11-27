@@ -1010,7 +1010,7 @@ export const creationAgentRouter = router({
           isCurrent: false,
           generationType: "initial",
           maskKey: null,
-        });
+        }, "user_import");
         if (target) {
           const assigned = await assignStoryImageToShotDb({
             storyId: input.storyId,

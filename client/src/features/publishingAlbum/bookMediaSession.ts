@@ -9,6 +9,8 @@ export type BookMediaSession = {
   shotNo?: number;
   imageUrl: string;
   motionPrompt?: string;
+  durationSec?: number;
+  startShotVideo?(): void;
   prepare(): Promise<void>;
   replace(
     sourceUrl: string,

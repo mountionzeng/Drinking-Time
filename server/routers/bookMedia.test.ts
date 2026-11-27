@@ -4,8 +4,11 @@ const mocks = vi.hoisted(() => ({
   current: vi.fn(),
   start: vi.fn(),
   takes: vi.fn(),
-  story: vi.fn(), images: vi.fn(),
+  story: vi.fn(), images: vi.fn(), chapter:vi.fn(), assets:vi.fn(), material:vi.fn(),
 }));
+vi.mock("../repositories/chapters",async orig=>({...await orig<typeof import("../repositories/chapters")>(),getChapter:mocks.chapter}));
+vi.mock("../services/imageAssets",async orig=>({...await orig<typeof import("../services/imageAssets")>(),getStoryImageAssets:mocks.assets}));
+vi.mock("../services/storyMaterials",async orig=>({...await orig<typeof import("../services/storyMaterials")>(),getStoryMaterialState:mocks.material}));
 vi.mock("../repositories/stories", async original => ({...await original<typeof import("../repositories/stories")>(),getStoryById:mocks.story}));
 vi.mock("../repositories/images", async original => ({...await original<typeof import("../repositories/images")>(),getStoryGeneratedImages:mocks.images}));
 vi.mock("../services/bookMediaTarget", () => ({
@@ -36,6 +39,9 @@ const input = {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.current.mockResolvedValue(true);
+  mocks.chapter.mockResolvedValue({storyId:1,version:2,blocks:{body:"![图片](/api/images/frame.jpg)",writingStyle:[{id:"image-block",format:"text",parentId:null}]}});
+  mocks.assets.mockResolvedValue([{id:3,imageUrl:"/api/images/frame.jpg",userId:7,storyId:1}]);
+  mocks.material.mockResolvedValue({timeline:{extensions:{chatCutMigration:{canvas:{width:900,height:1600}}}},shots:[]});
   mocks.start.mockResolvedValue({ status: "ok" });
 });
 it("reads historical feedback only from the owner's story and exact saved user instructions",async()=>{
@@ -61,6 +67,25 @@ describe("book media video boundary", () => {
     ).rejects.toThrow("费用已变化");
     expect(mocks.start).not.toHaveBeenCalled();
   });
+  it("passes the quoted ten seconds through to the video job and refuses a five-second price",async()=>{
+    const estimatedCny=estimateShotVideoCost({durationSec:10,motion:"low",priceProfile:"vidu-economy"}).estimatedCny;
+    const five=await caller.resolve({...input,videoPrompt:input.prompt,durationSec:5});
+    const ten=await caller.resolve({...input,videoPrompt:input.prompt,durationSec:10});
+    if (!five.image || !ten.image) throw Error("missing image");
+    expect(ten).toMatchObject({videoCost:estimatedCny,videoDurationSec:10,videoAspectRatio:"9:16"});
+    await expect(caller.video({...input,durationSec:10,estimatedCny,quoteFingerprint:five.videoQuoteFingerprint})).rejects.toThrow("报价已变化");
+    expect(mocks.start).not.toHaveBeenCalled();
+    await caller.video({...input,durationSec:10,estimatedCny,quoteFingerprint:ten.videoQuoteFingerprint});
+    expect(mocks.start.mock.calls[0][0]).toMatchObject({durationSec:10,renderMode:"economy",aspectRatio:"9:16"});
+    await expect(caller.video({...input,durationSec:11})).rejects.toThrow();
+  });
+  it("quotes and sends a ten-second static zoom for zero compute",async()=>{
+    const quote=await caller.resolve({...input,videoPrompt:"缓缓推近",durationSec:10});
+    if (!quote.image) throw Error("missing image");
+    expect(quote.videoCost).toBe(0);
+    await caller.video({...input,prompt:"缓缓推近",durationSec:10,estimatedCny:0,quoteFingerprint:quote.videoQuoteFingerprint});
+    expect(mocks.start.mock.calls[0][0]).toMatchObject({durationSec:10,prompt:"缓缓推近"});
+  });
   it("preserves request identity for retries and binds to this book module", async () => {
     await caller.video(input);
     await caller.video(input);
@@ -69,6 +94,7 @@ describe("book media video boundary", () => {
     expect(job).toMatchObject({
       bookTarget: { chapterId: 2, moduleId: "image-block" },
       imageId: 3,
+      durationSec: 5,
       prompt: input.prompt,
       rerenderRequestId: input.operationToken,
     });

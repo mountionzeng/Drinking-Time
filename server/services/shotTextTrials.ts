@@ -1,3 +1,4 @@
+import { pageExcerpts } from "../../shared/pictureSourcePages";
 import { stripAssistantReasoning } from "../../shared/assistantReplyText";
 import { beginLiveManuscript } from "./liveManuscript";
 import { shotFormatGuide } from "../../shared/bookShotFormat";
@@ -61,6 +62,11 @@ export async function trialList(s: Scope) {
   checkShot(body, s);
   return rows(body).filter(r => r.shotId === s.shotId).map(visibleTrial);
 }
+export async function readPicturePage(s: CreationOwner & { page: string; title?: string }) {
+  const { body } = await ownedCreationStory(s);
+  return pageExcerpts(rows(body), s.page, s.title);
+}
+
 export async function trialManuscript(s: CreationOwner) {
   const { body } = await ownedCreationStory(s);
   const positions = new Map(

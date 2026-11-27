@@ -81,14 +81,14 @@ export function isPlainAsciiPrompt(text: string) {
 }
 
 /** `inlinePoll: false` returns right after the receipt is durable; the image task worker fetches the result. */
-export type LegnextOptions = { editMode?: "retexture"; inlinePoll?: boolean; aspectRatio?: string; referenceImageUrl?: string; referenceContextImageUrls?: string[]; characterRef?: string; styleRef?: string; characterWeight?: number; imageWeight?: number; submitTimeoutMs?: number };
+export type LegnextOptions = { editMode?: "retexture"; inlinePoll?: boolean; aspectRatio?: string; referenceImageUrl?: string; referenceContextImageUrls?: string[]; characterRef?: string; styleRef?: string; additionalStyleRefs?: string[]; characterWeight?: number; imageWeight?: number; submitTimeoutMs?: number };
 const DEFAULT_SUBMIT_TIMEOUT_MS = 45_000;
 
 export async function generateLegnextImage(text: string, onAccepted: (id: string) => Promise<void>, options: LegnextOptions = {}): Promise<ImageGenResult> {
   const key = process.env.LEGNEXT_API_KEY?.trim();
   if (!key) return { status: "error", message: "MJ 新供应商尚未配置，请联系管理员。" };
   const retexture = options.editMode === "retexture";
-  if (retexture && (!options.referenceImageUrl || options.referenceContextImageUrls?.length || options.characterRef || options.styleRef))
+  if (retexture && (!options.referenceImageUrl || options.referenceContextImageUrls?.length || options.characterRef || options.styleRef || options.additionalStyleRefs?.length))
     return { status: "error", message: "原图精修需要唯一底图，不能混入其他参考图。本次未提交。" };
   // Retexture retains the uploaded canvas; do not impose the old 16:9 diffusion preset.
   let prompt = retexture
@@ -102,7 +102,7 @@ export async function generateLegnextImage(text: string, onAccepted: (id: string
   let baseImageUrl: string | undefined;
   try {
     const refs = [options.referenceImageUrl, ...(options.referenceContextImageUrls ?? [])].filter((v): v is string => Boolean(v));
-    const sources = [...new Set([...refs, options.characterRef, options.styleRef].filter((v): v is string => Boolean(v)))];
+    const sources = [...new Set([...refs, options.characterRef, options.styleRef, ...(options.additionalStyleRefs ?? [])].filter((v): v is string => Boolean(v)))];
     // One image commonly supplies both composition and style. Upload it once,
     // and prepare distinct references concurrently before the single paid POST.
     const submitTimeoutMs = Math.max(1, options.submitTimeoutMs ?? DEFAULT_SUBMIT_TIMEOUT_MS);
@@ -121,6 +121,7 @@ export async function generateLegnextImage(text: string, onAccepted: (id: string
       characterRefUrl: options.characterRef ? uploaded.get(options.characterRef) : undefined,
       characterWeight: options.characterWeight,
       styleRefUrl: options.styleRef ? uploaded.get(options.styleRef) : undefined,
+      additionalStyleUrls: options.additionalStyleRefs?.map(ref => uploaded.get(ref)!),
     });
     }
   } catch (error) {

@@ -405,7 +405,7 @@ function compactForPrompt(value: string, maxLength: number): string {
 function gptImageSizeFor(aspectRatio?: string): string {
   if (aspectRatio === "1:1") return "1024x1024";
   if (aspectRatio === "16:9" || aspectRatio === "3:2") return "1536x1024";
-  if (aspectRatio === "9:16") return "1024x1536";
+  if (aspectRatio === "9:16" || aspectRatio === "2:3") return "1024x1536";
   return ENV.image302GptSize || "1024x1024";
 }
 

@@ -1,3 +1,4 @@
+import { adoptedBookPictureChanges } from "../services/bookPictureVersions";
 import { bookWritingStyleSchema, validWritingStyle } from "../../shared/bookWritingStyle";
 import { bookChatDocumentInput } from "../../shared/bookWritingConversation";
 import { blankShotManuscript, structureShotDraft } from "../../shared/bookShotFormat";
@@ -390,6 +391,7 @@ export const chaptersRouter = router({
       };
       const saved = await saveChapterContent({
         id:chapter.id,userId:ctx.user.id,expectedVersion:input.expectedVersion,
+        bookImageRevisions: await adoptedBookPictureChanges(chapter.storyId, ctx.user.id, chapter.blocks, blocks),
         reason:input.autosave ? "autosave" : "edit",content:{ title,blocks,layout },
       });
       if (blocks.writingStyle?.some(row => row.format === "shot") &&

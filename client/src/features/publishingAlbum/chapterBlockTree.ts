@@ -17,7 +17,7 @@ export function readBookPlacement(raw: unknown): BookPlacement | undefined {
 import { splitBookTextModules } from './bookLatex';
 
 export type BlockFormat = BookWritingStyle[number]['format'];
-export type WritingBlock = { id: string; text: string; format: BlockFormat; videoRole?: 'dialogue'; parentId: string | null; collapsed: boolean; emphasis?: "normal" | "bright"; backdrop?: boolean; columnGroup?: string; columnRatio?: number; book?: BookPlacement };
+export type WritingBlock = { id: string; text: string; format: BlockFormat; videoRole?: 'dialogue'; parentId: string | null; collapsed: boolean; emphasis?: "normal" | "bright"; backdrop?: boolean; columnGroup?: string; columnRatio?: number; book?: BookPlacement; revisedBookImageFrom?: string };
 export type BlockDrop = 'before' | 'inside' | 'after';
 export const blockBody = (blocks: WritingBlock[]) => blocks.map(block => block.text).join('\n');
 export const newWritingBlock = (text: string, parentId: string | null = null): WritingBlock => ({ id: crypto.randomUUID(), text, parentId, format: 'text', collapsed: false });
@@ -145,6 +145,7 @@ export function restoreWritingBlocks(value: string, saved: unknown): WritingBloc
         ...(raw.emphasis === "bright" ? { emphasis: "bright" as const } : {}),
         ...(raw.videoRole === 'dialogue' && raw.format === 'text' ? {videoRole:'dialogue' as const} : {}),
         ...(raw.backdrop === true ? { backdrop: true } : {}),
+        ...(typeof raw.revisedBookImageFrom === "string" ? {revisedBookImageFrom:raw.revisedBookImageFrom} : {}),
         ...(readBookPlacement(raw.book) ? { book: readBookPlacement(raw.book) } : {}),
       });
     }

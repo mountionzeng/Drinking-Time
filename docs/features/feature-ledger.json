@@ -11033,6 +11033,8 @@
         "client/src/features/publishingAlbum/ChapterWriting.tsx"
       ],
       "owners": [
+        "client/src/features/publishingAlbum/ManuscriptComparison.tsx",
+        "client/src/features/publishingAlbum/VideoBookHistory.tsx",
         "shared/chapterStore.ts",
         "server/repositories/chapters.ts",
         "server/services/chapterPackageService.ts",
@@ -11055,6 +11057,7 @@
         "shared/bookBlockNumbering.ts"
       ],
       "evidence": [
+        "client/src/features/publishingAlbum/VideoBookHistory.test.tsx",
         "server/routers.chapters.test.ts",
         "server/services/chapterPackageService.test.ts",
         "shared/chapterStore.test.ts",
@@ -11138,6 +11141,7 @@
         "2026-11-03跨模块文字范围已实测桌面鼠标和键盘；触屏沿用原生选择及原多选菜单。真实系统输入法候选、复杂双向文字和长文跨页自动滚动未完整实测；文字范围到媒体或折叠内容处停止。"
       ],
       "history": [
+        {"date": "2026-11-28", "kind": "improvement", "summary": "重开书页时保留尚未保存的修改。制作只核对选中镜头和已保存的对应输入。"},
         {
           "date": "2026-10-28",
           "kind": "prototype",
@@ -11870,6 +11874,8 @@
         "client/src/features/publishingAlbum/BookSoundMenu.tsx"
       ],
       "owners": [
+        "shared/bookImageFrame.ts",
+        "server/services/bookPictureRelations.ts",
         "client/src/features/publishingAlbum/ShotSubtitlePreview.tsx",
         "client/src/features/publishingAlbum/BookMediaChat.tsx",
         "client/src/features/publishingAlbum/bookImageCropIntent.ts",
@@ -11986,6 +11992,7 @@
         "整书朗读上限10万字，按4800字符分段并统一确认费用；部分失败/未知回执先到仓库核对，尚无批量续传界面，整书音频未自动按视频镜头对齐。新整书入口为桌面书页，手机入口未改。"
       ],
       "history": [
+        {"date": "2026-11-28", "kind": "improvement", "summary": "书页新图默认方形，可按作品、镜头或本轮调整比例；同章场景参考和全片画风独立，私图逐张同意后传缩图。MJ 和 GPT 都沿用确认的参考用途。"},
         {"date": "2026-11-26", "kind": "improvement", "summary": "书页按镜头提供画面、视频、字幕、台词、音乐与音效入口；运镜正文可编辑并自动保存。单图可免费裁切、接续局部修改、查看报价和结果，刷新可回读；删除文章内图片可撤销，仓库原图保留。"},
         {"date": "2026-11-25", "kind": "feature", "summary": "镜头工作稿内可选段预览图片、朗读或生成指定时长的音效，用户选择后再插入。"},
         {
@@ -12935,6 +12942,15 @@
         "client/src/features/publishingAlbum/ChapterTextModules.tsx"
       ],
       "owners": [
+        "shared/bookShotLinks.ts",
+        "client/src/features/publishingAlbum/BookRenderReferencePicker.tsx",
+        "shared/bookShotProduction.ts",
+        "client/src/features/publishingAlbum/bookProductionChat.ts",
+        "shared/pictureSourcePages.ts",
+        "client/src/features/publishingAlbum/PictureSourceLinks.tsx",
+        "shared/bookShotDocument.ts",
+        "shared/bookShotFormat.ts",
+        "client/src/features/publishingAlbum/BookShotDocument.tsx",
         "client/src/features/publishingAlbum/bookShotParagraph.ts",
         "shared/bookShotActions.ts",
         "shared/bookWritingStyle.ts",
@@ -12948,6 +12964,15 @@
         "server/services/directBookStoryboard.ts"
       ],
       "evidence": [
+        "shared/bookShotLinks.test.ts",
+        "server/services/bookShotSync.test.ts",
+        "client/src/features/publishingAlbum/BookModuleConvert.test.tsx",
+        "client/src/features/publishingAlbum/savedPictureSource.test.ts",
+        "shared/bookShotProduction.test.ts",
+        "server/routers/bookMedia.test.ts",
+        "shared/pictureSourcePages.test.ts",
+        "server/services/shotTextTrials.test.ts",
+        "server/services/renderGate.test.ts",
         "client/src/features/publishingAlbum/bookShotParagraph.test.ts",
         "client/src/features/publishingAlbum/chapterBlockTree.test.ts",
         "client/src/features/publishingAlbum/BookWritingContext.test.tsx",
@@ -12980,6 +13005,7 @@
         "微信章节包仍有未携带全部writingStyle的既有缺口；旧客户端需刷新后再编辑新格式。"
       ],
       "history": [
+        {"date": "2026-11-28", "kind": "improvement", "summary": "按镜号保存四类制作要求，区分片中切入点和镜头时长。自然语言可补缺项，已存镜头可按章内场景承接或共用图片双向定位。页码进入查证入口。"},
         {"date":"2026-11-27","kind":"improvement","summary":"分镜正文、段落格式和制作单共用画面描述、视频、字幕、台词、音乐、音效。历史独立小标题与后续正文连续阅读，保留台词时间；格式切换复用书稿保存与撤销。3000《几次》实点转换、编辑、临时副本保存刷新通过。"},
         {"date": "2026-11-26", "kind": "improvement", "summary": "书页正文图片与镜头缩图可从右键或六点菜单删除。可在图片下一行行首按删除键移除前图，保留相邻文字、撤销能力及仓库原图。"},
         {"date": "2026-11-25", "kind": "improvement", "summary": "分镜默认按连续镜号排列，作者明确要求时可显示场次。"},
@@ -13176,6 +13202,15 @@
         "server/routers/bookWorkflow.ts"
       ],
       "owners": [
+        "client/src/features/publishingAlbum/ShotCueButton.tsx",
+        "client/src/features/publishingAlbum/savedShotCue.ts",
+        "client/src/features/publishingAlbum/BookManuscriptPicker.tsx",
+        "server/services/bookPageReading.ts",
+        "server/services/bookPageOcr.ts",
+        "server/services/manuscriptPageReadings.ts",
+        "client/src/features/publishingAlbum/BookPageExcerpt.tsx",
+        "server/services/storyPictureRecall.ts",
+        "server/services/bookPictureVersions.ts",
         "shared/storyboardTrial.ts",
         "server/services/storyboardTrial.ts",
         "client/src/features/publishingDraft/readingTrialSelection.ts",
@@ -13199,6 +13234,11 @@
         "server/services/publishingVideoStoryboard.ts"
       ],
       "evidence": [
+        "server/services/bookPageReading.test.ts",
+        "server/services/bookVideoSource.test.ts",
+        "client/src/features/publishingAlbum/bookBlockLayout.test.ts",
+        "server/services/storyPictureRecall.test.ts",
+        "server/services/bookPictureVersions.test.ts",
         "shared/storyboardTrial.test.ts",
         "server/services/liveManuscript.test.ts",
         "server/services/bookWorkflow.test.ts",
@@ -13242,6 +13282,7 @@
         "视频转书本地原片字幕路径已在3001生成、校对、采用V1并刷新验证；艺术字体OCR仍需校对，不代表完整旁白或约500字创作改编。付费改编operation255超时费用未知、旧预占1.56092算力待核对，禁止自动重购；Linux OCR/生产环境未验收。"
       ],
       "history": [
+        {"date": "2026-11-28", "kind": "improvement", "summary": "两次点选可只读打开完整历史稿、比较并返回。已存栏目的制作核对本镜来源。资料页支持摘录、离线识字和放大；插图与本人查图使用最近采用的版本，旧稿保留原图。"},
         {"date": "2026-11-26", "kind": "improvement", "summary": "保留现有工作稿版本后可采用选中的试读候选，关联图片随稿本和分镜接续。"},
         {"date": "2026-11-26", "kind": "improvement", "summary": "全片试读支持在聊天中命名 A/B、逐镜比较、按作者原话续改并单独保存候选。明确比较两个结尾时定位 A/B，询问刚才的改动时核对同一修订的来源稿。3000 页面验证刷新后继续回答画面追问，改稿只影响指定镜头的画面，保留旁白、字幕、时长和音效。类型检查及 13 组 159 项回归通过。"},
         {"date": "2026-11-25", "kind": "improvement", "summary": "网页聊天可免费列出本故事整片工作稿的镜头，单镜候选和空白模板单独识别。整稿和单镜写稿均将已收到的正文送到文字页，单镜沿用原有镜号。3000 端口用分段测试回包验证半句、下一镜和最终结果，未购买生成。"},

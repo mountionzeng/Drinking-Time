@@ -13,7 +13,6 @@ vi.mock("../repositories/images", () => ({ getGeneratedImageById: mocks.image })
 vi.mock("./previewArtBasis", () => ({ previewArtBasis: () => ({
   source: "Harbour", coverImageId: 9, styleName: "Ink", direction: "ink", rules: "", filmBrief: "", coverNote: "cover",
 }) }));
-vi.mock("./videoExport", () => ({ resolveVideoExportAspectRatio: () => "16:9" }));
 vi.mock("./artPreview", () => ({ readPreviewResults: () => [] }));
 vi.mock("./ownedImageBytes", () => ({ readOwnedImageBytes: mocks.read }));
 vi.mock("./publicReferenceHost", () => ({ hostPublicReferenceBytes: mocks.host }));
@@ -32,7 +31,7 @@ function stub(imageUrl = styleUrl) {
     body: { shots: [{ shotNo: 2, stableShotId: "scene", publishingVideo: { sourceModuleIds: ["10:m"] } }],
       artDirection: { recipe: { version: 3, system: { name: "Ink", confirmedAt: 1, filmStyleImageId: 22 } } } },
   });
-  mocks.chapter.mockResolvedValue({ storyId: 1, blocks: { writingStyle: [{ id: "m" }] } });
+  mocks.chapter.mockResolvedValue({ id: 10, storyId: 1, blocks: { body: "蓝色港湾", writingStyle: [{ id: "m", parentId: null, format: "shot", collapsed: false }] } });
   mocks.material.mockResolvedValue({ warehouseImages: [
     { id: 9, imageUrl: "/api/wechat-import/media/" + "b".repeat(64) + ".jpg" },
     { id: 22, imageUrl },
@@ -62,8 +61,8 @@ it("returns the prepared thumbnail as coverCopy so generation can use the public
     .rejects.toThrow("请先确认本轮发送画风参考的缩图");
   expect(mocks.prepare).not.toHaveBeenCalled();
   const styled = await bookModuleRenderStyle(scope, { requestId: "round-1", basisHash: basis!.fingerprint, copyImageId: 22 });
-  expect(styled).toMatchObject({ styleRef: publicUrl, coverCopy: { source: styleUrl, url: publicUrl }, aspectRatio: "16:9" });
-  expect(mocks.prepare).toHaveBeenCalledWith(expect.objectContaining({ imageId: 22, roundId: "round-1", storyId: 1, userId: 2 }));
+  expect(styled).toMatchObject({ styleRef: publicUrl, coverCopy: { source: styleUrl, url: publicUrl }, aspectRatio: "1:1" });
+  expect(mocks.prepare).toHaveBeenCalledWith(expect.objectContaining({ imageId: 22, roundId: "round-1", storyId: 1, userId: 2 }), styleUrl);
 });
 
 it("passes through an already public style URL without requiring a thumbnail", async () => {

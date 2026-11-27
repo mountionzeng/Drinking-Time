@@ -3,10 +3,12 @@ import { bookAudioText } from "../../shared/bookAudioBlock";
 import { blockBody, writingStyleOf, moveWritingBlock, type WritingBlock } from '../../client/src/features/publishingAlbum/chapterBlockTree';
 import { publishingArticleVideoRows, buildPublishingArticleVideoPreview, publishingArticleLayoutSchema } from '../../shared/publishingArticleVideo';
 const mocks = vi.hoisted(() => ({
+  readings: vi.fn(async () => [] as Array<{url:string}>),
   chapters: vi.fn(),
   images: vi.fn(),
   audio: vi.fn(),
 }));
+vi.mock("./manuscriptPageReadings",()=>({manuscriptReadings:mocks.readings}));
 vi.mock("../repositories/chapters", () => ({ listChapters: mocks.chapters }));
 vi.mock("./imageAssets", () => ({ getStoryImageAssets: mocks.images }));
 vi.mock("./storyAudioAssets", () => ({
@@ -207,4 +209,14 @@ it("reuses selected inline and legacy layout images once, without unused candida
   expect((await readBookVideoSource(scope))?.sourceHash).not.toBe(
     before?.sourceHash
   );
+});
+
+it("keeps an evidence page out of automatic frame selection while retaining the actual photograph",async()=>{
+ const rows=[module("shot","相册","shot"),module("scan","![图片](/api/images/scan.png)","text","shot"),module("photo","![图片](/api/images/photo.png)","text","shot"),module("line","这是我们种的树。","text","shot")];
+ mocks.chapters.mockResolvedValue([{id:8,title:"相册",blocks:{body:blockBody(rows),writingStyle:writingStyleOf(rows),blockIds:rows.map(r=>r.id)},layout:null}]);
+ mocks.images.mockResolvedValue([{id:1,imageUrl:"/api/images/scan.png"},{id:2,imageUrl:"/api/images/photo.png"}]);
+ mocks.readings.mockResolvedValueOnce([{url:"/api/images/scan.png"}]);
+ const source=await readBookVideoSource(scope);
+ expect(source?.layout.bookScenes?.[0].referenceImageIds).toEqual([2]);
+ expect(source?.missingImages).toBe(0);
 });

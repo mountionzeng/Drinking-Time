@@ -1,3 +1,4 @@
+import { readProductionSeconds } from "../../shared/bookShotProduction";
 import { shotDirections, shotMediaDirections } from "../../shared/bookShotDocument";
 import {
   buildPublishingArticleVideoPreview,
@@ -19,7 +20,7 @@ export function directBookStoryboardPreview(
     const duration = [...directions.other, ...directions.timing].join("\n").match(
       /(?:[（(]|时长[：:]\s*|^\s*)(\d+(?:\.\d+)?)\s*秒(?=[）)，,。.\s]|$)/m
     );
-    const seconds = duration ? Number(duration[1]) : undefined;
+    const seconds = readProductionSeconds(notes.split("\n")) ?? (duration ? Number(duration[1]) : undefined);
     const subject = row.shotTitle?.trim() || lines[0] || row.text;
     const media = shotMediaDirections(directions, subject);
     requirements.set(row.id, {

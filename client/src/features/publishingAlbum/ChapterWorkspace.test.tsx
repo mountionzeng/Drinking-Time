@@ -6,6 +6,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { ChapterWorkspace, mapChapterImages, chapterImageAssets } from "./ChapterWorkspace";
 import { ChapterWriting, type ChapterWritingHandle } from "./ChapterWriting";
+import { SavedManuscriptReader } from "./BookManuscriptPicker";
+import { shotCueSourceKey } from "./savedShotCue";
 import * as shareArticle from "./bookShareArticle";
 import type { Chapter } from "./useChapters";
 vi.stubGlobal("React", React);
@@ -49,7 +51,7 @@ vi.mock("./useChapters", () => ({
 }));
 vi.mock("@/lib/trpc", () => ({
   trpc: {
-    bookWorkflow: { get: { useQuery: () => ({ data: undefined }) } },
+    bookWorkflow: { get: { useQuery: () => ({ data: undefined }) }, organizeReading: {useMutation: () => ({mutateAsync: vi.fn()})} },
     creationAgent: { importStoryMaterial: { useMutation: () => ({ mutateAsync: vi.fn() }) } },
     chapterDelivery: {
       status: { useQuery: () => ({ data: { enabled: deliveryState.enabled } }) },
@@ -95,6 +97,33 @@ vi.mock("@/features/writingCompanion/DesktopWritingContext", () => ({ DesktopWri
 vi.mock("./BookImageGenerator", () => ({BookImageGenerator: () => <button>生成图片</button>}));
 vi.mock("./ChapterComparison", () => ({ ChapterComparison: () => null }));
 describe("chapter workspace", () => {
+  it("checks the saved spoken line, including a separate dialogue row, against the same live shot", () => {
+    const rows = [
+      {id:"shot", parentId:null, format:"shot", text:"清晨"},
+      {id:"cue", parentId:"shot", format:"text", text:"旁白｜第2秒开口："},
+      {id:"line", parentId:"shot", format:"text", videoRole:"dialogue", text:"早班车来了。"},
+      {id:"music", parentId:"shot", format:"text", text:"音乐：钢琴。"},
+    ];
+    const saved = shotCueSourceKey(rows, 1, "narration");
+    expect(saved).toContain("早班车来了。");
+    expect(shotCueSourceKey(rows.map(r=>r.id==="line"?{...r,text:"天亮了。"}:r), 1, "narration")).not.toBe(saved);
+    expect(shotCueSourceKey(rows.map(r=>r.id==="music"?{...r,text:"音乐：留白。"}:r), 1, "narration")).toBe(saved);
+    expect(shotCueSourceKey(rows, -1, "narration")).toBeUndefined();
+  });
+  it("opens the full saved manuscript with its own body and pictures independently of the working chapter", () => {
+    const actor = {userId:9,name:"作者"};
+    const html=renderToStaticMarkup(<SavedManuscriptReader onProduce={()=>{}} version={{id:"read",kind:"storyboard",number:4,
+      name:"灯光",summary:"车站的两束光",createdAt:1,intent:{purpose:"短片",audience:"朋友",platform:"书"},
+      author:actor,confirmedBy:actor,aiAssisted:false,fingerprint:"saved",chapters:[
+        {layout:null,title:"车站",blocks:{...chapter.blocks,body:"到站\n画面：一盏黄灯。\n![图片](/api/images/lamp.png)\n音乐：钢琴。\n音效：雨声。\n旁白｜第2秒开口：\n到站了。",
+          writingStyle:[{id:"a",format:"shot",collapsed:false,parentId:null},
+            ...["b","c","music","sfx","voice","speech"].map(id=>({id,format:"text" as const,collapsed:false,parentId:"a"}))]}},
+        {layout:null,title:"尾声",blocks:{...chapter.blocks,body:"另一束光。"}}]}}/>);
+    for(const part of ["分镜版 V4","第 01 镜","到站","一盏黄灯。","/api/images/lamp.png","尾声","另一束光。"]) expect(html).toContain(part);
+    expect(html).not.toContain(chapter.blocks.body);
+    expect(html).not.toContain("textarea");
+    for(const hint of ["渲染成图片","渲染成音乐","渲染成音效","生成配音"]) expect(html).toContain('aria-description="'+hint+'"');
+  });
   it.each([
     [false, undefined], [true, undefined], [false, "wechat_moments"], [true, "wechat_moments"],
   ] as const)("prepares current writing before sharing, failed save=%s, platform=%s", async (failed, platform) => {
@@ -133,7 +162,8 @@ describe("chapter workspace", () => {
     expect(html).not.toContain('aria-label="当前章节"');
     expect(html).not.toContain('保存章节');
     expect(html).toContain('这一章自己的正文');
-    expect(html).toContain('>版本</button>');
+    expect(html).toContain('aria-label="查看稿件版本"');
+    expect(html).toContain('>对比与记录</button>');
     expect(html).not.toContain('对比生成的文字');
     expect(html).not.toContain('平台稿与章节');
     expect(render).not.toHaveBeenCalled();

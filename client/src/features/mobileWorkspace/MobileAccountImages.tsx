@@ -1,6 +1,7 @@
 import { openTrackedResult } from "@/features/activityJourney/activityJourney";
 import React, { useState } from "react";
 import { ImageIcon } from "lucide-react";
+import { useRecordPictureOpen } from "@/features/storyAgent/useRecordPictureOpen";
 import { trpc } from "@/lib/trpc";
 import { ImageCandidatePreview } from "@/features/publishingAlbum/ImageCandidatePreview";
 import { useUiText } from "@/features/uiLanguage/UiLanguage";
@@ -11,6 +12,7 @@ export function MobileAccountImages({
   onOpenStory(id: number): void;
 }) {
   const t = useUiText();
+  const recordOpen = useRecordPictureOpen();
   const [cursors, setCursors] = useState<Array<number | undefined>>([
     undefined,
   ]);
@@ -61,7 +63,7 @@ export function MobileAccountImages({
                   <button
                     className="block w-full overflow-hidden rounded-xl bg-muted/40 focus-visible:outline-2 focus-visible:outline-primary"
                     aria-label={t("放大图片 {0}", [item.id])}
-                    onClick={() => openTrackedResult("image", item.id)}
+                    onClick={event => { openTrackedResult("image", item.id); recordOpen(event,item.id); }}
                   >
                     <img
                       src={item.imageUrl}

@@ -2,6 +2,7 @@ import { z } from 'zod';
 const finite=z.number().finite();
 export const bookWritingStyleSchema=z.array(z.object({
   lineCount:z.number().int().min(1).max(200001).optional(),
+  revisedBookImageFrom:z.string().min(1).max(2048).optional(),
   id:z.string().min(1).max(100),format:z.enum(['text','heading1','heading2','heading3','scene','shot']),
   videoRole:z.enum(['dialogue']).optional(),
   parentId:z.string().max(100).nullable(),collapsed:z.boolean(),
@@ -20,6 +21,7 @@ export function sameWritingStyle(a:BookWritingStyle|undefined,b:BookWritingStyle
     const other=b[index];
     if(row.videoRole!==other.videoRole || (row.lineCount ?? 1)!==(other.lineCount ?? 1) || row.id!==other.id || row.format!==other.format || row.parentId!==other.parentId || row.collapsed!==other.collapsed || row.columnGroup!==other.columnGroup || (row.columnRatio ?? .5)!==(other.columnRatio ?? .5) ||
       (row.emphasis ?? 'normal')!==(other.emphasis ?? 'normal') || Boolean(row.backdrop)!==Boolean(other.backdrop)) return false;
+    if(row.revisedBookImageFrom!==other.revisedBookImageFrom) return false;
     if(!row.book || !other.book) return row.book===other.book;
     return row.book.page===other.book.page && row.book.fontSize===other.book.fontSize &&
       row.book.rect.x===other.book.rect.x && row.book.rect.y===other.book.rect.y &&

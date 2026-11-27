@@ -78,7 +78,8 @@ export function BookMediaChat({
     chapterId: session.chapterId,
     moduleId: session.moduleId,
   };
-  const source = trpc.bookMedia.resolve.useQuery(target, {
+  const durationSec = session.durationSec ?? 5;
+  const source = trpc.bookMedia.resolve.useQuery({...target, ...(mode === "video" ? {durationSec,videoPrompt:otherInstruction.trim()} : {})}, {
     // A book-level session has no chapter yet; chapterId 0 is not resolvable.
     enabled: target.chapterId > 0,
     retry: false,
@@ -253,7 +254,7 @@ export function BookMediaChat({
   }
   const cost =
     mode === "video"
-      ? source.data?.videoCost
+      ? source.isFetching || !source.data?.image || !source.data.videoQuoteFingerprint || source.data.videoDurationSec !== durationSec ? undefined : source.data.videoCost
       : mode === "region" ? estimateLocalImagePatchCost().estimatedCny : estimateStoryboardMaskedEditCost().estimatedCny;
   const ready = Boolean(
     imageId && source.data?.image?.url === session.imageUrl
@@ -280,7 +281,7 @@ export function BookMediaChat({
       aria-label={_ui("书内图片编辑")}
     >
       <div className="flex items-center justify-between text-xs">
-        <span>{_ui("正在编辑这张图片")}</span>
+        <span>{mode === "video" ? [_ui("视频 · {0} 秒", [durationSec]), source.data?.image && source.data.videoAspectRatio].filter(Boolean).join(" · ") : _ui("正在编辑这张图片")}</span>
         <button
           className={button}
           onClick={() => useBookMediaSession.getState().setSession(null)}
@@ -288,6 +289,7 @@ export function BookMediaChat({
           {_ui("退出改图")}</button>
       </div>
       <BookMediaModes mode={mode} disabled={busy || Boolean(takeId) || uncertain} onChange={value => {
+        if (value==="video" && session.startShotVideo) { session.startShotVideo(); return; }
         setMode(value); setResult(null); setQuote(null); setError(''); token.current = crypto.randomUUID();
       }} />
       <div
@@ -569,6 +571,8 @@ export function BookMediaChat({
                     ...target,
                     imageId: imageId!,
                     prompt: instruction,
+                    durationSec,
+                    quoteFingerprint:source.data?.image ? source.data.videoQuoteFingerprint : undefined,
                     operationToken: token.current,
                     estimatedCny: cost!,
                   });

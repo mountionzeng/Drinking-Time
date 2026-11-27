@@ -605,6 +605,7 @@ export async function startShotVideoJob(
       subtitle: input.subtitle,
       durationSec,
       decision: renderDecision,
+      aspectRatio: isOwnedBookImage ? input.aspectRatio : undefined,
       rerenderRequestId: input.rerenderRequestId,
     });
   }

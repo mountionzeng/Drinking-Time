@@ -29,13 +29,15 @@ export function legnextDiffusionPrompt(input: {
   characterRefUrl?: string;
   characterWeight?: number;
   styleRefUrl?: string;
+  additionalStyleUrls?: string[];
 }): string {
   let prompt = legnextPrompt(input.text, input.aspectRatio);
   // Callers de-duplicate their source images before uploading; keep the order given.
   const refs = input.referenceUrls ?? [];
   if (refs.length) prompt = refs.join(" ") + " " + prompt + ` --iw ${input.imageWeight ?? 0.5}`;
   if (input.characterRefUrl) prompt += ` --oref ${input.characterRefUrl} --ow ${input.characterWeight ?? 100}`;
-  if (input.styleRefUrl) prompt += ` --sref ${input.styleRefUrl}`;
+  const styles = [...new Set([input.styleRefUrl, ...(input.additionalStyleUrls ?? [])].filter(Boolean))];
+  if (styles.length) prompt += ` --sref ${styles.join(" ")}`;
   return prompt;
 }
 

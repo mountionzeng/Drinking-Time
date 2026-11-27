@@ -111,3 +111,12 @@ describe('book module layout', () => {
     expect(deleteBookBlocks(blocks,[])).toBe(blocks);
   });
 });
+
+it("lays a scanned page out once at its shot heading and keeps the following paragraph editable by its original index",()=>{
+  const shot={...block("shot"),format:"shot" as const};
+  const scan={...block("scan","![图片](/api/images/source.png)"),parentId:"shot"};
+  const words={...block("words","一阵风"),parentId:"shot"};
+  const layout=layoutBookBlocks([shot,scan,words],{},900,new Set(),{ },new Map([["/api/images/source.png",true]]));
+  expect(layout.map(b=>[b.block.id,b.index])).toEqual([["shot",0],["words",2]]);
+  expect(layout[1].placement.rect.y).toBe(layout[0].placement.rect.y+layout[0].placement.rect.height+12);
+});

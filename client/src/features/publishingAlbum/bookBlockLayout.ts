@@ -15,7 +15,7 @@ export const BOOK_BLOCK_INDENT = 28;
 export const bookBaseFont = (block: WritingBlock) => block.format === 'heading1' || block.format === 'scene' ? 36 : block.format === 'heading2' || block.format === 'shot' ? 32 : block.format === 'heading3' ? 28 : BOOK_BODY_FONT_SIZE;
 
 /** All paragraphs follow document order. Legacy free coordinates are retained in cache but never used for placement. */
-export function layoutBookBlocks(blocks: WritingBlock[], imageRatios: Record<string, number> = {}, pageWidth = 900, chapterIds: ReadonlySet<string> = new Set(), formulaHeights: Record<string, number> = {}): BookBlockLayout[] {
+export function layoutBookBlocks(blocks: WritingBlock[], imageRatios: Record<string, number> = {}, pageWidth = 900, chapterIds: ReadonlySet<string> = new Set(), formulaHeights: Record<string, number> = {}, sourcePages?: ReadonlyMap<string,unknown>): BookBlockLayout[] {
   const pairs = validColumnPairs(blocks);
   const summaries = bookOutlineSummaries(blocks);
   const result: BookBlockLayout[] = [];
@@ -25,6 +25,10 @@ export function layoutBookBlocks(blocks: WritingBlock[], imageRatios: Record<str
     for (let index = from; index < end; index++) {
       const block = blocks[index], ancestors = blockAncestors(blocks, block.id);
       if (ancestors.some(id => blocks.find(item => item.id === id)?.collapsed)) continue;
+      // The shot heading already displays this page as a readable, selectable source.
+      const pageImage=sourcePages?.size ? readBookImage(block.text) : null;
+      if (pageImage && !pageImage.videoUrl && sourcePages?.has(pageImage.url) && !block.columnGroup &&
+          blocks.some(parent=>parent.id===block.parentId && parent.format==="shot")) continue;
       const partner = pairs.get(block.id);
       if (partner && block.id !== skipPair) {
         const second = blocks.findIndex(item => item.id === partner);

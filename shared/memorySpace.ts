@@ -37,6 +37,7 @@ export const memorySpaceStateSchema = z.object({
       })
     )
     .max(100),
+  openedImageIds: z.array(z.number().int().positive()).max(5000).optional(),
   seenStories: z.record(z.string(), z.string().max(64)),
   people: z
     .array(

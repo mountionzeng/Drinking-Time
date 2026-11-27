@@ -1,3 +1,4 @@
+import { manuscriptReadings } from "./manuscriptPageReadings";
 import { manuscriptFingerprint } from "./manuscriptSnapshot";
 import { createHash } from "node:crypto";
 import { bookProductionChapters } from "../../shared/bookShotFormat";
@@ -23,7 +24,12 @@ export async function readBookVideoSource(input: {
   const all = storyboard.length ? storyboard : await listChapters(input.storyId, input.userId);
   const chapters = bookProductionChapters(all, input.bookChapterId);
   if (!chapters.length) return null;
-  const assets = await getStoryImageAssets(input.storyId, input.userId);
+  const [images, readings] = await Promise.all([
+    getStoryImageAssets(input.storyId,input.userId),
+    manuscriptReadings(input,chapters.map(c=>c.blocks.body)),
+  ]);
+  const sourcePages=new Set(readings.map(p=>p.url));
+  const assets=images.filter(image=>!sourcePages.has(image.imageUrl));
   const audioAssets = await listOwnedStoryAudioAssets(input);
   const explicitShots = bookStoryboardModules(chapters, assets);
   if (explicitShots) {
@@ -46,6 +52,7 @@ export async function readBookVideoSource(input: {
   const seen = new Set<number>();
   let missingImages = 0;
   const addImage = (url: string, line: number) => {
+    if (sourcePages.has(url)) return;
     const asset = assets.find(
       a =>
         a.imageUrl === url &&

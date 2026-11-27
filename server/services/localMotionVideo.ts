@@ -47,10 +47,13 @@ export function buildLocalMotionFfmpegArgs(input: {
   outputPath: string;
   durationSec: number;
   motion: LocalCameraMotion;
+  aspectRatio?: string;
   size?: number;
   fps?: number;
 }): string[] {
   const size = input.size ?? 1080;
+  const width = input.aspectRatio==="16:9" ? Math.round(size*16/9/2)*2 : size;
+  const height = input.aspectRatio==="9:16" ? Math.round(size*16/9/2)*2 : size;
   const fps = input.fps ?? 30;
   const frames = Math.max(1, Math.round(input.durationSec * fps));
   const zoom = interpolation(
@@ -69,9 +72,9 @@ export function buildLocalMotionFfmpegArgs(input: {
     frames
   );
   const filter = [
-    `scale=${size}:${size}:force_original_aspect_ratio=increase`,
-    `crop=${size}:${size}`,
-    `zoompan=z='${zoom}':x='(iw-iw/zoom)*(0.5+(${panX})*0.5)':y='(ih-ih/zoom)*(0.5+(${panY})*0.5)':d=1:s=${size}x${size}:fps=${fps}`,
+    input.aspectRatio ? `scale=${width}:${height}:force_original_aspect_ratio=decrease` : `scale=${size}:${size}:force_original_aspect_ratio=increase`,
+    input.aspectRatio ? `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2` : `crop=${size}:${size}`,
+    `zoompan=z='${zoom}':x='(iw-iw/zoom)*(0.5+(${panX})*0.5)':y='(ih-ih/zoom)*(0.5+(${panY})*0.5)':d=1:s=${width}x${height}:fps=${fps}`,
     "format=yuv420p",
     "setsar=1",
   ].join(",");
@@ -197,6 +200,7 @@ export async function createLocalMotionVideoTake(input: {
   prompt: string;
   subtitle?: string | null;
   durationSec: number;
+  aspectRatio?: string;
   decision: VideoRenderDecision;
   rerenderRequestId?: string;
 }): Promise<
@@ -215,6 +219,7 @@ export async function createLocalMotionVideoTake(input: {
     input.sourceImage.id,
     input.prompt,
     input.durationSec,
+    ...(input.aspectRatio ? [input.aspectRatio] : []),
     JSON.stringify(input.decision.localMotion),
     input.rerenderRequestId
   )}`;
@@ -231,7 +236,7 @@ export async function createLocalMotionVideoTake(input: {
     prompt: input.prompt,
     subtitle: input.subtitle ?? null,
     durationSec: input.durationSec,
-    aspectRatio: "1:1",
+    aspectRatio: input.aspectRatio ?? "1:1",
     videoKey: null,
     videoUrl: null,
     errorMessage: null,
@@ -264,6 +269,7 @@ export async function createLocalMotionVideoTake(input: {
         outputPath,
         durationSec: input.durationSec,
         motion: input.decision.localMotion,
+        aspectRatio: input.aspectRatio,
       })
     );
     const updated = await updateVideoTake(take.id, input.userId, {

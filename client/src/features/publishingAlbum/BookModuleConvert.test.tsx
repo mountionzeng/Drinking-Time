@@ -6,9 +6,37 @@ vi.mock('@/lib/trpc',()=>({trpc:{bookMedia:{translate:{useMutation:()=>({mutateA
 import {useBookRenderReference} from "./BookRenderReferencePicker";
 import {BookModuleConvert} from './BookModuleConvert';
 import {TextSceneIntentReview} from '../bookVideo/TextSceneIntent';
+it("automatically reuses the neighbouring shot for composition while keeping the confirmed film swatch",()=>{
+ const state=useBookRenderReference({storyId:1,chapterId:4,moduleId:"next"},true,"同一间候车厅。",11,42);
+ expect(state).toMatchObject({source:11,use:"scene",textOnly:true});
+});
 function nodes(n:any):any[]{return !n||typeof n!=='object'?[]:Array.isArray(n)?n.flatMap(nodes):[n,...nodes(n.props?.children)];}
 beforeEach(()=>{vi.clearAllMocks();m.refChoices=[];m.states=[];m.refs=[];m.index=0;m.ref=0;m.task=null;m.basis=null;m.updatedAt=1;m.recover.mockReset().mockResolvedValue({status:"error",pending:true});m.taskLoading=false;m.taskError=null;vi.stubGlobal('React',React);m.invalidate.mockResolvedValue(undefined);m.refetch.mockResolvedValue(undefined);});
 async function settle(){for(let i=0;i<15;i++)await Promise.resolve();}
+it("uses text for a linked location and reserves private images and warehouse candidates for explicit choices",()=>{
+  const render=(instruction="同一间候车厅。")=>{
+    m.index=m.ref=0;
+    return useBookRenderReference({storyId:1,chapterId:4,moduleId:"next"},true,instruction,11);
+  };
+  expect(render()).toMatchObject({source:11,textOnly:true,blocked:false});
+  expect(render("沿用第11镜的场景。")).toMatchObject({textOnly:true,blocked:false});
+  expect(render("参考第11镜的图片。")).toMatchObject({textOnly:false,blocked:true});
+  const image={imageId:7,kind:"candidate",fingerprint:"a".repeat(64),needsCopy:true};
+  m.refChoices=[image];
+  expect(render()).toMatchObject({textOnly:true,reference:undefined,blocked:false});
+  m.refChoices=[{...image,kind:"selected"}];
+  let model=render();
+  expect(model.reference).toMatchObject({source:11,imageId:7,sendThumbnail:false});
+  expect(model.blocked).toBe(true);
+  model.allow(true);
+  expect(render().reference?.sendThumbnail).toBe(true);
+  m.refChoices.push({...image,imageId:9,fingerprint:"b".repeat(64),kind:"page"});
+  expect(render().reference).toBeUndefined();
+  model=render("参考第3镜的图片。");
+  expect(model).toMatchObject({source:3,keepLinkedScene:false});
+  model.chooseSource("4"); expect(render()).toMatchObject({source:4,keepLinkedScene:false});
+  model.chooseSource("none"); expect(render()).toMatchObject({reference:undefined,keepLinkedScene:true,blocked:false});
+});
 it("preselects continuity for a new viewpoint of the referenced shot and keeps thumbnail consent specific to the chosen use",()=>{
  m.refChoices=[{imageId:2,kind:"page",fingerprint:"a".repeat(64),needsCopy:true}];
  const render=()=>{m.index=m.ref=0;return useBookRenderReference({storyId:1,chapterId:4,moduleId:"three"},true,"沿用02的色调，亮一点，从城墙里面看");};

@@ -5,16 +5,16 @@ import { bookReferenceIntent, type BookReferenceSource, type BookRenderReference
 
 type Scope = { storyId: number; chapterId: number; moduleId: string };
 type Role = BookRenderReference["use"];
-export function useBookRenderReference(scope: Scope, enabled: boolean, instruction: string) {
+export function useBookRenderReference(scope: Scope, enabled: boolean, instruction: string, relatedShot?: number, filmImageId?: number | null) {
   const hint = bookReferenceIntent(instruction);
   const [manual, setManual] = useState<string | null>(null);
   const [id, setId] = useState("");
   const [role, setRole] = useState<Role>();
   const [consent, setConsent] = useState("");
-  const value = manual ?? String(hint?.source ?? "none");
+  const value = manual ?? String(hint?.source ?? relatedShot ?? "none");
   const source: BookReferenceSource | undefined = value === "above" || value === "previous" ? value :
     /^\d{1,4}$/.test(value) && Number(value) > 0 ? Number(value) : undefined;
-  const use = role ?? hint?.use ?? "continuity";
+  const use = role ?? hint?.use ?? (manual === null && relatedShot && filmImageId ? "scene" : "continuity");
   const query = trpc.storyAgent.bookModuleReferenceImages.useQuery({ ...scope, source: source ?? "above" },
     { enabled: enabled && source !== undefined, retry: false, refetchOnMount: "always" });
   const choices = enabled && source !== undefined ? query.data ?? [] : [];
@@ -26,8 +26,12 @@ export function useBookRenderReference(scope: Scope, enabled: boolean, instructi
   const reference: BookRenderReference | undefined = enabled && source !== undefined && selected ? {
     source, imageId: selected.imageId, fingerprint: selected.fingerprint, use, sendThumbnail: selected.needsCopy && confirmed, allowPublicHosting: selected.needsCopy && confirmed ? true : undefined,
   } : undefined;
-  const blocked = enabled && value !== "none" && (!reference || pending || query.isError || Boolean(selected?.needsCopy && !confirmed));
-  return { value, source, use, choices, selected, pending, error: query.error?.message, confirmed, reference, blocked,
+  const sameScene = source === relatedShot && relatedShot !== undefined;
+  const requiresImage = /(?:参考图|参考照片|(?:镜头?|上方|上面)的?(?:底图|原图|图片|照片|图像|图))/u.test(instruction);
+  const automatic = manual === null && sameScene && (!hint || (hint.use === "continuity" && !requiresImage));
+  const textOnly = automatic && !reference && !pending && !query.isError;
+  const blocked = enabled && value !== "none" && !textOnly && (!reference || pending || query.isError || Boolean(selected?.needsCopy && !confirmed));
+  return { value, source, use, choices, selected, textOnly, keepLinkedScene: value === "none" || sameScene, pending, error: query.error?.message, confirmed, reference, blocked,
     chooseSource(next: string) { setManual(next); setId(""); setRole(undefined); setConsent(""); },
     chooseImage(next: string) { setId(next); setConsent(""); },
     chooseRole(next: Role) { setRole(next); setConsent(""); },
@@ -41,14 +45,14 @@ export function BookRenderReferencePicker({ model: m, disabled }: { model: Retur
     <legend>{ui("镜头参考图")}</legend>
     <select aria-label={ui("参考图来源")} value={numbered ? "number" : m.value}
       onChange={e => m.chooseSource(e.target.value === "number" ? "" : e.target.value)}>
-      <option value="none">{ui("不使用镜头参考图")}</option><option value="number">{ui("指定镜号")}</option>
+      <option value="none">{ui("不另指定镜头参考图")}</option><option value="number">{ui("指定镜号")}</option>
       <option value="previous">{ui("上一镜")}</option><option value="above">{ui("书页上方最近的图")}</option>
     </select>
     {numbered && <label>{ui("参考第几镜")} <input aria-label={ui("参考镜号")} className="w-16 border" inputMode="numeric"
       maxLength={4} value={m.value} onChange={e => m.chooseSource(e.target.value)} /></label>}
     {m.value !== "none" && <>
       {m.pending ? <p role="status">{ui("正在书页和仓库定位图片…")}</p> : m.error ? <p role="alert">{m.error}</p> :
-        !m.choices.length && <p>{ui(m.source === undefined ? "请输入镜号。" : "没有找到这个位置可用的图片，请核对镜号或更换来源。")}</p>}
+        !m.choices.length && <p>{ui(m.textOnly ? "已关联这一镜的场景描述，当前没有已采用的参考图。" : m.source === undefined ? "请输入镜号。" : "没有找到这个位置可用的图片，请核对镜号或更换来源。")}</p>}
       {m.choices.length > 0 && <div className="flex flex-wrap gap-2">{m.choices.map(c =>
         <label key={c.fingerprint} className="inline-flex items-center gap-1"><input type="radio" name="book-reference-image"
           checked={m.selected?.fingerprint === c.fingerprint} onChange={() => m.chooseImage(c.fingerprint)} />

@@ -78,3 +78,11 @@ it("separates a compact heading's explicit voice and camera cue once and keeps i
   expect(shotDirections(shot.notes).picture.join("\n")).toContain("画面切至窗外。");
   expect(expandShotDescriptions(draft.body, draft.writingStyle, () => crypto.randomUUID())).toEqual(draft);
 });
+
+it("inherits the specified ten-second clip length in the editing preview, apart from the cut position",()=>{
+  const chapter={id:8,blocks:{body:"墙\n画面描述：城墙\n视频｜10秒：第20秒切入，缓缓推近。",writingStyle:[
+    {id:"s",parentId:null,format:"shot" as const,collapsed:false},
+    {id:"p",parentId:"s",format:"text" as const,collapsed:false,lineCount:2}]}};
+  const rows=publishingArticleVideoRows({body:chapter.blocks.body,illustrations:[],bookScenes:bookStoryboardModules([chapter],[])});
+  expect(directBookStoryboardPreview(rows,1).shots[0]).toMatchObject({durationSec:10,imageRequirement:"城墙"});
+});

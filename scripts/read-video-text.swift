@@ -9,7 +9,8 @@ for path in paths {
  request.recognitionLanguages=["zh-Hans","zh-Hant","en-US"]
  request.usesLanguageCorrection=true
  do {
-  try VNImageRequestHandler(url:URL(fileURLWithPath:path),options:[:]).perform([request])
+  let handler = path == "-" ? VNImageRequestHandler(data: FileHandle.standardInput.readDataToEndOfFile(), options: [:]) : VNImageRequestHandler(url: URL(fileURLWithPath: path), options: [:])
+  try handler.perform([request])
   let lines=(request.results ?? []).compactMap { o -> [String:Any]? in
    guard let text=o.topCandidates(1).first else{return nil}
    return ["text":text.string,"confidence":text.confidence,"y":o.boundingBox.origin.y,"x":o.boundingBox.origin.x]

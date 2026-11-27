@@ -57,6 +57,7 @@ import { INSERT_WAREHOUSE_IMAGE } from "@/features/publishingAlbum/warehouseImag
 import ImageRefToggleButton from "@/features/storyAgent/views/ImageRefToggleButton";
 import { writeStoryImageDragPayload } from "@/features/storyAgent/storyImageDrag";
 import { trpc } from "@/lib/trpc";
+import { useRecordPictureOpen } from "@/features/storyAgent/useRecordPictureOpen";
 import { useCreationEditor } from "../CreationEditorContext";
 import OneClickEditAssistant from "./OneClickEditAssistant";
 import VisualAssetLibrary from "../visualAssets/VisualAssetLibrary";
@@ -537,6 +538,7 @@ export default function MaterialWarehousePanel({
 } = {}) {
   const _ui = useDesktopUiText();
   const sourceFrameCapture = trpc.creationAgent.chatFrameReferences.useMutation();
+  const recordOpen = useRecordPictureOpen();
   const sourceFrameUtils = trpc.useUtils();
   const { setActiveSelection } = useStoryAgentActions();
   const {
@@ -1221,7 +1223,7 @@ export default function MaterialWarehousePanel({
                           onPointerEnter={event => { if(event.pointerType === 'mouse' && !previewLocked.current) {cancelPreviewClose(); setPreviewImage(item);} }}
                           onPointerLeave={closePreviewSoon}
                           onFocus={() => {cancelPreviewClose(); setPreviewImage(item);}}
-                          onClick={event => { if (hasHistory) {
+                          onClick={event => { recordOpen(event,item.image.id); if (hasHistory) {
                             event.preventDefault(); cancelPreviewClose(); historyAnchor.current = item.image.id; setHistoryImageId(item.image.id); setPreviewImage(item);
                           } else if (videoActions) { event.preventDefault(); selectImageMaterial(item); } else setPreviewImage(item); }}
                           aria-label={_ui(videoActions ? "编辑图片 / Edit image {0}" : "预览图片 {0}", [frame ? frameVersionName(frame, item.image.id) : item.image.id])}

@@ -1,6 +1,8 @@
+import { manuscriptReadings, pagesAsSources } from "./manuscriptPageReadings";
 import { beginLiveManuscript } from "./liveManuscript";
 import { namedTrialLabel } from "../../shared/storyboardTrial";
-import { editTrialTexts, importedReading, trialEditor, trialImport } from "./storyboardTrial";
+import { editTrialTexts, importedReading, organizeChapterCues, trialEditor, trialImport } from "./storyboardTrial";
+import { routeStoryboardCues } from "../../shared/routeStoryboardCues";
 import { bookProductionChapters, expandShotDescriptions, sceneSetting, shotFormatGuide, storyboardUsesScenes } from "../../shared/bookShotFormat";
 import { needsFilmSubject } from "../../shared/creativeConversation";
 import { storyboardEmotionBrief } from "../../shared/creationEmotion";
@@ -29,7 +31,8 @@ import {
   type BookWritingStyle,
 } from "../../shared/bookWritingStyle";
 import { inlineChatParts, hasInlineChatImages } from "../../shared/inlineChatImages";
-import { getStoryGeneratedImages } from "../repositories/images";
+import { bookPictureLookup, bookPicturesForConversion } from "./bookPictureVersions";
+import { findStoryPictures } from "./storyPictureRecall";
 import { bookImageText, readBookImage } from "../../shared/bookImageBlock";
 import { readBookAudio } from "../../shared/bookAudioBlock";
 import { getStoryById } from "../repositories/stories";
@@ -400,9 +403,10 @@ export function applyConversion(
     });
     if (used.size !== media.length)
       throw bad("转换遗漏了图片或声音，原稿仍保留");
-    const { body, writingStyle } = target === "storyboard"
+    const expanded = target === "storyboard"
       ? expandShotDescriptions(texts.join("\n"), style, randomUUID)
       : { body: texts.join("\n"), writingStyle: style };
+    const {body, writingStyle} = target === "storyboard" ? routeStoryboardCues(expanded.body, expanded.writingStyle, randomUUID) : expanded;
     if (
       body.length > 200000 ||
       !validWritingStyle(body, writingStyle) ||
@@ -450,6 +454,7 @@ function conversionPrompt(target: ManuscriptKind, intent: CreationIntent, reques
             ? " 本版已要求分场：使用scene作场标题，场内shot的parent指向所属scene。" : " 本版只按连续镜号写，禁止场号、场标题和scene模块；只输出shot和text，shot的parent为null。") + "说明和素材放在所属shot内。"
         : "文字版用heading1/heading2/text组成章、节和正文。",
       "输出JSON {chapters:[{title,modules:[{format,text,parent,media?,dialogue?}]}]}。章节数及顺序与输入一致。parent为本章前序模块的零基下标或null。实际朗读的原句放在独立text模块并标dialogue=true。标题、表演和声画说明均为普通文字。",
+      ...(chapters.some(c=>/（(?:资料摘录|本机识字|待核对)）：/u.test(c.blocks.body)) ? ["书页资料用于核对人物与事件。署名和页码留在资料来源里，识字存疑处留待核对。按作者选定的叙述视角写这一刻看见和听见的事。"] : []),
       "每章source.media里的原媒体必须各引用一次，使用单独text模块的media下标。其他模块只写正文。不得虚构媒体、产品效果或事实，不把配乐建议当作已有成品。",
     ].join("\n"),
     context: { target, intent, request, conversation, source: conversionSource(chapters),
@@ -538,7 +543,9 @@ export async function proposeManuscriptConversion(
   try {
     const { state } = await getBookWorkflow(input),
       source = state.versions.find(v => v.id === input.sourceId)!;
-    const selected = draft.revisedChapters?.map(c => source.chapters[c.index]) ?? source.chapters;
+    const original = draft.revisedChapters?.map(c => source.chapters[c.index]) ?? source.chapters;
+    const resolved = bookPicturesForConversion(original,(await bookPictureLookup(input.userId,input.storyId)).urls);
+    const selected = pagesAsSources(resolved,await manuscriptReadings(input,resolved.map(c=>c.blocks.body)));
     const showScenes = useScenesForDraft(input.request, input.conversation, selected);
     live = beginLiveManuscript(input, input.id, input.target, { showScenes });
     const response = await runPublishingVideoStoryboardTextCompute({
@@ -579,16 +586,25 @@ export async function proposeManuscriptConversion(
   }
 }
 
-/** Resolve only explicitly referenced warehouse images owned by this story. */
-async function chatImageText(input: Owner & FilmInput) {
+/** Quotes and writing resolve the same owned photos, including accepted edits. */
+async function chatImageText(input: Owner & FilmInput, lookup: Awaited<ReturnType<typeof bookPictureLookup>>) {
   const sources = [...input.conversation.filter(t => t.role === "user").map(t => t.content), input.request];
-  if (!sources.some(hasInlineChatImages)) return new Map<string, string>();
-  const owned = new Map((await getStoryGeneratedImages(input.storyId, input.userId)).map(image => [image.id, image]));
-  const result = new Map<string, string>();
+  const result = new Map<string,string>();
+  if (!hasInlineChatImages(input.request)) {
+    const wanted = input.request.match(/(?:沿用|继承|复用|用上)(?:我|这次|之前|以前|提供|上传|选过|采用|已有|现有|可用|的|过|好|已经|保存|了|那些|这些|可以用)*([^，。！？、\n]{0,24}?)(?:照片|图片|配图|插画)/u);
+    const inherit = wanted || /(?:照片|图片|配图|插画).{0,12}(?:继承|沿用|复用)/u.test(input.request);
+    if (/(?:不要|不用|不必|别|无需).{0,12}(?:沿用|继承|复用|照片|图片|配图|插画)/u.test(input.request)) return result;
+    if (inherit) {
+      const found = await findStoryPictures(input.userId,input.storyId,wanted?.[1]?.trim() || "之前的图片",true);
+      const lines = found.filter(p=>/^(?:\/api\/|\/uploads\/|https?:\/\/)/u.test(p.url)).slice(0,4).map(p=>bookImageText(p.url));
+      if (lines.length) result.set(input.request,[input.request,...lines].join("\n"));
+    }
+  }
+  if (!sources.some(hasInlineChatImages)) return result;
   for (const text of sources.filter(hasInlineChatImages)) {
     const parts = inlineChatParts(text).map(part => {
       if (!part.imageId) return part.text;
-      const image = owned.get(part.imageId);
+      const image = lookup.byId.get(part.imageId);
       if (!image?.imageUrl || !readBookImage(bookImageText(image.imageUrl))) return "";
       return "\n" + bookImageText(image.imageUrl) + "\n";
     });
@@ -598,7 +614,7 @@ async function chatImageText(input: Owner & FilmInput) {
 }
 
 /** Resolve the same source and intent for the free quote and the subsequent generation. */
-function filmSource(rows: Awaited<ReturnType<typeof listChapters>>, state: BookWorkflowState, input: FilmInput, chatText: Map<string, string>) {
+function filmSource(rows: Awaited<ReturnType<typeof listChapters>>, state: BookWorkflowState, input: FilmInput, chatText: Map<string, string>, urls:Map<string,string>) {
   const live = rows.filter(row => !row.blocks.manuscriptArchived);
   if (input.chapterId && !live.some(row => row.id === input.chapterId)) throw conflict("当前书稿已变化，请重新打开后生成。");
   const storyboards = manuscriptRows(live, "storyboard");
@@ -610,7 +626,10 @@ function filmSource(rows: Awaited<ReturnType<typeof listChapters>>, state: BookW
   const intent = current?.intent ?? { purpose: "根据这次聊天生成新版本", audience: "待确认", platform: "待确认" };
   const requestedIntent = { ...intent, purpose: input.request.trim().slice(0, 1000) || intent.purpose };
   if (kind === "text" && active.length && chatText.size) {
-    const existing = new Set(active.flatMap(c => writingModuleTexts(c.blocks.body,c.blocks.writingStyle).map(line => readBookImage(line)?.url)));
+    const existing = new Set(active.flatMap(c => writingModuleTexts(c.blocks.body,c.blocks.writingStyle).flatMap(line => {
+      const image=readBookImage(line);
+      return image ? [urls.get(image.url) ?? image.url] : [];
+    })));
     const revised = active.map(chapter => {
       let body = chapter.blocks.body;
       const style = chapter.blocks.writingStyle ? [...chapter.blocks.writingStyle] : undefined;
@@ -671,9 +690,12 @@ export async function quoteFilmManuscript(input: Owner & FilmInput) {
     const editor=trialEditor(basis.chapters,input.request,input.conversation,basis.parent, manuscriptEmotion(story.body, basis.chapters));
     return editor.freeQuote ?? quoteStoryboardCompute(editor.prompt);
   }
+  const pictures=await bookPictureLookup(input.userId,input.storyId);
   const source = filmSource(await listChapters(input.storyId, input.userId, "all"),
-    readBookWorkflow((story.body as Record<string, unknown>)?.bookWorkflow), input, await chatImageText(input));
-  return quoteStoryboardCompute(conversionPrompt(input.target ?? "storyboard", source.requestedIntent, input.request, input.conversation, source.selected, manuscriptEmotion(story.body, source.selected)));
+    readBookWorkflow((story.body as Record<string, unknown>)?.bookWorkflow), input, await chatImageText(input,pictures),pictures.urls);
+  const resolved=bookPicturesForConversion(source.selected,pictures.urls);
+  const selected=pagesAsSources(resolved,await manuscriptReadings(input,resolved.map(c=>c.blocks.body)));
+  return quoteStoryboardCompute(conversionPrompt(input.target ?? "storyboard", source.requestedIntent, input.request, input.conversation, selected, manuscriptEmotion(story.body, source.selected)));
 }
 
 export async function generateFilmManuscript(input: ActorInput & FilmInput & { id: string }) {
@@ -684,9 +706,13 @@ export async function generateFilmManuscript(input: ActorInput & FilmInput & { i
     if ((previous.entryChapterId !== undefined && previous.entryChapterId !== input.chapterId) || previous.target !== (input.target ?? "storyboard") || previous.request !== input.request || JSON.stringify(previous.conversation ?? []) !== JSON.stringify(input.conversation)) throw conflict();
     return previous;
   }
-  const chatText = await chatImageText(input);
+  const pictures=await bookPictureLookup(input.userId,input.storyId);
+  const chatText = await chatImageText(input,pictures);
+  const active = await listChapters(input.storyId,input.userId,"all");
+  const readings = await manuscriptReadings(input,[...bookPicturesForConversion(active.filter(c=>!c.blocks.manuscriptArchived),pictures.urls).map(c=>c.blocks.body),...chatText.values()]);
   const source = await mutateBookWorkflow(input, ({ state, rows, body }) => {
-    const { kind, chapters, selected, current, requestedIntent, fromChat } = filmSource(rows, state, input, chatText);
+    const { kind, chapters, selected: original, current, requestedIntent, fromChat } = filmSource(rows, state, input, chatText,pictures.urls);
+    const selected=pagesAsSources(bookPicturesForConversion(original,pictures.urls),readings);
     if (input.quoteFingerprint && quoteStoryboardCompute(conversionPrompt(input.target ?? "storyboard", requestedIntent, input.request, input.conversation, selected, manuscriptEmotion(body, selected))).fingerprint !== input.quoteFingerprint)
       throw conflict("分镜内容或报价已变化，请重新查看费用。");
     if (!fromChat && current?.fingerprint === manuscriptFingerprint(chapters)) return { result: current };
@@ -919,6 +945,23 @@ function createReadingTrial(
   state.conversions.push(draft);
   return draft;
 }
+export async function organizeStoryboardReading(input: ActorInput & { id: string; expectedFingerprint: string }) {
+  const label = "按栏目整理的分镜稿";
+  return mutateBookWorkflow(input, ({ state, rows }) => {
+    const existing = state.conversions.find(d => d.id === input.id);
+    if (existing) {
+      if (existing.request !== label || existing.trial?.base !== "working" || existing.targetFingerprint !== input.expectedFingerprint) throw conflict();
+      return { result: existing };
+    }
+    const basis = readingBasis(state, rows, { id: "working" });
+    if (basis.fingerprint !== input.expectedFingerprint) throw conflict();
+    const chapters = basis.chapters.map(organizeChapterCues);
+    const draft = createReadingTrial({ ...input, request: label }, state, basis, { base: "working", label });
+    draft.chapters = chapters;
+    return { result: draft };
+  });
+}
+
 export async function importStoryboardReading(
   input: ActorInput & {
     id: string;

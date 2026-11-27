@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { trpc } from "@/lib/trpc";
+import { useRecordPictureOpen } from "@/features/storyAgent/useRecordPictureOpen";
 import { useUiText } from "@/features/uiLanguage/UiLanguage";
 
 /** Durable conversation gallery. Recovery can query receipts, never buy images. */
@@ -9,6 +10,7 @@ export function ArtPreviewGallery({ storyId, includePlans = false, onReference, 
   const recover = trpc.storyAgent.recoverStoryboardImage.useMutation();
   const utils = trpc.useUtils();
   const choose = trpc.artSystems.previewChoose.useMutation();
+  const recordOpen = useRecordPictureOpen();
   const recovering = useRef(new Set<string>());
   const lastAttempt = useRef(new Map<string, number>());
   const [version, setVersion] = useState(0);
@@ -57,7 +59,7 @@ export function ArtPreviewGallery({ storyId, includePlans = false, onReference, 
       {shot.candidates.length ? <div className="grid grid-cols-2 gap-2">{shot.candidates.map((image, index) => {
         const thumbnail = <img src={image.imageUrl} alt={ui("第 {0} 镜 · 第 {1} 张", [label, index + 1])} loading="lazy" className="aspect-video w-full rounded-lg object-contain bg-muted" />;
         return <figure key={image.imageId}>
-        {onReference ? <button type="button" className="block w-full" onClick={() => onReference(image.imageId, shot.stableShotId)}>{thumbnail}</button> : thumbnail}
+        {onReference ? <button type="button" className="block w-full" onClick={e => {recordOpen(e,image.imageId); onReference(image.imageId, shot.stableShotId);}}>{thumbnail}</button> : thumbnail}
         <figcaption className="text-[11px] text-muted-foreground">{index + 1} · #{image.imageId}
           {includePlans && <button className="ml-2 underline" type="button" disabled={choose.isPending} onClick={() => choose.mutate({ storyId, version: batch.version, shotNo: shot.shotNo, ordinal: index + 1 }, { onSuccess: async () => {
             await Promise.all([utils.artSystems.previewRead.invalidate({storyId}), utils.storyAgent.storyMaterialState.invalidate({storyId}), utils.storyAgent.storyImages.invalidate({storyId})]);

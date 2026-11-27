@@ -6,6 +6,7 @@ import {
   chapterExports,
   chapterImports,
   chapterReturnCandidates,
+  imageSignals,
   storyChapterVersions,
   storyChapters,
   stories,
@@ -206,7 +207,11 @@ export async function saveChapterContent(input: {
   content: Partial<ChapterContent>;
   reason: string;
   candidateId?: number;
+  bookImageRevisions?: {imageId:number;parentImageId:number}[];
 }): Promise<StoryChapter> {
+  const revisionSignals = (storyId:number) => (input.bookImageRevisions ?? []).map(({imageId,parentImageId})=>({
+    storyId,userId:input.userId,imageId,action:"edit_complete" as const,metadata:{source:"book_image_revision",parentImageId},
+  }));
   const nextBlocks = (row: StoryChapter) => ({ ...(input.content.blocks ?? row.blocks), manuscriptKind: row.blocks.manuscriptKind, manuscriptArchived: row.blocks.manuscriptArchived });
   const db = await getDb();
   if (db) {
@@ -242,6 +247,8 @@ export async function saveChapterContent(input: {
           .where(eq(chapterReturnCandidates.id, candidate.id));
       }
       if (KEEPS_HISTORY(input.reason)) await keepVersion(tx, row, input.reason);
+      const edits=revisionSignals(row.storyId);
+      if(edits.length) await tx.insert(imageSignals).values(edits);
       await tx
         .update(storyChapters)
         .set({
@@ -291,8 +298,10 @@ export async function saveChapterContent(input: {
     };
     const versionsBefore = memoryState.storyChapterVersions;
     const blocks = structuredClone(nextBlocks(row));
+    const edits=revisionSignals(row.storyId).map(signal=>({...signal,id:nextMemoryId("imageSignal"),createdAt:now()}));
     await persistLocal(
       () => {
+        memoryState.imageSignals.push(...edits);
         if (candidate) candidate.status = "adopted";
         if (KEEPS_HISTORY(input.reason)) {
           const mine = [...versionsBefore, kept]
@@ -314,6 +323,10 @@ export async function saveChapterContent(input: {
       },
       () => {
         memoryState.storyChapterVersions = versionsBefore;
+        if(edits.length) {
+          const ids=new Set(edits.map(edit=>edit.id));
+          memoryState.imageSignals=memoryState.imageSignals.filter(signal=>!ids.has(signal.id));
+        }
         if (candidate) candidate.status = "pending";
         Object.assign(row, before);
       }

@@ -1,8 +1,10 @@
 import { FilmVersionDraft } from "../publishingDraft/FilmVersionDraft";
-import { useReadingSelection, openReading } from "../publishingDraft/readingTrialSelection";
+import { useBookVersionSelection, useReadingSelection, openReading } from "../publishingDraft/readingTrialSelection";
+import { BookManuscriptPicker, SavedManuscriptReader, type SavedShotCue } from "./BookManuscriptPicker";
 import { LiveBookWriting } from "./LiveBookWriting";
 import { useStoryboardScenes } from "../storyAgent/useStoryboardScenes";
 import { OPEN_STORY_MAILBOX } from "@shared/storyMailbox";
+import { ManuscriptComparison } from "./ManuscriptComparison";
 import { VideoBookHistory } from "./VideoBookHistory";
 import { ShotManuscriptReader } from "./ShotManuscriptReader";
 import { BookShotDocument, type BookShotEditTarget } from "./BookShotDocument";
@@ -14,7 +16,6 @@ import { registerBookPreparation } from "@/features/bookVideo/bookPreparation";
 import { precedingBookShots } from "@shared/bookBlockNumbering";
 import { sameWritingStyle } from "@shared/bookWritingStyle";
 import type { ChapterWritingDraft } from "./chapterWritingDraft";
-import { storyLibraryImages } from "./storyImageLibrary";
 import { ChapterWriting, type ChapterWritingHandle } from "./ChapterWriting";
 import { BookSendMenu } from "./BookSendMenu";
 import { BookPlatformShareDialog } from "./BookPlatformShareDialog";
@@ -117,6 +118,7 @@ export function ChapterWorkspace({
   const newerVersion = state.externalVersion ?? (localDraftConflict ? active?.version : null);
   const [generatedOpen, setGeneratedOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [comparingReading, setComparingReading] = useState<string | null>(null);
   const latestLayout = useRef<ChapterEdit | null>(null);
   const comparisonCurrent = active ? { ...active,
     ...(displayMode === "text" && writingDraft ? { title: writingDraft.title, blocks: { ...active.blocks, body: writingDraft.body } } : {}),
@@ -124,10 +126,20 @@ export function ChapterWorkspace({
   } : null;
   const utils = trpc.useUtils();
   const reading = useReadingSelection(props.accountId,props.storyId);
+  const versionId = useBookVersionSelection(props.accountId,props.storyId);
   const readingView = displayMode === "text" && (state.selectedKind === "storyboard" || Boolean(reading));
-  const workflow = trpc.bookWorkflow.get.useQuery({ storyId: props.storyId }, { enabled: historyOpen || readingView, refetchInterval:q=>q.state.data?.state.conversions.some(d=>d.status==="generating" && Date.now()-d.createdAt<15*60_000)?2500:false });
+  const workflow = trpc.bookWorkflow.get.useQuery({ storyId: props.storyId }, { enabled: historyOpen || displayMode === "text", refetchInterval:q=>q.state.data?.state.conversions.some(d=>d.status==="generating" && Date.now()-d.createdAt<15*60_000)?2500:false });
   const readings = workflow.data?.state.conversions.filter(d=>d.target==="storyboard" && d.status==="review" && d.chapters?.some(c=>!c.blocks.shotTextOrigin)) ?? [];
   const selectedTrial = readingView && readings.find(d=>d.id===reading);
+  const currentKind = state.selectedKind ?? manuscriptKind ?? workflow.data?.preferredKind ?? "text";
+  const snapshot = displayMode === "text" && versionId ? workflow.data?.state.versions.find(v => v.id === versionId) : undefined;
+  const viewingSnapshot = displayMode === "text" && Boolean(versionId);
+  const snapshotScope = JSON.stringify([props.accountId, props.storyId, versionId]);
+  const readingScope = useRef(snapshotScope);
+  readingScope.current = snapshotScope;
+  const otherKind = snapshot && snapshot.kind !== currentKind ? snapshot.kind : undefined;
+  const compareChapters = trpc.chapters.list.useQuery({storyId:props.storyId,kind:otherKind},
+    {enabled:Boolean(otherKind && comparingReading === versionId),retry:false});
   useEffect(() => {
     const select = (event: Event) => {
       const detail = (event as CustomEvent).detail;
@@ -221,13 +233,13 @@ export function ChapterWorkspace({
     if(saved && active && saved.version > active.version) await state.acceptLatest(saved.version);
     await state.reloadList();
   }));
-  async function run(action: () => Promise<void>, flush = true) {
+  async function run(action: () => Promise<void>, flush = true, allowReviewed = false) {
     if (lock.current) return;
     lock.current = true;
     setBusy(true);
     try {
       if (flush) {
-        if (displayMode === "text") { await saveReading.current?.(); await writing.current?.prepare(); }
+        if (displayMode === "text") { await saveReading.current?.(); await writing.current?.prepare(allowReviewed); }
         else await prepare.current?.();
         if (state.error) throw new Error(state.error);
         await state.flush();
@@ -260,11 +272,9 @@ export function ChapterWorkspace({
     }
     handledBookImage.current = request.id;
     let cancelled = false;
-    void utils.storyAgent.storyMaterialState.fetch({storyId:props.storyId}).then(material => {
+    void utils.client.memorySpace.latestBookPicture.query({storyId:props.storyId,imageId:request.warehouseImage.imageId}).then(asset => {
       if (cancelled) return;
-      const asset = storyLibraryImages(props.storyId,material).find(item => item.id === request.warehouseImage!.imageId);
-      if (!asset) throw new Error("这张图片暂不可用，请重新打开仓库。");
-      writing.current?.insertImage(asset.imageUrl);
+      writing.current?.insertImage(asset.url);
       props.onCreateRequestHandled?.();
     }).catch(error => {if (!cancelled) {toast.error(error instanceof Error ? error.message : "插图失败"); props.onCreateRequestHandled?.();}});
     return () => { cancelled = true; };
@@ -431,6 +441,65 @@ export function ChapterWorkspace({
     url.searchParams.set("chapterId", String(chapterId));
     window.history.replaceState(window.history.state, "", url);
   }
+  function produceSavedCue(cue: SavedShotCue) {
+    if (snapshot?.kind !== "storyboard") return;
+    void run(async () => {
+      const chapters = await utils.client.chapters.list.query({storyId: props.storyId, kind: "storyboard"});
+      if (readingScope.current !== snapshotScope) return;
+      const matches = chapters.filter(c => c.blocks.shotTextOrigin?.trialId === cue.originTrialId &&
+        c.blocks.writingStyle?.some(row => row.id === cue.moduleId));
+      if (matches.length !== 1) throw new Error(_ui("这版的镜头已和工作稿不同。请先打开版本对比，核对要制作的镜头。"));
+      const chapterId = matches[0].id;
+      if (chapterId !== active?.id) {
+        await writing.current?.prepare();
+        await openBookChapter(chapterId);
+      }
+      if (readingScope.current !== snapshotScope) return;
+      setManuscriptKind("storyboard");
+      // Video uses the on-page image selection and motion editor. Other outputs open in a dialog.
+      if (cue.output === "video") openReading(props.accountId, props.storyId, "");
+      setShotTarget({chapterId, moduleId: cue.moduleId, offset: 0, output: cue.output, savedSourceKey: cue.sourceKey});
+    }, false);
+  }
+  function chooseManuscript(id: string) {
+    const saved = workflow.data?.state.versions.find(v => v.id === id);
+    const trial = readings.find(d => d.id === id);
+    const fullBook = id === "storyboard:main";
+    const nextKind = id === "text" || id === "storyboard" ? id : trial || fullBook ? "storyboard" : undefined;
+    if (!saved && !nextKind) return;
+    const switchEditor = nextKind !== undefined && (nextKind !== currentKind || fullBook);
+    void run(async () => {
+      if (!switchEditor) await saveReading.current?.();
+      if (switchEditor && nextKind) {
+        const chapters = await utils.client.chapters.list.query({storyId:props.storyId,kind:nextKind});
+        const chapter = chapters.find(c => !c.blocks.shotTextOrigin) ?? chapters[0];
+        if (chapter) await openBookChapter(chapter.id);
+        else {
+          const url = new URL(window.location.href);
+          url.searchParams.delete("chapterId");
+          history.replaceState(history.state, "", url);
+        }
+      }
+      if (nextKind) setManuscriptKind(nextKind);
+      openReading(props.accountId,props.storyId,trial?.id ?? "",saved?.id);
+      setComparingReading(null);
+      setHistoryOpen(false);
+    }, switchEditor);
+  }
+  const organizeReading = trpc.bookWorkflow.organizeReading.useMutation({ retry: false });
+  const organizeAttempt = useRef<{ key: string; id: string } | null>(null);
+  const organizeCurrent = () => run(async () => {
+    const storyId = props.storyId;
+    const { drafts } = await utils.bookWorkflow.get.fetch({storyId}, {staleTime: 0});
+    const expectedFingerprint = drafts.storyboard.fingerprint;
+    const key = [props.accountId, storyId, expectedFingerprint].join(":");
+    if (organizeAttempt.current?.key !== key) organizeAttempt.current = {key, id: crypto.randomUUID()};
+    const next = await organizeReading.mutateAsync({storyId, expectedFingerprint, id: organizeAttempt.current.id});
+    organizeAttempt.current = null;
+    await utils.bookWorkflow.get.invalidate({storyId});
+    setHistoryOpen(false);
+    openReading(props.accountId, storyId, next.id);
+  });
   const openEditableDraft = trpc.chapters.openShotDraft.useMutation({ retry: false });
   const reader = displayMode === "text" && state.selectedKind === "storyboard" && <ShotManuscriptReader storyId={props.storyId} hideEmpty={state.chapters.some(c => c.blocks.writingStyle?.some(r => r.format === "shot"))} busy={busy} onEdit={trialId => void run(async () => {
     const { chapterId } = await openEditableDraft.mutateAsync({storyId: props.storyId, trialId});
@@ -443,14 +512,7 @@ export function ChapterWorkspace({
         aria-label={_ui("章节栏")}
         className="flex flex-wrap items-start gap-2 border-b border-[var(--panel-border)] pb-3"
       >
-        {displayMode === "text" && <label className="inline-flex items-center gap-1.5 self-center text-sm">{_ui("稿件")}
-          <select aria-label={_ui("查看稿件版本")} className="rounded border border-[var(--panel-border)] bg-transparent p-1" value={state.selectedKind ?? manuscriptKind ?? "text"} disabled={busy}
-            onChange={event => { const kind = event.target.value as ManuscriptKind; void run(async () => setManuscriptKind(kind)); }}>
-            <option value="text">{_ui("文字版")}</option>
-            <option value="storyboard">{_ui("分镜版")}</option>
-          </select>
-        </label>}
-        {active && <button className={button} aria-expanded={historyOpen} onClick={() => { setHistoryOpen(!historyOpen); void versions.refetch(); void sharingHistory.refetch(); }}>{_ui("版本")}{newerVersion ? _ui(" · 有更新") : ''}</button>}
+        {active && <button className={button} aria-expanded={historyOpen} onClick={() => { setHistoryOpen(!historyOpen); void versions.refetch(); void sharingHistory.refetch(); }}>{_ui(displayMode === "text" ? "对比与记录" : "版本")}{newerVersion ? _ui(" · 有更新") : ''}</button>}
         <button className={button} disabled={busy} onClick={() => requestNewVersion({ storyId: props.storyId, accountId: props.accountId })}>{_ui("生成新版本")}</button>
       </nav>
       {displayMode === "text" && active && <BookShotDocument storyId={props.storyId} showScenes={showScenes} key={`${props.storyId}:${active.blocks.shotTextOrigin?.trialId ?? "book"}`} preceding={shotOffset}
@@ -492,12 +554,14 @@ export function ChapterWorkspace({
             <button className={button} onClick={() => { if (window.dispatchEvent(new CustomEvent(OPEN_STORY_MAILBOX, { cancelable: true, detail: { section: "legacy" } }))) setDeliveryPanel("inbox"); }}>{_ui("查看来稿")}</button>
           </div>}
           {historyOpen && <section aria-label={_ui("版本列表")} className="space-y-3 border-y py-3">
+            {displayMode === "text" && state.selectedKind === "storyboard" && <button type="button" className={button} disabled={busy || !workflow.data} onClick={() => void organizeCurrent()}>{_ui("按栏目整理新版")}</button>}
             {reader && <details className="text-sm"><summary className="cursor-pointer">{_ui("镜头试稿与参考")}</summary>{reader}</details>}
             {workflow.data && <>
               {displayMode !== "text" && <label className="text-sm">{_ui("稿件")} <select aria-label={_ui("查看稿件版本")} className="rounded border bg-transparent p-1" value={state.selectedKind ?? workflow.data.preferredKind} onChange={event => { const kind = event.target.value as ManuscriptKind; void run(async () => setManuscriptKind(kind)); }}>
                 {(["text", "storyboard"] as const).filter(kind => workflow.data.drafts[kind].count > 0).map(kind => <option key={kind} value={kind}>{kind === "text" ? _ui("文字版") : _ui("分镜版")}</option>)}
               </select></label>}
-              <VideoBookHistory state={workflow.data.state} kind={state.selectedKind ?? workflow.data.preferredKind} storyId={props.storyId} accountId={props.accountId} />
+              <VideoBookHistory key={`${props.accountId}:${props.storyId}:${state.selectedKind}`} working={state.chapters.map(c => c.id === active.id && liveDraft
+                ? { ...c, title: liveDraft.title, blocks: { ...c.blocks, body: liveDraft.body, writingStyle: liveDraft.writingStyle } } : c)} state={workflow.data.state} kind={state.selectedKind ?? workflow.data.preferredKind} storyId={props.storyId} accountId={props.accountId} />
             </>}
 
             <p className="text-xs">{_ui("章节草稿修订")}{" "}{active.version} · {active.blocks.attribution?.editorName || _ui("未记录编辑者")}{_ui("。选择版本只打开对比，不会替换正在写的内容。")}</p>
@@ -520,12 +584,12 @@ export function ChapterWorkspace({
             <ul className="max-h-48 space-y-2 overflow-y-auto">
               {versions.data?.map(version => <li key={version.version} className="flex flex-wrap items-center gap-2 border-b py-2 text-sm">
                 <span>{version.attribution?.editorName || _ui("未记录编辑者")} · {new Date(version.createdAt).toLocaleString()} {_ui("· 版本")}{" "}{version.version}</span>
-                {version.attribution?.changeNote && <p className="w-full">{version.attribution.changeNote}</p>}
                 <button className={button} disabled={busy} onClick={() => void run(async () => {
                   const old = await utils.chapters.version.fetch({ chapterId: active.id, version: version.version });
                   setHistoryComparison({ ...old, version: version.version, current: active });
                   setGeneratedOpen(false); setComparison(null); setHistoryOpen(false);
                 }, false)}>{_ui("打开对比")}</button>
+                {version.attribution?.changeNote && <p className="w-full">{version.attribution.changeNote}</p>}
               </li>)}
             </ul>
             {!versions.isPending && !versions.error && !versions.data?.length && <p className="text-xs text-muted-foreground">{_ui("还没有已保存的旧版本。")}</p>}
@@ -562,10 +626,10 @@ export function ChapterWorkspace({
                   await state.refresh(); await candidates.refetch();
                 }
                 await versions.refetch(); setGeneratedOpen(false); setHistoryComparison(null); setComparison(null);
-              })}>{_ui("采用所选版本（保留当前稿）")}</button>
+              }, true, historyComparison?.latest === true)}>{_ui("采用所选版本（保留当前稿）")}</button>
               {displayMode === 'text' && historyComparison?.latest && <button className={button} disabled={busy} onClick={()=>void run(async()=>{
                 await versions.refetch();setHistoryComparison(null);
-              })}>{_ui("保留我的修改")}</button>}
+              }, true, true)}>{_ui("保留我的修改")}</button>}
               <button className={button} onClick={() => { setGeneratedOpen(false); setHistoryComparison(null); setComparison(null); }}>{_ui("结束对比")}</button>
             </div>
           </section>}
@@ -575,19 +639,23 @@ export function ChapterWorkspace({
   return (
     <div className="space-y-3" aria-label={_ui("故事章节")}>
       {displayMode === "text" && <LiveBookWriting key={`${props.accountId}:${props.storyId}`} storyId={props.storyId} />}
-      {readingView && readings.length > 0 && <section aria-label={_ui("分镜试读版本")} className="space-y-3">
-        <label className="flex flex-wrap items-baseline gap-2 text-sm font-medium">{_ui("全片试读")}
-          <select aria-label={_ui("选择分镜试读版本")} className="min-w-0 max-w-full rounded border border-[var(--panel-border)] bg-transparent px-2 py-1.5"
-            value={selectedTrial ? selectedTrial.id : ""} disabled={busy} onChange={e=>{const id=e.target.value;void run(async()=>openReading(props.accountId,props.storyId,id));}}>
-            <option value="">{_ui("本地分镜工作稿")}</option>
-            {readings.map(d=><option key={d.id} value={d.id}>{d.trial?.label ?? (d.request || d.chapters?.[0]?.title)} · {_ui("试稿")}</option>)}
-          </select>
-        </label>
+      {displayMode === "text" && <section aria-label={_ui("稿件版本")} className="space-y-3">
+        <BookManuscriptPicker kind={snapshot?.kind ?? currentKind} value={versionId || (selectedTrial && selectedTrial.id) || currentKind}
+          shotDraftNumber={active?.blocks.shotTextOrigin?.shotNo}
+          versions={workflow.data?.state.versions ?? []} readings={readings} disabled={busy || workflow.isPending} onSelect={chooseManuscript}/>
+        {workflow.isError && <p role="alert">{_ui("稿件版本暂时无法读取。")}</p>}
+        {viewingSnapshot && !snapshot && !workflow.isError && <p role="status">{_ui(workflow.isPending ? "正在读取所选版本…" : "这份稿件在当前故事中不可用，请选择其他版本。")}</p>}
+        {(selectedTrial || snapshot) && <button type="button" className={button} onClick={() => setComparingReading(snapshot?.id ?? (selectedTrial ? selectedTrial.id : null))}>{_ui("打开对比")}</button>}
+        {comparingReading && (snapshot?.id === comparingReading || (selectedTrial && selectedTrial.id === comparingReading)) && workflow.data &&
+          (otherKind && !compareChapters.data ? <p role="status">{_ui(compareChapters.isError ? "当前工作稿读取失败。" : "正在读取当前工作稿…")}</p> :
+            <ManuscriptComparison key={"compare:"+comparingReading} selectedId={comparingReading} kind={snapshot?.kind ?? "storyboard"} state={workflow.data.state}
+              working={otherKind ? compareChapters.data ?? [] : state.chapters} close={() => setComparingReading(null)} />)}
+        {snapshot && <SavedManuscriptReader key={snapshot.id} version={snapshot} busy={busy} onProduce={produceSavedCue}/>}
         {selectedTrial && <FilmVersionDraft key={selectedTrial.id} storyId={props.storyId} readingId={selectedTrial.id} flushRef={saveReading} request="" blocked={busy} onDone={()=>void state.reloadList()} />}
       </section>}
       {!active && editorControls()}
       {active && (<>
-          <div hidden={displayMode !== "text" || Boolean(selectedTrial)} className="space-y-3">
+          <div hidden={displayMode !== "text" || Boolean(selectedTrial) || viewingSnapshot} className="space-y-3">
             {displayMode === "text" && <ChapterWriting storyboard={state.selectedKind === "storyboard"} showScenes={showScenes} key={`${active.id}:${state.epoch}`} chapter={active} precedingShots={shotOffset + precedingBookShots(productionChapters, active.id)}
               shotTarget={shotTarget?.chapterId === active.id ? shotTarget : null} onShotFocused={() => setShotTarget(null)}
               titleEditor={active.blocks.chatDocument ? undefined : titleEditor}
@@ -618,6 +686,8 @@ export function ChapterWorkspace({
                 ...(active.blocks.lineage?.parentPackageId ? { onReturn: () => setDeliveryPanel("send") } : {}),
               } : undefined} />}
               scope={`${props.accountId ?? "current"}:${props.storyId}`} handle={writing}
+              readBase={async version => (await utils.client.chapters.version.query({chapterId:active.id,version})).chapter}
+              readLatest={async () => (await utils.client.chapters.get.query({chapterId:active.id})).chapter}
               save={draft => state.saveText(draft, (state.externalVersion || localDraftConflict) && historyComparison?.latest ? historyComparison.version : undefined)} onChange={setWritingDraft} disabled={busy}
               reviewedVersion={historyComparison?.latest ? historyComparison.version : undefined}
               comparison={generatedOpen ? { body: props.body, title: props.title, label: _ui("生成的文字") }

@@ -1,3 +1,4 @@
+import { BookPageOrImage, useBookPageReadings } from "./BookPageExcerpt";
 import { useUiLanguage, useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { mergeBookText } from "./mergeBookText";
 import { readBookAudio } from "@shared/bookAudioBlock";
@@ -14,7 +15,8 @@ import { bindBookViewZoom } from './bookViewZoom';
 import { bookBlockNumbers, bookBlockNumberLabel, chineseBookNumber } from '@shared/bookBlockNumbering';
 import { bookOutlineSummaries, BOOK_SHOT_SUMMARY_HEIGHT, BOOK_SHOT_IMAGES_HEIGHT } from './bookOutlineSummary';
 
-import { shotActionHeading, shotMenuOutputs, shotOutputLabels, type ShotOutput } from "@shared/bookShotActions";
+import { productionKinds, productionLabels } from '@shared/bookShotProduction';
+import { shotOutputLabels, type ShotOutput } from "@shared/bookShotActions";
 
 import { setShotParagraphFormat, shotParagraphs } from "./bookShotParagraph";
 
@@ -25,7 +27,8 @@ const cornerNames = { nw: '左上角', ne: '右上角', sw: '左下角', se: '�
 
 const action = 'min-h-11 w-full rounded px-3 py-2 text-left text-sm hover:bg-accent focus-visible:outline focus-visible:outline-2 disabled:opacity-40';
 
-export function BookBlockCanvas({ storyboard = false, shotMenu, showScenes = false, inlineReviewKey, precedingShots, importedChapterIds, blocks, disabled, onCommit, children, activeId, onSelect, onSelectionChange, onConvert, onConvertSelection, onComposeImage, textSelectionIds }: {
+export function BookBlockCanvas({ sourceStoryId, storyboard = false, shotMenu, showScenes = false, inlineReviewKey, precedingShots, importedChapterIds, blocks, disabled, onCommit, children, activeId, onSelect, onSelectionChange, onConvert, onConvertSelection, onComposeImage, textSelectionIds }: {
+  sourceStoryId?: number;
   storyboard?: boolean;
   shotMenu?(index:number,kind:ShotOutput):void;
   onComposeImage?(ids: string[]): void;
@@ -44,6 +47,7 @@ export function BookBlockCanvas({ storyboard = false, shotMenu, showScenes = fal
 }) {
   const _ui = useDesktopUiText();
   const { language } = useUiLanguage();
+  const pageReadings = useBookPageReadings();
   const paragraphs = useMemo(() => storyboard ? shotParagraphs(blocks) : undefined, [storyboard, blocks]);
   const root = useRef<HTMLDivElement>(null);
   const viewport = useRef<HTMLDivElement>(null);
@@ -165,7 +169,7 @@ export function BookBlockCanvas({ storyboard = false, shotMenu, showScenes = fal
   }, [musicUrls]);
   const summaries = useMemo(() => bookOutlineSummaries(preview ?? blocks, audioDurations), [preview, blocks, audioDurations]);
   const shotCount = blocks.filter(block => block.format === 'shot').length;
-  const layouts = layoutBookBlocks(displayed,imageRatios,pageWidth, chapterIds,previewHeights).map(item => indexes ? { ...item, index: indexes.get(item.block.id)! } : item);
+  const layouts = layoutBookBlocks(displayed,imageRatios,pageWidth, chapterIds,previewHeights,pageReadings).map(item => indexes ? { ...item, index: indexes.get(item.block.id)! } : item);
   useLayoutEffect(()=>{
     const previews=Array.from(root.current?.querySelectorAll<HTMLElement>(inlineReviewKey ? '[data-book-math-preview], [data-book-prompt-preview], [data-book-sentence-review]' : '[data-book-math-preview], [data-book-prompt-preview]')??[]);
     let cancelled=false;
@@ -362,7 +366,7 @@ export function BookBlockCanvas({ storyboard = false, shotMenu, showScenes = fal
         const numberLabel = number ? bookBlockNumberLabel(number, language) : '';
         const summary = summaries.get(block.id)!;
         const summaryText = block.format === 'shot' ? [
-          _ui("{0} 字", [summary.characters]), _ui("{0} 句台词", [summary.dialogue]), _ui("{0} 张图片", [summary.images.length]),
+          _ui("{0} 字", [summary.characters]), _ui("{0} 句台词", [summary.dialogue]), _ui(sourceStoryId ? "{0} 项素材" : "{0} 张图片", [summary.images.length]),
           !summary.music ? _ui("无音乐") : summary.unknownMusic
             ? _ui("{0} 段音乐 · 时长待读取", [summary.music]) : _ui("{0} 秒音乐", [Math.round(summary.musicSeconds * 10) / 10]),
           ...(summary.narration ? [_ui("{0} 段有声书", [summary.narration])] : []),
@@ -431,7 +435,7 @@ export function BookBlockCanvas({ storyboard = false, shotMenu, showScenes = fal
                       }}>{_ui(shotOutputLabels[kind].name)}</button>)}
                   {!block.parentId && <button type="button" className={action} disabled={disabled} onClick={() => apply(setBlockFormat(blocks, index, "shot"), block.id)}>{_ui("转换成一个镜头")}</button>}
                 </div> : inShotMenu ?
-                  shotMenuOutputs(block.format==="text" && !block.videoRole && shotActionHeading(block.text)?.output==="sfx" ? "sfx" : "music").map(kind=><button key={kind} type="button" className={action} disabled={disabled} onClick={()=>{setMenuId(null);shotMenu(index,kind);}}>{_ui(shotOutputLabels[kind].name)}</button>) : <>
+                  productionKinds.map(kind=><button key={kind} type="button" className={action} disabled={disabled} onClick={()=>{setMenuId(null);shotMenu(index,kind);}}>{_ui(productionLabels[kind])}</button>) : <>
                 <p hidden={!bookImageUrl(block.text)} className="px-3 py-2 text-xs text-muted-foreground">{_ui("拖图片移动 · 四角缩放 · 四边裁切")}</p>
                 <div hidden={Boolean(bookImageUrl(block.text) || readBookAudio(block.text))} role="group" aria-label={_ui("格式")}>{formats.filter(([format]) => format !== 'scene' || showScenes).map(([value, label]) => <button key={value} type="button" disabled={disabled || !canSetBlockFormat(blocks, index, value)} className={action}
                   aria-pressed={!block.videoRole && (block.format === value || block.format === 'heading3' && value === 'heading2')} onClick={() => apply(setBlockFormat(blocks, index, value), block.id)}>{!block.videoRole && (block.format === value || block.format === 'heading3' && value === 'heading2') ? '✓ ' : ''}{_ui(label)}</button>)}</div>
@@ -508,12 +512,12 @@ export function BookBlockCanvas({ storyboard = false, shotMenu, showScenes = fal
                   color: block.emphasis === 'bright' ? 'var(--nayin-accent)' : undefined, textShadow: block.emphasis === 'bright' ? '0 0 6px rgba(255,255,255,.8)' : undefined })}</div>
                 {summaryText && <p data-book-summary={block.id} className="shrink-0 text-muted-foreground" style={{ height: BOOK_SHOT_SUMMARY_HEIGHT * scale, fontSize: 18 * scale, lineHeight: `${28 * scale}px` }}>{summaryText}</p>}
                 {block.format === 'shot' && !block.collapsed && summary.images.length > 0 && <div aria-label={_ui("镜头参考图")} className="flex shrink-0 gap-2 overflow-x-auto" style={{ height: BOOK_SHOT_IMAGES_HEIGHT * scale }}>
-                  {summary.images.map((image, i) => <button key={image.id} type="button" disabled={disabled}
+                  {summary.images.map((image, i) => <BookPageOrImage key={image.id} blockId={image.id} url={image.url} context={block.text + " " + (source.find(b=>b.parentId===block.id && b.videoRole==="dialogue")?.text ?? "")}><button type="button" disabled={disabled}
                     data-book-image-ref={image.id} aria-pressed={activeId === image.id || selected.has(image.id)}
                     className="shrink-0 self-start rounded aria-pressed:outline aria-pressed:outline-2 aria-pressed:-outline-offset-2 aria-pressed:outline-primary"
                     onClick={event => { event.currentTarget.focus({preventScroll:true}); setSelectedIds([image.id]); onSelect(image.id); }}>
                     <img src={image.url} alt={_ui("镜头参考图 {0}", [i + 1])} loading="lazy" className="rounded object-contain object-left" style={{ height: 92 * scale, maxWidth: 180 * scale }} />
-                  </button>)}
+                  </button></BookPageOrImage>)}
                 </div>}
               </div> :
               children(block, index, { fontSize: placement.fontSize * scale, lineHeight: 1.6, fontWeight: isHeading(block) || block.emphasis === 'bright' ? 650 : 400,

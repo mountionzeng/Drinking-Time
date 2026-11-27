@@ -1,3 +1,5 @@
+import { pictureDirections } from "../../shared/stillVisualDescription";
+import { pictureSourcePages } from "../../shared/pictureSourcePages";
 import { renderSourceDirection, SourceFrameReadError } from "./sourceFrameReading";
 import { compileCreationEmotion, type CreationEmotionSnapshot } from "../../shared/creationEmotion";
 /**
@@ -743,18 +745,34 @@ function promptMaxLengthFor(ctx: RenderContext): number {
   return ctx.longPrompt ? LONG_PROMPT_MAX_LENGTH : MJ_PROMPT_MAX_LENGTH;
 }
 
+function stillProviderText(value: string) {
+  if (!/[页秒]/u.test(value)) return value;
+  return value.split("\n").map(line => {
+    const source = pictureSourcePages(line).text;
+    if (!source.includes("秒")) return source;
+    const cues = pictureDirections(source);
+    return (cues.motion || cues.timing || cues.captionTiming || cues.speechTiming) ? cues.picture : source;
+  }).join("\n").trim();
+}
+
 export async function renderViaGate<R>(
   ctx: RenderContext,
   render: (prompt: string, compiled: CompiledImagePrompt) => Promise<R>
 ): Promise<R> {
   if (!ctx.referenceImages?.length && (ctx.referencePolicy === "preserve-composition" || ctx.referencePolicy === "preserve-identity"))
     throw new SourceFrameReadError("缺少指定的原画面，请重新选择后生成。");
+  if (ctx.outputPurpose === "story-frame") {
+    const clean = stillProviderText(ctx.prompt);
+    if (ctx.prompt.trim() && !clean.trim()) throw new Error("请补充这张图里能看到的人物、物体或场景。");
+    ctx = { ...ctx, prompt: clean, userInstructions: ctx.userInstructions?.map(stillProviderText).filter(Boolean) };
+  }
   const observations = await renderSourceDirection(ctx.referenceImages ?? [], ctx.sourceOwnerId);
   // A signed-off visual director edit already incorporates the source analysis verbatim.
   const suffix = observations && !ctx.referenceEditPrompt ? "\n" + observations : "";
   if (suffix.length >= promptMaxLengthFor(ctx) || (ctx.preservePrompt && ctx.prompt.trim().length + suffix.length > promptMaxLengthFor(ctx)))
     throw Error("画面依据和要求超过当前模型容量，请精简要求后再生成。");
   const compiled = await compileImagePrompt(ctx, suffix.length);
-  const prompt = compiled.prompt + suffix;
+  const assembled = compiled.prompt + suffix;
+  const prompt = ctx.outputPurpose === "story-frame" ? stillProviderText(assembled) : assembled;
   return render(prompt, { ...compiled, prompt });
 }

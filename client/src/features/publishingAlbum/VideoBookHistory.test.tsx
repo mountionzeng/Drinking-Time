@@ -2,6 +2,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { expect, it, vi } from "vitest";
 import { emptyBookWorkflow } from "@shared/bookWorkflow";
+import { manuscriptChoices } from "./ManuscriptComparison";
 import { VideoBookHistory } from "./VideoBookHistory";
 vi.stubGlobal("React", React);
 it("shows a failed video request honestly without presenting it as a text version", () => {
@@ -21,7 +22,7 @@ it("shows a failed video request honestly without presenting it as a text versio
     targetFingerprint: "y",
   });
   const html = renderToStaticMarkup(
-    <VideoBookHistory state={state} kind="text" storyId={1} />
+    <VideoBookHistory state={state} kind="text" storyId={1} working={[]} />
   );
   expect(html).toContain("上次结果和费用待核对");
   expect(html).toContain("视频 V2");
@@ -59,10 +60,29 @@ it("makes adopted text versions readable with the video source and actual conten
       },
     ],
   });
+  const saved = state.versions[0];
+  state.versions.push({ ...saved, id: "other-edition", kind: "storyboard" }, { ...saved, id: "v2", number: 2 });
   const html = renderToStaticMarkup(
-    <VideoBookHistory state={state} kind="text" storyId={1} />
+    <VideoBookHistory state={state} kind="text" storyId={1} working={saved.chapters} />
   );
+  expect(html).toContain("打开对比 · 文字版 V1");
+  expect(html).toContain("打开对比 · 文字版 V2");
+  expect(html).not.toContain("打开对比 · 分镜版");
   expect(html).toContain("文字版 V1");
   expect(html).toContain("视频 V2");
   expect(html).toContain("视频里的真实文字。");
+  const nextChapter = { ...saved.chapters[0], title: "第二章" };
+  saved.chapters.push(nextChapter);
+  const trial = {
+    id: "scoped", target: "text" as const, status: "review" as const,
+    source: { id: "prev", kind: "text" as const, number: 1 }, author: saved.author, intent: saved.intent,
+    request: "修改第二章", createdAt: 2, revision: 1, sourceFingerprint: "old", targetFingerprint: saved.fingerprint,
+    chapters: [{ ...nextChapter, title: "新的第二章" }], revisedChapters: [{ id: 55, index: 1 }],
+  };
+  state.conversions.push(trial, { ...trial, id: "missing-base", targetFingerprint: "unknown" }, { ...trial, id:"failed", status: "failed" });
+  const choices = manuscriptChoices(state, "text", "文字版", "已保存试稿");
+  expect(choices.find(v => v.id === trial.id)?.chapters.map(c => c.title)).toEqual(["拾光", "新的第二章"]);
+  expect(choices.find(v => v.id === "missing-base")).toMatchObject({ partial: true, chapters: trial.chapters });
+  expect(choices.some(v => v.id === "failed")).toBe(false);
+  expect(saved.chapters[1].title).toBe("第二章");
 });

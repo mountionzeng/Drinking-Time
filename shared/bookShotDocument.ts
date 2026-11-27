@@ -1,3 +1,4 @@
+import { bookShotLinks, type BookShotLink } from "./bookShotLinks";
 import { readBookAudio } from "./bookAudioBlock";
 import { readShotField, sceneSetting, splitSoundSpeechTiming, type ShotField } from "./bookShotFormat";
 import { readBookImage } from "./bookImageBlock";
@@ -5,10 +6,13 @@ import { spokenBookDialogue } from "./bookSound";
 import { writingModuleTexts, type BookWritingStyle } from "./bookWritingStyle";
 import { pictureDirections } from "./stillVisualDescription";
 
-export type BookShotChapter = { id: number; blocks: { body: string; storyboardScenes?: boolean; writingStyle?: BookWritingStyle } };
+export type BookShotChapter = { id: number; blocks: {
+  body: string; storyboardScenes?: boolean; writingStyle?: BookWritingStyle; shotTextOrigin?: { shotNo?: number };
+} };
 type MediaAudio = NonNullable<ReturnType<typeof readBookAudio>>;
 type MediaImage = NonNullable<ReturnType<typeof readBookImage>>;
 type Shot = {
+  link?: BookShotLink;
   id: string; title: string; moduleId: string; sourceModuleIds: string[];
   chapterId: number; targets: Partial<Record<ShotField, { moduleId: string; offset: number }>>;
   text: string; notes: string; dialogueText: string; images: MediaImage[]; audio: MediaAudio[];
@@ -23,7 +27,7 @@ export function bookManuscriptModules(blocks: BookShotChapter["blocks"]) {
 }
 
 /** Read the same shot and source IDs for the manuscript and video preparation. */
-export function readBookShotChapter(chapter: BookShotChapter, showScenes = chapter.blocks.storyboardScenes === true) {
+export function readBookShotChapter(chapter: BookShotChapter, showScenes = chapter.blocks.storyboardScenes === true, preceding = 0) {
   const modules = bookManuscriptModules(chapter.blocks);
   const nodes = new Map<string, { shot?: string; scene?: string }>();
   const shots = new Map<string, Shot>();
@@ -104,7 +108,17 @@ export function readBookShotChapter(chapter: BookShotChapter, showScenes = chapt
     shot.notes = [...common, ...part.notes].join("\n");
     shot.dialogueText = part.dialogue.join("\n");
   }
-  return { shots: [...shots.values()], wholeAudio, nodes, texts: modules.map(m => m.text) };
+  const ordered = [...shots.values()];
+  const links = bookShotLinks(ordered.map(shot=>({
+    id:shot.moduleId, title:shot.title, scene:nodes.get(shot.moduleId)?.scene,
+    ...shotMediaDirections(shotDirections(owned.get(shot.moduleId)!.notes.join("\n")), ""),
+    images:shot.images.map(i=>i.url),
+  })),preceding);
+  for (const shot of ordered) {
+    const link = links.get(shot.moduleId);
+    if (link) shot.link = link;
+  }
+  return { shots: ordered, wholeAudio, nodes, texts: modules.map(m => m.text) };
 }
 
 /** Keep unlabelled notes intact. Speech and media references are supplied separately. */

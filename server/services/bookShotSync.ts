@@ -1,3 +1,4 @@
+import { linkedScenePrompt } from "../../shared/bookShotLinks";
 import { createHash } from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import { readBookShotChapter, shotDirections, shotMediaDirections, type BookShotChapter } from "../../shared/bookShotDocument";
@@ -17,7 +18,14 @@ function record(value: unknown): Data {
 }
 const fingerprint = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 export function linkedShotChanges(body: Data, chapters: BookShotChapter[], images: Map<string, number>, userId: number, storyId: number) {
-  const pages = new Map(chapters.flatMap(c => readBookShotChapter(c).shots.map(s => [s.id, s] as const)));
+  let preceding = 0;
+  const pages = new Map(chapters.flatMap(chapter => {
+    const origin = chapter.blocks.shotTextOrigin;
+    const offset = origin ? (origin.shotNo ?? 1) - 1 : preceding;
+    const { shots } = readBookShotChapter(chapter, undefined, offset);
+    if (!origin) preceding += shots.length;
+    return shots.map(s => [s.id, s] as const);
+  }));
   const previous = Array.isArray(body.shots) ? body.shots.map(record) : [];
   const baselines = {...record(body.bookShotSourceHashes)};
   let changed = false;
@@ -34,7 +42,7 @@ export function linkedShotChanges(body: Data, chapters: BookShotChapter[], image
     const media = shotMediaDirections(dirs, source.title);
     const timing = dirs.timing.filter(line => /旁白|对白|开口|收住|风声|音效|音乐|声音|静音|静默|说完/.test(line));
     const values = {
-      promptDraft: media.picture,
+      promptDraft: linkedScenePrompt(media.picture,source.link),
       videoPrompt: media.video,
       cameraMove: dirs.motion.join("\n"),
       dialogue: source.dialogueText,
@@ -49,7 +57,8 @@ export function linkedShotChanges(body: Data, chapters: BookShotChapter[], image
       const legacy = field === "promptDraft" ? [...dirs.other, ...dirs.picture].join("\n") || source.title :
         field === "videoPrompt" ? dirs.motion.join("\n") || dirs.picture.filter(line => /静止|固定镜头|推近|拉远|摇镜|移镜|跟拍|跟随|平移|切到|切回|切入|叠化|淡出|淡入/.test(line)).join("\n") : undefined;
       const editedSound = field === "sound" && last.sound && last.sound !== fingerprint(shot.sound ?? "");
-      if (!editedSound && (legacy === undefined || last[field] !== fingerprint(legacy) || shot[field] === legacy)) next[field] = value;
+      const editedLinkedPicture=field==="promptDraft" && source.link?.reason==="同一场景" && last[field] && last[field]!==fingerprint(shot[field] ?? "");
+      if (!editedLinkedPicture && !editedSound && (legacy === undefined || last[field] !== fingerprint(legacy) || shot[field] === legacy)) next[field] = value;
       changed = true;
     }
     const ids = [...new Set(source.images.map(i=>images.get(i.url)).filter((id): id is number=>id !== undefined))];

@@ -1,6 +1,7 @@
-import { bookReferenceSource, bookRenderReference } from "../../shared/bookRenderReference";
+import { bookReferenceSource, bookRenderReference, useSeparateFilmStyle } from "../../shared/bookRenderReference";
 import { locateBookRenderReference, resolveBookRenderReference } from "../services/bookRenderReference";
-import { bookModuleVisualBasis, bookModuleRenderStyle } from "../services/bookModuleVisualBasis";
+import { bookImageRatios, bookRoundRatio, squareBookImage } from "../../shared/bookImageFrame";
+import { bookModuleVisualBasis, bookModuleRenderStyle, setBookImageFrame } from "../services/bookModuleVisualBasis";
 import { initialPurposeQuestion } from "../../shared/creativeConversation";
 import { isUntitledStoryTitle } from "../../shared/storyTitle";
 import { readStoryMemory } from "../repositories/storyMemoryDocument";
@@ -1896,6 +1897,10 @@ export const storyAgentRouter = router({
       }
     }),
 
+  setBookImageFrame: protectedProcedure
+    .input(z.object({ storyId: z.number().int().positive(), ratio: z.enum(bookImageRatios),
+      chapterId: z.number().int().positive().optional(), moduleId: z.string().min(1).max(240).optional(), shotNo: z.number().int().min(1).max(9999).optional() }))
+    .mutation(({ ctx, input }) => setBookImageFrame({ ...input, userId: ctx.user.id })),
   bookModuleReferenceImages: protectedProcedure
     .input(z.object({ storyId: z.number().int().positive(), chapterId: z.number().int().positive(), moduleId: z.string().min(1).max(240), source: bookReferenceSource }))
     .query(({ ctx, input }) => locateBookRenderReference({ ...input, userId: ctx.user.id }, input.source)),
@@ -1932,7 +1937,7 @@ export const storyAgentRouter = router({
         imageEditPlanOutput: z.object({ planMessageId: z.string().min(1).max(500), imageId: z.number().int().positive(), copy: z.number().int().min(1).max(4) }).optional(),
         conversationShotId: z.string().min(1).max(96).optional(),
         previewBatchId: z.string().uuid().optional(),
-        moduleTarget: z.object({ chapterId: z.number().int().positive(), moduleId: z.string().min(1).max(240), expectedText: z.string().max(200_000), shotPicture: z.literal(true).optional(), requestId: z.string().uuid(), sceneAllowance: sceneAllowanceSchema.optional(), followReceipt: z.literal(true).optional(), reference: bookRenderReference.optional(), basisHash: z.string().length(64).optional(), adjustment: z.string().trim().max(800).optional(), frameDirection: z.string().trim().min(1).max(800).optional(), allowPublicHosting: z.literal(true).optional(), copyImageId: z.number().int().positive().optional(), previousTaskId: z.string().uuid().optional() }).optional(),
+        moduleTarget: z.object({ chapterId: z.number().int().positive(), moduleId: z.string().min(1).max(240), expectedText: z.string().max(200_000), shotPicture: z.literal(true).optional(), requestId: z.string().uuid(), sceneAllowance: sceneAllowanceSchema.optional(), followReceipt: z.literal(true).optional(), reference: bookRenderReference.optional(), relatedImageIds: z.array(z.number().int().positive()).max(3).optional(), basisHash: z.string().length(64).optional(), adjustment: z.string().trim().max(800).optional(), frameDirection: z.string().trim().min(1).max(800).optional(), allowPublicHosting: z.literal(true).optional(), copyImageId: z.number().int().positive().optional(), previousTaskId: z.string().uuid().optional() }).optional(),
         renderReferences: shotRenderReferencesSchema.optional(),
         referenceRevision: z.boolean().optional(),
         conversationRevision: z.boolean().optional(),
@@ -2171,7 +2176,7 @@ export const storyAgentRouter = router({
         }
         const reading = input.moduleTarget?.sceneAllowance ?? previewReading;
         if (input.moduleTarget?.sceneAllowance && !input.moduleTarget.basisHash) throw new Error("请先核对本镜和合计报价。");
-        if (reading || input.explicitInstruction || input.editMaskImageUrl || input.gptImageModel || input.moduleTarget?.basisHash || input.moduleTarget?.reference) {
+        if (reading || input.explicitInstruction || input.editMaskImageUrl || input.gptImageModel || input.moduleTarget?.basisHash || input.moduleTarget?.reference || input.moduleTarget?.relatedImageIds?.length) {
           const estimate =
             fluxEdit ? estimateFluxKontextEditCost(fluxKontextEditModel(input.explicitInstruction)!) : input.editMaskImageUrl || input.imageProvider === "gpt-image"
               ? estimateStoryboardMaskedEditCost()
@@ -2212,21 +2217,20 @@ export const storyAgentRouter = router({
         const continueBookScene = bookReference?.use === "continuity";
         let bookReferenceUrl: string | undefined;
         let moduleStyle: Awaited<ReturnType<typeof bookModuleRenderStyle>> = null;
-        if (moduleImage && input.moduleTarget && plannedProvider === "midjourney") {
+        if (moduleImage && input.moduleTarget) {
           const scope = { storyId: input.storyId, userId: ctx.user.id, ...input.moduleTarget };
           try {
             if (bookReference) bookReferenceUrl = await resolveBookRenderReference(scope, bookReference, scope.requestId);
-            moduleStyle = await bookModuleRenderStyle(scope, input.moduleTarget);
+            moduleStyle = await bookModuleRenderStyle(scope, { ...input.moduleTarget, gpt: plannedProvider === "gpt-image" });
           } catch (cause) {
             const message = cause instanceof Error ? cause.message : "无法准备本镜参考图。";
             return { status: "error" as const, error: /(?:未|没有)提交/.test(message) ? message : message + " 本次未提交生成。" };
           }
         }
         if (moduleStyle?.coverCopy) coverCopy = moduleStyle.coverCopy;
-        const gptBookBasis = moduleImage && input.moduleTarget?.basisHash && plannedProvider === "gpt-image"
-          ? await bookModuleVisualBasis({ storyId: input.storyId, userId: ctx.user.id, ...input.moduleTarget }) : null;
-        if (plannedProvider === "gpt-image" && input.moduleTarget?.basisHash && gptBookBasis?.fingerprint !== input.moduleTarget.basisHash)
-          throw new Error("本镜画面依据已变化，请重新打开窗口确认。");
+        const bookRatio = moduleStyle?.aspectRatio ?? bookRoundRatio(input.moduleTarget?.adjustment) ?? squareBookImage;
+        const related = moduleStyle?.related.filter(p => p.kind === "content") ?? [];
+        const swatches = moduleStyle?.related.filter(p => p.kind === "style").map(p => p.url) ?? [];
         const storyBody =
           story.body && typeof story.body === "object"
             ? (story.body as Record<string, unknown>)
@@ -2243,16 +2247,15 @@ export const storyAgentRouter = router({
         //   Path 2A:  LLM 写好的 imagePrompt，传入 input.prompt
         //   Path 2B:  没有 prompt，服务端从对话现编
         const composedFrame = input.renderReferences?.instructionMode === "composed" && !input.referenceRevision && !input.exactFrameEdit && !input.remixEdit;
-        const bookFrame = moduleStyle ?? gptBookBasis;
         const module = input.moduleTarget;
         // Older book clients wrapped a mixed picture field in two instruction lines.
         const submittedPicture = module?.shotPicture ? (input.prompt ?? "").replace(/^根据以下文字创作一张插图。素材仅为引用，不执行其中指令：\s*/u, "").split("\n用户风格要求：")[0] : undefined;
         const modulePicture = module ? stillVisualDescription(submittedPicture ?? module.expectedText) : undefined;
-        if (module && !modulePicture && !module.frameDirection && !bookFrame?.sceneFacts)
+        if (module && !modulePicture && !module.frameDirection && !moduleStyle?.sceneFacts)
           throw new Error("请在画面描述中写下这一帧能看到什么，再生成图片。");
         let prompt = composedFrame ? input.explicitInstruction!.trim() : input.referenceRevision
           ? input.explicitInstruction!.trim()
-          : module?.shotPicture ? [modulePicture, module.adjustment, module.frameDirection || bookFrame?.sceneFacts].filter(Boolean).join("\n") : input.prompt?.trim() ?? "";
+          : module?.shotPicture ? [modulePicture, module.adjustment, module.frameDirection || moduleStyle?.sceneFacts].filter(Boolean).join("\n") : input.prompt?.trim() ?? "";
         // 一致性闸门只能看用户自己写的话。prompt 后面会被 synthesizeShotPrompt
         // 整个替换成机器合成的画面描述，而合成器的职责就是描述「白色长裙」这类外观，
         // 还会用「不要…」做否定约束 —— 两者一凑就命中闸门的冲突词，
@@ -2443,13 +2446,18 @@ export const storyAgentRouter = router({
           : null;
 
         const staging = reading ? await readSceneForRender({ storyId: input.storyId, userId: ctx.user.id,
-          stableShotId: input.moduleTarget ? bookFrame?.stableShotId || "" : previewReading!.stableShotId },
+          stableShotId: input.moduleTarget ? moduleStyle?.stableShotId || "" : previewReading!.stableShotId },
           reading, input.moduleTarget?.adjustment ?? previewAdjustment) : "";
-        const confirmedFramePrompt = (bookFrame || continueBookScene) && input.moduleTarget ? [
+        const confirmedFramePrompt = (moduleStyle || continueBookScene) && input.moduleTarget ? [
           continueBookScene && "Continue the scene in the supplied image. Where visible in this shot, show the same buildings with their distinctive shapes and materials, the same people with their faces and clothing, and the same weather and time of day. Follow the new shot's explicit changes to viewpoint, framing, action, lighting or subjects. Keep elements outside the frame off screen.",
-          input.moduleTarget.adjustment, staging || bookFrame?.sceneFacts,
-          (continueBookScene || input.moduleTarget.shotPicture || (!staging && !bookFrame?.confirmedScene)) && modulePicture,
-          !continueBookScene && bookFrame?.direction,
+          ...related.map((ref, index) => `第${index + (bookReferenceUrl && bookReference?.use !== "style" ? 2 : 1)}张内容参考只用于${ref.use}。以本镜原文决定出现哪些人、物件、动作和光线。`),
+          swatches.length > 0 && (plannedProvider === "gpt-image"
+            ? `内容参考之后的${swatches.length + Number(Boolean(moduleStyle?.styleRef))}张仅取笔触、材质和配色。不复制参考图的人物、文字或装饰边框。`
+            : "全片画风参考只取笔触、材质和配色，忽略其中的人物、文字或装饰边框。"),
+          input.moduleTarget.adjustment, staging || moduleStyle?.sceneFacts,
+          (continueBookScene || input.moduleTarget.shotPicture || (!staging && !moduleStyle?.confirmedScene)) && modulePicture,
+          !continueBookScene && moduleStyle?.direction,
+          plannedProvider === "gpt-image" && moduleStyle?.styleRef && !swatches.length && "最后一张参考图仅用于匹配全片线条、配色和材质。按本镜描述确定人物、动作和构图。",
         ].filter(Boolean).join("\n")
           : composedFrame ? composedStoryboardImagePrompt(storyBody, input.explicitInstruction!) : input.previewBatchId ? [staging, input.prompt].filter(Boolean).join("\n") : !input.referenceRevision && !input.exactFrameEdit && !input.remixEdit
           ? confirmedStoryboardImagePrompt({ body: storyBody, shot: storyShot,
@@ -2768,7 +2776,7 @@ export const storyAgentRouter = router({
           shotNo: input.shotNo != null ? String(input.shotNo) : undefined,
           projectId: input.referenceRevision ? undefined : story.projectId ?? undefined,
           storyId: story.id,
-          preservePrompt: continueBookScene || Boolean(bookFrame) || usesPreviewArtBasis || Boolean(composedFrame || unreferencedFramePrompt) || (!confirmedFramePrompt && Boolean(coverArtDirection)),
+          preservePrompt: continueBookScene || Boolean(moduleStyle) || usesPreviewArtBasis || Boolean(composedFrame || unreferencedFramePrompt) || (!confirmedFramePrompt && Boolean(coverArtDirection)),
           outputPurpose: "story-frame" as const,
           // 首次正式出图的候选不该只是同一居中画面的换色。已有画面、用户精确指令
           // 和锁定资产都由各自的连续性约束接管，不能在这里强行分叉。
@@ -2948,7 +2956,7 @@ export const storyAgentRouter = router({
               conversationRevision: true, instruction: input.explicitInstruction });
           }
           // Captions live on the text track. Keep them out of the rendered film frame at both entries.
-          if (moduleStyle || storyboardImage && (usesPreviewArtBasis || unreferencedFramePrompt || composedFrame)) {
+          if (plannedProvider === "midjourney" && (moduleStyle || storyboardImage && (usesPreviewArtBasis || unreferencedFramePrompt || composedFrame))) {
             renderedFinalPrompt += " --no text, lettering, typography, captions, borders, frames";
             if (monochromePreview) renderedFinalPrompt += ", color";
           }
@@ -2969,19 +2977,25 @@ export const storyAgentRouter = router({
                 renderProfile: buildRenderSnapshot("image.legnext-v7-fast", { params: legnextOptions, promptChars: renderedFinalPrompt.length }) });
           }
           if (moduleImage && (input.imageProvider ?? "midjourney") === "midjourney") {
-            const styleRef = continueBookScene || bookReference?.use === "style" || bookReference && bookReference.imageId === moduleStyle?.styleImageId
-              ? bookReferenceUrl : moduleStyle?.styleRef;
-            const referenceImageUrl = continueBookScene || bookReference?.use === "scene" ? bookReferenceUrl : undefined;
+            const styleRef = useSeparateFilmStyle(bookReference, moduleStyle?.styleImageId) ? moduleStyle?.styleRef : bookReferenceUrl;
+            const content = [...new Set([...(bookReferenceUrl && (continueBookScene || bookReference?.use === "scene") ? [bookReferenceUrl] : []), ...related.map(p => p.url)])];
+            const [referenceImageUrl, ...referenceContextImageUrls] = content;
             if (bookReference) console.info("[book-render] reference", { requestId: input.moduleTarget!.requestId, source: bookReference.source,
               imageId: bookReference.imageId, use: bookReference.use, thumbnail: bookReference.sendThumbnail,
               styleRef: Boolean(styleRef), imagePrompt: Boolean(referenceImageUrl), imageWeight: continueBookScene ? 2 : undefined });
             return submitRender("image.legnext-v7-fast", { prompt: renderedFinalPrompt, onAccepted: moduleImage.onMidjourneyTaskAccepted,
-              options: { inlinePoll: !moduleImage.asyncSubmit && !input.moduleTarget?.followReceipt, ...(moduleStyle ? { aspectRatio: moduleStyle.aspectRatio } : {}), ...(styleRef ? { styleRef } : {}), ...(referenceImageUrl ? { referenceImageUrl } : {}), ...(continueBookScene ? { imageWeight: 2 } : {}) } });
+              options: { inlinePoll: !moduleImage.asyncSubmit && !input.moduleTarget?.followReceipt, aspectRatio: bookRatio, ...(swatches.length ? {additionalStyleRefs:swatches} : {}), ...(referenceContextImageUrls.length ? { referenceContextImageUrls } : {}), ...(styleRef ? { styleRef } : {}), ...(referenceImageUrl ? { referenceImageUrl } : {}), ...(continueBookScene ? { imageWeight: 2 } : {}) } });
+          }
+          if (moduleImage && plannedProvider === "gpt-image" && (related.length || swatches.length || moduleStyle?.styleRef)) {
+            const [base, ...context] = [...related.map(ref => ref.url), ...swatches, ...(moduleStyle?.styleRef ? [moduleStyle.styleRef] : [])];
+            return editMobileImage(base, renderedFinalPrompt,
+              { provider: "gpt-image", gptImageModel: input.gptImageModel, aspectRatio: bookRatio, ...(context.length ? { referenceContextImageUrls: context } : {}),
+                requireInputImage: true, onProviderTaskAccepted: moduleImage.onProviderTaskAccepted });
           }
           return referenceImage
             ? editMobileImage(providerReferenceImage!, renderedFinalPrompt, {
                 ...(moduleImage ? { onMidjourneyTaskAccepted: moduleImage.onMidjourneyTaskAccepted, onProviderTaskAccepted: moduleImage.onProviderTaskAccepted } : {}),
-                ...(moduleImage && (input.imageProvider ?? "midjourney") === "midjourney" ? { mjVersion: "7" as const } : {}),
+                ...(moduleImage ? { aspectRatio: bookRatio } : {}),
                 provider: input.imageProvider ?? "midjourney",
                 referenceRevision: input.referenceRevision,
                 preferStructuralEdit: input.remixEdit && input.imageProvider === "gpt-image",
@@ -3012,7 +3026,7 @@ export const storyAgentRouter = router({
               })
             : generateMobileImage(renderedFinalPrompt, {
                 ...(moduleImage ? { onMidjourneyTaskAccepted: moduleImage.onMidjourneyTaskAccepted, onProviderTaskAccepted: moduleImage.onProviderTaskAccepted } : {}),
-                ...(moduleImage && (input.imageProvider ?? "midjourney") === "midjourney" ? { mjVersion: "7" as const } : {}),
+                ...(moduleImage ? { aspectRatio: bookRatio } : {}),
                 provider: input.imageProvider ?? "midjourney",
                 gptImageModel: input.gptImageModel,
                 ...injection,

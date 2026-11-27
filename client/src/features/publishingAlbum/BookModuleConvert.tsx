@@ -1,8 +1,14 @@
+import { bookRoundRatio, squareBookImage, supportsBookGptRatio } from "@shared/bookImageFrame";
+import { useSeparateFilmStyle } from "@shared/bookRenderReference";
+import { linkedScenePrompt } from "@shared/bookShotLinks";
+import type { PictureSelection } from "./savedPictureSource";
 import { useUiText as useDesktopUiText } from "@/features/uiLanguage/UiLanguage";
 import { awaitMediaTask } from "@/lib/mediaTaskPolling";
 import { BookRenderReferencePicker, useBookRenderReference } from "./BookRenderReferencePicker";
 import { ShotScenePreparation } from "../bookVideo/ShotScenePreparation";
 import { TextSceneIntentReview, useTextSceneIntent } from "../bookVideo/TextSceneIntent";
+import { pictureSourcePages } from "@shared/pictureSourcePages";
+import { PictureSourceLinks } from "./PictureSourceLinks";
 import { stillVisualDescription } from "@shared/stillVisualDescription";
 import { sceneRenderTotal, type SceneAllowance } from "@shared/shotSceneDirection";
 import { MediaPlayer } from "@/components/ui/media-player";
@@ -21,12 +27,8 @@ import { formatComputeQuote } from "@shared/computeMoney";
 import { bookImageText } from "@shared/bookImageBlock";
 import { bookAudioText } from "@shared/bookAudioBlock";
 import { BOOK_NARRATION_VOICES, type BookNarrationVoiceGender } from "@shared/bookNarrationVoice";
-export type ModuleConversion = {
-  id: string;
-  text: string;
-  prompt?: string;
+export type ModuleConversion = PictureSelection & {
   heading?: string;
-  parts?: Array<{ id: string; text: string }>;
   kind: "text" | "image" | "music" | "sfx" | "narration" | "translate-en" | "translate-zh";
 };
 export function BookModuleConvert({
@@ -51,7 +53,7 @@ export function BookModuleConvert({
     [error, setError] = useState(""),
     [intent, setIntent] = useState(source.kind === "sfx" || source.kind === "music" ? source.prompt ?? "" : "");
   const sourcePrompt = source.prompt ?? source.text;
-  const prompt = source.kind === "image" ? stillVisualDescription(sourcePrompt) : sourcePrompt;
+  const currentPrompt = source.kind === "image" ? stillVisualDescription(sourcePrompt) : sourcePrompt;
   const [result, setResult] = useState(""),
     [images, setImages] = useState<string[]>([]);
   const [submitted, setSubmitted] = useState(false);
@@ -92,12 +94,11 @@ export function BookModuleConvert({
     },
   });
   const inspectShot = source.kind === "image" && chapterId > 0;
-  const inspectBasis = inspectShot && imageProvider === "midjourney";
+  const canPickShotReference = inspectShot && imageProvider === "midjourney";
   const visualBasis = trpc.storyAgent.bookModuleVisualBasis.useQuery(taskScope, { enabled: inspectShot, retry: false, refetchOnMount: "always" });
-  const shotBasis = inspectShot ? visualBasis.data : null;
-  const basis = inspectBasis ? visualBasis.data : null;
-  const standalone = source.kind === "image" && !shotBasis?.stableShotId;
-  const textReview = useTextSceneIntent(JSON.stringify([storyId, chapterId, source.id]), standalone ? prompt : "", intent);
+  const basis = inspectShot ? visualBasis.data : null;
+  const standalone = source.kind === "image" && !basis?.stableShotId;
+  const textReview = useTextSceneIntent(JSON.stringify([storyId, chapterId, source.id]), standalone ? currentPrompt : "", intent);
   const [copyConsent, setCopyConsent] = useState("");
   const [readyShot, setReadyShot] = useState("");
   const [reading, setReading] = useState<SceneAllowance>();
@@ -128,12 +129,20 @@ export function BookModuleConvert({
   const insertedImage = useRef<string | null>(null);
   const lastRecoveryRead = useRef<number | null>(null);
   const [effectSeconds, setEffectSeconds] = useState(() => {
-    const explicit = Number(/^\s*(?:时长\s*)?(\d+)\s*秒(?:[。；，.,;\s]|$)/u.exec(prompt)?.[1]);
+    const explicit = Number(/^\s*(?:时长\s*)?(\d+)\s*秒(?:[。；，.,;\s]|$)/u.exec(currentPrompt)?.[1]);
     return String(explicit >= 1 && explicit <= 30 ? explicit : 10);
   });
-  const shotReference = useBookRenderReference(taskScope, inspectBasis, [basis?.sceneFacts, source.prompt ?? source.text, intent].filter(Boolean).join("\n"));
-  const separateFilmStyle = !shotReference.reference || (shotReference.use === "scene" && shotReference.reference.imageId !== basis?.styleImageId);
-  const styleBlocked = basisLoading || shotReference.blocked || Boolean(separateFilmStyle && basis?.needsCopy && copyConsent !== basis.fingerprint);
+  const shotReference = useBookRenderReference(taskScope, canPickShotReference, [basis?.sceneFacts, source.prompt ?? source.text, intent].filter(Boolean).join("\n"),source.sceneLink?.sourceNumber, basis?.styleImageId);
+  const ratio = bookRoundRatio(intent) ?? basis?.aspectRatio ?? squareBookImage;
+  const unsupportedRatio = inspectShot && imageProvider === "gpt-image" && !supportsBookGptRatio(ratio);
+  const [relatedConsent, setRelatedConsent] = useState<string[]>([]);
+  const separateFilmStyle = useSeparateFilmStyle(shotReference.reference, basis?.styleImageId);
+  const related = (basis?.relatedPictures ?? []).filter(p => p.imageId !== shotReference.reference?.imageId && (p.kind !== "style" || separateFilmStyle));
+  const relatedKey = (id: number) => [basis?.fingerprint, imageProvider, id].join(":");
+  const relatedImageIds = related.filter(p => relatedConsent.includes(relatedKey(p.imageId))).map(p => p.imageId);
+  const prompt = source.kind === "image" && (!canPickShotReference || shotReference.keepLinkedScene)
+    ? linkedScenePrompt(currentPrompt, source.sceneLink) : currentPrompt;
+  const styleBlocked = unsupportedRatio || basisLoading || shotReference.blocked || Boolean(separateFilmStyle && basis?.needsCopy && copyConsent !== basis.fingerprint);
   const validSeconds = Number.isInteger(Number(effectSeconds)) && Number(effectSeconds) >= 1 && Number(effectSeconds) <= 30;
   const mediaPreview = reviewMedia && ["image", "sfx", "music", "narration"].includes(source.kind);
   const readyImages = savedTask?.status === "succeeded"
@@ -188,7 +197,7 @@ export function BookModuleConvert({
     if (active.current && !mediaPreview) onInsert(text);
   }
   const cost = (imageProvider === "gpt-image" ? estimatePublishingCoverFallbackCost() : estimateStoryboardImageCost()).estimatedCny;
-  const sceneAllowance = shotBasis?.stableShotId && reading?.stableShotId === shotBasis.stableShotId ? reading : undefined;
+  const sceneAllowance = basis?.stableShotId && reading?.stableShotId === basis.stableShotId ? reading : undefined;
   const total = sceneRenderTotal(cost, sceneAllowance?.estimatedCny);
   const title = translating ? (source.kind === "translate-en" ? "翻译成英文" : "翻译成中文") :
     source.kind === "text"
@@ -242,6 +251,7 @@ export function BookModuleConvert({
         </DialogHeader>
         {source.heading && <p className="text-xs text-muted-foreground">{source.heading}</p>}
         {source.heading && source.kind === "image" && <p className="whitespace-pre-wrap text-sm">{prompt}</p>}
+        {source.kind === "image" && <PictureSourceLinks storyId={storyId} pages={pictureSourcePages(source.parts?.map(p => p.text).join("\n") ?? source.text).pages} />}
         {source.kind === "sfx" && <div className="space-y-2">
           <p className="whitespace-pre-wrap text-sm">{prompt}</p>
           <label className="block text-sm">{_ui("音效时长（秒）")}
@@ -272,19 +282,27 @@ export function BookModuleConvert({
         </div>}
         {source.kind === "image" && <label className="text-sm">
           {_ui("生成方式")}<select aria-label={_ui("图片生成方式")} className="mt-1 w-full rounded border bg-transparent p-2" value={imageProvider} disabled={busy || submitted || images.length > 0 || blockNewImage}
-            onChange={event => { shotReference.allow(false); setImageProvider(event.target.value as "midjourney" | "gpt-image"); setError(""); }}>
+            onChange={event => { shotReference.allow(false); setCopyConsent(""); setRelatedConsent([]); setImageProvider(event.target.value as "midjourney" | "gpt-image"); setError(""); }}>
             <option value="midjourney">{_ui("Midjourney V7 · 4张候选")}</option>
             <option value="gpt-image">{_ui("GPT Image 2 备用 · 1张图片")}</option>
           </select>
         </label>}
         {standalone && !visualBasis.isLoading && !visualBasis.isError && !blockNewImage &&
           <TextSceneIntentReview review={textReview} disabled={busy || submitted} />}
-        {shotBasis?.stableShotId && <ShotScenePreparation key={shotBasis.stableShotId} storyId={storyId} stableShotId={shotBasis.stableShotId}
-          shotNo={shotBasis.shotNumbers[0]} adjustment={intent} disabled={busy} onReady={sceneReady} />}
-        {inspectBasis && <BookRenderReferencePicker model={shotReference} disabled={busy || submitted || blockNewImage} />}
+        {basis?.stableShotId && <ShotScenePreparation key={basis.stableShotId} storyId={storyId} stableShotId={basis.stableShotId}
+          shotNo={basis.shotNumbers[0]} adjustment={intent} disabled={busy} onReady={sceneReady} />}
+        {canPickShotReference && <BookRenderReferencePicker model={shotReference} disabled={busy || submitted || blockNewImage} />}
+        {inspectShot && !basis && !basisLoading && <p className="text-sm">{_ui("图片画幅")} · {ratio}</p>}
+        {unsupportedRatio && <p role="status">{_ui("GPT 图片支持 1:1、3:2 和 2:3，可在转换要求里指定比例或选择 MJ。")}</p>}
         {basis && <div className="space-y-1 text-sm">
-          <p>{_ui("视频第 {0} 镜 · {1}", [basis.shotNumbers.join("、"), basis.aspectRatio])}
+          <p>{basis.shotNumbers.length ? _ui("视频第 {0} 镜 · {1}", [basis.shotNumbers.join("、"), ratio]) : _ui("图片画幅") + " · " + ratio}
             {basis.styleName && ` · ${basis.styleName}`}{separateFilmStyle && basis.styleImageId && ` · ${_ui("画风参考")} #${basis.styleImageId}`}</p>
+          {related.map(p => <label key={p.imageId} className="flex items-center gap-2">
+            <input type="checkbox" checked={relatedImageIds.includes(p.imageId)} disabled={busy || submitted}
+              onChange={e => setRelatedConsent(e.target.checked ? [...relatedConsent, relatedKey(p.imageId)] : relatedConsent.filter(k => k !== relatedKey(p.imageId)))} />
+            <img src={p.imageUrl} alt="" className="h-9 w-9 rounded object-contain" />
+            <span>{p.sourceTitle} · #{p.imageId} · {_ui(p.needsCopy ? "本轮将缩图发至 302，持有链接的人也可查看。仅参考{0}" : "本轮仅参考{0}", [p.use])}</span>
+          </label>)}
           {separateFilmStyle && basis.needsCopy && <label><input type="checkbox" checked={copyConsent === basis.fingerprint} disabled={busy}
             onChange={e => setCopyConsent(e.target.checked ? basis.fingerprint : "")} /> {_ui("允许本轮将缩图上传至 OSS 或 302，供图片服务读取。持有链接的人也可查看缩图。")}</label>}
         </div>}
@@ -327,7 +345,7 @@ export function BookModuleConvert({
           {_ui("分析最多 {0}，生图 {1}。", [formatComputeQuote(sceneAllowance.estimatedCny), formatComputeQuote(cost)])}</p>}
         {!result && !images.length && !submitted && !blockNewImage && (
           <button
-            disabled={busy || (standalone && !prompt && !textReview.direction) || (source.kind === "sfx" && !validSeconds) || Boolean(source.heading && source.kind === "music" && !source.prompt && !intent.trim()) || styleBlocked || Boolean(shotBasis?.stableShotId && readyShot !== shotBasis.stableShotId) || (source.kind === "narration" && narrationSubmitted)}
+            disabled={busy || (standalone && !prompt && !textReview.direction) || (source.kind === "sfx" && !validSeconds) || Boolean(source.heading && source.kind === "music" && !source.prompt && !intent.trim()) || styleBlocked || Boolean(basis?.stableShotId && readyShot !== basis.stableShotId) || (source.kind === "narration" && narrationSubmitted)}
             onClick={() =>
               void run(async () => {
                 await prepare();
@@ -352,15 +370,18 @@ export function BookModuleConvert({
                   setSubmitted(true);
                   if (basis?.needsCopy) setCopyConsent("");
                   shotReference.allow(false);
+                  setRelatedConsent([]);
+                  setCopyConsent("");
                   const previousTaskId = basis && savedTask?.status === "succeeded" ? savedTask.id : undefined;
                   const data = await image.mutateAsync({
                     storyId,
                     moduleTarget: { chapterId, moduleId: source.id, expectedText: source.text, requestId: operation.current.operationId, followReceipt: true, ...(source.prompt ? {shotPicture:true} : {}),
                       ...(shotReference.reference ? { reference: shotReference.reference } : {}),
+                      ...(relatedImageIds.length ? {relatedImageIds} : {}),
                       ...(sceneAllowance ? { sceneAllowance } : {}),
                       ...(standalone && textReview.direction ? { frameDirection: textReview.direction } : {}),
                       adjustment: intent.trim() || undefined,
-                      ...(shotBasis ? { basisHash: shotBasis.fingerprint, previousTaskId, allowPublicHosting: separateFilmStyle && basis?.needsCopy && copyConsent === basis.fingerprint ? true : undefined, copyImageId: separateFilmStyle && basis?.needsCopy && copyConsent === basis.fingerprint ? basis.styleImageId! : undefined } : {}) },
+                      ...(basis ? { basisHash: basis.fingerprint, previousTaskId, allowPublicHosting: separateFilmStyle && basis?.needsCopy && copyConsent === basis.fingerprint ? true : undefined, copyImageId: separateFilmStyle && basis?.needsCopy && copyConsent === basis.fingerprint ? basis.styleImageId! : undefined } : {}) },
                     prompt: [prompt, !source.prompt && intent.trim(), !prompt && textReview.direction].filter(Boolean).join("\n"),
                     mode: "final",
                     imageProvider,
@@ -427,7 +448,7 @@ export function BookModuleConvert({
           >
             {translating ? _ui("开始翻译并插入下方") : source.kind === "image"
               ? sceneAllowance ? _ui("确认生成 {0} 张 · 合计最多 {1}", [imageProvider === "gpt-image" ? 1 : 4, formatComputeQuote(total)]) :
-                basis && savedTask?.status === "succeeded" ? _ui(shotReference.reference?.use === "continuity" ? "按同一场景再生成四张（{0}）" : "按本镜画风再生成四张（{0}）", [formatComputeQuote(cost)]) : _ui("生成图片（{0}{1}）", [imageProvider === "gpt-image" ? _ui("GPT · 1张 · 预估 ") : "", formatComputeQuote(cost).replace(/算力$/, _ui("算力"))])
+                imageProvider === "midjourney" && basis && savedTask?.status === "succeeded" ? _ui(shotReference.reference?.use === "continuity" ? "按同一场景再生成四张（{0}）" : "按本镜画风再生成四张（{0}）", [formatComputeQuote(cost)]) : _ui("生成图片（{0}{1}）", [imageProvider === "gpt-image" ? _ui("GPT · 1张 · 预估 ") : "", formatComputeQuote(cost).replace(/算力$/, _ui("算力"))])
               : source.kind === "text"
                 ? _ui("生成文字")
                 : source.kind === "narration" ? _ui("查看朗读费用") : source.kind === "sfx" ? _ui("查看音效费用") : _ui("查看音乐生成费用")}
@@ -435,9 +456,9 @@ export function BookModuleConvert({
         )}
         {offerGpt && source.kind === "image" && imageProvider === "midjourney" && !busy && !submitted && images.length === 0 && (
           <div className="rounded border p-2 text-xs">
-            <p>{_ui("Midjourney 当前拥挤。可改用 GPT-image 出 1 张图（预估")}{" "}{formatComputeQuote(estimatePublishingCoverFallbackCost().estimatedCny).replace(/算力$/, _ui("算力"))}{_ui("，约为 Midjourney 的 8 倍），不会自动切换。")}</p>
+            <p>{_ui("Midjourney 当前拥挤。可改用 GPT-image 出 1 张图（预估")}{" "}{formatComputeQuote(estimatePublishingCoverFallbackCost().estimatedCny).replace(/算力$/, _ui("算力"))}{_ui("），不会自动切换。")}</p>
             <button type="button" className="mt-1 rounded border px-2 py-1"
-              onClick={() => { setImageProvider("gpt-image"); setOfferGpt(false); setError(""); }}>
+              onClick={() => { setCopyConsent(""); setRelatedConsent([]); setImageProvider("gpt-image"); setOfferGpt(false); setError(""); }}>
               {_ui("改用 GPT-image")}</button>
           </div>
         )}

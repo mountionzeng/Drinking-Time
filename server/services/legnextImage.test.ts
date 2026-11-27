@@ -148,6 +148,20 @@ it("uploads a shared composition/style/identity reference only once", async () =
   expect(fetcher).toHaveBeenCalledTimes(1);
 });
 
+it("keeps the two art references in one style flag, apart from the scene reference", async () => {
+  vi.stubEnv("LEGNEXT_API_KEY", "test");
+  m.publicUrl.mockImplementation(async url => "https://files.example.com" + url);
+  const fetcher=vi.fn().mockResolvedValue({ok:true,json:async()=>({job_id:id})});
+  vi.stubGlobal("fetch",fetcher);
+  await generateLegnextImage("a station",vi.fn(),{inlinePoll:false,aspectRatio:"1:1",referenceImageUrl:"/station",styleRef:"/ink",additionalStyleRefs:["/paper","/ink"]});
+  const prompt=JSON.parse(fetcher.mock.calls[0][1].body).text;
+  expect(prompt).toMatch(/^https:\/\/files.example.com\/station /);
+  expect(prompt).toContain("--sref https://files.example.com/ink https://files.example.com/paper");
+  expect(prompt.match(/--sref/g)).toHaveLength(1);
+  expect(prompt).toContain("--ar 1:1");
+  expect(m.publicUrl).toHaveBeenCalledTimes(3);
+});
+
 it("downloads all four candidates concurrently, retaining provider order despite completion order", async () => {
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ status: "completed", output: { image_urls: [0,1,2,3].map(n => `https://images.sexapi.ai/${n}.png`) } }) }));
   const release: (() => void)[] = [];

@@ -598,7 +598,8 @@ export async function getRecentChatCorrections(
 // 桌面端通过 projectId+shotNo 关联，手机端通过 storyId+userId 关联。
 
 export async function createGeneratedImage(
-  data: Omit<InsertGeneratedImage, "id" | "createdAt">
+  data: Omit<InsertGeneratedImage, "id" | "createdAt">,
+  origin: "generation" | "user_import" = "generation"
 ): Promise<GeneratedImage> {
   const db = await getDb();
   if (!db) {
@@ -657,7 +658,7 @@ export async function createGeneratedImage(
         imageId: image.id,
         action: "edit_complete",
         metadata: {
-          source: "generation",
+          source: origin,
           state: "pending",
           projectId: image.projectId,
         },
@@ -730,7 +731,7 @@ export async function createGeneratedImage(
       imageId: image.id,
       action: "edit_complete",
       metadata: {
-        source: "generation",
+        source: origin,
         state: "pending",
         projectId: image.projectId,
       },

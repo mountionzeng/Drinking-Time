@@ -349,11 +349,16 @@ describe("storyAgent tRPC router", () => {
       const shots = [{ shotNo: 3, stableShotId: "paper-boat", publishingVideo: { sourceModuleIds: [chapter.id + ":module-1"] } }];
       await updateStory(story.id, userId, { body: { shots, artDirection: { recipe: { version: 3, system: {
         name: "Ink", confirmedAt: 1, englishPrompt: "Ochre paper and ink.", filmStyleImageId: style.id } } } } });
-      const ratio = userId === 49601 ? "16:9" : "9:16";
+      const ratio = userId === 49601 ? "1:1" : "9:16";
       if (ratio === "9:16") {
         const { updateStoryTimeline } = await import("./repositories/timelines");
         await updateStoryTimeline({ storyId: story.id, userId, expectedVersion: 0, items: [],
           extensions: { chatCutMigration: { canvas: { width: 1080, height: 1920 } } } });
+      }
+      expect((await caller.storyAgent.bookModuleVisualBasis(scope))?.aspectRatio).toBe("1:1");
+      if (ratio === "9:16") {
+        await caller.storyAgent.setBookImageFrame({storyId:story.id,ratio});
+        await expect(appRouter.createCaller(createAuthContext(userId+100)).storyAgent.setBookImageFrame({storyId:story.id,ratio:"3:2"})).rejects.toThrow();
       }
       const basis = await caller.storyAgent.bookModuleVisualBasis(scope);
       expect(basis).toMatchObject({ shotNumbers: [3], aspectRatio: ratio, styleImageId: style.id });
@@ -463,6 +468,89 @@ describe("storyAgent tRPC router", () => {
     expect(result).toMatchObject({status:"ok"});
     expect(provider.mock.lastCall?.[0]).toContain(direction);
     expect(provider.mock.lastCall?.[0]).toContain(source);
+  });
+  it.each(["midjourney","gpt-image"] as const)("keeps a new manuscript shot in the film style before it is linked to the edit (%s)", async provider => {
+    const userId = provider === "midjourney" ? 49781 : 49782;
+    const { createStory, updateStory } = await import("./repositories/stories");
+    const { insertChapter } = await import("./repositories/chapters");
+    const story = await createStory({userId, title:"夜班车", body:{}});
+    const caller = appRouter.createCaller(createAuthContext(userId)).storyAgent;
+    const raw = "画面：窗前有一盏黄灯。";
+    const chapter = await insertChapter({storyId:story.id,userId,content:{title:"夜班车",layout:null,blocks:{
+      body:["到站",raw].join("\n"),writingStyle:[{id:"new-shot",format:"shot",collapsed:false,parentId:null},
+        {id:"picture",format:"text",collapsed:false,parentId:"new-shot"}],blockIds:[],containsAiText:false,settings:null,
+      coverKey:null,bodyTextureKey:null,images:{},illustrations:[]}}});
+    const style = await createGeneratedImage({storyId:story.id,userId,imageUrl:"https://storage.example/night-line.jpg",isCurrent:false});
+    await updateStory(story.id,userId,{body:{shots:provider === "midjourney" ? [{shotNo:1,stableShotId:"old",subject:"irrelevant old scene",
+      publishingVideo:{sourceModuleIds:[chapter.id+":older"]}}] : [],
+      artDirection:{recipe:{version:4,system:{name:"夜色线描",confirmedAt:1,englishPrompt:"Blue ink on linen.",filmStyleImageId:style.id}}}}});
+    const scope = {storyId:story.id,chapterId:chapter.id,moduleId:"picture"};
+    const basis = await caller.bookModuleVisualBasis(scope);
+    expect(basis).toMatchObject({styleImageId:style.id,styleName:"夜色线描 V4",stableShotId:"",shotNumbers:[],aspectRatio:"1:1"});
+    const submit = (basisHash?:string) => caller.generateForMobile({storyId:story.id,mode:"final",imageProvider:provider,
+      ...(provider === "gpt-image" ? {gptImageModel:"gpt-image-2" as const} : {}),prompt:raw,
+      costConfirmation:{accepted:true,estimatedCny:provider==="midjourney" ? estimateStoryboardImageCost().estimatedCny : estimateStoryboardMaskedEditCost().estimatedCny},
+      moduleTarget:{...scope,requestId:crypto.randomUUID(),expectedText:raw,shotPicture:true,basisHash}});
+    vi.clearAllMocks();
+    expect(await submit()).toMatchObject({status:"error",error:expect.stringContaining("画风已变化")});
+    expect(legnextMocks.generateLegnextImage).not.toHaveBeenCalled();
+    expect(imageGenMocks.editImage).not.toHaveBeenCalled();
+    if (provider==="midjourney") legnextMocks.generateLegnextImage.mockResolvedValueOnce({status:"ok",imageUrl:"https://storage.example/lamp.png"});
+    expect(await submit(basis!.fingerprint)).toMatchObject({status:"ok"});
+    if (provider==="midjourney") {
+      const [prompt,,opts]=legnextMocks.generateLegnextImage.mock.calls[0];
+      expect(opts).toMatchObject({styleRef:style.imageUrl,aspectRatio:"1:1"});
+      expect(opts.referenceImageUrl).toBeUndefined();
+      expect(prompt).toContain("Blue ink on linen."); expect(prompt).toContain("窗前有一盏黄灯");
+      expect(prompt).not.toContain("irrelevant old scene");
+    } else {
+      expect(imageGenMocks.editImage).toHaveBeenCalledWith(style.imageUrl,expect.stringContaining("Blue ink on linen."),
+        expect.objectContaining({provider:"gpt-image",requireInputImage:true,aspectRatio:"1:1"}));
+      expect(imageGenMocks.generateImage).not.toHaveBeenCalled();
+    }
+  });
+  it.each(["midjourney","gpt-image"] as const)("passes the approved manuscript images with their own uses and the chat frame to %s", async provider => {
+    const userId = provider === "midjourney" ? 54781 : 54782;
+    const caller = appRouter.createCaller(createAuthContext(userId)).storyAgent;
+    const { createStory, updateStory } = await import("./repositories/stories");
+    const { insertChapter } = await import("./repositories/chapters");
+    const { bookImageText } = await import("../shared/bookImageBlock");
+    const story = await createStory({userId,title:"月台",body:{}});
+    const picture = (name:string) => createGeneratedImage({storyId:story.id,userId,imageUrl:"https://storage.example/"+name+".jpg",isCurrent:false});
+    const paint = await picture("paper"), style = await picture("swatch"), station = await picture("station"), portrait = await picture("portrait"), unrelated = await picture("boat");
+    const raw = "画面：阿云在站台尽头等车。";
+    const pages = [["候车厅","画面：候车厅的长椅。",bookImageText(station.imageUrl)],["人像","画面：阿云站在白墙前。",bookImageText(portrait.imageUrl)],
+      ["水面","画面：帆船。",bookImageText(unrelated.imageUrl)],["到站",raw]];
+    const chapter = await insertChapter({storyId:story.id,userId,content:{title:"早班",layout:null,blocks:{
+      body:pages.flat().join("\n"),writingStyle:pages.flatMap((lines,i)=>lines.map((_,j)=>({id:i+"-"+j,format:j?"text" as const:"shot" as const,parentId:j?i+"-0":null,collapsed:false}))),
+      blockIds:[],containsAiText:false,settings:null,coverKey:null,bodyTextureKey:null,images:{},illustrations:[]}}});
+    await updateStory(story.id,userId,{body:{characters:[{name:"阿云"}],artDirection:{recipe:{version:1,system:{name:"墨线",confirmedAt:1,filmStyleImageId:style.id,referenceImageIds:[style.id,paint.id]}}}}});
+    const scope={storyId:story.id,chapterId:chapter.id,moduleId:"3-1"};
+    const before=await caller.bookModuleVisualBasis(scope);
+    expect(before?.aspectRatio).toBe("1:1");
+    await caller.setBookImageFrame({storyId:story.id,chapterId:chapter.id,shotNo:4,ratio:"3:2"});
+    const basis=await caller.bookModuleVisualBasis(scope);
+    expect(basis?.aspectRatio).toBe("3:2");
+    expect((await caller.bookModuleVisualBasis({...scope,moduleId:"1-1"}))?.aspectRatio).toBe("1:1");
+    expect(basis?.relatedPictures.map(p=>[p.imageId,p.use])).toEqual([[portrait.id,"阿云可辨认的相貌和装束"],[station.id,"车站的建筑和材质"],[paint.id,"笔触、材质和色块，不沿用内容、文字或边框"]]);
+    const generate=(ids:number[],hash=basis!.fingerprint)=>caller.generateForMobile({storyId:story.id,prompt:raw,mode:"final",imageProvider:provider,
+      ...(provider==="gpt-image"?{gptImageModel:"gpt-image-2" as const}:{}),
+      costConfirmation:{accepted:true,estimatedCny:provider==="midjourney"?estimateStoryboardImageCost().estimatedCny:estimateStoryboardMaskedEditCost().estimatedCny},
+      moduleTarget:{...scope,expectedText:raw,requestId:crypto.randomUUID(),shotPicture:true,basisHash:hash,relatedImageIds:ids}});
+    vi.clearAllMocks();
+    expect(await generate([station.id],before!.fingerprint)).toMatchObject({status:"error"});
+    expect(await generate([unrelated.id])).toMatchObject({status:"error"});
+    expect(imageGenMocks.editImage).not.toHaveBeenCalled();
+    expect(legnextMocks.generateLegnextImage).not.toHaveBeenCalled();
+    if(provider==="midjourney")legnextMocks.generateLegnextImage.mockResolvedValueOnce({status:"ok",imageUrl:"https://storage.example/done.jpg"});
+    expect(await generate([station.id,portrait.id,paint.id])).toMatchObject({status:"ok"});
+    if(provider==="midjourney") {
+      const [prompt,,opts]=legnextMocks.generateLegnextImage.mock.calls[0];
+      expect(prompt).toContain("第1张内容参考只用于阿云可辨认的相貌和装束");
+      expect(prompt).toContain("第2张内容参考只用于车站的建筑和材质");
+      expect(opts).toMatchObject({aspectRatio:"3:2",styleRef:style.imageUrl,additionalStyleRefs:[paint.imageUrl],referenceImageUrl:portrait.imageUrl,referenceContextImageUrls:[station.imageUrl]});
+    } else expect(imageGenMocks.editImage).toHaveBeenCalledWith(portrait.imageUrl,expect.stringContaining("内容参考之后的2张仅取笔触"),
+      expect.objectContaining({aspectRatio:"3:2",referenceContextImageUrls:[station.imageUrl,paint.imageUrl,style.imageUrl]}));
   });
   it("persists module image results and replays through the recovery API without another generation", async () => {
     const { createStory } = await import("./repositories/stories");

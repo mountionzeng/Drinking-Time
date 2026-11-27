@@ -39,6 +39,17 @@ describe("renderViaGate（出图网关）", () => {
     expect(seen).toContain("保留温暖色调");
     expect(seen).not.toContain("旧镜头的窒息感");
   });
+  it("keeps bibliographic pointers out of the final storyboard provider payload without stripping visible printed text", async () => {
+    const render = vi.fn(async (value: string) => value);
+    const result = await renderViaGate({ outputPurpose:"story-frame", preservePrompt:true,
+      prompt:"《城市记忆》第 268 页的五人合影。画框上写着“第3页”。" }, render);
+    expect(result).toBe("五人合影。画框上写着“第3页”。");
+    expect(render.mock.calls[0][0]).toBe(result);
+    await expect(renderViaGate({ outputPurpose:"story-frame", prompt:"第268页" }, render)).rejects.toThrow("补充");
+    expect(render).toHaveBeenCalledTimes(1);
+    const timed = await renderViaGate({outputPurpose:"story-frame",preservePrompt:true,prompt:"第10秒，从窗台切到茶杯，缓缓推近。"},render);
+    expect(timed).toBe("茶杯");
+  });
   it("keeps an explicitly faithful reference brief without restyling or banning its UI", async () => {
     const instruction = "请保留茶壶的形状以及茶壶和聊天框的位置，我希望和参考图一模一样";
     let seen = "";
