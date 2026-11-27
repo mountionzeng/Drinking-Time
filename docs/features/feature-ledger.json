@@ -271,8 +271,9 @@
       "id": "shared-creation-emotion",
       "name": "作品共享情绪意图",
       "status": "partial",
-      "userValue": "让文字、美术和音乐理解同一作品情绪，以各自方式表达，保留混合与发展，并追踪旧内容的生成依据。",
+      "userValue": "作者可在镜头制作单试排作品情绪，分别看到画面、视频、现场音效与音乐如何随段落发展，再决定保存或写入分镜。",
       "entryPoints": [
+        "client/src/features/publishingAlbum/StoryboardEmotion.tsx",
         "server/routers/storyAgent.ts",
         "server/routers/creationEmotion.ts",
         "client/src/features/publishingDraft/TextDraftVersions.tsx",
@@ -281,6 +282,11 @@
       "owners": [
         "shared/emotionTaxonomy.ts",
         "shared/creationEmotion.ts",
+        "shared/bookShotFormat.ts",
+        "shared/bookShotActions.ts",
+        "shared/bookShotDocument.ts",
+        "server/services/shotTextTrials.ts",
+        "server/services/bookWorkflow.ts",
         "server/services/creationEmotion.ts",
         "server/services/textDraftPrompt.ts",
         "server/services/textDraftHistory.ts",
@@ -296,6 +302,10 @@
       ],
       "evidence": [
         "shared/creationEmotion.test.ts",
+        "shared/bookShotActions.test.ts",
+        "server/services/bookWorkflow.test.ts",
+        "server/services/bookShotDocument.test.ts",
+        "server/services/shotTextTrials.test.ts",
         "server/services/creationEmotion.test.ts",
         "server/services/textDraftHistory.test.ts",
         "server/services/storyAudioGeneration.test.ts",
@@ -333,6 +343,7 @@
         "无来源旧媒体标记untracked，不倒推情绪版本；无镜头身份的候选可能无法发现后来新增的本镜覆盖。"
       ],
       "history": [
+        {"date":"2026-11-27","kind":"feature","summary":"分镜制作单可免费试排作品情绪，再由作者保存。新分镜、单镜写稿和试改使用已存意图，画面、视频、音效、音乐各自读取本镜要求。旧稿的定格、依次标注和开口时间分流；书页视频可选情绪运镜建议，音效读取本轨。未实付生成或线上部署。"},
         {"date": "2026-11-25", "kind": "feature", "summary": "网页聊天与书页伴写从第一轮区分讲述者、处境、决定和自述感受。"},
         {
           "date": "2026-11-10",
@@ -12924,6 +12935,8 @@
         "client/src/features/publishingAlbum/ChapterTextModules.tsx"
       ],
       "owners": [
+        "client/src/features/publishingAlbum/bookShotParagraph.ts",
+        "shared/bookShotActions.ts",
         "shared/bookWritingStyle.ts",
         "shared/bookBlockNumbering.ts",
         "client/src/features/publishingAlbum/chapterBlockTree.ts",
@@ -12935,6 +12948,7 @@
         "server/services/directBookStoryboard.ts"
       ],
       "evidence": [
+        "client/src/features/publishingAlbum/bookShotParagraph.test.ts",
         "client/src/features/publishingAlbum/chapterBlockTree.test.ts",
         "client/src/features/publishingAlbum/BookWritingContext.test.tsx",
         "server/routers.chapters.test.ts",
@@ -12966,6 +12980,7 @@
         "微信章节包仍有未携带全部writingStyle的既有缺口；旧客户端需刷新后再编辑新格式。"
       ],
       "history": [
+        {"date":"2026-11-27","kind":"improvement","summary":"分镜正文、段落格式和制作单共用画面描述、视频、字幕、台词、音乐、音效。历史独立小标题与后续正文连续阅读，保留台词时间；格式切换复用书稿保存与撤销。3000《几次》实点转换、编辑、临时副本保存刷新通过。"},
         {"date": "2026-11-26", "kind": "improvement", "summary": "书页正文图片与镜头缩图可从右键或六点菜单删除。可在图片下一行行首按删除键移除前图，保留相邻文字、撤销能力及仓库原图。"},
         {"date": "2026-11-25", "kind": "improvement", "summary": "分镜默认按连续镜号排列，作者明确要求时可显示场次。"},
         {"date": "2026-11-25", "kind": "feature", "summary": "书页默认收起全书镜头制作单，按同一镜头来源汇总声画。"},

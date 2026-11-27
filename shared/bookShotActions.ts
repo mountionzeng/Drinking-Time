@@ -1,7 +1,7 @@
 import { generatedSubtitleSpans } from "./generatedSubtitles";
 import { spokenBookDialogue } from "./bookSound";
 import { explicitScreenText } from "./bookScreenText";
-import { readShotField } from "./bookShotFormat";
+import { readShotField, splitSoundSpeechTiming } from "./bookShotFormat";
 import { readBookImage } from "./bookImageBlock";
 import { readBookAudio } from "./bookAudioBlock";
 import { pictureDirections } from "./stillVisualDescription";
@@ -19,19 +19,37 @@ export function shotMenuOutputs(audio: "music" | "sfx" = "music"): ShotOutput[] 
   return ["image","video","subtitle","narration",audio];
 }
 
-export function shotActionHeading(text: string) {
-  const [first, ...rest] = text.split("\n");
+function firstCue(text: string) {
+  const first = text.split("\n", 1)[0];
   const line = first.trim().replace(/\\$/, "").replace(/\*\*/g, "").replace(/^#{1,6}\s+/, "").trim();
   const field = readShotField(line);
-  if (!field || field.kind === "source" || field.kind === "timing") return;
+  if (!field || field.kind === "source" || field.kind === "timing" || field.kind === "emotion") return;
   const label = line.split(/[:：]/)[0].trim();
   if (/^(素材待准备|参考素材)/.test(label)) return;
-  const output: ShotOutput = field.kind === "picture" ? (/^(屏幕文字|字幕)/u.test(label) ? "subtitle" : "image") :
-    field.kind === "motion" ? "video" : field.kind === "voice" ? "narration" :
-    /^(音乐|配乐|背景音乐)/u.test(label) ? "music" : "sfx";
+  const output: ShotOutput = { picture: "image", motion: "video", voice: "narration", subtitle: "subtitle", music: "music", sound: "sfx" }[field.kind] as ShotOutput;
   const qualifier = label.match(/[｜|（(].*$/u)?.[0] ?? "";
   const role = label.match(/^(开场|结束|参考)画面/u)?.[1];
-  return {kind:field.kind, output, label, detail:(role ? " · "+role : "")+qualifier, inline:[field.inline,...rest].join("\n").trim()};
+  const colon = first.search(/[:：]/);
+  const delimiter = colon < 0 ? first + "\n" : first.slice(0, colon + 1);
+  const closeBold = colon >= 0 && first.slice(0, colon).split("**").length % 2 === 0 && first.slice(colon + 1).startsWith("**");
+  const prefix = delimiter + (closeBold ? "**" : "");
+  return { kind: field.kind, output, label, detail: (role ? " · " + role : "") + qualifier, prefix };
+}
+
+/** Keep the original prefix for saving and cursor offsets. A nested legacy alias is one heading. */
+export function shotActionHeading(text: string) {
+  const first = firstCue(text);
+  if (!first) return;
+  let { prefix, detail } = first;
+  let body = text.slice(prefix.length);
+  while (body) {
+    const nested = firstCue(body);
+    if (!nested || nested.output !== first.output || nested.label === first.label || nested.detail && detail) break;
+    detail ||= nested.detail;
+    prefix += nested.prefix;
+    body = body.slice(nested.prefix.length);
+  }
+  return { ...first, detail, prefix, inline: body.trim() };
 }
 
 type Row = {id: string; text: string; format: string; parentId: string | null; videoRole?: string};
@@ -50,18 +68,61 @@ export function resolveShotAction(rows: Row[], index: number) {
   const parts = [];
   if (field.inline) parts.push({id: row.id, text: row.text, content: field.inline});
   for (const next of rows.slice(index + 1)) {
-    if (next.parentId !== row.parentId || next.format !== "text" || readShotField(next.text.split("\n")[0].replace(/\\\s*$/, ""))) break;
+    if (next.parentId !== row.parentId || next.format !== "text") break;
+    if (readShotField(next.text.split("\n")[0])) {
+      const body = shotActionHeading(next.text);
+      if (!parts.length && body?.output === field.output && body.inline && !body.detail) {
+        parts.push({id: next.id, text: next.text, content: body.inline});
+        continue;
+      }
+      break;
+    }
     if (next.videoRole === "dialogue" && field.kind !== "voice") break;
     if (readBookImage(next.text) || readBookAudio(next.text)) continue;
     if (next.text.trim()) parts.push({id: next.id, text: next.text, content: next.text});
   }
   const content = parts.map(p => p.content).join("\n\n");
   const directions = field.output === "image" ? pictureDirections(content) : undefined;
-  return {...field, parts, prompt: directions?.picture ?? content, embeddedMotion: directions?.motion};
+  const prompt = field.output === "sfx" ? content.split("\n").map(line => splitSoundSpeechTiming(line).sound).join("\n").trim() : directions?.picture ?? content;
+  return {...field, parts, prompt, embeddedMotion: directions?.motion};
 }
 
 /** The manuscript menu addresses an actual shot, including when opened on one of its children. */
 export function shotOutputSource(rows:Row[], index:number, kind:ShotOutput) {
+  // Older manuscripts can keep several labelled fields inside one editable module.
+  // Split only the read projection. Saving and source checks still use the full original row.
+  if (!rows[index]) return;
+  const projected: Row[] = [];
+  const original = new Map<string, Row>();
+  let selected = 0;
+  for (const [i, row] of rows.entries()) {
+    if (i === index) selected = projected.length;
+    const pieces: string[] = [];
+    if (row.format === "text" && row.videoRole !== "dialogue" && row.text.includes("\n")) {
+      for (const line of row.text.split("\n")) {
+        if (!pieces.length || readShotField(line)) pieces.push(line);
+        else pieces[pieces.length - 1] += "\n" + line;
+      }
+    }
+    if (pieces.length < 2) projected.push(row);
+    else for (const [part, text] of pieces.entries()) {
+      const id = JSON.stringify([row.id, part]);
+      projected.push({ ...row, id, text });
+      original.set(id, row);
+    }
+  }
+  const result = readOutputSource(projected, selected, kind);
+  if (!result || !original.size) return result;
+  const parts: typeof result.parts = [];
+  for (const part of result.parts) {
+    const row = original.get(part.id);
+    const source = row ? { ...part, id: row.id, text: row.text } : part;
+    if (!parts.some(p => p.id === source.id)) parts.push(source);
+  }
+  return { ...result, moduleId: original.get(result.moduleId)?.id ?? result.moduleId, parts };
+}
+
+function readOutputSource(rows:Row[], index:number, kind:ShotOutput) {
   let owner = rows[index];
   const parents = new Set<string>();
   while (owner && owner.format !== "shot" && owner.parentId && !parents.has(owner.id)) {
@@ -81,7 +142,7 @@ export function shotOutputSource(rows:Row[], index:number, kind:ShotOutput) {
   for (const heading of headings) {
     const pos = rows.indexOf(heading);
     const action = resolveShotAction(rows,pos);
-    if (action) { parts.push(...action.parts); label ||= action.label; }
+    if (action) { parts.push(...action.parts.filter(part => !parts.some(p => p.id === part.id))); label ||= action.label; }
   }
   if (!parts.length && kind === "video") {
     for (const child of children) {
@@ -108,10 +169,30 @@ export function shotOutputSource(rows:Row[], index:number, kind:ShotOutput) {
     parts.push(...screen);
     if (screen.length) label="屏幕文字";
   }
-  if (!parts.length && !scoped && (kind==="music" || (kind==="image" && !children.some(r=>readShotField(r.text.split("\n")[0])?.kind==="picture")))) parts.push({...owner,content:owner.text});
+  if (!parts.length && kind === "music") {
+    const target = scoped ? rows[index] : owner;
+    const unlabelled = !children.some(r => readShotField(r.text.split("\n")[0]));
+    parts.push({ ...target, content: unlabelled && !scoped ? owner.text : "" });
+  }
+  if (!parts.length && !scoped && kind==="image" && !children.some(r=>readShotField(r.text.split("\n")[0])?.kind==="picture")) parts.push({...owner,content:owner.text});
   const images = children.filter(r=>readBookImage(r.text));
   const content = parts.map(p=>p.content).join("\n\n").trim();
-  return {owner,moduleId:scoped ? rows[index].id : owner.id,parts,label,images,prompt:kind==="image" ? pictureDirections(content).picture : content};
+  if ((kind === "narration" || (kind === "subtitle" && label !== "屏幕文字")) && !/第\s*\d+\s*秒/.test(label)) {
+    const sound = children.flatMap(row => shotActionHeading(row.text)?.output === "sfx" ? [resolveShotAction(rows, rows.indexOf(row))] : []);
+    const speech = sound.flatMap(action => action?.parts.flatMap(part => part.content.split("\n").map(line => splitSoundSpeechTiming(line).speech)) ?? []).find(Boolean);
+    if (speech) label = (label || "旁白") + "｜" + speech;
+  }
+  const prompt = kind === "image" ? pictureDirections(content).picture : kind === "sfx" ? content.split("\n").map(line => splitSoundSpeechTiming(line).sound).join("\n").trim() : content;
+  return {owner,moduleId:scoped ? rows[index].id : owner.id,parts,label,images,prompt};
+}
+
+export function requestsSilentTrack(kind: ShotOutput, prompt: string) {
+  const text = prompt.trim().replace(/[。.!！]+$/u, "");
+  if (kind !== "music" && kind !== "sfx") return false;
+  if (/^(?:本镜|全程|整镜)?(?:留白|静音|无声|保持安静|无)$/u.test(text)) return true;
+  return kind === "music"
+    ? /^(?:本镜|全程|整镜)?(?:无|不加|不需要|不要|不用|没有)(?:任何)?(?:背景)?(?:配乐|音乐)$/u.test(text)
+    : /^(?:本镜|全程|整镜)?(?:无|不加|不要|不用)(?:环境声|音效)$/u.test(text);
 }
 
 /** Use the manuscript's explicit spoken interval, otherwise the shot span. */

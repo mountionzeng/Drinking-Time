@@ -2,6 +2,7 @@ import { expect, it } from "vitest";
 import { expandShotDescriptions, structureShotDraft } from "../../shared/bookShotFormat";
 import { readBookShotChapter, shotDirections } from "../../shared/bookShotDocument";
 import { bookAudioText } from "../../shared/bookAudioBlock";
+import { videoShotEditSchema } from "../../shared/bookVideoCreation";
 import { publishingArticleVideoRows } from "../../shared/publishingArticleVideo";
 import { bookStoryboardModules } from "./bookStoryboardModules";
 import { directBookStoryboardPreview } from "./directBookStoryboard";
@@ -29,6 +30,16 @@ it("routes each root shot's instructions and references by identity across edits
     expect(doc.shots.find(s => s.moduleId === "s2")?.audio.map(s => s.assetId)).toEqual([7]);
     expect(doc.wholeAudio.map(s => s.assetId)).toEqual([8]);
   }
+});
+
+it("allows a storyboard with only a still to reach video editing with the motion track still empty", () => {
+  const chapter = {id:5,blocks:{body:"雨伞\n画面描述：门边一把伞",writingStyle:[
+    {id:"s",parentId:null,format:"shot" as const,collapsed:false},
+    {id:"p",parentId:"s",format:"text" as const,collapsed:false}]}};
+  const rows=publishingArticleVideoRows({body:chapter.blocks.body,illustrations:[],bookScenes:bookStoryboardModules([chapter],[])});
+  const shot=directBookStoryboardPreview(rows,1).shots[0];
+  expect(shot).toMatchObject({imageRequirement:"门边一把伞",videoRequirement:""});
+  expect(videoShotEditSchema.safeParse(shot).success).toBe(true);
 });
 
 it("keeps the setting of a legacy scene with its shots and shows its number on request", () => {

@@ -79,6 +79,8 @@ const aliases: Record<string, string> = {
   平静: "ease",
   温暖: "safety",
   压抑: "anxiety",
+  紧张: "anxiety",
+  放松: "ease",
   怀旧: "nostalgia",
 };
 const entries = getAllSubcategories();
@@ -87,7 +89,7 @@ export function analyzeCreationEmotion(
   raw: string
 ): z.infer<typeof readingSchema> {
   const segments = raw
-    .split(/(?<=[，,。；;！!？?])/u)
+    .split(/(?<=[，,。；;！!？?])|(?<=[^，,。；;！!？?\s])(?=最后|随后|然后|后来)/u)
     .filter(s => s.trim())
     .map(text => {
       const candidates = new Map(matchByLabel(text).map(s => [s.key, s]));
@@ -133,9 +135,9 @@ export function analyzeCreationEmotion(
         .slice(0, 6);
       const stage = /最后|结尾|最终|收尾/u.test(text)
         ? ("ending" as const)
-        : /起初|一开始|开头/u.test(text)
+        : /起初|一开始|开头|起先|^先/u.test(text.trim())
           ? ("opening" as const)
-          : /慢慢|逐渐|后来|转而/u.test(text)
+          : /慢慢|逐渐|后来|转而|随后|然后/u.test(text)
             ? ("development" as const)
             : ("unspecified" as const);
       return { text: text.trim(), stage, signals };
@@ -242,6 +244,81 @@ const expressionHints: Partial<Record<string, Record<EmotionMedium, string>>> =
       music: "旋律留白、句尾停顿与有限配器，强度随原话控制。",
     },
   };
+type ShotExpression = { picture: string; video: string; sound: string; music: string };
+const pacedDirections: Record<string, [string, string]> = {
+  anxiety: ["让动作将要发生时多停一拍，动作开始后才跟。", "把已有声源的一次短响放在停顿里，声尾收短。"],
+  insecurity: ["停在视线尚未到达的位置，动作有了方向再跟。", "把远处声源压低，保留近处短响之间的间隔。"],
+  ease: ["等动作自然结束，再多停一拍。", "让已有环境声持续，近处声响自然消退。"],
+  acceptance: ["随动作放慢，在动作落定后停住。", "让近处声源退去，收尾留给原场景的底声。"],
+  loss: ["让主体的动作先结束，镜头在原处多留一拍。", "延长已有声源消失后的空隙。"],
+  nostalgia: ["先停在熟悉的细节上，再沿已有的视线或动作展开。", "让同一声源在停顿处再出现一次，第二次更远。"],
+  safety: ["让动作完整发生，机位平稳地等它落定。", "保持底声连贯，让近处声源轻轻进入和退出。"],
+};
+
+// When the taxonomy has no specific cue, use its existing family for a starting point.
+const familyDirections: Record<string, ShotExpression> = {
+  joy: { picture: "给已有主体之间的呼应留出空间。", video: "跟到动作完成，让反应在画内自然发生。", sound: "让原场景里轻短的声音依次显出来。", music: "让乐句轻快起音，句尾留出空隙。" },
+  trust: { picture: "让相互呼应的细节在同一清晰层次内。", video: "保持稳定视点，让动作有时间完成。", sound: "保持底声连续，把近处声源轻轻带入。", music: "用稳定脉动承托，给台词让位。" },
+  fear: { picture: "收紧已有构图，保留少量未揭示的空间。", video: "多停半拍，再跟随已有动作。", sound: "突显一个已有的近处声源，延长两响之间的间隔。", music: "延迟乐句落点，逐渐收紧节拍。" },
+  surprise: { picture: "用明暗或大小关系突出新出现的细节。", video: "在已有变化发生时转移视线，随即停住。", sound: "突出变化当下的声响，随后留白。", music: "让节奏短暂停顿，再接回原乐句。" },
+  sadness: { picture: "保留主体身边的空处和原有材质。", video: "动作结束后在原处多留一拍。", sound: "保留声尾，拉开已有声响之间的距离。", music: "减薄配器，给未解决的乐句留足空间。" },
+  disgust: { picture: "用前后景的间隔拉开已有元素的距离。", video: "让视线在已有细节前停一下，再移开。", sound: "突出原有声音的质地，短促收住。", music: "用短促音型和较大的间隔表现迟疑。" },
+  anger: { picture: "让原有线条与构图重心形成对峙。", video: "紧跟已有动作，在动作尽头突然停住。", sound: "突出动作接触的一刻，让声尾迅速退下。", music: "缩短重音间距，在关键动作处收住。" },
+  anticipation: { picture: "将视觉重心放在即将变化的已有细节上。", video: "先等候，待动作出现后再跟随。", sound: "把关键声源留到动作发生时。", music: "让动机重复，暂缓落到主音。" },
+  groundedness: { picture: "稳住画面重心，让已有细节清楚可辨。", video: "保持稳定视点，跟完动作再停。", sound: "留下稳定的环境底声。", music: "以稳定节拍托住画面，减少叠加声部。" },
+};
+
+/** The reader and the writing prompt reuse the saved analysis, including mixed and negated signals. */
+export function storyboardEmotionBeats(intent: z.infer<typeof emotionIntentSchema>, reading: z.infer<typeof readingSchema>) {
+  // A direction after “开头” belongs to that beat until another phase is named.
+  // “全程/始终” applies across phases even when the author mentions it later.
+  let phase: (typeof reading.segments)[number]["stage"] = "unspecified";
+  const phased = reading.segments.map(segment => {
+    if (segment.stage !== "unspecified") phase = segment.stage;
+    return { ...segment, phase };
+  });
+  const global = phased.filter(s => s.phase === "unspecified" || /全程|全片|始终|从头到尾/u.test(s.text)).map(s => s.text).join(" ");
+  const byPhase = new Map<(typeof reading.segments)[number]["stage"], string>();
+  for (const s of phased) byPhase.set(s.phase, (byPhase.get(s.phase) ?? "") + " " + s.text);
+  return phased.map(({ stage, phase, text, signals }) => {
+    const instructions = global + " " + byPhase.get(phase);
+    const suggestions: Partial<ShotExpression> = {};
+    for (const signal of signals.filter(s => s.polarity === "express")) {
+      const hints = expressionHints[signal.key];
+      const pacing = pacedDirections[signal.key];
+      if (hints) {
+        suggestions.picture ??= hints.art;
+        suggestions.music ??= hints.music;
+      }
+      if (pacing) {
+        suggestions.video ??= pacing[0];
+        suggestions.sound ??= pacing[1];
+      }
+      const family = findSubcategory(signal.key)?.category.key;
+      if (family && familyDirections[family]) {
+        for (const track of ["picture", "video", "sound", "music"] as const) suggestions[track] ??= familyDirections[family][track];
+      }
+    }
+    if (intent.mediumDirections.art) suggestions.picture = intent.mediumDirections.art;
+    if (intent.mediumDirections.music) suggestions.music = intent.mediumDirections.music;
+    const cameraInstructions = instructions.replace(/(?:不(?:要|用|必|再)?|别)固定(?:镜头|机位)/gu, "");
+    if (/固定(?:镜头|机位)|机位固定|镜头不动|不要运镜/u.test(cameraInstructions))
+      suggestions.video = "按原话保持机位，节拍由画内动作和停留时长承担。";
+    if (/无(?:配乐|音乐)|不(?:要|用|加|放)(?:配乐|音乐)|只(?:留|有|听)[^，。；]{0,12}声|静音|无声/u.test(instructions))
+      suggestions.music = "在作者指定的留白处停奏。";
+    if (/静音|无声|完全安静/u.test(instructions)) suggestions.sound = "在作者指定的静音时段留白。";
+    return { stage, text, signals, suggestions };
+  });
+}
+
+export function storyboardEmotionBrief(snapshot?: CreationEmotionSnapshot) {
+  return snapshot?.layers.map(layer => ({
+    scope: layer.scope, revision: layer.revision, intent: layer.intent!.raw,
+    explicit: layer.intent!.mediumDirections,
+    beats: layer.reading ? storyboardEmotionBeats(layer.intent!, layer.reading) : [],
+  }));
+}
+
 /** Same compact intention; each medium interprets it. Explicit current instructions win. */
 export function compileCreationEmotion(
   snapshot: CreationEmotionSnapshot | undefined,

@@ -17,6 +17,8 @@ import { getStoryImageAssets } from "../services/imageAssets";
 import { getChapter } from "../repositories/chapters";
 import { getStoryGeneratedImages } from "../repositories/images";
 import { getStoryById } from "../repositories/stories";
+import { bookModuleEmotion } from "../services/creationEmotion";
+import { storyboardEmotionBrief } from "../../shared/creationEmotion";
 import { historicalBookImageFeedback } from "../../shared/bookImageFeedback";
 import { readBookImage } from "../../shared/bookImageBlock";
 import { estimateShotVideoCost } from "../../shared/shotDirector";
@@ -90,11 +92,17 @@ export const bookMediaRouter = router({
         item => item.imageUrl === media.url && item.availability !== "missing"
       );
     if (!asset) return { image: null, videoCost: null };
+    const story = await getStoryById(input.storyId, ctx.user.id);
+    const brief = storyboardEmotionBrief(bookModuleEmotion(story?.body, input.chapterId, [input.moduleId]));
+    const motionCues = brief?.at(-1)?.beats.flatMap(beat =>
+      beat.suggestions.video ? [{ text: beat.text, motion: beat.suggestions.video }] : []);
+
     const motion = getShotVideoProviderStatus().motion;
     return {
       image: { id: asset.id, url: asset.imageUrl, noteOwnerId: ctx.user.id,
         editNote: asset.storyId === input.storyId && asset.userId === ctx.user.id && asset.generationType === "initial" &&
           asset.rawShotNo == null && asset.prompt && asset.prompt.length <= 2000 ? asset.prompt : null },
+      ...(motionCues?.length ? { motionCues } : {}),
       videoCost: estimateShotVideoCost({ durationSec: 5, motion, priceProfile: shotVideoPriceProfile(getShotVideoProviderStatus().submitPath) }).estimatedCny,
     };
   }),

@@ -52,7 +52,7 @@ export const videoShotEditSchema = z.object({
   speaker: z.string().trim().max(300).optional(),
   action: z.string().min(1).max(4000),
   imageRequirement: z.string().min(1).max(4000),
-  videoRequirement: z.string().min(1).max(4000),
+  videoRequirement: z.string().max(4000),
   soundRequirement: z.string().max(2000),
 });
 export const BOOK_VIDEO_QUESTION =

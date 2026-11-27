@@ -79,7 +79,7 @@ describe("chapter CRUD and order", () => {
     expect(rows[0]).toMatchObject({ format: "shot", parentId: null });
     expect(rows.slice(1).every(r => r.parentId === rows[0].id)).toBe(true);
     expect(rows.filter(r => r.videoRole === "dialogue")).toHaveLength(1);
-    expect(chapter.blocks.body).toContain("音效提示词");
+    expect(chapter.blocks.body.split("\n")).toEqual(expect.arrayContaining(["音效：", "音乐："]));
   });
   it("opens one editable chapter per shot draft and keeps later user edits", async () => {
     const userId = 10, storyId = await story(userId), trialId = uuid();

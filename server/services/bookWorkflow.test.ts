@@ -100,6 +100,28 @@ it("quotes a chat-only story without saving or spending, then edits and adopts t
   expect(chapter.blocks.writingStyle?.[1]).toMatchObject({ videoRole: "dialogue", parentId: chapter.blocks.writingStyle?.[0].id });
 });
 
+it("uses the same saved emotion beats when quoting and writing the full storyboard", async () => {
+  const story = await createStory({userId:actor.userId,title:"纸船",body:{}});
+  const owner = {userId:actor.userId,storyId:story.id};
+  const {saveCreationEmotion} = await import("./creationEmotion");
+  const set = (raw:string, expectedRevision:number) => saveCreationEmotion({...owner,expectedRevision,scope:{kind:"story"},intent:{raw}});
+  await set("开头紧张，最后放松。",0);
+  quote.mockImplementation(prompt=>({fingerprint:JSON.stringify(prompt.context),estimatedCny:0.01}));
+  const input = {...owner,id:randomUUID(),actor,request:"生成整片分镜",conversation:[{role:"user" as const, content:"窗台上放着一只纸船。"}]};
+  const first = await service.quoteFilmManuscript(input);
+  await set("开头不安，最后释怀。",1);
+  await expect(service.generateFilmManuscript({...input,quoteFingerprint:first.fingerprint})).rejects.toThrow("报价已变化");
+  expect(compute).not.toHaveBeenCalled();
+  const price = await service.quoteFilmManuscript(input);
+  compute.mockResolvedValueOnce({parsed:{chapters:[{title:"纸船",modules:[{format:"shot",text:"窗台",parent:null}]}]}});
+  await service.generateFilmManuscript({...input,quoteFingerprint:price.fingerprint});
+  const request = compute.mock.calls[0][0];
+  expect(JSON.stringify(request.context)).toBe(price.fingerprint);
+  const brief = request.context.作品情绪与声画试排建议[0];
+  expect(brief.beats.map((beat:{stage:string})=>beat.stage)).toEqual(["opening","ending"]);
+  expect(brief.beats[0].suggestions).toMatchObject({picture:expect.any(String),video:expect.any(String),music:expect.any(String),sound:expect.any(String)});
+});
+
 async function fixture() {
   const story = await createStory({
     userId: 61,

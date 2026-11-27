@@ -35,6 +35,17 @@ export function storyEmotion(
     target
   );
 }
+export function bookModuleEmotion(body: unknown, chapterId: number, moduleIds: string[]) {
+  const shots = record(body).shots;
+  const ids = moduleIds.map(id => `${chapterId}:${id}`);
+  const matches = Array.isArray(shots) ? shots.map(record).filter(shot => {
+    const refs = record(shot.publishingVideo).sourceModuleIds;
+    return ids.length > 0 && Array.isArray(refs) && ids.every(id => refs.includes(id));
+  }) : [];
+  const id = matches.length === 1 ? matches[0].stableShotId ?? matches[0].shotIdentity : undefined;
+  return storyEmotion(body, { chapterId: String(chapterId), shotId: typeof id === "string" ? id : undefined });
+}
+
 export async function getCreationEmotion(input: {
   storyId: number;
   userId: number;

@@ -1,10 +1,23 @@
 import { ChevronDown, FileText, Pencil } from "lucide-react";
 import { useState } from "react";
-import { readBookShotChapter, shotDirections, type BookShotChapter } from "@shared/bookShotDocument";
+import { StoryboardEmotion } from "./StoryboardEmotion";
+import { readBookShotChapter, shotDirections, shotMediaDirections, type BookShotChapter } from "@shared/bookShotDocument";
+import { shotActionHeading, shotOutputLabels } from "@shared/bookShotActions";
+import { readShotField } from "@shared/bookShotFormat";
 import { useUiText } from "@/features/uiLanguage/UiLanguage";
 
+/** A heading-only legacy module contributes its format, while the next module supplies the words. */
+function fieldText(lines: string[]) {
+  return lines.map(line => {
+    const heading = shotActionHeading(line);
+    if (heading) return [heading.detail.replace(/^[ ·｜|]+/, ""), heading.inline].filter(Boolean).join("\n");
+    const field = readShotField(line);
+    return field ? field.inline : line;
+  }).filter(Boolean).join("\n");
+}
+
 export type BookShotEditTarget = { chapterId: number; moduleId: string; offset: number };
-export function BookShotDocument({ chapters, showScenes, preceding = 0, initiallyOpen = false, onEdit }: { chapters: BookShotChapter[]; showScenes?: boolean; initiallyOpen?: boolean; preceding?: number; onEdit?(target: BookShotEditTarget): void }) {
+export function BookShotDocument({ chapters, storyId, showScenes, preceding = 0, initiallyOpen = false, onEdit }: { chapters: BookShotChapter[]; storyId?: number; showScenes?: boolean; initiallyOpen?: boolean; preceding?: number; onEdit?(target: BookShotEditTarget): void }) {
   const ui = useUiText();
   const [open, setOpen] = useState(initiallyOpen);
   const count = chapters.reduce((sum, c) => sum + (c.blocks.writingStyle?.filter(r => r.format === "shot").length ?? 0), 0);
@@ -12,9 +25,9 @@ export function BookShotDocument({ chapters, showScenes, preceding = 0, initiall
   const pages = open ? chapters.map(chapter => readBookShotChapter(chapter, showScenes)) : [];
   const shots = pages.flatMap(p => p.shots);
   const audio = pages.flatMap(p => p.wholeAudio);
-  const field = (label: string, value: string, edit?: () => void) => value.trim() && (
+  const field = (label: string, value: string, edit?: () => void, detail = "") => value.trim() && (
     <div className="mt-3"><dt className="mb-1 text-xs font-medium text-muted-foreground">{edit && onEdit
-      ? <button type="button" className="underline decoration-dotted underline-offset-4 hover:text-foreground" onClick={edit}>{ui(label)}</button> : ui(label)}</dt>
+      ? <button type="button" className="underline decoration-dotted underline-offset-4 hover:text-foreground" onClick={edit}>{ui(label)}{detail}</button> : ui(label) + detail}</dt>
       <dd className="whitespace-pre-line break-words leading-relaxed">{value}</dd></div>
   );
   const audioList = (items: typeof audio) => items.map(a => `${ui(a.label)} · ${a.title || '#' + a.assetId}`).join("\n");
@@ -26,21 +39,29 @@ export function BookShotDocument({ chapters, showScenes, preceding = 0, initiall
       <ChevronDown aria-hidden="true" size={15} className="ml-auto shrink-0 text-muted-foreground group-open:rotate-180" />
     </summary>
     {open && <div role="region" aria-label={ui("镜头制作单")} tabIndex={0} className="max-h-[55vh] overflow-y-auto overscroll-contain border-t border-[var(--panel-border)] px-4">
+      {storyId && <StoryboardEmotion key={storyId} storyId={storyId} />}
       {shots.map((shot, index) => {
         const number = ui("第 {0} 镜", [String(preceding + index + 1).padStart(2, "0")]);
         const edit = (target?: { moduleId: string; offset: number }) => target && (() => onEdit?.({ chapterId: shot.chapterId, ...target }));
         const directions = shotDirections(shot.notes);
+        const media = shotMediaDirections(directions, shot.title);
+        const voiceTimings = directions.timing.filter(line => shotActionHeading(line)?.output === "narration");
+        const voiceDetail = shot.dialogueText && voiceTimings.length === 1 ? shotActionHeading(voiceTimings[0])?.detail : "";
+        const timing = voiceDetail ? directions.timing.filter(line => line !== voiceTimings[0]) : directions.timing;
         return <article key={shot.id} data-book-shot={shot.id} className="border-b border-[var(--panel-border)] py-4 last:border-0">
           <h3 className="flex flex-wrap items-baseline gap-x-3 gap-y-1"><span className="text-xs tabular-nums text-muted-foreground">{number}</span><span className="font-semibold">{shot.title}</span>
             {onEdit && <button type="button" className="ml-auto p-1 text-muted-foreground hover:text-foreground" aria-label={ui("编辑第 {0} 镜", [preceding + index + 1])} onClick={edit({ moduleId: shot.moduleId, offset: 0 })}><Pencil size={14} /></button>}</h3>
           <dl>
             {field("镜头说明", directions.other.join("\n"))}
-            {field("时长与节奏", directions.timing.join("\n"), edit(shot.targets.timing))}
-            {field("画面与素材", directions.picture.join("\n"), edit(shot.targets.picture))}
-            {field("运镜", directions.motion.join("\n"), edit(shot.targets.motion))}
-            {field("台词 / 旁白", shot.dialogueText, edit(shot.targets.voice))}
-            {field("声音设计", directions.sound.join("\n"), edit(shot.targets.sound))}
-            {field("出处与创作处理", directions.source.join("\n"), edit(shot.targets.source))}
+            {field("时长与节奏", fieldText(timing), edit(shot.targets.timing))}
+            {field("情绪走向", fieldText(directions.emotion), edit(shot.targets.emotion))}
+            {field(shotOutputLabels.image.name, fieldText(directions.picture), edit(shot.targets.picture))}
+            {field(shotOutputLabels.video.name, fieldText(media.video.split("\n")), edit(shot.targets.motion))}
+            {field(shotOutputLabels.subtitle.name, fieldText(directions.subtitle), edit(shot.targets.subtitle))}
+            {field(shotOutputLabels.narration.name, shot.dialogueText, edit(shot.targets.voice), voiceDetail)}
+            {field(shotOutputLabels.sfx.name, fieldText(directions.sound), edit(shot.targets.sound))}
+            {field(shotOutputLabels.music.name, fieldText(directions.music), edit(shot.targets.music))}
+            {field("出处与创作处理", fieldText(directions.source), edit(shot.targets.source))}
             {field("本镜音频素材", audioList(shot.audio))}
           </dl>
           {shot.images.length > 0 && <div className="mt-3 flex gap-2 overflow-x-auto">{shot.images.map((image, i) =>

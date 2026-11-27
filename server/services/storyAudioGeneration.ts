@@ -1,5 +1,6 @@
-import { compileCreationEmotion, type CreationEmotionSnapshot } from "../../shared/creationEmotion";
-import { storyEmotion } from "./creationEmotion";
+import { compileCreationEmotion, storyboardEmotionBrief, type CreationEmotionSnapshot } from "../../shared/creationEmotion";
+import { readShotField, splitSoundSpeechTiming } from "../../shared/bookShotFormat";
+import { bookModuleEmotion, storyEmotion } from "./creationEmotion";
 import { resolveBookModuleSource, describeBookModule, type BookModuleTarget } from "./bookModuleSource";
 import { listChapters } from "../repositories/chapters";
 import { formatComputeQuote } from "../../shared/computeMoney";
@@ -214,7 +215,22 @@ function joined(values: unknown[], fallback: string): string {
   return unique.join(" · ") || fallback;
 }
 
+/** Keep plain legacy prose; in a labelled shot only the selected sound track is a source. */
+function audioTrackText(value: string, kind: GeneratedStoryAudioKind) {
+  const lines = value.split("\n");
+  const labelled = lines.some(line => readShotField(line));
+  let include = !labelled;
+  const selected = lines.flatMap(line => {
+    const field = readShotField(line);
+    if (!field) return include ? [line] : [];
+    include = field.kind === (kind === "music" ? "music" : "sound");
+    return include && field.inline ? [field.inline] : [];
+  });
+  return (kind === "music" ? selected : selected.map(line => splitSoundSpeechTiming(line).sound)).join("\n").trim();
+}
+
 export function resolveStorySceneAudioContext(input: {
+  kind?: GeneratedStoryAudioKind;
   timelineItems: unknown;
   storyBody: unknown;
   targetFrame: number;
@@ -306,7 +322,8 @@ export function resolveStorySceneAudioContext(input: {
       "跟随当前镜头动作"
     ),
     soundSummary: joined(
-      selectedShots.flatMap(shot => [shot.sound, shot.soundBridge]),
+      selectedShots.flatMap(shot => [shot.sound, shot.soundBridge])
+        .map(value => input.kind ? audioTrackText(text(value), input.kind) : value),
       "无额外声音说明"
     ),
   };
@@ -322,6 +339,8 @@ export function composeStorySceneAudioPrompt(input: {
     input.context.durationFrames / STORY_TIMELINE_FPS
   ).toFixed(1);
   const intent = text(input.intent) || "服从镜头情绪，不喧宾夺主";
+  const soundTiming = (snapshot?: CreationEmotionSnapshot) => storyboardEmotionBrief(snapshot)?.flatMap(layer =>
+    layer.beats.flatMap(beat => beat.suggestions.sound ? [beat.stage + " · " + beat.suggestions.sound] : [])).join(" / ");
   const facts = [
     `Duration: ${duration} seconds.`,
     `Emotional direction: ${input.context.emotionSummary}.`,
@@ -331,7 +350,11 @@ export function composeStorySceneAudioPrompt(input: {
     `Sound direction: ${input.context.soundSummary}.`,
     ...(input.kind === "music" ? [compileCreationEmotion(input.context.creationEmotion, "music"),
       ...(input.context.emotionSequence ?? []).map(step =>
-        `仅在 ${(step.startFrame / STORY_TIMELINE_FPS).toFixed(1)}–${((step.startFrame + step.durationFrames) / STORY_TIMELINE_FPS).toFixed(1)} 秒使用本镜变化：${compileCreationEmotion(step.emotion, "music")}`)] : []),
+        `仅在 ${(step.startFrame / STORY_TIMELINE_FPS).toFixed(1)}–${((step.startFrame + step.durationFrames) / STORY_TIMELINE_FPS).toFixed(1)} 秒使用本镜变化：${compileCreationEmotion(step.emotion, "music")}`)]
+      : [soundTiming(input.context.creationEmotion), ...(input.context.emotionSequence ?? []).map(step => {
+        const timing = soundTiming(step.emotion);
+        return timing && `${step.startFrame / STORY_TIMELINE_FPS}–${(step.startFrame + step.durationFrames) / STORY_TIMELINE_FPS} 秒：${timing}`;
+      })].filter(Boolean)),
   ].join(" ");
   if (input.kind === "music") {
     return `Instrumental cinematic underscore only; no vocals and no spoken words. ${facts} Support the selected story range without overpowering narration. Use a clean beginning and a natural ending suitable for editing.`;
@@ -400,6 +423,7 @@ function providerFor(kind: GeneratedStoryAudioKind) {
 }
 
 async function currentContext(input: {
+  kind?: GeneratedStoryAudioKind;
   storyId: number;
   userId: number;
   targetFrame: number;
@@ -425,6 +449,7 @@ async function currentContext(input: {
   if (!story || !timeline) throw new Error("故事或时间线不存在，无法生成声音");
   const context = resolveStorySceneAudioContext({
     timelineItems: timeline.items,
+    kind: input.kind,
     storyBody: story.body,
     targetFrame: input.targetFrame,
     scope: input.scope,
@@ -505,16 +530,18 @@ export async function quoteStorySceneAudio(input: {
   const seconds = input.soundEffectSeconds ?? (effect ? 10 : 30);
   if (input.soundEffectSeconds !== undefined && (!effect || !Number.isInteger(seconds) || seconds < 1 || seconds > 30))
     throw new Error("书稿音效时长须为 1 至 30 秒");
-  if (effect && (source?.image || source?.parts)) throw new Error("请选择一段音效提示词");
+  if (effect && (source?.image || source?.parts?.some(part => part.image))) throw new Error("请选择文字音效提示词");
   const context: StorySceneAudioContext = source ? {
     stableShotId: `book:${input.bookTarget!.chapterId}:${input.bookTarget!.moduleId}`, shotNo:0,endShotNo:0,startFrame:0,durationFrames:seconds * STORY_TIMELINE_FPS,
-    emotionSummary:source.parts ? "Follow the mood of the selected modules" : "Follow the mood of the selected module",sceneSummary:source.parts ? await describeBookModule(source) : (await describeBookModule(source)).slice(0,1800),
+    emotionSummary:source.parts ? "Follow the mood of the selected modules" : "Follow the mood of the selected module",
+    sceneSummary: audioTrackText(await describeBookModule(source), input.kind).slice(0, source.parts ? undefined : 1800),
     actionSummary:effect ? "Follow the timing in this passage" : source.parts ? "Background music inspired only by the selected modules" : "Background music inspired only by this module",
     soundSummary:effect ? "Use the sound described in the selected passage, no music or speech" : "Instrumental music, no speech"
   } : await currentContext({ ...input, scope });
   if (source) {
     const emotionStory = await loadOwnedStory(input);
-    const creationEmotion = storyEmotion(emotionStory?.body, { chapterId: String(input.bookTarget!.chapterId) });
+    const target = input.bookTarget!;
+    const creationEmotion = bookModuleEmotion(emotionStory?.body, target.chapterId, target.moduleIds ?? [target.moduleId]);
     if (creationEmotion) context.creationEmotion = creationEmotion;
   }
   const prompt = composeStorySceneAudioPrompt({
@@ -644,13 +671,15 @@ export async function generateStorySceneAudio(input: {
         const source = await resolveBookModuleSource({...claims.bookTarget,storyId:input.storyId,userId:input.userId});
         if (source.fingerprint !== claims.bookTarget.fingerprint) throw new Error("原模块已修改，请重新确认音乐生成");
         const emotionStory = await loadOwnedStory(input);
-        const creationEmotion = storyEmotion(emotionStory?.body, { chapterId: String(claims.bookTarget.chapterId) });
+        const target = claims.bookTarget;
+        const creationEmotion = bookModuleEmotion(emotionStory?.body, target.chapterId, target.moduleIds ?? [target.moduleId]);
         const { creationEmotion: _oldEmotion, ...facts } = claims.context;
         context = { ...facts, ...(creationEmotion ? { creationEmotion } : {}) };
       } else context = await currentContext({
         storyId: input.storyId,
         userId: input.userId,
         targetFrame: claims.targetFrame,
+        kind: claims.kind,
         scope: claims.scope,
       });
     } catch (error) {

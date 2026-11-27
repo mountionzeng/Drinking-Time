@@ -4,6 +4,7 @@ import {
   readCreationEmotion,
   resolveCreationEmotion,
   compileCreationEmotion,
+  storyboardEmotionBrief,
   emotionFreshness,
   type CreationEmotionState,
 } from "./creationEmotion";
@@ -32,6 +33,25 @@ function state(raw: string): CreationEmotionState {
   };
 }
 describe("shared work emotion", () => {
+  it("rehearses the same arc in four media and preserves fixed-camera and silence choices", () => {
+    const read = (raw: string) => storyboardEmotionBrief(resolveCreationEmotion(state(raw)))![0].beats;
+    const [before, after] = read("开头紧张最后慢慢放松。");
+    expect([before.stage, after.stage]).toEqual(["opening", "ending"]);
+    for (const role of ["picture", "video", "sound", "music"] as const) {
+      expect(before.suggestions[role]).toBeTruthy();
+      expect(before.suggestions[role]).not.toEqual(after.suggestions[role]);
+    }
+    expect(before.suggestions.picture).not.toMatch(/声|节拍|跟拍|推近/);
+    for (const beat of read("全程固定机位，无配乐，最后释怀。")) {
+      expect(beat.suggestions.video).toContain("保持机位");
+      expect(beat.suggestions.music).toContain("停奏");
+    }
+    const timed = read("开头紧张且无配乐，最后释怀。");
+    expect(timed[0].suggestions.music).toContain("停奏");
+    expect(timed[1].suggestions.music).not.toContain("停奏");
+    expect(read("不要紧张。")[0].suggestions).toEqual({});
+    expect(read("明天吃面。")[0].suggestions).toEqual({});
+  });
   it("keeps all six taxonomy APIs and rejects empty retrieval", () => {
     expect(matchByLabel(" ")).toEqual([]);
     expect(findSubcategory("loss")?.subcategory.label).toBe("失落");

@@ -10,6 +10,7 @@ import {
   readBookShotChapter,
 } from "../../shared/bookShotDocument";
 import { readShotField, shotFormatGuide } from "../../shared/bookShotFormat";
+import type { storyboardEmotionBrief } from "../../shared/creationEmotion";
 import { justNamesTrial, requestedShots, shotOrdinal, trialInstruction } from "../../shared/storyboardTrial";
 import {
   validWritingStyle,
@@ -149,8 +150,8 @@ export function importedReading(
   );
 }
 
-const editFields: Record<string,string> = {画面:"picture",运镜:"motion",音效:"sound",旁白:"voice",台词:"voice",字幕:"subtitle"};
-const fieldName = "(?:画面|运镜|音效|旁白|台词|字幕)";
+const editFields: Record<string,string> = {画面:"picture",视频:"motion",运镜:"motion",音效:"sound",音乐:"music",配乐:"music",旁白:"voice",台词:"voice",字幕:"subtitle"};
+const fieldName = "(?:" + Object.keys(editFields).join("|") + ")";
 const fieldRequest = new RegExp("(?:试写|补写|补上|加上|新增|(?:只(?:想)?|单独)(?:改|写|换|调整))" +
   "(?:一(?:条|句|段)|简短的|短的|本镜的|一点|一下|这镜的|的|个|\\s)*(?:"+shotOrdinal+"\\s*的?)?\\s*("+
   fieldName+"(?:提示词|说明)?(?:\\s*(?:和|、|及|与)\\s*"+fieldName+"(?:提示词|说明)?)*)","gu");
@@ -167,7 +168,8 @@ export function trialEditor(
   chapters: ManuscriptContent[],
   request: string,
   conversation: History,
-  parent?: ConversionDraft
+  parent?: ConversionDraft,
+  emotion?: ReturnType<typeof storyboardEmotionBrief>
 ) {
   const byChapter = chapters.map((c, i) => {
     if (
@@ -219,13 +221,14 @@ export function trialEditor(
   const literal = quotedEdit.exec(request.trim());
   const lockVoice = /(?:保留|照用|沿用)(?:原有|原)?(?:旁白|台词)|(?:旁白|台词)(?:原句)?(?:照旧|保持原样|不变|不改|不要动|不动)|(?:不改|不动)(?:旁白|台词)/u.test(instruction);
   const fields = new Set([...instruction.matchAll(fieldRequest)].flatMap(m=>
-    (m[1].match(/画面|运镜|音效|旁白|台词|字幕/gu) ?? []).map(name=>editFields[name])));
+    (m[1].match(new RegExp(fieldName, "gu")) ?? []).map(name=>editFields[name])));
   if (literal) fields.add(editFields[literal[1]]);
   const allowed = new Map(chosen.map(s => [s.shot, s]));
   const context = {
     request,
     conversation,
     basis: parent?.trial?.label ?? "当前分镜",
+    ...(emotion ? { 作品情绪与声画试排建议: emotion } : {}),
     notes: parent?.trial?.notes,
     outline: all.map((s, i) => ({ shot: i + 1, title: s.title })),
     editable: chosen.map(({ shot, title, modules }) => ({

@@ -520,6 +520,22 @@ it("quotes and generates a timed manuscript effect without placing it on the tim
   expect(insert).not.toHaveBeenCalled();
 });
 
+it("quotes music and effects from the same mixed manuscript without passing the other track", async () => {
+  const userId=944, storyId=await seed(userId);
+  const {saveCreationEmotion}=await import("./creationEmotion");
+  await saveCreationEmotion({storyId,userId,expectedRevision:0,scope:{kind:"story"},intent:{raw:"开头紧张，最后释怀。"}});
+  const body="画面描述：橱窗里的纸船\n音效：风掠过纸边\n音乐：大提琴渐弱";
+  const chapter=await insertChapter({storyId,userId,content:{title:"纸船",layout:null,blocks:{body,blockIds:["a","b","c"],writingStyle:[{id:"notes",format:"text",lineCount:3,parentId:null,collapsed:false}],containsAiText:false,settings:null,coverKey:null,bodyTextureKey:null,images:{},illustrations:[]}}});
+  const target={storyId,userId,bookTarget:{chapterId:chapter.id,moduleId:"notes"},targetFrame:0,scope:"book" as const};
+  const effect=await quoteStorySceneAudio({...target,kind:"sfx"});
+  const music=await quoteStorySceneAudio({...target,kind:"music"});
+  expect(effect.prompt).toContain("风掠过纸边");
+  expect(effect.prompt).toContain("声尾收短");
+  expect(effect.prompt).not.toMatch(/大提琴|橱窗/);
+  expect(music.prompt).toContain("大提琴渐弱");
+  expect(music.prompt).not.toMatch(/风掠过纸边|橱窗/);
+});
+
 it('quotes only the selected text module and rejects a removed source before charging',async()=>{
  const storyId=await seed(922);
  const chapter=await insertChapter({storyId,userId:922,content:{title:'模块',layout:null,blocks:{body:'不应使用的摇滚演出\n雨天的钢琴',blockIds:['a','b'],writingStyle:[{id:'a',format:'text',parentId:null,collapsed:false},{id:'b',format:'text',parentId:null,collapsed:false}],containsAiText:false,settings:null,coverKey:null,bodyTextureKey:null,images:{},illustrations:[]}}});

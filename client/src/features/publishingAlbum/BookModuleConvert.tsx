@@ -293,7 +293,7 @@ export function BookModuleConvert({
           <textarea
             aria-label={_ui("转换要求")}
             className="rounded border bg-transparent p-2"
-            placeholder={_ui("补充风格或氛围（可不填）")}
+            placeholder={_ui(source.heading && source.kind === "music" && !source.prompt ? "想用什么音乐？可以写何时进入、何时停下。" : "补充风格或氛围（可不填）")}
             value={intent}
             maxLength={800}
             disabled={busy || submitted}
@@ -327,7 +327,7 @@ export function BookModuleConvert({
           {_ui("分析最多 {0}，生图 {1}。", [formatComputeQuote(sceneAllowance.estimatedCny), formatComputeQuote(cost)])}</p>}
         {!result && !images.length && !submitted && !blockNewImage && (
           <button
-            disabled={busy || (standalone && !prompt && !textReview.direction) || (source.kind === "sfx" && !validSeconds) || styleBlocked || Boolean(shotBasis?.stableShotId && readyShot !== shotBasis.stableShotId) || (source.kind === "narration" && narrationSubmitted)}
+            disabled={busy || (standalone && !prompt && !textReview.direction) || (source.kind === "sfx" && !validSeconds) || Boolean(source.heading && source.kind === "music" && !source.prompt && !intent.trim()) || styleBlocked || Boolean(shotBasis?.stableShotId && readyShot !== shotBasis.stableShotId) || (source.kind === "narration" && narrationSubmitted)}
             onClick={() =>
               void run(async () => {
                 await prepare();

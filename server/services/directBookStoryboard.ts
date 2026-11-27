@@ -26,9 +26,9 @@ export function directBookStoryboardPreview(
       subject,
       action: media.video || media.picture || subject,
       imageRequirement: media.picture,
-      videoRequirement: media.video || media.picture,
+      videoRequirement: media.video,
       soundRequirement: [
-        ...directions.sound,
+        ...directions.audio,
         ...(audioByShot.get(row.id) ?? []),
       ]
         .filter(Boolean)

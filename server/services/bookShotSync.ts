@@ -38,7 +38,7 @@ export function linkedShotChanges(body: Data, chapters: BookShotChapter[], image
       videoPrompt: media.video,
       cameraMove: dirs.motion.join("\n"),
       dialogue: source.dialogueText,
-      sound: [...dirs.sound, ...timing, ...source.audio.filter(a=>a.storyId===storyId).map(a=>a.label+"："+a.title+" "+a.url)].join("\n"),
+      sound: [...dirs.audio, ...timing, ...source.audio.filter(a=>a.storyId===storyId).map(a=>a.label+"："+a.title+" "+a.url)].join("\n"),
       scriptText: source.text,
     };
     for (const [field, value] of Object.entries(values)) {
@@ -48,7 +48,8 @@ export function linkedShotChanges(body: Data, chapters: BookShotChapter[], image
       // A projection upgrade must not replace an independent edit to a previously synced field.
       const legacy = field === "promptDraft" ? [...dirs.other, ...dirs.picture].join("\n") || source.title :
         field === "videoPrompt" ? dirs.motion.join("\n") || dirs.picture.filter(line => /静止|固定镜头|推近|拉远|摇镜|移镜|跟拍|跟随|平移|切到|切回|切入|叠化|淡出|淡入/.test(line)).join("\n") : undefined;
-      if (legacy === undefined || last[field] !== fingerprint(legacy) || shot[field] === legacy) next[field] = value;
+      const editedSound = field === "sound" && last.sound && last.sound !== fingerprint(shot.sound ?? "");
+      if (!editedSound && (legacy === undefined || last[field] !== fingerprint(legacy) || shot[field] === legacy)) next[field] = value;
       changed = true;
     }
     const ids = [...new Set(source.images.map(i=>images.get(i.url)).filter((id): id is number=>id !== undefined))];

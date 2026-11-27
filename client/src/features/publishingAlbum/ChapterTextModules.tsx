@@ -40,9 +40,11 @@ import type { LayoutModuleContext } from '@shared/layoutModuleContext';
 import { BookImageImportBoundary } from './BookImageImportBoundary';
 import { insertBookImages } from './bookImageInsert';
 
+import { continuesShotHeading } from "./bookShotParagraph";
+import { readShotField } from "@shared/bookShotFormat";
 import { ShotSubtitlePreview } from "./ShotSubtitlePreview";
 import { motionEditTarget, motionTextPrefix, readMotionDraft } from "./bookShotMotion";
-import { shotActionHeading, shotOutputLabels, shotOutputSource, type ShotOutput } from "@shared/bookShotActions";
+import { requestsSilentTrack, shotActionHeading, shotOutputLabels, shotOutputSource, type ShotOutput } from "@shared/bookShotActions";
 
 type Snapshot = TextPosition & { blocks: WritingBlock[] };
 export function ChapterTextModules({ storyboard=false, showScenes, shotTarget, onShotFocused, reviewMedia, precedingShots, footerActions, importedChapterIds, prepareMedia, writingStyle, onFormattedChange, imageInsert, value, onChange, disabled, selection, formatScope, contextSource, onContextChange, comparison }: {
@@ -139,7 +141,8 @@ export function ChapterTextModules({ storyboard=false, showScenes, shotTarget, o
         .catch(error=>toast.error(error instanceof Error ? error.message : _ui("准备视频失败，请重试。")));
       return;
     }
-    if(!source.prompt) {toast.info(_ui("请先填写本镜的{0}",[_ui(shotOutputLabels[kind].name)]));return;}
+    if(!source.prompt && kind !== "music") {toast.info(_ui("请先填写本镜的{0}",[_ui(shotOutputLabels[kind].name)]));return;}
+    if(requestsSilentTrack(kind, source.prompt)) {toast.info(_ui("本镜已标明留白，可以直接继续。"));return;}
     if(kind==="subtitle") {
       const children=blocks.filter(b=>b.parentId===source.owner.id);
       const duration=children.map(b=>b.text.match(/^(?:时长[：:]\s*)?(\d+(?:\.\d+)?)\s*秒/)).find(Boolean);
@@ -455,10 +458,19 @@ export function ChapterTextModules({ storyboard=false, showScenes, shotTarget, o
       return <BookSentenceReview style={style} proposal={review.proposal} onResolve={() => sentenceReview?.resolve(review.id)} />;
     }
     const range = textRange.byId.get(block.id);
-    const heading = !comparison && block.format === "text" && contextSource && prepareMedia && block.parentId && blocks.some(b => b.id === block.parentId && b.format === "shot") && shotActionHeading(block.text);
-    const prefix = heading && heading.output === "video" && block.videoRole !== "dialogue" && editingHeading !== block.id ? motionTextPrefix(block.text) : "";
+    const hasShot = block.parentId && blocks.some(b => b.id === block.parentId && b.format === "shot");
+    const parsed = !comparison && block.format === "text" && (storyboard || hasShot && contextSource && prepareMedia) && shotActionHeading(block.text);
+    const heading = parsed && (block.videoRole !== "dialogue" || parsed.output === "narration") && parsed;
+    const prefix = heading && editingHeading !== block.id
+      ? storyboard ? heading.prefix : heading.output === "video" ? motionTextPrefix(block.text) : ""
+      : "";
+    const nextBlock = blocks[index + 1];
+    const joinedHeading = storyboard && heading && continuesShotHeading(blocks[index - 1], block);
+    const separateBody = storyboard && heading && !heading.inline && nextBlock?.parentId === block.parentId &&
+      nextBlock.format === "text" && nextBlock.text.trim() && (!readShotField(nextBlock.text.split("\n", 1)[0]) || continuesShotHeading(block, nextBlock)) &&
+      !readBookImage(nextBlock.text) && !readBookAudio(nextBlock.text) && (!nextBlock.videoRole || heading.output === "narration");
     const visibleText = block.text.slice(prefix.length);
-    const field = <textarea ref={element => { fields.current[index] = element; }} rows={1} aria-label={prefix ? _ui("运镜要求") : _ui("文字模块 {0}", [index + 1])} value={visibleText}
+    const field = <textarea ref={element => { fields.current[index] = element; }} rows={1} aria-label={prefix && heading && heading.output === "video" ? _ui("运镜要求") : _ui("文字模块 {0}", [index + 1])} value={visibleText}
               data-book-text-start={prefix ? Math.min(prefix.length,block.text.length) : undefined}
               data-book-text-id={comparison ? undefined : block.id}
               disabled={disabled} maxLength={200000} placeholder={_ui("写下这一段…")} style={{ ...style, overflowWrap: 'anywhere', ...(range ? { color: 'transparent', caretColor: 'transparent' } : {}) }}
@@ -541,15 +553,15 @@ export function ChapterTextModules({ storyboard=false, showScenes, shotTarget, o
     if (heading && (block.videoRole!=="dialogue" || heading.kind==="voice") && editingHeading !== block.id) {
       const {name,hint}=shotOutputLabels[heading.output];
       return <div className="h-full overflow-auto"><div data-book-prompt-preview={block.id} className="break-words px-1">
-      <button type="button" disabled={disabled} aria-label={_ui(name)+heading.detail} aria-description={_ui(hint)}
+      {!joinedHeading && <button type="button" disabled={disabled || !hasShot || !prepareMedia || !contextSource} aria-label={_ui(name)+heading.detail} aria-description={_ui(hint)}
         className="group/cue inline-flex max-w-full items-baseline rounded-sm text-xs font-medium text-muted-foreground hover:text-foreground focus-visible:text-foreground"
         onClick={event=>{event.stopPropagation();produceShot(index,heading.output);}}>
         <span aria-hidden="true" className="inline-grid text-left">
           <span className="col-start-1 row-start-1 group-hover/cue:invisible group-focus-visible/cue:invisible">{_ui(name)}</span>
           <span className="invisible col-start-1 row-start-1 underline underline-offset-2 group-hover/cue:visible group-focus-visible/cue:visible">{_ui(hint)}</span>
         </span>{heading.detail}
-      </button>
-      {prefix ? <div className="relative" style={style}>
+      </button>}
+      {separateBody ? null : prefix ? <div className="relative" style={style}>
         <div aria-hidden="true" className="invisible whitespace-pre-wrap break-words px-1">{visibleText + "\u200b"}</div>
         <div className="absolute inset-0">
           <BookTextRangeOverlay text={visibleText} range={range && {start:Math.max(0,range.start-prefix.length),end:Math.max(0,range.end-prefix.length)}} style={style}/>
@@ -593,7 +605,7 @@ export function ChapterTextModules({ storyboard=false, showScenes, shotTarget, o
           <div className="space-y-0">{blocks.map((block, index) => renderField(block, index, { fontSize: 16, lineHeight: 1.6, overflowWrap: 'anywhere' }))}</div>
         </article>
       </div>
-    </div> : <BookBlockCanvas shotMenu={storyboard && contextSource && prepareMedia ? editShotMenu : undefined} inlineReviewKey={inlineReviews && [...inlineReviews.values()].map(review => review.id).join()} showScenes={showScenes} precedingShots={precedingShots} importedChapterIds={importedChapterIds} onConvertSelection={contextSource && prepareMedia ? (ids,kind) => {
+    </div> : <BookBlockCanvas storyboard={storyboard} shotMenu={storyboard && contextSource && prepareMedia ? editShotMenu : undefined} inlineReviewKey={inlineReviews && [...inlineReviews.values()].map(review => review.id).join()} showScenes={showScenes} precedingShots={precedingShots} importedChapterIds={importedChapterIds} onConvertSelection={contextSource && prepareMedia ? (ids,kind) => {
       const parts = blocks.filter(block => ids.includes(block.id) && (kind !== 'narration' || (!bookImageUrl(block.text) && !readBookAudio(block.text) && block.text.trim()))).map(({id,text}) => ({id,text}));
       if(parts.length < (kind === 'narration' ? 1 : 2)) return;
       if(parts.some(part => readBookAudio(part.text))) { toast.error('音乐模块暂不支持转换，请选择文字或图片模块'); return; }

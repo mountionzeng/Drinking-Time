@@ -1,11 +1,23 @@
 import { expect, it } from "vitest";
-import { resolveShotAction, shotActionHeading, shotOutputSource, shotMenuOutputs, shotOutputLabels } from "./bookShotActions";
+import { requestsSilentTrack, resolveShotAction, shotActionHeading, shotOutputSource, shotMenuOutputs, shotOutputLabels } from "./bookShotActions";
 import { stillVisualDescription } from "./stillVisualDescription";
 import { shotDirections, shotMediaDirections } from "./bookShotDocument";
 
 const row = (id: string, text: string, parentId: string | null = "shot") =>
   ({ id, text, parentId, format: parentId ? "text" : "shot" });
 const shot = row("shot", "开场", null);
+
+it("keeps emotion, visuals, motion and both sound tracks separate in an old multiline module", () => {
+  const text = "情绪走向：紧张到释怀\n画面描述：一张旧照片\n视频：固定机位\n现场音效：纸张摩擦\n音乐：不加配乐\n字幕：秋夜";
+  const rows = [shot, row("mixed", text), row("next", "楼梯间", null), row("other", "音乐：架子鼓", "next")];
+  for (const [kind, prompt] of [["image","一张旧照片"],["video","固定机位"],["sfx","纸张摩擦"],["music","不加配乐"],["subtitle","秋夜"]] as const) {
+    expect(shotOutputSource(rows, 0, kind)).toMatchObject({ prompt, parts: [{ id: "mixed", text }] });
+  }
+  expect(shotActionHeading("情绪走向：安静")).toBeUndefined();
+  expect(shotOutputSource([shot,row("wind","音效：风声")], 0,"music")?.prompt).toBe("");
+  expect(requestsSilentTrack("music","不加配乐。")).toBe(true);
+  expect(requestsSilentTrack("music","开头不加配乐，最后一秒进钢琴。")).toBe(false);
+});
 
 it("offers five manuscript actions and projects one still without changing its source", () => {
   const mixed = "画面提示词：第10秒，从合影直接切到城墙画面，缓缓推近。按全片时间试排，字幕在10.5—11秒淡入，11—15秒完整停留。配音后可调整。";
@@ -19,6 +31,19 @@ it("offers five manuscript actions and projects one still without changing its s
   expect(stillVisualDescription("第5秒，缓慢推近。字幕淡入。")).toBe("");
   expect(stillVisualDescription("近景，孩子双手推开窗户。纸上写着“第10秒，缓缓推近”。")).toBe("近景，孩子双手推开窗户。纸上写着“第10秒，缓缓推近”。");
   expect(stillVisualDescription("画面提示词：纸船，运镜提示词：慢推。\n旁白\n天亮了。\n画面描述：船边有水草")).toBe("纸船\n船边有水草");
+});
+
+it("recovers a held photo, sequential overlays and a spoken start hidden in a legacy sound cue", () => {
+  const picture = "画面描述：三人合影静止呈现，依次标出左边的人和右边的人。";
+  const sound = "音效：轻微风声中，约第1秒开口：";
+  const rows = [shot,row("frame",picture),row("wind",sound),{...row("voice","大家好。"),videoRole:"dialogue"}];
+  expect(shotOutputSource(rows,0,"image")?.prompt).toBe("三人合影，左边的人和右边的人。");
+  expect(shotOutputSource(rows,0,"video")?.prompt).toBe("三人合影静止呈现，依次标出左边的人和右边的人。");
+  expect(shotOutputSource(rows,0,"sfx")?.prompt).toBe("轻微风声");
+  expect(shotOutputSource(rows,0,"subtitle")).toMatchObject({prompt:"大家好。",label:"旁白｜约第1秒开口"});
+  const sheet = shotDirections([picture,sound].join("\n"));
+  expect(sheet.timing).toContain("旁白｜约第1秒开口");
+  expect(sheet.sound).toEqual(["音效：轻微风声"]);
 });
 
 it("keeps the timing in the heading and takes only the lines to speak", () => {

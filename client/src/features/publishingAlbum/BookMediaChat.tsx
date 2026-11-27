@@ -514,6 +514,14 @@ export function BookMediaChat({
             else setError("原图片已变化，裁切版本已保存在仓库。");
           })}>{_ui("采用这次裁切")}</button></>}
       </div>}
+      {mode === "video" && source.data?.image && Boolean(source.data.motionCues?.length) && !takeId && !uncertain && !busy && (
+        <details className="text-xs"><summary className="cursor-pointer">{_ui("参考作品情绪安排运镜")}</summary>
+          {source.data.motionCues?.map((cue, i) => <button type="button" key={i} className="mt-2 block text-left hover:underline"
+            disabled={instruction.includes(cue.motion) || (instruction + "\n" + cue.motion).trim().length > 2000}
+            onClick={() => { setInstruction([instruction, cue.motion].filter(Boolean).join("\n")); token.current = crypto.randomUUID(); setError(""); }}>
+            {cue.text} {_ui(cue.motion)}
+          </button>)}
+        </details>)}
       {instruction && !crop && (
         <div className="space-y-1 text-xs">
           {mode !== "image" && <p>{instruction}</p>}

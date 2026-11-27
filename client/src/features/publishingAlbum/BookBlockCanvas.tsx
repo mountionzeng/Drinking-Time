@@ -16,6 +16,8 @@ import { bookOutlineSummaries, BOOK_SHOT_SUMMARY_HEIGHT, BOOK_SHOT_IMAGES_HEIGHT
 
 import { shotActionHeading, shotMenuOutputs, shotOutputLabels, type ShotOutput } from "@shared/bookShotActions";
 
+import { setShotParagraphFormat, shotParagraphs } from "./bookShotParagraph";
+
 const formats: Array<[BlockFormat, string]> = [['text', '正文'], ['heading1', '转换成一章'], ['heading2', '转换成一节'], ['scene', '转换成一场'], ['shot', '转换成一个镜头']];
 const corners = { nw: '-left-2 -top-2 cursor-nwse-resize', ne: '-right-2 -top-2 cursor-nesw-resize', sw: '-left-2 -bottom-2 cursor-nesw-resize', se: '-right-2 -bottom-2 cursor-nwse-resize' } as const;
 const cornerEdges = { nw: 'border-l border-t', ne: 'border-r border-t', sw: 'border-l border-b', se: 'border-r border-b' };
@@ -23,7 +25,8 @@ const cornerNames = { nw: '左上角', ne: '右上角', sw: '左下角', se: '�
 
 const action = 'min-h-11 w-full rounded px-3 py-2 text-left text-sm hover:bg-accent focus-visible:outline focus-visible:outline-2 disabled:opacity-40';
 
-export function BookBlockCanvas({ shotMenu, showScenes = false, inlineReviewKey, precedingShots, importedChapterIds, blocks, disabled, onCommit, children, activeId, onSelect, onSelectionChange, onConvert, onConvertSelection, onComposeImage, textSelectionIds }: {
+export function BookBlockCanvas({ storyboard = false, shotMenu, showScenes = false, inlineReviewKey, precedingShots, importedChapterIds, blocks, disabled, onCommit, children, activeId, onSelect, onSelectionChange, onConvert, onConvertSelection, onComposeImage, textSelectionIds }: {
+  storyboard?: boolean;
   shotMenu?(index:number,kind:ShotOutput):void;
   onComposeImage?(ids: string[]): void;
   onConvertSelection?(ids: string[], kind: 'text' | 'music' | 'narration'): void;
@@ -41,6 +44,7 @@ export function BookBlockCanvas({ shotMenu, showScenes = false, inlineReviewKey,
 }) {
   const _ui = useDesktopUiText();
   const { language } = useUiLanguage();
+  const paragraphs = useMemo(() => storyboard ? shotParagraphs(blocks) : undefined, [storyboard, blocks]);
   const root = useRef<HTMLDivElement>(null);
   const viewport = useRef<HTMLDivElement>(null);
   const [imageRatios, setImageRatios] = useState<Record<string,number>>({});
@@ -351,6 +355,8 @@ export function BookBlockCanvas({ shotMenu, showScenes = false, inlineReviewKey,
         const number = numbers.get(block.id);
         const audio = readBookAudio(block.text);
         const inShotMenu = shotMenu && (block.format === 'shot' || blockAncestors(blocks,block.id).some(id=>blocks.find(b=>b.id===id)?.format==='shot'));
+        const paragraphMenu = storyboard && block.format === 'text' && !audio && !bookImageUrl(block.text);
+        const paragraph = paragraphs?.get(block.id);
         const isImportedChapter = chapterIds.has(block.id) && block.format === 'heading1';
         const chapterLabel = !number ? '' : language === 'zh' ? chineseBookNumber(number.number) : number.number;
         const numberLabel = number ? bookBlockNumberLabel(number, language) : '';
@@ -413,10 +419,18 @@ export function BookBlockCanvas({ shotMenu, showScenes = false, inlineReviewKey,
             <Popover open={menuId === block.id} onOpenChange={open => setMenuId(open ? block.id : null)}>
               <PopoverTrigger asChild><button type="button" aria-label={_ui("模块 {0} 格式", [index + 1])} disabled={disabled}
                 className="rounded border border-[var(--panel-border)] bg-[var(--nayin-surface)] px-2 py-1 text-xs shadow-sm [@media(pointer:coarse)]:min-h-8 [@media(pointer:coarse)]:min-w-20">
-                {audio ? _ui(audio.label) : bookImageUrl(block.text) ? _ui("图片") : block.videoRole==='dialogue' ? _ui("台词/字幕") : block.format === 'text' ? _ui("正文") : block.format === 'scene' ? _ui("场") : block.format === 'shot' ? _ui("镜头") : block.format === 'heading1' ? _ui("章") : _ui("节")}<span className="hidden [@media(pointer:coarse)]:inline"> {_ui("· 操作")}</span> ▾
+                {paragraphMenu ? _ui(paragraph && paragraph.start !== index ? shotOutputLabels[paragraph.output].name : '格式') : audio ? _ui(audio.label) : bookImageUrl(block.text) ? _ui("图片") : block.videoRole==='dialogue' ? _ui("台词/字幕") : block.format === 'text' ? _ui("正文") : block.format === 'scene' ? _ui("场") : block.format === 'shot' ? _ui("镜头") : block.format === 'heading1' ? _ui("章") : _ui("节")}<span className="hidden [@media(pointer:coarse)]:inline"> {_ui("· 操作")}</span> ▾
               </button></PopoverTrigger>
               <PopoverContent align="start" className="max-h-[var(--radix-popover-content-available-height)] w-48 overflow-y-auto p-1" onCloseAutoFocus={event => event.preventDefault()} aria-label={_ui("模块 {0} 设置", [index + 1])}>
-                {inShotMenu ?
+                {paragraphMenu ? <div role="group" aria-label={_ui("段落格式")}>
+                  {(Object.keys(shotOutputLabels) as ShotOutput[]).map(kind =>
+                    <button key={kind} type="button" className={`${action} aria-pressed:bg-accent aria-pressed:font-medium`} disabled={disabled} aria-pressed={paragraph?.output === kind}
+                      onClick={() => {
+                        setMenuId(null);
+                        apply(setShotParagraphFormat(blocks, index, kind, paragraphs), block.id);
+                      }}>{_ui(shotOutputLabels[kind].name)}</button>)}
+                  {!block.parentId && <button type="button" className={action} disabled={disabled} onClick={() => apply(setBlockFormat(blocks, index, "shot"), block.id)}>{_ui("转换成一个镜头")}</button>}
+                </div> : inShotMenu ?
                   shotMenuOutputs(block.format==="text" && !block.videoRole && shotActionHeading(block.text)?.output==="sfx" ? "sfx" : "music").map(kind=><button key={kind} type="button" className={action} disabled={disabled} onClick={()=>{setMenuId(null);shotMenu(index,kind);}}>{_ui(shotOutputLabels[kind].name)}</button>) : <>
                 <p hidden={!bookImageUrl(block.text)} className="px-3 py-2 text-xs text-muted-foreground">{_ui("拖图片移动 · 四角缩放 · 四边裁切")}</p>
                 <div hidden={Boolean(bookImageUrl(block.text) || readBookAudio(block.text))} role="group" aria-label={_ui("格式")}>{formats.filter(([format]) => format !== 'scene' || showScenes).map(([value, label]) => <button key={value} type="button" disabled={disabled || !canSetBlockFormat(blocks, index, value)} className={action}
@@ -439,7 +453,7 @@ export function BookBlockCanvas({ shotMenu, showScenes = false, inlineReviewKey,
                   aria-pressed={(block.emphasis ?? 'normal') === value} onClick={() => patch({ emphasis: value })}>{(block.emphasis ?? 'normal') === value ? '✓ ' : ''}{value === 'normal' ? _ui("正常") : _ui("加粗提亮")}</button>)}
                 <button type="button" disabled={disabled} className={action} aria-pressed={block.backdrop ?? false} onClick={() => patch({ backdrop: !block.backdrop })}>{block.backdrop ? '✓ ' : ''}{_ui("半透明底色")}</button>
                 </>}
-                {(!inShotMenu || bookImageUrl(block.text)) && <>
+                {(!inShotMenu || paragraphMenu || bookImageUrl(block.text)) && <>
                   <div className="my-1 border-t" />
                   <button type="button" disabled={disabled} className={`${action} text-destructive`} onClick={() => {
                     if (bookImageUrl(block.text)) { removeImage(block.id); return; }

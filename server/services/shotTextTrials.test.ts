@@ -66,6 +66,9 @@ it("stores attributed documents verbatim, quotes independent source-only writing
   });
   const owner = { storyId: story.id, userId },
     scope = { ...owner, shotId: "s1" };
+  const {saveCreationEmotion} = await import("./creationEmotion");
+  await saveCreationEmotion({...owner, expectedRevision:0,scope:{kind:"shot",id:"s1"},intent:{raw:"起初不安，最后释怀。"}});
+  await saveCreationEmotion({...owner, expectedRevision:1,scope:{kind:"shot",id:"s2"},intent:{raw:"别镜才有的狂喜。"}});
   const ref = "外部参考\n\n  逐字保留。\n",
     request = "写第01镜的文字试稿\n不要配音。";
   await attachTrial({
@@ -111,6 +114,9 @@ it("stores attributed documents verbatim, quotes independent source-only writing
   expect(infer).toHaveBeenCalledTimes(1);
   const args = infer.mock.calls[0][0];
   expect(args.messages.at(-1).content).toBe(request);
+  const emotion = JSON.parse(args.messages[1].content).作品情绪与声画试排建议;
+  expect(emotion[0]).toMatchObject({scope:{kind:"shot",id:"s1"},intent:"起初不安，最后释怀。"});
+  expect(JSON.stringify(args.messages)).not.toContain("别镜才有");
   expect(JSON.stringify(args.messages)).toContain("原书 p.7");
   expect(JSON.stringify(args.messages)).not.toContain("逐字保留");
   expect(await trialList(scope)).toEqual(

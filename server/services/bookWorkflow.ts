@@ -3,6 +3,8 @@ import { namedTrialLabel } from "../../shared/storyboardTrial";
 import { editTrialTexts, importedReading, trialEditor, trialImport } from "./storyboardTrial";
 import { bookProductionChapters, expandShotDescriptions, sceneSetting, shotFormatGuide, storyboardUsesScenes } from "../../shared/bookShotFormat";
 import { needsFilmSubject } from "../../shared/creativeConversation";
+import { storyboardEmotionBrief } from "../../shared/creationEmotion";
+import { storyEmotion } from "./creationEmotion";
 import { readVideoWorkflow } from "../../shared/videoWorkflow";
 import { createHash, randomUUID } from "node:crypto";
 import { TRPCError } from "@trpc/server";
@@ -437,7 +439,7 @@ function useScenesForDraft(request: string, conversation: FilmInput["conversatio
   return storyboardUsesScenes(request, conversation, chapters.some(c => c.blocks.storyboardScenes === true));
 }
 
-function conversionPrompt(target: ManuscriptKind, intent: CreationIntent, request: string, conversation: FilmInput["conversation"] | undefined, chapters: ManuscriptContent[]) {
+function conversionPrompt(target: ManuscriptKind, intent: CreationIntent, request: string, conversation: FilmInput["conversation"] | undefined, chapters: ManuscriptContent[], emotion?: ReturnType<typeof storyboardEmotionBrief>) {
   if (chapters.reduce((sum, c) => sum + c.blocks.body.length, 0) > 100000)
     throw bad("请将超过10万字的内容拆成较短作品再转换");
   return {
@@ -450,7 +452,8 @@ function conversionPrompt(target: ManuscriptKind, intent: CreationIntent, reques
       "输出JSON {chapters:[{title,modules:[{format,text,parent,media?,dialogue?}]}]}。章节数及顺序与输入一致。parent为本章前序模块的零基下标或null。实际朗读的原句放在独立text模块并标dialogue=true。标题、表演和声画说明均为普通文字。",
       "每章source.media里的原媒体必须各引用一次，使用单独text模块的media下标。其他模块只写正文。不得虚构媒体、产品效果或事实，不把配乐建议当作已有成品。",
     ].join("\n"),
-    context: { target, intent, request, conversation, source: conversionSource(chapters) },
+    context: { target, intent, request, conversation, source: conversionSource(chapters),
+      ...(target === "storyboard" && emotion ? { 作品情绪与声画试排建议: emotion } : {}) },
     maxTokens: 12000,
     failureMode: "throw" as const,
   };
@@ -470,7 +473,8 @@ export async function proposeManuscriptConversion(
   }
 ) {
   let claimed = false;
-  const draft = await mutateBookWorkflow(input, ({ state, rows }) => {
+  let emotion: ReturnType<typeof storyboardEmotionBrief>;
+  const draft = await mutateBookWorkflow(input, ({ state, rows, body }) => {
     const existing = state.conversions.find(d => d.id === input.id);
     if (existing) {
       if (
@@ -504,6 +508,7 @@ export async function proposeManuscriptConversion(
     const chosen = input.regenerate && source.kind === "storyboard" && input.target === "storyboard"
       ? bookProductionChapters(live, input.chapterId) : live;
     if (!chosen.length) throw bad("请打开要修改的分镜稿。");
+    emotion = manuscriptEmotion(body, chosen);
     const revisedChapters = chosen.length === live.length ? undefined : chosen.map(c => ({ id: c.id, index: live.indexOf(c) }));
     conversionSource(revisedChapters ? revisedChapters.map(c => source.chapters[c.index]) : source.chapters);
     const draft = {
@@ -538,7 +543,7 @@ export async function proposeManuscriptConversion(
     live = beginLiveManuscript(input, input.id, input.target, { showScenes });
     const response = await runPublishingVideoStoryboardTextCompute({
       onTextDelta: live.append,
-      ...conversionPrompt(input.target, input.intent, input.request, input.conversation, selected),
+      ...conversionPrompt(input.target, input.intent, input.request, input.conversation, selected, emotion),
       quoteFingerprint: input.quoteFingerprint,
     });
     const chapters = applyConversion(
@@ -652,17 +657,23 @@ function filmSource(rows: Awaited<ReturnType<typeof listChapters>>, state: BookW
   return { kind, chapters: [material], selected: [material], current, intent, requestedIntent, fromChat: true };
 }
 
+function manuscriptEmotion(body: unknown, chapters: ManuscriptContent[]) {
+  const single = chapters.length === 1 ? chapters[0] : undefined;
+  const chapterId = single && "id" in single && typeof single.id === "number" ? String(single.id) : undefined;
+  return storyboardEmotionBrief(storyEmotion(body, { chapterId, shotId: single?.blocks.shotTextOrigin?.shotId }));
+}
+
 export async function quoteFilmManuscript(input: Owner & FilmInput) {
   const story = await getStoryById(input.storyId, input.userId);
   if (!story) throw new TRPCError({ code: "NOT_FOUND", message: "故事不存在" });
   if (input.trialBase) {
     const basis = readingBasis(readBookWorkflow((story.body as Record<string, unknown>)?.bookWorkflow), await listChapters(input.storyId,input.userId,"all"), input.trialBase);
-    const editor=trialEditor(basis.chapters,input.request,input.conversation,basis.parent);
+    const editor=trialEditor(basis.chapters,input.request,input.conversation,basis.parent, manuscriptEmotion(story.body, basis.chapters));
     return editor.freeQuote ?? quoteStoryboardCompute(editor.prompt);
   }
   const source = filmSource(await listChapters(input.storyId, input.userId, "all"),
     readBookWorkflow((story.body as Record<string, unknown>)?.bookWorkflow), input, await chatImageText(input));
-  return quoteStoryboardCompute(conversionPrompt(input.target ?? "storyboard", source.requestedIntent, input.request, input.conversation, source.selected));
+  return quoteStoryboardCompute(conversionPrompt(input.target ?? "storyboard", source.requestedIntent, input.request, input.conversation, source.selected, manuscriptEmotion(story.body, source.selected)));
 }
 
 export async function generateFilmManuscript(input: ActorInput & FilmInput & { id: string }) {
@@ -674,9 +685,9 @@ export async function generateFilmManuscript(input: ActorInput & FilmInput & { i
     return previous;
   }
   const chatText = await chatImageText(input);
-  const source = await mutateBookWorkflow(input, ({ state, rows }) => {
+  const source = await mutateBookWorkflow(input, ({ state, rows, body }) => {
     const { kind, chapters, selected, current, requestedIntent, fromChat } = filmSource(rows, state, input, chatText);
-    if (input.quoteFingerprint && quoteStoryboardCompute(conversionPrompt(input.target ?? "storyboard", requestedIntent, input.request, input.conversation, selected)).fingerprint !== input.quoteFingerprint)
+    if (input.quoteFingerprint && quoteStoryboardCompute(conversionPrompt(input.target ?? "storyboard", requestedIntent, input.request, input.conversation, selected, manuscriptEmotion(body, selected))).fingerprint !== input.quoteFingerprint)
       throw conflict("分镜内容或报价已变化，请重新查看费用。");
     if (!fromChat && current?.fingerprint === manuscriptFingerprint(chapters)) return { result: current };
     const result = appendVersion(state, {
@@ -958,7 +969,7 @@ async function writeReadingTrial(
   const claim = await mutateBookWorkflow<{
     draft: ConversionDraft;
     editor?: ReturnType<typeof trialEditor>;
-  }>(input, ({ state, rows }) => {
+  }>(input, ({ state, rows, body }) => {
     const existing = state.conversions.find(d => d.id === input.id);
     if (existing) {
       if (
@@ -982,7 +993,8 @@ async function writeReadingTrial(
       basis.chapters,
       input.request,
       input.conversation,
-      basis.parent
+      basis.parent,
+      manuscriptEmotion(body, basis.chapters)
     );
     if (
       !input.quoteFingerprint ||

@@ -453,7 +453,7 @@ export function ChapterWorkspace({
         {active && <button className={button} aria-expanded={historyOpen} onClick={() => { setHistoryOpen(!historyOpen); void versions.refetch(); void sharingHistory.refetch(); }}>{_ui("版本")}{newerVersion ? _ui(" · 有更新") : ''}</button>}
         <button className={button} disabled={busy} onClick={() => requestNewVersion({ storyId: props.storyId, accountId: props.accountId })}>{_ui("生成新版本")}</button>
       </nav>
-      {displayMode === "text" && active && <BookShotDocument showScenes={showScenes} key={`${props.storyId}:${active.blocks.shotTextOrigin?.trialId ?? "book"}`} preceding={shotOffset}
+      {displayMode === "text" && active && <BookShotDocument storyId={props.storyId} showScenes={showScenes} key={`${props.storyId}:${active.blocks.shotTextOrigin?.trialId ?? "book"}`} preceding={shotOffset}
         onEdit={busy ? undefined : target => {
           if (target.chapterId === active.id) setShotTarget(target);
           else void run(async () => { await openBookChapter(target.chapterId); setShotTarget(target); });

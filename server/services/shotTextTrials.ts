@@ -1,6 +1,8 @@
 import { stripAssistantReasoning } from "../../shared/assistantReplyText";
 import { beginLiveManuscript } from "./liveManuscript";
 import { shotFormatGuide } from "../../shared/bookShotFormat";
+import { storyboardEmotionBrief } from "../../shared/creationEmotion";
+import { storyEmotion } from "./creationEmotion";
 import {
   creationRecord,
   creationFingerprint,
@@ -394,7 +396,11 @@ async function prepare(
     if (parent.state === "ready") break;
     parent = current.find(r => r.id === parent?.parentId);
   }
+  const linkedShot = shots(body).find(row => (row.stableShotId || row.shotIdentity) === s.shotId);
+  const draftId = creationRecord(linkedShot?.publishingVideo).draftShotId;
+  const chapterId = typeof draftId === "string" ? /^book-shot-(\d+)-/.exec(draftId)?.[1] : undefined;
   const context = JSON.stringify({
+    作品情绪与声画试排建议: storyboardEmotionBrief(storyEmotion(body, { chapterId, shotId: s.shotId })),
     作者对话原话与消息来源: draft.conversationIntent,
     作者书稿意图: currentManuscript(book, "text")?.intent,
     原文版本: original?.number,

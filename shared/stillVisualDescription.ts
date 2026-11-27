@@ -44,6 +44,15 @@ export function pictureDirections(value: string) {
       const clause = raw.trim().slice(prefix.length).trim();
       if (prefix) time = prefix + (clause ? "" : punctuation);
       if (!clause || production.test(clause)) continue;
+      // Editorial overlays and holding a still have a duration; their subjects remain visible in the still.
+      const reveal = /^(?:再|随后)?(?:依次|逐一|先后)(?:标出|标注|点亮|高亮)(.+)$/u.exec(clause);
+      const held = /^(.+?)(?:静止呈现|静止显示|保持静止呈现)$/u.exec(clause);
+      if (reveal || held) {
+        frame += (reveal ?? held)![1] + punctuation;
+        movement += time + clause + punctuation;
+        time = "";
+        continue;
+      }
       const cut = transition.exec(clause) ?? /^(?:cut|dissolve) to\s+(.+)$/iu.exec(clause);
       const destination = cameraTarget.exec(clause);
       const dissolve = /^(?:与|和).+(?:叠化|交叉淡化)$/u.test(clause);

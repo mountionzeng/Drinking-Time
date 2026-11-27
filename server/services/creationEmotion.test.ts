@@ -5,6 +5,7 @@ import {
   saveCreationEmotion,
   handleCreationEmotionChat,
   storyEmotion,
+  bookModuleEmotion,
   getCreationEmotionUsage,
 } from "./creationEmotion";
 import { prepareStoryBody } from "./storySync";
@@ -64,6 +65,10 @@ describe("persisted work intent and conversation", () => {
     );
     expect(prompt).toContain("轻快反衬");
     expect(prompt).not.toContain("愤怒");
+    const linked = {creationEmotion:second,shots:[{stableShotId:"cup",publishingVideo:{sourceModuleIds:["2:image","2:wind"]}}]};
+    expect(bookModuleEmotion(linked,2,["image","wind"])?.layers.at(-1)?.scope.kind).toBe("shot");
+    expect(bookModuleEmotion(linked,3,["image"])?.layers.at(-1)?.scope.kind).toBe("story");
+    expect(bookModuleEmotion(linked,2,["image","other"])?.layers.at(-1)?.scope.kind).toBe("story");
   });
   it("commits explicit work intent locally, never turns personal feelings into a work setting", async () => {
     const owner = await seed();

@@ -3,8 +3,9 @@ import { readBookImage } from "./bookImageBlock";
 import { splitBookVoiceLine } from "./bookSound";
 import { validWritingStyle, writingModuleTexts, type BookWritingStyle } from "./bookWritingStyle";
 
-const shotHeadings = ["时长", "画面提示词", "运镜提示词", "旁白", "音效提示词", "出处与创作处理"];
-export const shotFormatGuide = `所有故事的分镜沿用统一镜头制作单。每镜用简短标题，栏目依次为${shotHeadings.join("、")}。只填写有依据的内容。画面提示词只写一帧里能看见的主体、动作姿态、位置、构图和光色。切镜、推拉和镜头起止写入运镜。字幕单列为屏幕文字，时间安排另写。台词只写要说的话，配乐和环境音效各自注明。旁白或台词的朗读原句单列，开口时间、语气和留白写在标题或时长说明里。默认只按镜号组织，地点和环境写进画面说明。只有作者明确要求分场时才给出场号与标题。镜数和风格按本故事决定。整理已有整片稿时，按当前主稿逐镜保留数量、顺序、台词和素材；单镜候选须经作者采用才并入。事实、作者原话和创作建议分别标清，缺少的制作信息标待定。`;
+const legacyHeadings = ["时长", "画面提示词", "运镜提示词", "旁白", "音效提示词", "出处与创作处理"];
+const shotHeadings = ["时长", "情绪走向", "画面描述", "视频", "旁白", "音效", "音乐", "出处与创作处理"];
+export const shotFormatGuide = `所有故事的分镜沿用统一镜头制作单。每镜用简短标题，可用栏目为${shotHeadings.join("、")}。按作者指定的栏目与时长写，允许暂缺。先从作者意图和作品情绪找出这一镜在全片变化中的位置，不把整条情绪弧重复塞进每一镜。把感受落实到本镜同一时间轴上的具体选择：画面描述只写一帧可见的人物姿态、相对位置、构图、材质、光色；视频写主体怎么动、机位、景别、何时起动和停住；音效写场内实际声源、远近、出现和消退；音乐单写配器、节奏密度、何时进入、让位或停奏。用同一个可见动作或停顿对齐各轨，勿把时间、运镜、台词或声音放进图片提示词。各轨可留白；保留指定的固定机位、原图、静音、原句及声画反差。不得为表现情绪增添无依据的人或事件。字幕单列为屏幕文字。旁白或台词的朗读原句单列，开口时间、语气和留白写在标题或时长说明里。默认只按镜号组织，地点和环境写进画面说明。只有作者明确要求分场时才给出场号与标题。整理已有整片稿时，按当前主稿逐镜保留数量、顺序、台词和素材；单镜候选须经作者采用才并入。事实、作者原话和创作建议分别标清，缺少的制作信息标待定。`;
 /** Read outline choices only from author instructions. A setting or a transition is ordinary shot content. */
 export function requestedSceneGrouping(instruction: string): boolean | undefined {
   const clauses = instruction.replace(/[“「『"][^”」』"]*[”」』"]/gu, "").split(/[，,。；;！!\n]+/u);
@@ -40,16 +41,20 @@ export function storyboardUsesScenes(request: string, conversation: ReadonlyArra
   return previous;
 }
 
-export const blankShotManuscript = ["第 1 镜｜镜头标题", ...shotHeadings.map(label => label === "旁白" ? "旁白\n" : label + "：")].join("\n");
+const blankBody = (labels: string[]) => ["镜头标题", ...labels.map(label => label === "旁白" ? "旁白\n" : label + "：")].join("\n");
+export const blankShotManuscript = "第 1 镜｜" + blankBody(shotHeadings);
 export function isBlankShotTemplate(body: string) {
-  return body.trim() === blankShotManuscript.replace(/^第 1 镜｜/, "").trim();
+  return [shotHeadings, legacyHeadings].some(labels => body.trim() === blankBody(labels));
 }
 const shotHeading = /^(?:#{1,6}\s*)?(?:\*\*)?(?:第\s*[〇零一二三四五六七八九十百\d]+\s*镜(?:头)?|镜头\s*[〇零一二三四五六七八九十百\d]+)(?:\s*[｜|·:：、—-]\s*|\s+|$)/u;
-export type ShotField = "picture" | "motion" | "voice" | "sound" | "source" | "timing";
+export type ShotField = "picture" | "motion" | "voice" | "sound" | "music" | "emotion" | "subtitle" | "source" | "timing";
 const fields: Array<[ShotField, RegExp]> = [
-  ["picture", /^(开场画面|结束画面|画面|画面与素材|屏幕文字|字幕|素材待准备|参考画面|参考素材)(提示词|要求|描述|说明|建议)?$/],
+  ["picture", /^(开场画面|结束画面|画面|画面与素材|素材待准备|参考画面|参考素材)(提示词|要求|描述|说明|建议)?$/],
+  ["subtitle", /^(屏幕文字|字幕)(提示词|要求|说明)?$/],
+  ["emotion", /^(情绪走向|情绪变化|情绪节拍|情绪)$/],
   ["motion", /^(视频|画面运动|运镜|镜头运动|动作|运动|相机运动)(提示词|要求|说明|建议)?$/],
-  ["sound", /^(声音|音乐|音效|配乐|环境声|背景音|背景音乐|声效)(提示词|要求|说明|建议|设计)?$/],
+  ["music", /^(音乐|配乐|背景音乐)(提示词|要求|说明|建议|设计)?$/],
+  ["sound", /^(声音|音效|现场音效|环境声|环境音|背景音|声效)(提示词|要求|说明|建议|设计)?$/],
   ["voice", /^(旁白|台词|画外音|对白|台词或旁白|台词\s*[/／]\s*旁白)$/],
   ["source", /^(出处(?:与|和|及)?(?:创作)?处理|出处|史料依据|资料来源|创作处理)$/],
   ["timing", /^(时长|时间范围|节奏与时长|时长与节奏)$/],
@@ -60,6 +65,14 @@ export function readShotField(raw: string) {
   const label = (colon < 0 ? line : line.slice(0, colon)).split(/[｜|]/)[0].replace(/[（(].*?[）)]$/, "").trim();
   const kind = fields.find(([, pattern]) => pattern.test(label))?.[0];
   return kind ? { kind, inline: colon < 0 ? "" : line.slice(colon + 1).trim() } : undefined;
+}
+
+/** Some older scripts introduced the next spoken line at the end of the sound cue. */
+export function splitSoundSpeechTiming(line: string) {
+  const cue = /(?:^|[，,；;]\s*)((?:旁白|台词|对白)?\s*(?:约\s*)?第\s*[\d.一二三四五六七八九十]+\s*秒(?:钟)?(?:前|时)?\s*(?:旁白|台词|对白)?\s*(?:开口|开始说话|开始说|收住))[：:。\s]*$/u.exec(line);
+  if (!cue) return { sound: line, speech: "" };
+  const sound = line.slice(0, cue.index).trim().replace(/(声)[中里]$/u, "$1");
+  return { sound, speech: cue[1].trim() };
 }
 
 /** An imported trial becomes ordinary editable book modules. Existing source IDs survive promotion. */
